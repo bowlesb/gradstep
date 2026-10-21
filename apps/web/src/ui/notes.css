@@ -1,7 +1,12 @@
 /* Notes and snippets (docs/architecture/NOTES_AND_SNIPPETS.md; prototype docs/prototypes/notes-snippets.html). */
-:root { --amber: #b17417; --scrim-capture: rgba(28, 28, 32, .32); }
-:root[data-theme="dark"] { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5); } }
+/* Cards (DESIGN.md "Cards"; owner, 2026-10-21, the Notes list: "each needs a very pleasant border around it, so it
+   looks like a bunch of cards"): a raised surface, a hairline edge and, in light mode, a soft shadow. */
+:root { --amber: #b17417; --scrim-capture: rgba(28, 28, 32, .32);
+  --card-bg: #ffffff; --card-edge: #e2e2e7; --card-edge-hover: #d0d0d6; --card-shadow: 0 1px 2px rgba(23, 23, 28, .04), 0 2px 8px rgba(23, 23, 28, .05); }
+:root[data-theme="dark"] { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5);
+  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5);
+  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; } }
 .icon .icon-amber { stroke: var(--amber); }
 
 /* The list */
@@ -15,11 +20,13 @@
 .notes-list.rail .notes-search { margin: 10px 10px 6px; }
 .notes-search input[type=search] { border: 0; background: transparent; min-height: 38px; padding: 0; outline: none; color: var(--text); font-size: 14px; }
 .notes-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
-.notes-rows { list-style: none; margin: 0; padding: 0 12px; }
-.notes-list.rail .notes-rows { padding: 0 6px; }
-.note-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; padding: 12px 8px; border-radius: 10px; border: 0; border-bottom: 1px solid var(--line); min-height: 44px; }
-.note-row:hover { background: var(--row-hover); }
-.note-row.on { background: var(--accent-muted); }
+.notes-rows { list-style: none; margin: 0; padding: 2px 20px 4px; display: flex; flex-direction: column; gap: 10px; }
+.notes-list.rail .notes-rows { padding: 2px 10px 4px; }
+/* Each note is a card, 10 px apart (the apps' `contentCard`). */
+.note-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; min-height: 44px;
+  border-radius: 16px; border: 1px solid var(--card-edge); background: var(--card-bg); box-shadow: var(--card-shadow); }
+.note-row:hover { background: var(--card-bg); border-color: var(--card-edge-hover); }
+.note-row.on { background: var(--accent-muted); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .note-mark { flex: none; width: 36px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
 .note-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .note-row-title { font-weight: 600; overflow-wrap: anywhere; }
@@ -43,13 +50,15 @@
 .note-head h1 { font-size: 19px; margin: 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
 .note-head > .icon-button, .note-head .menu-anchor > .icon-button { width: 36px; height: 36px; min-height: 36px; border: 1px solid var(--line); border-radius: 50%; color: var(--accent); }
 .note-stream { padding: 8px 20px; display: flex; flex-direction: column; }
-.note-day { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 8px 0 14px; }
+.note-day { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 8px 0 4px; }
 .note-entry { position: relative; padding: 0 0 18px 16px; margin: 0 0 18px 3px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .note-entry::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); position: absolute; left: -4px; top: 9px; }
 .note-entry-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: -4px; }
 .note-quote { margin: 0; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; font: 15.5px/1.6 Georgia, "Times New Roman", serif;
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 22em; overflow: auto; }
 .note-comment { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 14.5px; }
+/* The reader's comment reads as their own words, apart from the snippet (owner, build 78): an accent bar on its edge. */
+.note-entry:not(.kind-text) .note-comment { border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent); padding-left: 10px; }
 .note-source { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 6px 0; min-height: 32px; border: 0; color: var(--muted); font-size: 12px; }
 .note-source strong { color: var(--accent); font-weight: 500; overflow-wrap: anywhere; }
 .note-source:hover strong { text-decoration: underline; }
@@ -118,9 +127,11 @@ button.snippet-image { cursor: zoom-in; }
 .phone-tab:disabled { opacity: .4; }
 .app.reading .phone-tabs { display: none; }
 @media (max-width: 640px) {
-  .note-head { padding: 10px 8px 8px 12px; } .note-stream { padding: 6px 12px; } .notes-search { margin: 4px 12px 10px; } .notes-rows { padding: 0 6px; }
+  .note-head { padding: 10px 8px 8px 12px; } .note-stream { padding: 6px 12px; } .notes-search { margin: 4px 12px 10px; } .notes-rows { padding: 2px 12px 4px; }
   .notes-issue, .notes-banner { margin: 6px 12px 10px; }
   .snippet-bar { top: 6px; gap: 6px; padding: 6px 8px; } .snippet-title .fine { display: none; }
   .notes-saved, .notes-toast { bottom: 72px; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { :root { --scrim-capture: rgba(0, 0, 0, .6); } }
+@media (prefers-contrast: more) { .note-row { border-color: var(--line-strong); } }
+@media (forced-colors: active) { .note-row { border-color: CanvasText; } .note-row.on { border-width: 2px; } }

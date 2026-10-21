@@ -1,5 +1,5 @@
 import { localChatContext } from './arxiv-reader';
-import { chatFigureImages, composeFigure, figureImage, figureLabel, storedFigurePartsText, type FigureParts } from './chat-figures';
+import { chatFigureImages, composeFigure, figureImage, figureLabel, storedFigurePartsText, type ChatFigureImage, type FigureParts } from './chat-figures';
 import type { VerifiedBundle } from './bundle';
 // One login lifetime owns these composers and streams. Paid requests require an acknowledged question. Navigation never
 // rebinds a task. When a newer tab retires this page's storage, the session stops sending (BROWSER_OFFLINE_STORAGE.md,
@@ -116,6 +116,27 @@ export const browserLocks: Locks = {
 export type AIUseCase = 'general' | 'paper' | 'equations' | 'figures';
 /** Each activity's title, as AI chat options and the apps (AIScenarioDefaults.swift) name it. */
 export const AI_USE_CASE_TITLES: Record<AIUseCase, string> = { general: 'General chat', paper: 'Paper chat', equations: 'Equation explanations', figures: 'Figures and tables' };
+/** A figure, table or equation explainer continued in Chat, or a note snippet's chat (owner, 2026-10-21): what the chat is
+ * about, shown above it and sent as the passage with every question. A snippet's crop (`attachment`) goes with each
+ * question of its paper's chat as a named figure's image does; `noteReturn` is its Back to note. */
+export interface PromotedContext { quote: string; label: string; anchor?: TextAnchor; explanation?: string; image?: string;
+  attachment?: ChatFigureImage; noteReturn?: { noteID: string; entryID: string }; imageSent?: boolean }
+/** AI chat options' Activity: the chat activities, then Podcasts (the episode writer; owner, 2026-10-21). */
+export type AIActivity = AIUseCase | 'podcasts';
+/** What to weigh when choosing each activity's default (owner, 2026-10-21: "an explainer saying some considerations when
+ * choosing the default for each category and why you might consider changing them"), word for word the apps'
+ * `AIDefaultsGuide` (apps/apple/ScienceReader/Views/AIScenarioDefaults.swift). */
+export const AI_DEFAULTS_GUIDE = {
+  overview: 'Stronger models give deeper, more careful answers but use more credits and take longer. Faster models cost less and answer sooner. Each model is processed by its own provider, named in About AI chat options and on the episode sheet.',
+  whenToChange: 'Change a default if answers feel too shallow (choose a stronger model), if credits run low (a cheaper one), or if answers are slow (a faster one).',
+  general: 'General chat answers questions that aren’t about a paper. Speed usually matters most, so a fast, low-cost model fits.',
+  paper: 'Paper chat reads the whole paper with each question. A balanced model handles most questions; a stronger one helps with long derivations and critique.',
+  equations: 'Equation explanations walk through symbols and derivations, which reward careful reasoning, so a stronger model is often worth the extra credits.',
+  figures: 'Figures and tables: the model looks at the figure’s image as well as its caption, so it must read images (every cloud model listed does). A stronger model reads dense plots more reliably.',
+  podcasts: 'Podcasts: the writer drafts and checks a whole episode script, a long output, so its cost adds up and longer episodes cost more. The voices are the same whichever writer you choose.',
+} as const;
+/** One activity's ⓘ: what it does, then the general considerations. */
+export const aiDefaultsGuide = (activity: AIActivity) => `${AI_DEFAULTS_GUIDE[activity]}\n\n${AI_DEFAULTS_GUIDE.overview}\n\n${AI_DEFAULTS_GUIDE.whenToChange}`;
 const contextualKey = (documentID: string, anchor: TextAnchor) => JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
 const scenarioKey = 'gradstep.ai.scenarios.v1';
 function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
@@ -135,6 +156,14 @@ export class ChatSession {
     const reference=this.reference(documentID);
     return reference ? this.sourcePapers.get(reference.membershipID) : this.legacyPapers.get(documentID);
   }
+  /** A note entry's paragraph ([¶N]) in this device's copy of its paper, when the entry was captured from that copy. */
+  async noteParagraph(documentID:string, manifest:string|null, blockID:string|undefined):Promise<number|null> {
+    const local=this.localPaper(documentID); if(!local||!blockID)return null;
+    try { const bundle=await local.load(); if(manifest&&bundle.manifestSHA256!==manifest)return null; const i=bundle.index.blocks.findIndex(b=>b.id===blockID); return i<0?null:i+1; }
+    catch { return null; }
+  }
+  /** Whether a paper's chat can be asked here (its text is on this device). */
+  readsPaper(documentID:string):boolean { return !!this.localPaper(documentID); }
   private reference(documentID:string|null):SourcePaperReference|undefined {
     if(!documentID)return undefined;
     return this.sourcePapers.get(documentID)?.reference ?? this.history.state.paperReference(documentID);
@@ -286,7 +315,7 @@ export class ChatSession {
   private contextualComposers = new Map<string, string>();
   private scenarioChoices = scenarioDefaults();
   private contextualKinds = new Map<string,AIUseCase>();
-  readonly promotedContexts = new Map<string,{quote:string;label:string;anchor:TextAnchor;explanation?:string;image?:string}>();
+  readonly promotedContexts = new Map<string,PromotedContext>();
   defaultFor(c:Composer):ProfileChoice { return this.scenarioProfile(this.activityFor(c)); }
   /** Which activity's default a composer follows (AI chat options' Activity). */
   activityFor(c:Composer):AIUseCase { return this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general'); }
@@ -295,14 +324,15 @@ export class ChatSession {
   setScenarioProfile(kind:AIUseCase,choice:ProfileChoice) {
     this.scenarioChoices[kind]={...choice}; try {localStorage.setItem(scenarioKey,JSON.stringify(this.scenarioChoices));} catch {} this.publish();
   }
-  promoteContextual(c:Composer, context:{quote:string;label:string;anchor:TextAnchor;explanation?:string;image?:string}) {
+  promoteContextual(c:Composer, context:PromotedContext) {
     this.allowed();
     if(this.promotedContexts.size>=8&&!this.promotedContexts.has(c.id))this.promotedContexts.delete(this.promotedContexts.keys().next().value!);
     this.promotedContexts.set(c.id,{...context,explanation:context.explanation?.slice(0,32_000)}); this.chooseDraft(c.id);
   }
   retainPromotedContexts(documents:ReadonlySet<string>) {
     let changed=false;
-    for(const [id] of this.promotedContexts)if(!documents.has(this.composers.get(id)?.documentID??'')){this.promotedContexts.delete(id);changed=true;}
+    // A note snippet's general chat (its paper isn't here) belongs to no paper and stays.
+    for(const [id,context] of this.promotedContexts){const doc=this.composers.get(id)?.documentID;if(!(context.noteReturn&&doc===null)&&!documents.has(doc??'')){this.promotedContexts.delete(id);changed=true;}}
     if(changed)this.publish();
   }
   profileReason(c:Composer) { return c.profile ? 'Selected for this conversation' : this.branch(c)?.messages.some(m=>m.payload.role==='assistant' && m.payload.profile) ? 'Kept from this conversation’s last answer' : 'From this activity’s default in AI chat options'; }
@@ -1023,6 +1053,9 @@ export class ChatSession {
       }catch{ request.localContext=undefined; request.documentID=c.documentID; request.figures=undefined; figureBundle=null; figureManifest=null; }
       if(this.signal.aborted || this.retiredStorage || !this.accepting)return;
     }
+    // A note snippet's crop (Notes › Chat) goes with every question of its paper's chat, as a named figure's image does.
+    const attached=this.promotedContexts.get(c.id)?.attachment;
+    if(attached&&c.documentID&&!question.action)request.figures=[...(request.figures??[]).filter(f=>f.id!==attached.id).slice(0,2),attached];
     const answerID = crypto.randomUUID(), entityID = crypto.randomUUID(), conversationID = c.conversationID!;
     let turn: StoredTurn | null = null, releaseTurn: (() => void) | null = null;
     if (this.durable) {
@@ -1129,7 +1162,7 @@ export class ChatSession {
     // is in this paper's bundle, never the image (StoredFigureParts, as the apps keep it).
     if (figureParts && figureManifest) {
       const parts: FigureParts = figureParts, image = sent.figures?.find(f => f.id === parts.figure);
-      const made = image ? makeDiagram(parts.title, storedFigurePartsText({ manifestSHA256: figureManifest, blockID: image.blockID,
+      const made = image?.assetPath ? makeDiagram(parts.title, storedFigurePartsText({ manifestSHA256: figureManifest, blockID: image.blockID,
         assetPath: image.assetPath, assetPaths: image.assetPaths, paragraph: parts.paragraph, title: parts.title, parts: parts.parts }), undefined, 'figure-parts-v1') : null;
       if (made) diagram = { title: made.title, source: made.source, format: 'figure-parts-v1' };
     }

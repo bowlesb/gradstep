@@ -60,19 +60,22 @@ function RenameField({ initial, onSave, onCancel, label }: { initial: string; on
 /** A fresh 32-bit seed for a new empty chat's starter questions. */
 const starterSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
-export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, papers }: {
+export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, papers, onBackToNote }: {
   chat: ChatSession | null; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
   onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
   /** The library, for each answer's Papers in this answer (B2). */
   papers?: AnswerPapers;
+  /** A note snippet's chat: Back to note (2026-10-21). */
+  onBackToNote?: (noteID: string, entryID: string) => void;
 }) {
-  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} papers={papers} />
+  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} papers={papers} onBackToNote={onBackToNote} />
     : <div className="empty" role="status">Opening chats…</div>;
 }
 export interface ContextualConversation { composer: Composer; quote: string; label: string; anchor: TextAnchor; explanation?: string; image?:string }
-export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context: providedContext, papers }: {
+export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context: providedContext, papers, onBackToNote }: {
   context?: ContextualConversation; chat: ChatSession; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
   onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void; papers?: AnswerPapers;
+  onBackToNote?: (noteID: string, entryID: string) => void;
 }) {
   const historyVersion = useChatUpdates(chat);
   const workspace = useWorkspaceControls();
@@ -302,7 +305,14 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
               onClick={() => pickStarter(s.text)}>{icon ? <Icon name={icon} size={16} /> : <span className="chat-starter-dot" aria-hidden="true" />}<span>{s.text}</span></button>; })}
         </div>}
       </div>}
-      {!providedContext && promoted && <section className="promoted-explanation" data-testid="promoted-context"><h3>{promoted.label}</h3>{promoted.image && <img src={promoted.image} alt={promoted.label} style={{maxWidth:'100%'}}/>}<Answer text={promoted.explanation ?? promoted.quote} /></section>}
+      {!providedContext && promoted && <section className="promoted-explanation" data-testid="promoted-context">
+        {/* A note snippet's chat: the way back to its entry, like the explainers' Back (2026-10-21). */}
+        {promoted.noteReturn && onBackToNote && <button type="button" className="secondary small back-to-note" onClick={() => onBackToNote(promoted.noteReturn!.noteID, promoted.noteReturn!.entryID)}
+          data-testid="back-to-note"><Icon name="chevronLeft" size={14} /> Back to snippets</button>}
+        <h3>{promoted.label}</h3>{promoted.image && <img src={promoted.image} alt={promoted.label} style={{maxWidth:'100%'}} data-testid="promoted-image"/>}
+        {promoted.noteReturn && promoted.image ? <p className="fine" data-testid="promoted-image-note">{promoted.imageSent ? 'This picture goes with your questions in this chat.'
+          : 'This paper isn’t on this device, so the picture stays here; the chat knows where it came from.'}</p>
+          : <Answer text={promoted.explanation ?? promoted.quote} />}</section>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`} data-answer={m.payload.role === 'assistant' ? m.payload.entityID : undefined}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />

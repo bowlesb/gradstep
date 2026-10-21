@@ -130,6 +130,13 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.
+- **Cards** (owner, 2026-10-21, the Notes list: "each needs a very pleasant border around it, so it looks like a bunch of
+  cards"): a list of named things the reader made (Snippets' collections) shows each as a card: 16 pt continuous
+  corners, the grouped secondary surface, a 1 pt separator edge, a soft shadow in light mode only, 14/12 pt padding
+  inside, 10 pt between cards, 16 pt side margins. The open one (beside the list) has a light accent fill and an accent
+  edge; Mac hover a quiet fill. Solid in every mode (nothing changes with Reduce Transparency); Increase Contrast draws
+  an opaque edge. Swipe and long-press actions work as on rows. Code: `ContentCard` / `.contentCard(selected:)` in
+  `DesignSystem.swift`; browser `.note-row` in `notes.css`. Paper tables and chat lists stay rows.
 
 Each UI change follows the [visual check loop](VISUAL_CHECK.md); significant redesigns get an independent audit
 against this page.

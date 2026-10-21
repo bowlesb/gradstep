@@ -2,10 +2,10 @@
 // under the workspace. The dock takes its own row of the app's column, so the workspace (reader, chat composer and
 // selection actions) shrinks above it instead of being covered. Audio is fetched once per play through a single-use
 // grant, verified (length and SHA-256) and played from an in-memory Blob URL; nothing is kept after Stop or sign-out.
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { authorLine } from '../lib/authors';
 import { auth, BackendError } from '../lib/backend';
-import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult, podcastUploadSource, type DeviceSourceText, type DeviceSourceDescriptor, DEFAULT_LENGTH, aboutMinutes,
+import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult, podcastUploadSource, type DeviceSourceText, type DeviceSourceDescriptor, DEFAULT_LENGTH, aboutMinutes, chooseWriter, savedPodcastWriter, savePodcastWriter, offeredWriters, type Writer,
   type Mine, type MineRequest, mineCheckDelay, MINE_CHECK_LIMIT_MS, expectedWait, plainProviders } from '../lib/podcast';
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
 import { Icon } from './PodcastIcons';
@@ -554,6 +554,49 @@ export function PodcastDock({ player, onEvidence, onAdd, onReport }: { player: P
   );
 }
 
+// ---------- AI chat options › Activity › Podcasts ----------
+
+/** Who writes new episodes' scripts (owner, 2026-10-21: "Podcasts is missing from defaults in model settings"): only
+ * the writers the server lists for podcasts, the server's default first; saved in this browser and preselected in
+ * Make an episode whenever the chosen length offers it (the apps' Settings › AI defaults by activity › Podcasts). */
+export function PodcastWriterDefault({ account }: { account: string }) {
+  const id = useId();
+  const [state, setState] = useState<{ writers: Writer[]; generation: boolean } | 'loading' | 'failed'>('loading');
+  const [saved, setSaved] = useState(savedPodcastWriter);
+  useEffect(() => {
+    const controller = new AbortController(); setState('loading');
+    podcastCatalog(account, null, controller.signal).then(catalog => {
+      if (!controller.signal.aborted) setState({ writers: offeredWriters(catalog.capabilities), generation: catalog.capabilities.generation });
+    }, () => { if (!controller.signal.aborted) setState('failed'); });
+    return () => controller.abort();
+  }, [account]);
+  if (state === 'loading') return <p className="fine" role="status" data-testid="podcast-writer-default-status">Loading the writers…</p>;
+  if (state === 'failed' || !state.generation) return <p className="fine" role="status" data-testid="podcast-writer-default-status">Episodes can’t be made right now.</p>;
+  if (!state.writers.length) return <p className="fine" role="status" data-testid="podcast-writer-default-status">Gradstep chooses the writer for each episode.</p>;
+  const writers = state.writers, chosen = chooseWriter(writers, saved);
+  const pick = (writer: string | null) => { savePodcastWriter(writer); setSaved(writer); };
+  const keys = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const next = writers[(writers.findIndex(w => w.writer === chosen) + step + writers.length) % writers.length].writer;
+    pick(next);
+    const container = e.currentTarget.parentElement;
+    requestAnimationFrame(() => container?.querySelector<HTMLButtonElement>(`[data-value="${next}"]`)?.focus());
+  };
+  return <div className="profile-picker" data-testid="podcast-writer-default">
+    <div className="profile-group">
+      <div className="profile-group-title" id={`${id}-title`}>Written by</div>
+      <div className="profile-options" role="radiogroup" aria-labelledby={`${id}-title`} aria-describedby={`${id}-detail`}>
+        {writers.map(w => <button key={w.writer} type="button" role="radio" aria-checked={w.writer === chosen} data-value={w.writer} tabIndex={w.writer === chosen ? 0 : -1}
+          className={w.writer === chosen ? 'seg on' : 'seg'} onClick={() => pick(w.writer)} onKeyDown={keys}>{w.label}</button>)}
+      </div>
+      <p className="fine profile-detail" id={`${id}-detail`}>Used when you make an episode. You can choose another writer there before asking.</p>
+    </div>
+    {saved && <button type="button" className="link small" onClick={() => pick(null)} data-testid="podcast-writer-reset">Use recommended default</button>}
+  </div>;
+}
+
 // ---------- Paper Listen / explicit private generation ----------
 
 // Simplified at the owner's request (2026-10-16: "our podcast UX feels too complex right now ... the important thing
@@ -587,8 +630,10 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
   const [shown, setShown] = useState(false);
   const [paper, setPaper] = useState<PaperPodcast | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
-  // The chosen writer (2026-10-14); null follows the server's default (the first it lists).
+  // The chosen writer (2026-10-14); null follows the default from AI chat options › Podcasts (2026-10-21), else the
+  // server's default (the first it lists).
   const [writer, setWriter] = useState<string | null>(null);
+  const [defaultWriter, setDefaultWriter] = useState(savedPodcastWriter);
   // The length (PodcastGenerateSheet's chips): each is its own episode; 5 min until the reader chooses.
   const [length, setLength] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -653,6 +698,8 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
     const c = begin('paper'); if (!c) return;
     visible.current = true; setShown(true); setUnavailable(false); setPaper(null); setTrackingBlocked(false); setSourceTooLarge(false);
     if (profile) setLength(profile);
+    // Each opening starts from the default writer as AI chat options now says (a choice made in an earlier opening doesn't stick).
+    setWriter(null); setDefaultWriter(savedPodcastWriter());
     let retained = null;
     try { retained = tracking.get(itemID); }
     catch (e) { setTrackingBlocked(true); setIssue(generationMessage(e)); }
@@ -797,7 +844,7 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
   const chosenLength = lengths.find(l => l.profile === length) ?? lengths.find(l => l.profile === DEFAULT_LENGTH) ?? lengths[0];
   // The chosen length's writers (the default length's list from servers that list no lengths).
   const writers = chosenLength?.writers.length ? chosenLength.writers : paper?.capabilities.writers ?? [];
-  const chosenWriter = writers.find(w => w.writer === writer)?.writer ?? writers[0]?.writer ?? null;
+  const chosenWriter = chooseWriter(writers, writer, defaultWriter);
   const chosenKey = useRef(''); chosenKey.current = `${chosenLength?.profile}|${chosenWriter}`;
   const maximum = quote?.maxCredits ?? writers.find(w => w.writer === chosenWriter)?.maxCredits ?? chosenLength?.maxCredits ?? paper?.capabilities.maxCredits ?? 150;
   // Until the quote names them, the route every script and voice takes (D11: it named Anthropic or DeepSeek and Google).

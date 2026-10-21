@@ -5,13 +5,13 @@ import StoreKit
 import SwiftUI
 
 enum ReaderTab: String, CaseIterable, Identifiable {
-    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Notes", settings = "Settings"
+    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Snippets", settings = "Settings"
     /// The phone's floating tab bar (owner, 2026-10-20): Notes replaces Settings, which every top-right menu now opens.
     static let phoneTabs: [ReaderTab] = [.feed, .library, .paper, .chat, .notes]
     var id: Self { self }
     var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
 }
-enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat", notes = "Notes" }
+enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat", notes = "Snippets" }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
 /// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says.
 enum SelectionAction: String, CaseIterable {
@@ -2374,10 +2374,10 @@ final class ReaderModel {
                 if let presentation, completeLibrary == nil {
                     presentLibraryProjection(presentation.rows, validatedEntryCount: presentation.validatedEntryCount)
                 }
-            case .failure: offlineCacheIssue = "Your saved library couldn’t be opened. Your notes and conversations are still available."
+            case .failure: offlineCacheIssue = "Your saved library couldn’t be opened. Your snippets and conversations are still available."
             }
             if case .failure = restored.installations {
-                offlineCacheIssue = "Downloaded papers couldn’t be listed. Your notes and conversations are still available."
+                offlineCacheIssue = "Downloaded papers couldn’t be listed. Your snippets and conversations are still available."
             }
             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             if let mode = OfflineResourceProbe.shared.mode, mode != .seed {
@@ -3180,7 +3180,9 @@ final class ReaderModel {
 
     /// An answer's figure parts as a stored diagram: the parts and where their image is in the paper's bundle.
     private func figurePartsDiagram(_ parts: ChatFigureParts?, generation: ChatGeneration) -> ChatDiagram? {
-        guard let parts, let manifest = generation.figureManifest, let image = generation.figures.first(where: { $0.id == parts.figure }) else { return nil }
+        // A note snippet's attached crop has no place in the bundle: its parts aren't kept as a drawing.
+        guard let parts, let manifest = generation.figureManifest, let image = generation.figures.first(where: { $0.id == parts.figure }),
+              !image.assetPath.isEmpty else { return nil }
         let stored = StoredFigureParts(manifestSHA256: manifest, blockID: image.blockID, assetPath: image.assetPath, paragraph: parts.paragraph,
                                        title: parts.title, parts: parts.parts, assetPaths: image.assetPaths)
         return ChatDiagram(title: parts.title, source: stored.encodedText(), messageID: generation.assistantID, format: ChatDiagram.figurePartsFormat)
@@ -4103,6 +4105,74 @@ final class ReaderModel {
         if !isSignedIn { openSignIn() } else { requestComposerFocus() }
     }
 
+    /// A snippet's or quotation's Chat (owner, 2026-10-21: "In the snippet options when viewing it in a figure, there
+    /// should be a Chat option to launch and talk about the snippet"; NOTES_AND_SNIPPETS.md "Chat about a snippet"): a new
+    /// chat with nothing sent, as Chat about Figure does. A paper on this device: its chat, the drawn crop attached to
+    /// every question the way a named figure's image is (`figures`, consent v3+, the paper's chat only), with its source
+    /// as the passage; a quotation is the passage itself. A paper not on this device: a general chat with the source
+    /// line as context (the server accepts images only in a paper's chat). The reader's comment is the draft; Back to
+    /// note returns to the entry.
+    func chatAboutNoteEntry(_ entry: NotesState.Entry, image: CGImage?) {
+        let record = entry.record
+        guard record.kind != .text else { return }
+        let source = record.source
+        let paper = source.flatMap(notePaper(for:)).flatMap { $0.readerBundle != nil ? $0 : nil }
+        let place = [source?.label ?? source?.section, source?.page.map { "page \($0)" }].compactMap { $0 }.joined(separator: ", ")
+        let title = source.map { "“\($0.title)”" + (place.isEmpty ? "" : " (\(place))") } ?? "a paper"
+        let label = record.kind == .region ? "Snippet · " + (source?.label ?? source?.section ?? source?.title ?? "Notes")
+            : "Quote · " + (source?.title ?? "Notes")
+        let carried = chatProfile
+        if let paper, selectedPaper?.id != paper.id { select(paper) }
+        newChat(general: paper == nil)
+        if carried != chatDefaultProfile { setChatProfile(carried) }
+        guard let composer = chatComposerID else { return }
+        var attachment: ChatFigureImage?, origin: PassageOrigin?, paragraph: Int?
+        if let paper, let bundle = paper.readerBundle {
+            let block = record.anchor.flatMap { $0.manifestSHA256 == bundle.manifestSHA256 ? $0.blockIDs.first : nil }
+            paragraph = block.flatMap { id in bundle.index.blocks.firstIndex { $0.id == id } }.map { $0 + 1 }
+            if let block, let manifest = record.anchor?.manifestSHA256 {
+                origin = PassageOrigin(documentID: paper.id, anchor: TextAnchor(manifestSHA256: manifest, quote: record.anchor?.quote ?? record.quote ?? "", elementID: block))
+            }
+            if record.kind == .region, let image, let prepared = ChatFigureFinder.prepare(image) {
+                // F3: the paper's own named figures take F1 and F2 (`ChatFigureFinder`, at most two).
+                attachment = ChatFigureImage(id: "F3", paragraph: paragraph ?? 1, caption: "A snippet the reader drew from \(title)",
+                    mediaType: "image/jpeg", data: prepared.data.base64EncodedString(), width: prepared.width, height: prepared.height,
+                    blockID: "", assetPath: "")
+            }
+        }
+        var quote: String
+        switch record.kind {
+        case .quote: quote = record.quote ?? ""
+        default:
+            quote = "A snippet the reader drew from \(title)" + (paragraph.map { " [¶\($0)]" } ?? "") + "."
+            quote += attachment != nil ? " Its image is attached." : " Only its source is known here; the image stays on the reader’s device."
+        }
+        quote = String(quote.unicodeScalars.prefix(ChatGenerationRequest.maximumSelectionScalars))
+        if promotedChatContexts.count >= 8 { promotedChatContexts.removeValue(forKey: promotedChatContexts.keys.first!) }
+        promotedChatContexts[composer] = PromotedChatContext(label: label, text: "", quote: quote, origin: origin,
+            image: record.kind == .region ? image : nil, attachment: attachment, noteReturn: (record.noteID, record.entryID),
+            imageSent: attachment != nil)
+        chatInput = record.comment
+        tab = .chat; wideMode = paper == nil ? .chat : .reader; readerChatHidden = false
+        if !isSignedIn { openSignIn() } else { requestComposerFocus() }
+    }
+
+    /// Back to note from a snippet's chat.
+    func returnToNote() {
+        guard let back = promotedChatContext?.noteReturn else { return }
+        openNote(back.noteID, entry: back.entryID)
+    }
+
+    /// The library paper a note entry came from (Open in paper's rule).
+    func notePaper(for source: NoteSource) -> Paper? {
+        papers.first { paper in
+            if let membership = source.membershipID, paper.sourceMembership?.membershipID == membership { return true }
+            if let id = source.sourceID, paper.sourceID == id, source.kind == .arxiv { return true }
+            if source.kind == .document, let id = source.sourceID.flatMap(UUID.init(uuidString:)), paper.id == id { return true }
+            return false
+        }
+    }
+
     // MARK: Figure view (2026-10-16, docs/architecture/FIGURE_VIEW.md)
 
     /// One figure (or a table the page draws) of a paper on this device, resolved for its view: label, whole caption,
@@ -4459,6 +4529,10 @@ final class ReaderModel {
                 figures = ChatFigureFinder.images(question: "Figure 1", selection: nil, bundle: bundle); figureManifest = bundle.manifestSHA256
             }
             #endif
+            // A note snippet's crop (Notes › Chat) goes with every question of its paper chat, as a named figure's image does.
+            if turn.documentID != nil, turn.action == nil, let attached = promotedChatContexts[turn.composerID]?.attachment {
+                figures = Array(figures.filter { $0.id != attached.id }.prefix(2)) + [attached]
+            }
             request = try ChatGenerationRequest.make(operationID: UUID(), documentID: localContext == nil ? turn.documentID : (turn.paperReference == nil ? nil : turn.documentID),
                                                      transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
@@ -5644,6 +5718,12 @@ extension ReaderModel {
         let label: String, text: String, quote: String
         let origin: PassageOrigin?
         let image: CGImage?
+        /// A note snippet's crop, sent with every question in this chat (`chatAboutNoteEntry`).
+        var attachment: ChatFigureImage? = nil
+        /// The note entry a snippet's chat came from: Back to note.
+        var noteReturn: (noteID: UUID, entryID: UUID)? = nil
+        /// Whether `image` goes with the questions (false: shown here only, for a paper not on this device).
+        var imageSent = true
     }
     var promotedChatContext: PromotedChatContext? { chatComposerID.flatMap { promotedChatContexts[$0] } }
 

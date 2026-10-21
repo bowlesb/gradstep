@@ -1231,3 +1231,16 @@ The Mac target grants the sandbox microphone and hardened-runtime audio-input en
 dictation, and both generated Info.plist and `project.yml` carry the microphone/speech purpose strings. These
 are checked in the signed archive; a deterministic microphone fixture does not verify actual speech recognition.
 See [Apple’s Catalyst microphone requirements](https://developer.apple.com/forums/thread/825449).
+
+
+## AI defaults explainer and Podcasts — 2026-10-21 (local source, not released)
+
+Owner: "There should be an explainer saying some considerations when choosing the default for each category and why
+you might consider changing them." Settings › AI defaults by activity has an ⓘ on its title (cost vs quality vs speed,
+who processes, when to change) and each activity's page an ⓘ on its section (what the activity needs first, then the
+same). The browser's AI chat options shows the selected activity's text behind the ⓘ beside Activity. The words are
+the same on every surface (`AIDefaultsGuide` in `AIScenarioDefaults.swift`, `AI_DEFAULTS_GUIDE` in `chat-session.ts`;
+`ai-defaults.test.ts` compares them). They name no model, so they stay true as the published table changes. Podcasts
+joins the activities: see [PAPER_PODCASTS.md › Default writer in Settings](PAPER_PODCASTS.md). A note snippet's Chat
+attaches its crop as figure F3 in a paper's chat: see [NOTES_AND_SNIPPETS.md](NOTES_AND_SNIPPETS.md). Browser info
+tips now keep paragraph breaks (a later `white-space: normal` had overridden `pre-line`).

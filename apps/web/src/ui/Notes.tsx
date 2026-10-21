@@ -29,7 +29,7 @@ const bytes = (s: string) => new TextEncoder().encode(s).length;
 const dayLabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const timeLabel = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 const kindLabel = (kind: EntryKind) => kind === 'text' ? 'Your writing' : kind === 'quote' ? 'Text snippet' : 'Region snippet';
-const entriesLabel = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`;
+const entriesLabel = (n: number) => `${n} ${n === 1 ? 'snippet' : 'snippets'}`;
 export const noteTitle = (note: NoteView) => note.title ?? (note.future ? 'Update Gradstep to see this note' : 'Note still arriving');
 /** The quiet source line: paper · location · version. */
 export function sourceLine(source: EntrySource | null): string {
@@ -76,11 +76,14 @@ function PreparedImage({ image, label }: { image: PreparedSnippetImage['full']; 
 }
 
 /** The full-size crop with zoom (a slider and the keyboard), scrollable when enlarged. */
-export function ZoomView({ store, media, label, detail, onClose }: { store: NotesStore; media: MediaDescriptor; label: string; detail: string; onClose: () => void }) {
+export function ZoomView({ store, media, label, detail, onClose, onChat }: { store: NotesStore; media: MediaDescriptor; label: string; detail: string; onClose: () => void;
+  /** Chat about this snippet (owner, 2026-10-21), as a figure's Chat about Figure: nothing is sent. */ onChat?: () => void }) {
   const [url, setURL] = useState<string | null>(null), [failed, setFailed] = useState(false), [zoom, setZoom] = useState(1);
   useEffect(() => { let live = true; store.image(media).then(u => { if (live) setURL(u); }, () => { if (live) setFailed(true); }); return () => { live = false; }; }, [store, media]);
   return <Dialog open onClose={onClose} title="Snippet" wide className="snippet-zoom">
-    <div className="dialog-heading"><h2>Snippet</h2><button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></div>
+    <div className="dialog-heading"><h2>Snippet</h2>
+      {onChat && <button type="button" className="secondary small zoom-chat" onClick={() => { onClose(); onChat(); }} data-testid="zoom-chat"><Icon name="chat" size={14} /> Chat</button>}
+      <button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></div>
     <div className="zoom-stage" tabIndex={0} aria-label={label} data-testid="zoom-stage">
       {failed ? <p className="issue" role="alert">This image couldn’t be shown. It may not have downloaded yet.</p>
         : url ? <img src={url} alt={label} style={{ width: `${zoom * 100}%`, maxWidth: zoom === 1 ? '100%' : 'none' }} /> : <div className="snippet-loading" role="status" aria-label="Loading image" />}
@@ -102,11 +105,11 @@ export function NotesList({ store, current, onOpen, onNew, rail = false }: { sto
   }, [view, query]);
   const pending = store.pendingCount;
   return <div className={`notes-list${rail ? ' rail' : ''}`} data-testid={rail ? 'notes-rail' : 'notes-list'}>
-    {!rail && <div className="view-head notes-head"><h1>Notes</h1><span className="view-sub">{view.notes.length} {view.notes.length === 1 ? 'note' : 'notes'}{pending ? ` · ${pending} waiting to sync` : ''}</span>
-      <button className="icon-button notes-new" onClick={onNew} aria-label="New note" title="New note" disabled={!store.writable} data-testid="new-note"><Icon name="plus" /></button></div>}
+    {!rail && <div className="view-head notes-head"><h1>Snippets</h1><span className="view-sub">{view.notes.length} {view.notes.length === 1 ? 'collection' : 'collections'}{pending ? ` · ${pending} waiting to sync` : ''}</span>
+      <button className="icon-button notes-new" onClick={onNew} aria-label="New collection" title="New collection" disabled={!store.writable} data-testid="new-note"><Icon name="plus" /></button></div>}
     {store.issue && !rail && <SyncIssue store={store} />}
-    <label className="notes-search"><Icon name="search" size={14} /><input type="search" placeholder="Search notes" aria-label="Search notes" value={query} onChange={e => setQuery(e.target.value)} data-testid="notes-search" /></label>
-    {found.length ? <ul className="notes-rows" aria-label="Notes">
+    <label className="notes-search"><Icon name="search" size={14} /><input type="search" placeholder="Search snippets" aria-label="Search snippets" value={query} onChange={e => setQuery(e.target.value)} data-testid="notes-search" /></label>
+    {found.length ? <ul className="notes-rows" aria-label="Snippet collections">
       {found.map(n => <li key={n.id}><button className={`note-row${n.id === current ? ' on' : ''}`} onClick={() => onOpen(n.id)} aria-current={n.id === current ? 'true' : undefined} data-testid="note-row">
         <span className="note-mark" aria-hidden="true"><Icon name="notes" size={18} /></span>
         <span className="note-row-text"><span className="note-row-title">{noteTitle(n)}</span>
@@ -114,12 +117,12 @@ export function NotesList({ store, current, onOpen, onNew, rail = false }: { sto
           <span className="note-row-meta">{entriesLabel(n.entries.length)} · {n.lastEdited ? dayLabel(n.lastEdited) : '—'}{store.pendingIn(n) ? ' · Waiting to sync' : ''}{n.versions.length > 1 ? ' · 2 titles' : ''}</span></span>
       </button></li>)}
     </ul> : <div className="notes-empty">
-      {view.notes.length ? <p className="muted">No notes match “{query.trim()}”.</p> : <>
-        <h2>A place for your next idea</h2><p className="muted">Collect snippets while reading — Paper ⋯ › Draw snippet, or select text and choose Add to note — or start with your own writing.</p>
-        <button className="primary" onClick={onNew} disabled={!store.writable}>New note</button></>}
+      {view.notes.length ? <p className="muted">Nothing matches “{query.trim()}”.</p> : <>
+        <h2>A place for your next idea</h2><p className="muted">Collect snippets while reading: Paper ⋯ › Draw snippet, or select text and choose Save snippet.</p>
+        <button className="primary" onClick={onNew} disabled={!store.writable}>New collection</button></>}
     </div>}
-    {view.malformed > 0 && <p className="fine notes-skipped" role="status">{view.malformed} note {view.malformed === 1 ? 'record' : 'records'} couldn’t be read and {view.malformed === 1 ? 'was' : 'were'} skipped.</p>}
-    {rail && <div className="notes-rail-actions"><button className="secondary small" onClick={onNew} disabled={!store.writable} data-testid="new-note"><Icon name="plus" size={14} /> New note</button></div>}
+    {view.malformed > 0 && <p className="fine notes-skipped" role="status">{view.malformed} snippet {view.malformed === 1 ? 'record' : 'records'} couldn’t be read and {view.malformed === 1 ? 'was' : 'were'} skipped.</p>}
+    {rail && <div className="notes-rail-actions"><button className="secondary small" onClick={onNew} disabled={!store.writable} data-testid="new-note"><Icon name="plus" size={14} /> New collection</button></div>}
   </div>;
 }
 
@@ -135,8 +138,9 @@ function SyncIssue({ store }: { store: NotesStore }) {
 type Editing = { kind: 'rename' } | { kind: 'delete-note' } | { kind: 'comment'; entry: EntryView } | { kind: 'delete-entry'; entry: EntryView }
   | { kind: 'entry-versions'; entry: EntryView } | { kind: 'title-versions' } | { kind: 'zoom'; entry: EntryView };
 
-export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, back }: {
+export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, back, onChat }: {
   store: NotesStore; noteID: string; onBack: () => void; onAddText: (noteID: string) => void;
+  /** A snippet's or quotation's Chat (owner, 2026-10-21): a chat about it, nothing sent. */ onChat?: (entry: EntryView) => void;
   /** Open in paper: false when the paper isn't available here (the message explains why). */ onOpenSource: (entry: EntryView) => string | null;
   /** The list isn't beside the note (narrow windows): a Back to Notes control. */ back: boolean;
 }) {
@@ -144,40 +148,37 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
   const [editing, setEditing] = useState<Editing | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(t); }, [notice]);
-  if (!note) return <div className="empty notes-gone"><p>This note isn’t available. It may have been deleted on another device.</p><button className="secondary" onClick={onBack}>Back to Notes</button></div>;
+  if (!note) return <div className="empty notes-gone"><p>This collection isn’t available. It may have been deleted on another device.</p><button className="secondary" onClick={onBack}>Back to Snippets</button></div>;
   const title = noteTitle(note);
   let day = '';
   return <div className="note-detail" data-testid="note-detail">
     <header className="note-head">
-      {back && <button className="icon-button" onClick={onBack} aria-label="Back to Notes" title="Back to Notes" data-testid="notes-back"><Icon name="chevronLeft" /></button>}
+      {back && <button className="icon-button" onClick={onBack} aria-label="Back to Snippets" title="Back to Snippets" data-testid="notes-back"><Icon name="chevronLeft" /></button>}
       <div className="note-head-text"><h1 data-testid="note-title">{title}</h1>
         <span className="view-sub">{entriesLabel(note.entries.length)}{store.pendingIn(note) ? ' · Saved on this device · Waiting to sync' : ''}
           {note.versions.length > 1 && <> · <button className="link small-link" onClick={() => setEditing({ kind: 'title-versions' })} data-testid="title-versions">2 titles · Review</button></>}</span></div>
-      <button className="icon-button" onClick={() => onAddText(note.id)} aria-label="Add text to note" title="Add text" disabled={!store.writable || note.incomplete} data-testid="add-text"><Icon name="plus" /></button>
       <MenuButton icon="more" label={`${title} options`} testID="note-menu">{close => <>
-        <button type="button" role="menuitem" className="menu-item" disabled={!store.writable || note.incomplete} onClick={() => { close(false); onAddText(note.id); }}><Icon name="plus" size={14} /> Add text</button>
-        <button type="button" role="menuitem" className="menu-item" disabled={!store.writable || !note.record} onClick={() => { close(false); setEditing({ kind: 'rename' }); }}><Icon name="pencil" size={14} /> Rename note…</button>
-        <button type="button" role="menuitem" className="menu-item danger" disabled={!store.writable} onClick={() => { close(false); setEditing({ kind: 'delete-note' }); }}><Icon name="trash" size={14} /> Delete note…</button>
+        <button type="button" role="menuitem" className="menu-item" disabled={!store.writable || !note.record} onClick={() => { close(false); setEditing({ kind: 'rename' }); }}><Icon name="pencil" size={14} /> Rename collection…</button>
+        <button type="button" role="menuitem" className="menu-item danger" disabled={!store.writable} onClick={() => { close(false); setEditing({ kind: 'delete-note' }); }}><Icon name="trash" size={14} /> Delete collection…</button>
       </>}</MenuButton>
     </header>
     {store.issue && <SyncIssue store={store} />}
-    {note.future > 0 && <p className="notes-banner" role="status">Part of this note was made with a newer version of Gradstep. Reload to update and see everything in it.</p>}
-    {note.incomplete && !note.future && <p className="notes-banner" role="status">This note is still arriving from your other devices.</p>}
+    {note.future > 0 && <p className="notes-banner" role="status">Part of this collection was made with a newer version of Gradstep. Reload to update and see everything in it.</p>}
+    {note.incomplete && !note.future && <p className="notes-banner" role="status">This collection is still arriving from your other devices.</p>}
     <div className="note-stream">
       {note.entries.length ? note.entries.map((entry, index) => {
         const d = dayLabel(entry.record.capturedAt), divider = d !== day ? <div className="note-day" key={`day-${entry.id}`}>{d}</div> : null;
         day = d;
-        return [divider, <Entry key={entry.id} store={store} entry={entry} index={index} onEdit={setEditing} onOpenSource={() => { const issue = onOpenSource(entry); if (issue) setNotice(issue); }} />];
-      }) : <div className="notes-empty"><h2>A place for your next idea</h2><p className="muted">Add your own writing, or collect a snippet while reading.</p>
-        <button className="primary" onClick={() => onAddText(note.id)} disabled={!store.writable || note.incomplete}>Add text</button></div>}
-      {note.entries.length > 0 && <button className="link add-text-link" onClick={() => onAddText(note.id)} disabled={!store.writable || note.incomplete}><Icon name="plus" size={14} /> Add text</button>}
+        return [divider, <Entry key={entry.id} store={store} entry={entry} index={index} onEdit={setEditing} onOpenSource={() => { const issue = onOpenSource(entry); if (issue) setNotice(issue); }}
+          onChat={onChat ? () => onChat(entry) : undefined} />];
+      }) : <div className="notes-empty"><h2>A place for your next idea</h2><p className="muted">Collect a snippet while reading: Paper ⋯ › Draw snippet, or select text and choose Save snippet.</p></div>}
     </div>
     {notice && <div className="notes-toast" role="status">{notice}</div>}
     {editing?.kind === 'rename' && note.record && <NameDialog title="Rename note" action="Rename" initial={note.title ?? ''} onClose={() => setEditing(null)}
       onSubmit={name => store.renameNote(note.id, name)} />}
-    {editing?.kind === 'delete-note' && <ConfirmDialog title={`Delete “${title}”?`} action="Delete note" onClose={() => setEditing(null)}
+    {editing?.kind === 'delete-note' && <ConfirmDialog title={`Delete “${title}”?`} action="Delete collection" onClose={() => setEditing(null)}
       onConfirm={async () => { await store.deleteNote(note.id); onBack(); }}>
-      This removes the note and its {entriesLabel(note.entries.length)} from your devices when they sync. Copies already synced stay encrypted until your account is deleted.
+      This removes the collection and its {entriesLabel(note.entries.length)} from your devices when they sync. Copies already synced stay encrypted until your account is deleted.
     </ConfirmDialog>}
     {editing?.kind === 'comment' && <CommentDialog entry={editing.entry} store={store} onClose={() => setEditing(null)} />}
     {editing?.kind === 'delete-entry' && <ConfirmDialog title="Delete this snippet?" action="Delete snippet" onClose={() => setEditing(null)}
@@ -187,16 +188,17 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
     {editing?.kind === 'title-versions' && <VersionsDialog title="Two versions of this title" versions={note.versions.map(v => ({ id: v.eventID, text: v.record.title, at: v.createdAt }))}
       onClose={() => setEditing(null)} onChoose={id => store.chooseTitle(note.id, id)} />}
     {editing?.kind === 'zoom' && editing.entry.record.media && <ZoomView store={store} media={editing.entry.record.media.full} label={`Snippet ${note.entries.indexOf(editing.entry) + 1}`}
-      detail={sourceLine(editing.entry.record.source) || 'Snippet'} onClose={() => setEditing(null)} />}
+      detail={sourceLine(editing.entry.record.source) || 'Snippet'} onClose={() => setEditing(null)} onChat={onChat ? () => onChat(editing.entry) : undefined} />}
   </div>;
 }
 
-function Entry({ store, entry, index, onEdit, onOpenSource }: { store: NotesStore; entry: EntryView; index: number; onEdit: (e: Editing) => void; onOpenSource: () => void }) {
+function Entry({ store, entry, index, onEdit, onOpenSource, onChat }: { store: NotesStore; entry: EntryView; index: number; onEdit: (e: Editing) => void; onOpenSource: () => void; onChat?: () => void }) {
   const r = entry.record, state = store.entryState(entry), label = `Entry ${index + 1}`;
   return <article className={`note-entry kind-${r.kind}`} aria-label={label} data-testid="note-entry">
     <div className="note-entry-top"><span className="fine">{timeLabel(r.capturedAt)} · {kindLabel(r.kind)}</span>
       <MenuButton icon="more" label={`${label} options`} testID="entry-menu">{close => <>
         <button type="button" role="menuitem" className="menu-item" disabled={!store.writable} onClick={() => { close(false); onEdit({ kind: 'comment', entry }); }}><Icon name="pencil" size={14} /> {r.kind === 'text' ? 'Edit writing' : 'Edit comment'}</button>
+        {onChat && r.kind !== 'text' && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onChat(); }} data-testid="entry-chat"><Icon name="chat" size={14} /> Chat</button>}
         {r.source && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onOpenSource(); }}><Icon name="book" size={14} /> Open in paper</button>}
         <button type="button" role="menuitem" className="menu-item danger" disabled={!store.writable} onClick={() => { close(false); onEdit({ kind: 'delete-entry', entry }); }}><Icon name="trash" size={14} /> Delete snippet</button>
       </>}</MenuButton></div>
@@ -217,15 +219,15 @@ function NameDialog({ title, action, initial, onSubmit, onClose }: { title: stri
   const [name, setName] = useState(initial), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const submit = async () => {
     if (busy) return;
-    if (!cleanNoteTitle(name)) { setError('Give the note a name, up to 80 characters.'); return; }
+    if (!cleanNoteTitle(name)) { setError('Give the collection a name, up to 80 characters.'); return; }
     setBusy(true); setError(null);
     try { await onSubmit(name); onClose(); } catch (e) { setError(noteWriteFailure(e)); } finally { setBusy(false); }
   };
   return <Dialog open onClose={() => { if (!busy) onClose(); }} title={title}>
     <h2>{title}</h2>
     <form onSubmit={e => { e.preventDefault(); void submit(); }}>
-      <label>Note name<input value={name} maxLength={200} autoFocus placeholder="e.g. Alignment ideas" onChange={e => setName(e.target.value)} data-testid="note-name" /></label>
-      <p className="fine">A note can collect snippets from as many papers as you like.</p>
+      <label>Collection name<input value={name} maxLength={200} autoFocus placeholder="e.g. Alignment ideas" onChange={e => setName(e.target.value)} data-testid="note-name" /></label>
+      <p className="fine">A collection can hold snippets from as many papers as you like.</p>
       {error && <p className="issue" role="alert">{error}</p>}
       <div className="dialog-actions"><button type="button" className="secondary" disabled={busy} onClick={onClose}>Cancel</button>
         <button className="primary" disabled={busy} data-testid="note-name-save">{busy ? 'Saving…' : action}</button></div>
@@ -293,7 +295,7 @@ export function NoteComposer({ store, draft, onClose, onSaved, onAdjust }: {
   const view = store.view(), choices = view.notes.filter(n => n.record && !n.future);
   const initial = draft.destination ?? (store.lastDestination && choices.some(n => n.id === store.lastDestination) ? store.lastDestination : choices[0]?.id) ?? 'new';
   const [destination, setDestination] = useState<string>(initial);
-  const [newTitle, setNewTitle] = useState(choices.length ? '' : 'Quick notes');
+  const [newTitle, setNewTitle] = useState(choices.length ? '' : 'Quick snippets');
   const [comment, setComment] = useState(''), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false), [leaving, setLeaving] = useState(false);
   const op = useRef(entryOperation()), id = useId();
   const writing = draft.kind === 'text', over = bytes(comment) > NOTES_LIMITS.commentBytes;
@@ -301,7 +303,7 @@ export function NoteComposer({ store, draft, onClose, onSaved, onAdjust }: {
   const save = async () => {
     if (busy) return;
     if (writing && !comment.trim()) { setError('Write something before saving.'); return; }
-    if (destination === 'new' && !cleanNoteTitle(newTitle)) { setError('Give the new note a name, up to 80 characters.'); return; }
+    if (destination === 'new' && !cleanNoteTitle(newTitle)) { setError('Give the new collection a name, up to 80 characters.'); return; }
     if (over) { setError('This is longer than a note entry can hold (16 KB). Shorten it to save.'); return; }
     setBusy(true); setError(null);
     try {
@@ -312,20 +314,20 @@ export function NoteComposer({ store, draft, onClose, onSaved, onAdjust }: {
     finally { setBusy(false); }
   };
   const cancel = () => { if (busy) return; if (comment.trim() && !leaving) setLeaving(true); else onClose(); };
-  const heading = writing ? 'Add text' : 'Add to note';
+  const heading = writing ? 'Add text' : 'Save snippet';
   return <Dialog open onClose={cancel} title={heading} className="note-composer">
     <div className="dialog-heading"><h2>{heading}</h2><button className="icon-button" aria-label="Cancel" onClick={cancel} disabled={busy}><Icon name="close" /></button></div>
     {draft.image && <div><PreparedImage image={draft.image.full} label="The snippet you drew" />
       <p className="fine">{draft.image.full.width} × {draft.image.full.height} · {draft.image.full.type === 'image/png' ? 'PNG' : 'JPEG'} · saved exactly as shown{onAdjust ? ' · ' : ''}
         {onAdjust && <button className="link small-link" onClick={onAdjust} disabled={busy} data-testid="adjust-crop">Adjust crop</button>}</p></div>}
     {draft.kind === 'quote' && draft.quote && <blockquote className="note-quote composer-quote" data-testid="composer-quote">{draft.quote}</blockquote>}
-    {!fixed && <label htmlFor={`${id}-note`}>Note
+    {!fixed && <label htmlFor={`${id}-note`}>Collection
       <select id={`${id}-note`} value={destination} onChange={e => setDestination(e.target.value)} disabled={busy} data-testid="composer-note">
         {choices.map(n => <option key={n.id} value={n.id}>{n.title}</option>)}
-        <option value="new">New note…</option>
+        <option value="new">New collection…</option>
       </select></label>}
-    {!fixed && destination === 'new' && <label>New note name<input value={newTitle} maxLength={200} placeholder="Name your note" onChange={e => setNewTitle(e.target.value)} disabled={busy} data-testid="composer-new-name" /></label>}
-    {fixed && <p className="fine">Adding to {store.note(draft.destination!)?.title ?? 'this note'}</p>}
+    {!fixed && destination === 'new' && <label>New collection name<input value={newTitle} maxLength={200} placeholder="Name your collection" onChange={e => setNewTitle(e.target.value)} disabled={busy} data-testid="composer-new-name" /></label>}
+    {fixed && <p className="fine">Adding to {store.note(draft.destination!)?.title ?? 'this collection'}</p>}
     <label>{writing ? 'Your writing' : 'Your comment (optional)'}
       <textarea rows={writing ? 6 : 4} value={comment} onChange={e => setComment(e.target.value)} disabled={busy} autoFocus={writing}
         placeholder={writing ? 'What are you thinking about?' : 'What caught your attention?'} data-testid="composer-comment" /></label>

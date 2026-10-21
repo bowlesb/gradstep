@@ -32,6 +32,29 @@ export interface Capabilities { catalog: boolean; generation: boolean; delivery:
 /** One episode length ("Short", "5 min", "10 min", "20 min"): its own episode, maximum and writers. */
 export interface Length { profile: string; label: string; targetSeconds: number; maxCredits: number; writers: Writer[] }
 export const DEFAULT_LENGTH = 'podcast-5min-v1';
+
+// AI chat options › Activity › Podcasts (owner, 2026-10-21: "Podcasts is missing from defaults in model settings"): the
+// writer new episode requests start with, in this browser (the apps' Settings › AI defaults by activity › Podcasts).
+// null follows the server's default. Sent as the quote's `writer` only when the chosen length offers it.
+const WRITER_KEY = 'gradstep.ai.podcastWriter.v1';
+const WRITER_ID = /^[a-z][a-z0-9_-]{1,31}$/;
+export function savedPodcastWriter(): string | null {
+  try { const value = localStorage.getItem(WRITER_KEY); return value && WRITER_ID.test(value) ? value : null; } catch { return null; }
+}
+export function savePodcastWriter(writer: string | null) {
+  try { if (writer && WRITER_ID.test(writer)) localStorage.setItem(WRITER_KEY, writer); else localStorage.removeItem(WRITER_KEY); } catch { /* this browser only */ }
+}
+/** Every writer the server offers for any length, once each, in the order listed (the default first): what the default may be. */
+export function offeredWriters(capabilities: Capabilities): Writer[] {
+  const all = capabilities.lengths?.length ? capabilities.lengths.flatMap(l => l.writers) : capabilities.writers;
+  return all.filter((w, i) => all.findIndex(x => x.writer === w.writer) === i);
+}
+/** The writer to use from a length's list: the first of `wanted` it offers (a choice made in the sheet, then the
+ * default), else the server's default (listed first); null when the server lists none. */
+export function chooseWriter(writers: readonly Writer[], ...wanted: (string | null | undefined)[]): string | null {
+  for (const w of wanted) if (w && writers.some(x => x.writer === w)) return w;
+  return writers[0]?.writer ?? null;
+}
 /** "Under a minute", "About 2½ minutes", "About 10 minutes" (PodcastGenerateSheet.about). */
 export function aboutMinutes(seconds: number): string {
   const minutes = seconds / 60;

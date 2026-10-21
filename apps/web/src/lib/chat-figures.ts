@@ -102,6 +102,10 @@ export async function composeFigure(images: { bytes: Uint8Array; mediaType: stri
 export async function prepareFigure(bytes: Uint8Array, mediaType: string): Promise<{ data: string; width: number; height: number } | null> {
   try { return await prepareSource(await createImageBitmap(new Blob([bytes as BlobPart], { type: mediaType }))); } catch { return null; }
 }
+/** An image already shown on this page (a note snippet's decrypted crop), prepared as a figure is. */
+export async function prepareImageURL(url: string): Promise<{ data: string; width: number; height: number } | null> {
+  try { const img = new Image(); img.src = url; await img.decode(); return await prepareSource(await createImageBitmap(img)); } catch { return null; }
+}
 async function prepareSource(bitmap: ImageBitmap | OffscreenCanvas): Promise<{ data: string; width: number; height: number } | null> {
   try {
     const long = Math.max(bitmap.width, bitmap.height), short = Math.min(bitmap.width, bitmap.height);

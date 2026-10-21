@@ -1,5 +1,28 @@
 # Implementation status
 
+
+## Snippets, Podcasts default and AI defaults explainer — 2026-10-21 UTC (local source, not released)
+
+Owner requests and build-78 feedback, iPhone first with iPad, Mac and browser parity: Notes is renamed **Snippets** (a
+named group is a collection); the collections list shows cards; the stream has no separate Add text (the comment is the
+one place for the reader's words, set apart with an accent bar) and dates sit closer to their entries; a snippet's
+Chat starts the paper's chat with the crop attached (figure F3) and Back to snippets; Settings › AI defaults by activity
+gains **Podcasts** (the episode writer, sent through the existing quote `writer` field) and an ⓘ explainer per activity
+and for the section. Details: [NOTES_AND_SNIPPETS.md](architecture/NOTES_AND_SNIPPETS.md),
+[PAPER_PODCASTS.md](architecture/PAPER_PODCASTS.md), [CHAT.md](architecture/CHAT.md), DESIGN.md "Cards".
+
+Verified: `npm test`; browser unit tests 62 files / 558 tests; Playwright `notes.spec.ts` (desktop, phone) and the
+podcast-default journey (desktop, phone, tablet); native unit `PodcastPresentationTests` (the new case passes; two
+older tests fail on stale fixture maxima from the 2026-10-18 profiles 6/7 — 140/150/300/520 expected, 230/240/380/590
+listed — not changed here); UI journeys on fresh iPhone 17 Pro and iPad Pro 13-inch Simulators and the Mac: cards,
+Podcasts default and explainer, snippet Chat (iPhone), the wide Snippets layout (iPad, Mac), the main snippet journey,
+Settings from every menu and Your assets (iPhone). `testAddSelectionToNote` fails: the long-press shows no edit menu
+at all on this Simulator. Not done: the figure/equation pages' "Add to note" label (files under parallel change); a
+crop in a general chat (needs the server to accept figures there). The final native date spacing (day label −6 pt
+below) built but its iPhone screenshot was not re-taken: under a load average of ~250 from other work the journey
+timed out at "paper is ready" (it passed with the previous 2 pt spacing). `npm test` passed on its second run; the
+first failed once in `notes-store.test.ts` (unchanged code; passes alone). No server, deployment, upload or physical phone.
+
 ## Complete figure crops and presentation margins — 2026-10-21 (local source; not released, not deployed)
 
 Owner-approved quick win from the [subfigure detector review](reviews/SUBFIGURE_DETECTOR_20261021.md) (integration
