@@ -71,6 +71,24 @@ enum ChatFigureFinder {
 
     static let maximumPanels = 4
 
+    /// A figure decoded once for the figure view: its panels composed (what is shown and cropped) and the image a request
+    /// sends, as `image(for:bundle:)` makes it (several panels from that composite, one panel from its own bytes). Pure, so
+    /// it runs off the main actor (NATIVE_REVIEW_20261021 C9: it was decoded twice at full size on the main thread).
+    struct Prepared: @unchecked Sendable { let image: CGImage?; let sent: ChatFigureImage? }
+    static func prepared(_ figure: ReaderBundleIndex.Figure, bundle: VerifiedReaderBundle) -> Prepared {
+        let paths = Array(figure.assetPaths.prefix(maximumPanels))
+        let images = paths.compactMap { bundle.data(for: $0).flatMap(image) }
+        let whole = images.count == paths.count ? composite(images) : nil
+        guard let path = paths.first,
+              let encoded = paths.count > 1 ? (whole ?? composite(images)).flatMap(prepare) : bundle.data(for: path).flatMap(prepare),
+              let paragraph = bundle.index.blocks.firstIndex(where: { $0.id == figure.blockID }).map({ $0 + 1 }) else {
+            return Prepared(image: whole, sent: nil)
+        }
+        return Prepared(image: whole, sent: ChatFigureImage(id: "F1", paragraph: paragraph, caption: figure.caption, mediaType: "image/jpeg",
+            data: encoded.data.base64EncodedString(), width: encoded.width, height: encoded.height,
+            blockID: figure.blockID, assetPath: path, assetPaths: paths))
+    }
+
     /// A figure's panels as one image: each scaled to the widest panel's width, top to bottom, 2 % of the width of white
     /// between them. The same on every device (the parts' boxes are fractions of it; the browser composes it alike).
     static func composite(_ panels: [CGImage]) -> CGImage? {

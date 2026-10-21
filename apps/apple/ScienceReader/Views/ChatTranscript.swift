@@ -149,7 +149,9 @@ private struct TranscriptJump: Equatable {
     var animated = false
 }
 
-private struct TranscriptMessage: View {
+/// One message of a conversation: the Chat transcript's rows, and the equation/figure views' threads (one renderer, so
+/// sources, papers named, follow-ups, interruption notes, figure-part crops and quote actions show in both).
+struct TranscriptMessage: View {
     let message: AppliedEvent
     let streaming: Bool
     /// The server's latest status for the streaming answer (searching, adding a paper).
@@ -163,8 +165,15 @@ private struct TranscriptMessage: View {
     @State private var showsFollowUps = false
     let first: Bool
     let last: Bool
+    /// The equation/figure threads: their own text identifier, their citation handling (it returns to the explainer),
+    /// and the sheet's own margins.
+    var textIdentifier: String? = nil
+    var cite: ChatCiteHandler? = nil
+    var horizontalInset: CGFloat = 16
 
     var body: some View {
+        // Figure parts (a diagram lookup and a decoded image) once per render, for both places they show (C8).
+        let parts = inlineParts
         HStack(alignment: .top) {
             if message.payload.role == .user { Spacer(minLength: 24) }
             VStack(alignment: .leading, spacing: 8) {
@@ -180,13 +189,13 @@ private struct TranscriptMessage: View {
                     .accessibilityIdentifier("chat.message.thinking")
                 } else {
                     let sources = streaming ? nil : ChatRichText.trailingSources(message.payload.text ?? "")
-                    if let inline = inlineParts {
+                    if let inline = parts {
                         // Each part's crop where the answer discusses it (owner, 2026-10-15: "the crops should be inline").
                         InlineFigurePartsAnswer(source: message.payload.text ?? "", stored: inline.stored, image: inline.image, fontSize: fontSize,
-                                                identifier: "chat.message.text.\(message.id.wire)", onQuote: quoteHandler, onCite: citeHandler)
+                                                identifier: textIdentifier ?? "chat.message.text.\(message.id.wire)", onQuote: quoteHandler, onCite: citeHandler)
                     } else {
                         ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
-                                        speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)",
+                                        speaker: message.payload.role == .user ? "You" : "Assistant", identifier: textIdentifier ?? "chat.message.text.\(message.id.wire)",
                                         assistant: message.payload.role == .assistant, onQuote: quoteHandler, onCite: citeHandler)
                     }
                     if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
@@ -219,7 +228,7 @@ private struct TranscriptMessage: View {
                         .accessibilityLabel(Text(verbatim: "Answered with \(answeredBy)"))
                         .accessibilityIdentifier("chat.message.answeredBy.\(message.payload.entityID.wire)")
                 }
-                if let diagram, !streaming, diagram.isFigureParts, let inline = inlineParts {
+                if let diagram, !streaming, diagram.isFigureParts, let inline = parts {
                     // The crops are in the answer; under it, the whole figure with its parts outlined (a tap opens them all).
                     FigurePartsOverview(stored: inline.stored, image: inline.image, fontSize: fontSize) { openDiagram(diagram.id) }
                         .accessibilityIdentifier("chat.message.figureParts.\(message.payload.entityID.wire)")
@@ -279,7 +288,7 @@ private struct TranscriptMessage: View {
             .background(message.payload.role == .user ? Color.accentColor.opacity(0.13) : Color.clear, in: RoundedRectangle(cornerRadius: 14))
             .accessibilityElement(children: .contain)
         }
-        .padding(.horizontal, 16).padding(.top, first ? 16 : 0).padding(.bottom, last ? 24 : 20)
+        .padding(.horizontal, horizontalInset).padding(.top, first ? 16 : 0).padding(.bottom, last ? 24 : 20)
         .frame(maxWidth: 720).frame(maxWidth: .infinity)
         .accessibilityIdentifier("chat.message.\(message.id.wire)")
     }
@@ -301,6 +310,7 @@ private struct TranscriptMessage: View {
     /// An answer's `[¶N]` citations open that block of the paper (not while streaming); a question's marker too.
     private var citeHandler: ChatCiteHandler? {
         guard !(message.payload.role == .assistant && streaming), let model = papers?.model else { return nil }
+        if let cite { return cite }
         return { marker in model.goToCitedBlock(marker) }
     }
 }

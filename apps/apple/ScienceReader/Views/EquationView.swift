@@ -625,13 +625,13 @@ struct ContextualConversationScroll<Content: View>: View {
                 }
                 // Native attributed text can finish its layout after the final stream event.
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                    if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatTranscriptMessages.isEmpty {
+                    if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatIsEmpty {
                         proxy.scrollTo(bottom, anchor: .bottom)
                     }
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatTranscriptMessages.isEmpty {
+                if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatIsEmpty {
                     proxy.scrollTo(bottom, anchor: .bottom)
                 }
             }
@@ -646,7 +646,7 @@ struct ContextualConversationScroll<Content: View>: View {
                 if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)) { proxy.scrollTo(bottom, anchor: .bottom) }
             }
             .onAppear {
-                if (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatTranscriptMessages.isEmpty { proxy.scrollTo(bottom, anchor: .bottom) }
+                if (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatIsEmpty { proxy.scrollTo(bottom, anchor: .bottom) }
             }
         }
     }

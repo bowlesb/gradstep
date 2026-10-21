@@ -167,6 +167,30 @@ struct ChatWorkspace {
         }
     }
 
+    /// What the chat screens show apart from draft text: each context's composer, the composers' conversations, saves and
+    /// discards in progress, saved/failed marks, a draft save failure and the branch each follows. Typing changes none of
+    /// it, so it is observed apart from the text (NATIVE_REVIEW_20261021 C6).
+    struct Shape: Equatable {
+        fileprivate struct Composer: Equatable {
+            let conversation: UUID?, pendingConversation: UUID?, selectedHead: UUID?
+            let submitting: Bool, discarding: Bool, saved: Bool, failed: Bool, failure: String?
+        }
+        fileprivate let selection: [String: UUID]
+        fileprivate let composers: [UUID: Composer]
+        fileprivate let conversationComposers: [UUID: UUID]
+        fileprivate let deleted: Set<UUID>
+    }
+    var shape: Shape {
+        Shape(selection: selection, composers: composers.mapValues { c in
+            // As `draftStatus`: a failure counts while nothing newer is being saved or typed.
+            let failure = c.tracksCheckpoints && c.checkpointAttempt?.revision != c.checkpointRevision
+                ? c.checkpointFailure.flatMap { $0.revision == c.checkpointRevision ? $0.message : nil } : nil
+            return Shape.Composer(conversation: c.conversationID, pendingConversation: c.pendingConversation, selectedHead: c.selectedHead,
+                                  submitting: c.pending != nil, discarding: c.discardAttempt != nil, saved: c.saved, failed: c.failed,
+                                  failure: failure)
+        }, conversationComposers: conversationComposers, deleted: deletedConversations)
+    }
+
     var unsentDrafts: [UnsentDraft] {
         composers.compactMap { id, composer -> UnsentDraft? in
             let displaced = composer.conversationID.map { conversationComposers[$0] != id || deletedConversations.contains($0) } ?? true

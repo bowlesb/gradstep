@@ -1016,84 +1016,15 @@ struct ChatView: View {
         // stays hit-testable even then: without a background, iPad's taps on the message box fell through to the
         // transcript beneath and the box never took the focus.
         .background {
-            if model.chatTranscriptMessages.isEmpty { Color.black.opacity(0.001) }
+            if model.chatIsEmpty { Color.black.opacity(0.001) }
             else { ChromeFade(edge: .bottom, color: .chromeBackground, solid: false) }
         }
     }
 
-    /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
-    /// trailing edge. While the keyboard is up on iPhone a way to put it away sits inside at the leading
-    /// edge, where Gemini has its +. Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly
-    /// to the right side"); Answer options are in the chat's ⋯ menu.
-    @ViewBuilder private func composer(compact: Bool) -> some View {
-        let keyboardUp = composerFocused && UIDevice.current.userInterfaceIdiom == .phone
-        let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
-        VStack(alignment: .leading, spacing: 2) {
-            TextField(prompt, text: $model.chatInput, axis: .vertical)
-                .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true }
-                .task {
-                    if model.takeComposerFocusRequest() {
-                        // Let the field mount, without imposing a fixed delay on every new chat destination.
-                        await Task.yield()
-                        if !Task.isCancelled { composerFocused = true }
-                    }
-                }
-                .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 5)
-            HStack(spacing: 4) {
-                AISelectionButton(model: model).padding(.leading, 14)
-                Spacer(minLength: 0)
-                Button { model.showAnswerOptions = true } label: {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 18)).foregroundStyle(.secondary)
-                        .frame(width: 38, height: 40).contentShape(Circle())
-                }.buttonStyle(.plain).accessibilityLabel("Answer options").accessibilityIdentifier("chat.composerOptions")
-                if keyboardUp {
-                    Button { composerFocused = false } label: {
-                        Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 16)).foregroundStyle(.secondary)
-                            .frame(width: 38, height: 40).contentShape(Circle())
-                    }.buttonStyle(.plain).accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
-                        .keyboardShortcut(.cancelAction)
-                }
-                ChatDictationButton(model: model)
-                sendButton
-            }
-        }
-        .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
-    }
-
-    private var sendButton: some View {
-        Group {
-            if model.isAnswering {
-                Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
-                    .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
-            } else {
-                Button { send() } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: !sendDisabled) }
-                    .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
-                    // Mac: ⌘Return sends; Return starts a new line, as on iPad (and input methods keep Return).
-                    .macKeyboardShortcut(.return, modifiers: .command)
-            }
-        }.buttonStyle(.plain).padding(3)
-    }
-
-    private func send() {
-        // Mac (⌘Return): the composer ends editing first, so it can't write the sent text back afterwards;
-        // then it takes the focus again for the next question.
-        guard Platform.isMac, composerFocused else { Task { await model.sendMessage() }; return }
-        composerFocused = false
-        Task {
-            try? await Task.sleep(for: .milliseconds(60))
-            await model.sendMessage()
-        }
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            composerFocused = true
-        }
-    }
-
-    private var sendDisabled: Bool {
-        model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete
-            || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// The message box, a view of its own: the only part of the chat screen that reads the draft, so typing re-renders
+    /// it alone (NATIVE_REVIEW_20261021 C6).
+    private func composer(compact: Bool) -> some View {
+        ChatComposerBox(model: model, focused: $composerFocused, compact: compact)
     }
 
     /// Paper chat or General chat (owner feedback, build 14: "the paper vs general option needs to be in a menu …
@@ -1907,5 +1838,86 @@ private struct BannerInset: ViewModifier {
     let fullWidth: Bool
     func body(content: Content) -> some View {
         if !inset { content } else if fullWidth { content.padding(.horizontal, DesignMetrics.margin) } else { content.readableColumn() }
+    }
+}
+
+/// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
+/// trailing edge. While the keyboard is up on iPhone a way to put it away sits inside at the leading
+/// edge, where Gemini has its +. Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly
+/// to the right side"); Answer options are in the chat's ⋯ menu.
+private struct ChatComposerBox: View {
+    @Bindable var model: ReaderModel
+    var focused: FocusState<Bool>.Binding
+    let compact: Bool
+
+    var body: some View {
+        let keyboardUp = focused.wrappedValue && UIDevice.current.userInterfaceIdiom == .phone
+        let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
+        VStack(alignment: .leading, spacing: 2) {
+            TextField(prompt, text: $model.chatInput, axis: .vertical)
+                .focused(focused).accessibilityIdentifier("chat.composer")
+                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); focused.wrappedValue = true }
+                .task {
+                    if model.takeComposerFocusRequest() {
+                        // Let the field mount, without imposing a fixed delay on every new chat destination.
+                        await Task.yield()
+                        if !Task.isCancelled { focused.wrappedValue = true }
+                    }
+                }
+                .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 5)
+            HStack(spacing: 4) {
+                AISelectionButton(model: model).padding(.leading, 14)
+                Spacer(minLength: 0)
+                Button { model.showAnswerOptions = true } label: {
+                    Image(systemName: "slider.horizontal.3").font(.system(size: 18)).foregroundStyle(.secondary)
+                        .frame(width: 38, height: 40).contentShape(Circle())
+                }.buttonStyle(.plain).accessibilityLabel("Answer options").accessibilityIdentifier("chat.composerOptions")
+                if keyboardUp {
+                    Button { focused.wrappedValue = false } label: {
+                        Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 16)).foregroundStyle(.secondary)
+                            .frame(width: 38, height: 40).contentShape(Circle())
+                    }.buttonStyle(.plain).accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
+                        .keyboardShortcut(.cancelAction)
+                }
+                ChatDictationButton(model: model)
+                sendButton
+            }
+        }
+        .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
+    }
+
+    private var sendButton: some View {
+        Group {
+            if model.isAnswering {
+                Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
+                    .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
+            } else {
+                Button { send() } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: !sendDisabled) }
+                    .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
+                    // ⌘Return sends (Mac and an iPad keyboard); Return starts a new line (and input methods keep Return).
+                    .keyboardShortcut(.return, modifiers: .command)
+            }
+        }.buttonStyle(.plain).padding(3)
+    }
+
+    private func send() {
+        // Mac (⌘Return): the composer ends editing first, so it can't write the sent text back afterwards;
+        // then it takes the focus again for the next question.
+        guard Platform.isMac, focused.wrappedValue else { Task { await model.sendMessage() }; return }
+        focused.wrappedValue = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(60))
+            await model.sendMessage()
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            focused.wrappedValue = true
+        }
+    }
+
+    private var sendDisabled: Bool {
+        model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete
+            || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

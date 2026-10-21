@@ -21,6 +21,19 @@ import Testing
         #expect(own.id == "F1" && own.paragraph == 6)
     }
 
+    /// C9: the figure view's single, off-main decode shows the composed figure and sends exactly the image chat sends.
+    @Test func theOnceDecodedFigureSendsWhatChatSends() async throws {
+        let bundle = try bundle()
+        for figure in bundle.index.figures {
+            let prepared = await Task.detached { ChatFigureFinder.prepared(figure, bundle: bundle) }.value
+            #expect(prepared.sent == ChatFigureFinder.image(for: figure, bundle: bundle))
+            let paths = Array(figure.assetPaths.prefix(ChatFigureFinder.maximumPanels))
+            let panels = paths.compactMap { bundle.data(for: $0).flatMap(ChatFigureFinder.image) }
+            let shown = panels.count == paths.count ? ChatFigureFinder.composite(panels) : nil
+            #expect(prepared.image?.width == shown?.width && prepared.image?.height == shown?.height)
+        }
+    }
+
     /// Owner, build 62: AI Explainer asks for the walkthrough; a figure switched to from the explainer's heading shows what
     /// is kept and waits for AI Explainer (nothing is asked unasked).
     @Test func aFigureSwitchedToWaitsForAIExplainer() async throws {

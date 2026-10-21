@@ -625,16 +625,35 @@ final class ReaderModel {
     var message = ""
     var generalChat = true
     var chatPaperID: UUID?
-    private var chatWorkspace = ChatWorkspace()
+    /// The composers. Typing changes only draft text and its save bookkeeping, which the chat screen and transcript
+    /// don't show: those changes notify `chatInput`'s readers (the message box, unsent drafts), and the workspace's other
+    /// readers only when its `Shape` changed. Every other change notifies both (NATIVE_REVIEW_20261021 C6).
+    @ObservationIgnored private var storedChatWorkspace = ChatWorkspace()
+    private var chatWorkspace: ChatWorkspace {
+        get { access(keyPath: \.chatWorkspace); return storedChatWorkspace }
+        set { withMutation(keyPath: \.chatWorkspace) { withMutation(keyPath: \.chatInput) { storedChatWorkspace = newValue } } }
+    }
+    /// A change typing makes (the draft, its branch, its save): heard by the workspace's readers only if its shape changed.
+    /// `change` must not read the model (the workspace is being mutated).
+    private func updateDraftQuietly(_ change: (inout ChatWorkspace) -> Void) {
+        let before = storedChatWorkspace.shape
+        withMutation(keyPath: \.chatInput) { change(&storedChatWorkspace) }
+        if storedChatWorkspace.shape != before { withMutation(keyPath: \.chatWorkspace) {} }
+    }
     private var contextualChat: ContextualChatBinding?
     private var contextualComposers: [String: UUID] = [:]
     private var branchSelections = ConversationBranchSelections()
     private(set) var chatFollowRequest: ChatFollowRequest?
     private var chatContext: String { generalChat ? "general" : "paper/\((chatPaperID ?? selectedPaper?.id)?.wire ?? "none")" }
     var chatInput: String {
-        get { chatWorkspace.draft(in: chatContext) }
+        get {
+            let context = chatContext
+            access(keyPath: \.chatInput)
+            return storedChatWorkspace.draft(in: context)
+        }
         set {
-            chatWorkspace.setDraft(newValue, in: chatContext)
+            let context = chatContext
+            updateDraftQuietly { $0.setDraft(newValue, in: context) }
             recordCurrentDraftBranch()
             if let chatComposerID { queueDraft(chatComposerID) }
         }
@@ -649,7 +668,8 @@ final class ReaderModel {
         }
     }
     var chatComposerID: UUID? { chatWorkspace.composerID(in: chatContext) }
-    var unsentDrafts: [ChatWorkspace.UnsentDraft] { chatWorkspace.unsentDrafts }
+    /// Shows draft text, so it is also heard when typing changes it (`chatInput`).
+    var unsentDrafts: [ChatWorkspace.UnsentDraft] { access(keyPath: \.chatInput); return chatWorkspace.unsentDrafts }
     var chatHasSaved: Bool { chatWorkspace.hasSaved(in: chatContext) }
     var chatDraftStatus: ChatWorkspace.DraftStatus { chatWorkspace.draftStatus(in: chatContext) }
     var draftsArePersistent: Bool { draftQueue != nil }
@@ -2164,7 +2184,7 @@ final class ReaderModel {
         readerUpdates = [:]; failedHTMLOpens = []; legacyBundleFallback = []; finishedImportSources = []
         cancelDeviceModelReading(); deviceModelIssue = nil; deviceModelSummaries = [:]; deviceModelHTMLBundles = [:]
         chatProfileFetch = nil; chatProfilesRefreshing = false; chatProfileTable = nil; chatProfileTableFailed = false
-        pendingChatProfiles = [:]; chatStudyMaps = [:]; chatFollowUps = [:]
+        pendingChatProfiles = [:]; chatStudyMaps = [:]; chatFollowUps = [:]; figureImageCache.removeAllObjects()
         let oldLibrary = libraryService; libraryService = nil; libraryContextAuthenticated = false
         Task { await oldLibrary?.invalidate() }
         libraryImports = []; libraryCreationSequences = [:]; presentedImportIDs = []; libraryPublicationGeneration = 0
@@ -3103,11 +3123,21 @@ final class ReaderModel {
 
     /// A figure's image from a paper whose bundle is open on this device (figure parts crop it).
     func figureImage(manifest: String, paths: [String]) -> CGImage? {
+        // Every render of a figure-parts answer asks (each sync, each library change): decoding and composing up to
+        // 40 MP happens once per figure while it stays in this bounded cache (C8).
+        let key = ([manifest] + paths).joined(separator: "\n") as NSString
+        if let cached = figureImageCache.object(forKey: key) { return cached }
         guard let bundle = papers.first(where: { $0.readerBundle?.manifestSHA256 == manifest })?.readerBundle else { return nil }
         // Several panels: composed exactly as they were sent, so the parts' boxes land on the same places.
         let images = paths.compactMap { bundle.data(for: $0).flatMap(ChatFigureFinder.image) }
-        return images.count == paths.count ? ChatFigureFinder.composite(images) : nil
+        guard images.count == paths.count, let composed = ChatFigureFinder.composite(images) else { return nil }
+        figureImageCache.setObject(composed, forKey: key, cost: composed.bytesPerRow * composed.height)
+        return composed
     }
+    /// Composed figure images by manifest and panels; at most 96 MB of pixels, emptied on account changes.
+    @ObservationIgnored private let figureImageCache: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>(); cache.totalCostLimit = 96 << 20; return cache
+    }()
 
     /// `userInitiated`: the reader opened the paper, asked about it or chose Try again. A sync or an activation reopening the
     /// selected paper never retries a preparation that failed (build 62: MLExpert "keeps trying to Download repeatedly
@@ -3861,6 +3891,9 @@ final class ReaderModel {
         return generation
     }
     var chatStreamingMessageID: UUID? { visibleGeneration?.assistantID }
+    /// Nothing in the shown conversation yet: `chatTranscriptMessages.isEmpty` without reading the streaming text, so a
+    /// view asking only this isn't re-rendered on every flush of an answer (C7).
+    var chatIsEmpty: Bool { chatMessages.isEmpty && visibleGeneration == nil && visibleUnsavedAnswer == nil }
     /// Follow-up questions offered under the shown conversation's newest answer (none while an answer streams).
     var chatFollowUpQuestions: [String] {
         guard visibleGeneration == nil, let composer = chatComposerID, let offered = chatFollowUps[composer],
@@ -4396,8 +4429,9 @@ final class ReaderModel {
                 switch event {
                 case .delta(let piece):
                     text += piece
-                    // Text resumed: the server's status line has done its job.
-                    if piece.contains(where: { !$0.isWhitespace }) { chatStreamProgress[generation.id] = nil }
+                    // Text resumed: the server's status line has done its job. Written only when there is one: every write
+                    // (nil over nil too) re-renders the transcript, per token (C7).
+                    if chatStreamProgress[generation.id] != nil, piece.contains(where: { !$0.isWhitespace }) { chatStreamProgress[generation.id] = nil }
                     bufferAnswer(generation, text: text)
                 case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
@@ -4418,7 +4452,9 @@ final class ReaderModel {
             return true
         }
         func run(_ request: ChatGenerationRequest) async -> Bool {
-            chatGenerations[generation.turn.composerID]?.operationID = request.operationID
+            if chatGenerations[generation.turn.composerID]?.operationID != request.operationID {
+                chatGenerations[generation.turn.composerID]?.operationID = request.operationID
+            }
             do {
                 guard try await consume(try await transport.chatStream(request, accountID: generation.turn.accountID)) else { return false }
             } catch ChatTransportError.rejected(let code) {
@@ -4946,17 +4982,18 @@ final class ReaderModel {
             self.pendingDraftCheckpoints.removeValue(forKey: requested.id)
             switch result {
             case .success(let stored):
-                self.chatWorkspace.acknowledge(checkpoint, stored: stored)
+                self.updateDraftQuietly { $0.acknowledge(checkpoint, stored: stored) }
                 if self.chatWorkspace.checkpoint(for: requested.id) != stored { self.queueDraft(requested.id) }
             case .failure:
-                self.chatWorkspace.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.")
+                self.updateDraftQuietly { $0.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.") }
             }
         }
     }
 
     private func recordCurrentDraftBranch(explicit: Bool = false) {
         guard let id = chatComposerID else { return }
-        chatWorkspace.recordSelectedHead(activeBranchID, for: id, explicit: explicit)
+        let head = activeBranchID
+        updateDraftQuietly { _ = $0.recordSelectedHead(head, for: id, explicit: explicit) }
     }
 
     private func checkpointObservedBranches() {
@@ -4969,12 +5006,15 @@ final class ReaderModel {
     }
 
     private func queueDraft(_ id: UUID) {
-        guard let draftQueue, let checkpoint = chatWorkspace.beginCheckpoint(for: id) else { return }
+        guard let draftQueue else { return }
+        var started: ChatWorkspace.Checkpoint?
+        updateDraftQuietly { started = $0.beginCheckpoint(for: id) }
+        guard let checkpoint = started else { return }
         pendingDraftCheckpoints[id] = checkpoint
         do { try draftQueue.save(checkpoint.draft) }
         catch {
             pendingDraftCheckpoints.removeValue(forKey: id)
-            chatWorkspace.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.")
+            updateDraftQuietly { $0.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.") }
         }
     }
 

@@ -615,6 +615,37 @@ final class ChatGenerationTests: XCTestCase {
         try await waitUntil("finished again") { !model.isAnswering }
     }
 
+    /// C6: a keystroke (and its draft save finishing) is heard by what shows the draft, not by the conversation's views
+    /// (transcript, title, branch), which used to re-render on every character.
+    func testTypingIsHeardByTheMessageBoxOnly() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatInput = "Why scale"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.delta("Scaling keeps logits bounded."), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        model.chatInput = "And"
+        await model.flushDrafts()
+        final class Flags: @unchecked Sendable { var conversation = false; var draft = false }
+        let flags = Flags()
+        withObservationTracking {
+            _ = model.chatTranscriptMessages; _ = model.activeConversation; _ = model.chatTitle; _ = model.chatBranches
+            _ = model.isGenerating; _ = model.chatDraftIssue
+        } onChange: { flags.conversation = true }
+        withObservationTracking { _ = model.chatInput } onChange: { flags.draft = true }
+        model.chatInput = "And without"
+        XCTAssertTrue(flags.draft, "The message box hears the keystroke")
+        await model.flushDrafts()
+        XCTAssertFalse(flags.conversation, "The transcript, title and controls aren't told about a keystroke or its save")
+        XCTAssertEqual(model.chatInput, "And without")
+        // Sending is structural: the conversation's views hear it.
+        await model.sendMessage()
+        XCTAssertTrue(flags.conversation)
+        try await waitUntil("second request") { transport.requests.count == 2 }
+        transport.send(.done(stopReason: "end_turn", credits: 0))
+        try await waitUntil("finished") { !model.isAnswering }
+    }
+
     /// A9: closing an equation/figure sheet while its chat answer arrives isn't the reader's Stop: no Stop is recorded
     /// (it would be charged for the part written) and the answer finishes and is saved in that conversation.
     func testClosingAContextualChatLetsItsAnswerFinishWithoutAStop() async throws {

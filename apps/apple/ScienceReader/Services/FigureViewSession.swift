@@ -160,10 +160,9 @@ enum FigureViewOutcome {
                                    width: prepared.width, height: prepared.height, blockID: context.figureID, assetPath: "")
         } else {
             guard let figure = bundle.index.figures.first(where: { $0.id == context.figureID }) else { return }
-            let paths = Array(figure.assetPaths.prefix(ChatFigureFinder.maximumPanels))
-            let images = paths.compactMap { bundle.data(for: $0).flatMap(ChatFigureFinder.image) }
-            image = images.count == paths.count ? ChatFigureFinder.composite(images) : nil
-            sent = ChatFigureFinder.image(for: figure, bundle: bundle)
+            // Up to four full-size panels and a composite of up to 40 MP: decoded once, off the main actor.
+            let prepared = await Task.detached(priority: .userInitiated) { ChatFigureFinder.prepared(figure, bundle: bundle) }.value
+            image = prepared.image; sent = prepared.sent
         }
     }
 
