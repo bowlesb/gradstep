@@ -137,16 +137,29 @@ export async function closePodcastWork(service: SupabaseClient, accountID: strin
 }
 
 /** Finishes deletions left incomplete (login still linked, rows written in a
- * race, files not removed). Run by the paper worker on every invocation. */
+ * race, files not removed). Run by the paper worker on every invocation. Each
+ * outcome is reported (migration 128): a failure backs the account off, so one
+ * that cannot finish never holds every slot, and a stall reaches Health. */
 export async function sweepAccountDeletions(service: SupabaseClient, log: (fields: Record<string, unknown>) => void): Promise<void> {
   const pending = await service.rpc('worker_account_deletions_pending', { p_limit: 3 });
   if (pending.error || !Array.isArray(pending.data)) return;
   for (const accountID of pending.data as string[]) {
     await closePodcastWork(service, accountID);
     const begun = await service.rpc('worker_delete_account_begin', { p_account_id: accountID });
-    if (begun.error) { log({ event: 'account_deletion_sweep_failed', account_id: accountID, step: 'begin' }); continue; }
+    if (begun.error) {
+      log({ event: 'account_deletion_sweep_failed', account_id: accountID, step: 'begin' });
+      await reportSweep(service, accountID, false, 'begin', begun.error.message === 'account_busy' ? 'account_busy' : 'begin_failed');
+      continue;
+    }
     const outcome = await completeAccountDeletion(service, accountID, begun.data);
     log({ event: outcome.complete ? 'account_deletion_swept' : 'account_deletion_sweep_failed', account_id: accountID, step: outcome.step,
       ...(outcome.code ? { code: outcome.code } : {}) });
+    await reportSweep(service, accountID, outcome.complete, outcome.complete ? null : outcome.step ?? null, outcome.code ?? null);
   }
+}
+
+/** Best effort: a database before migration 128 has no such function, and the sweep proceeds as before. */
+async function reportSweep(service: SupabaseClient, accountID: string, complete: boolean, step: string | null, code: string | null): Promise<void> {
+  try { await service.rpc('worker_account_deletion_attempt', { p_account_id: accountID, p_complete: complete, p_step: step, p_code: code }); }
+  catch { /* the next sweep tries again */ }
 }

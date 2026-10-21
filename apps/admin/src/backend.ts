@@ -182,6 +182,9 @@ export interface Health {
   /** Migration 084: requests a provider refused for the account's own balance (Anthropic "credit balance is too low",
    * DeepSeek 402), last hour and day. Absent on older servers. */
   provider_billing?: { last_hour: number; last_24h: number; last_at: string | null; by_provider: Record<string, number> };
+  /** Migration 128 (PRIVACY_AND_SYNC.md, review A22): closed accounts still holding personal rows, a login or files; `stalled`
+   * is over 30 days after closing. Counts and one failure code only. Absent on older servers. */
+  account_deletions?: { unfinished: number; retrying: number; stalled: number; oldest_closed_at: string | null; top_code: string | null };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

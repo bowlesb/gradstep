@@ -18,6 +18,8 @@ export interface AccountsApi {
   addTester(email: string, credits: number): Promise<AddTesterResult>;
   grant(accountID: string, credits: number, reason: string): Promise<{ credits: number; replayed: boolean }>;
   setSignIn(accountID: string, disabled: boolean, reason: string): Promise<{ disabled: boolean }>;
+  /** Withdraws an address's invitation (migration 127): no new account can be created with it. */
+  revokeAdmission(email: string, reason: string): Promise<{ existing_login: boolean }>;
 }
 
 export const MAX_GRANT = 2000;
@@ -32,6 +34,7 @@ export function liveAccountsApi(ownerID: string): AccountsApi {
       request_id => adminAccounts({ action: 'grant_credits', request_id, account_id, credits, reason })),
     setSignIn: (account_id, disabled, reason) => once(ownerID, 'admin-sign-in', { account_id, disabled, reason },
       request_id => adminAccounts({ action: 'set_sign_in', request_id, account_id, disabled, reason })),
+    revokeAdmission: (email, reason) => adminAccounts({ action: 'revoke_admission', email, reason }),
   };
 }
 
@@ -118,6 +121,7 @@ export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: numb
       {!list && loading && <p className="empty" role="status">Loading accounts…</p>}
       <p className="footnote">Test accounts (<code>@example.invalid</code>) are synthetic logins created by automated checks. Credits are those available now; held credits belong to work in progress. Deleting an account stays in the app (Settings › Delete account).</p>
     </section>
+    <WithdrawInvitation revoke={api.revokeAdmission} />
     {dialog?.kind === 'grant' && <GrantDialog account={dialog.account} onCancel={() => setDialog(null)}
       onGrant={async (credits, reason) => { const r = await api.grant(dialog.account.id, credits, reason); await done(`${r.replayed ? 'Already granted' : 'Granted'} ${plural(r.credits, 'credit')} to ${label(dialog.account)}.`); }} />}
     {(dialog?.kind === 'disable' || dialog?.kind === 'enable') && <SignInDialog account={dialog.account} disable={dialog.kind === 'disable'} onCancel={() => setDialog(null)}
@@ -151,6 +155,32 @@ function AddTester({ add, onAdded, added }: { add: AccountsApi['addTester']; onA
     {error && <p className="error" role="alert">{error}</p>}
     {added && <AddedTester result={added} />}
     {confirming && <ConfirmAdd email={email.trim()} credits={amount} onCancel={() => setConfirming(false)} onConfirm={submit} />}
+  </section>;
+}
+
+/** An invitation outlives a deleted account (migration 091); this withdraws one, for example a mistyped address or a
+ * tester who left. It never signs out a current login: Disable sign-in does that. */
+function WithdrawInvitation({ revoke }: { revoke: AccountsApi['revokeAdmission'] }) {
+  const [email, setEmail] = useState(''); const [reason, setReason] = useState(''); const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const valid = /\S+@\S+\.\S+/.test(email.trim()) && reason.trim().length >= 3;
+  return <section className="panel" aria-labelledby="withdraw-title">
+    <h2 id="withdraw-title">Withdraw an invitation</h2>
+    <p className="muted">No new account can then be created with this address, even after its account was deleted. Adding the tester again restores it. A current sign-in is stopped with Disable.</p>
+    <form className="inline-form" onSubmit={event => {
+      event.preventDefault(); if (!valid || busy) return; setNotice(''); setError(''); setBusy(true);
+      const address = email.trim();
+      void revoke(address, reason.trim()).then(r => {
+        setNotice(r.existing_login ? `Withdrawn. ${address} still has an account: disable its sign-in to stop it.` : `Withdrawn for ${address}.`);
+        setEmail(''); setReason('');
+      }, (e: unknown) => setError((e as Error).message)).finally(() => setBusy(false));
+    }}>
+      <label className="grow">Email<input type="email" required maxLength={254} autoComplete="off" spellCheck={false} value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.org" /></label>
+      <label className="grow">Reason<input required minLength={3} maxLength={500} value={reason} onChange={e => setReason(e.target.value)} placeholder="Recorded in the audit log; no personal details" /></label>
+      <button className="danger" disabled={busy || !valid}>{busy ? 'Withdrawing…' : 'Withdraw'}</button>
+    </form>
+    {notice && <p className="notice success" role="status"><span aria-hidden="true">✓</span>{notice}</p>}
+    {error && <p className="error" role="alert">{error}</p>}
   </section>;
 }
 
