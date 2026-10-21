@@ -12,7 +12,7 @@ import { arxivReference } from './arxiv.ts';
 import { isArxivHost } from './egress.ts';
 import { openAlexCandidates, type OpenAlexCandidate } from './discover.ts';
 import { checkHost, declaredURL, landingPagePDF, publicHTTPS, refusal, WEB_USER_AGENT, type ResolveHost } from './web-source.ts';
-import { readJSONCapped } from './http.ts';
+import { readJSONCapped } from './bounded-json.ts';
 
 const MAILTO = 'hello@gradstep.ai';
 /** What a reader may type: bounded like a reference. */

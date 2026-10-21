@@ -1,7 +1,7 @@
 // Host resolution for Edge functions that fetch reader-supplied or third-party links: the runtime
 // resolver, else DNS over HTTPS. Throws (the hop is refused) when neither answers. Same behaviour as
 // the paper worker's resolver; every address must then be public (web-source `checkHost`).
-import { readJSONCapped } from './http.ts';
+import { readJSONCapped } from './bounded-json.ts';
 
 export async function edgeResolveHost(host: string): Promise<string[]> {
   const resolveDns = (Deno as { resolveDns?: typeof Deno.resolveDns }).resolveDns;

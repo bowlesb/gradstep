@@ -5,7 +5,8 @@
 import { installEgressGuard } from '../_shared/egress.ts';
 import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
-import { PublicError, readRequestJSON } from '../_shared/http.ts';
+import { PublicError } from '../_shared/http.ts';
+import { readRequestJSON } from '../_shared/bounded-json.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { addPaper } from '../_shared/add-paper.ts';

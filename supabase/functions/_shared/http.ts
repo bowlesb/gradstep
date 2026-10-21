@@ -32,39 +32,6 @@ export async function readBounded(request: Request, maximum: number): Promise<Ui
   } finally { if (timer) clearTimeout(timer); reader.releaseLock(); }
 }
 
-/** A small JSON request body (add-paper, add-reference): at most `maximum` bytes whether or not the client declared a
- * length, read before anything is parsed (review A24). Oversize answers 413, anything unreadable 400, both `invalid_request`. */
-export async function readRequestJSON(request: Request, maximum: number): Promise<unknown> {
-  let bytes: Uint8Array;
-  try { bytes = await readBounded(request, maximum); }
-  catch (error) { throw new PublicError(error instanceof PublicError && error.status === 413 ? 413 : 400, 'invalid_request'); }
-  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
-  catch { throw new PublicError(400, 'invalid_request'); }
-}
-
-/** A third party's JSON answer (OpenAlex, Crossref, DNS over HTTPS), read up to `maximum` bytes, declared or streamed
- * (review A24). Throws on a larger or unparsable body; the caller treats that like any failed lookup. */
-export async function readJSONCapped(response: Response, maximum: number): Promise<unknown> {
-  const declared = response.headers.get('content-length');
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) {
-    await response.body?.cancel().catch(() => {}); throw new Error('response_too_large');
-  }
-  if (!response.body) throw new Error('response_empty');
-  const reader = response.body.getReader(); const parts: Uint8Array[] = []; let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maximum) { await reader.cancel().catch(() => {}); throw new Error('response_too_large'); }
-      parts.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size); let offset = 0;
-  for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
-  return JSON.parse(new TextDecoder().decode(bytes));
-}
-
 export async function sha256(bytes: Uint8Array): Promise<string> {
   const owned = new Uint8Array(bytes);
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', owned)), b => b.toString(16).padStart(2, '0')).join('');

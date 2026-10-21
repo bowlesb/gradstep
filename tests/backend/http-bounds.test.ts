@@ -2,7 +2,8 @@
 // without a declared length; a link whose name turns private after the first check is refused before it is used.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PublicError, readJSONCapped, readRequestJSON } from '../../supabase/functions/_shared/http.ts';
+import { PublicError } from '../../supabase/functions/_shared/http.ts';
+import { readJSONCapped, readRequestJSON } from '../../supabase/functions/_shared/bounded-json.ts';
 import { handlePodcast, type PodcastAPIDeps } from '../../supabase/functions/_shared/podcast-api.ts';
 import { probeLink } from '../../supabase/functions/_shared/identify.ts';
 

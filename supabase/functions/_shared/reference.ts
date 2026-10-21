@@ -6,7 +6,7 @@
 import type { FindResult, FoundPaper } from './chat.ts';
 import { dataciteIDURL, lookupDataCite, openAlexCandidates, titleWords, type DiscoveryResult } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
-import { readJSONCapped } from './http.ts';
+import { readJSONCapped } from './bounded-json.ts';
 
 export const MAX_REFERENCE_CHARS = 2_000;
 const MAILTO = 'hello@gradstep.ai';

@@ -10,7 +10,7 @@ import type { FindResult, FoundPaper, PaperRequest } from './chat.ts';
 import { arxivReference } from './arxiv.ts';
 import { dataciteIDURL, dataciteTitleURLs, lookupDataCite, matchPaper, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
-import { readJSONCapped } from './http.ts';
+import { readJSONCapped } from './bounded-json.ts';
 /** An OpenAlex search answer (10 works, selected fields) is tens of kilobytes; refuse anything far larger (review A24). */
 const OPENALEX_MAX_BYTES = 2 * 1024 * 1024;
 import type { SearchInput, SearchOutcome } from './tavily.ts';
