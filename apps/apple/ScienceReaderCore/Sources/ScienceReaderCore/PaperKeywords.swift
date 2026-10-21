@@ -5,10 +5,16 @@ public enum PaperKeywords {
     public static func allowed(_ name: String) -> Bool {
         !["artificial intelligence", "machine learning", "ai", "ml", "statistical ml"].contains(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
+    /// Specific enough to tell this paper from others (owner, builds 70 and 75): not AI/ML and not one of the generic
+    /// keywords such as LLM, Large language models, Reasoning or Evaluation. Derived keywords and catalog tags use it;
+    /// a tag the reader typed only has to be `allowed`.
+    public static func distinctive(_ name: String) -> Bool {
+        allowed(name) && !TagVocabulary.generic.contains(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
     public static func derive(title: String, abstract: String, text: String = "") -> [String] {
         func normalized(_ s: String) -> String { " " + s.lowercased().replacingOccurrences(of: "-", with: " ").split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ") + " " }
         let heading = normalized(title), summary = normalized(abstract), body = normalized(String(text.prefix(500_000)))
-        var ranked: [(String, Int)] = TagVocabulary.tags.filter { $0.kind == .topic && allowed($0.name) }.compactMap { tag in
+        var ranked: [(String, Int)] = TagVocabulary.tags.filter { $0.kind == .topic && distinctive($0.name) }.compactMap { tag in
             let term = normalized(tag.name)
             let singular = term.hasSuffix("s ") ? String(term.dropLast(2)) + " " : term
             func has(_ value: String) -> Bool { value.contains(term) || value.contains(singular) }
@@ -18,7 +24,7 @@ public enum PaperKeywords {
         // A named method/dataset from the title is useful even when newer than our vocabulary.
         for raw in title.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "-" }) {
             let word = String(raw)
-            if word.count >= 3 && word.count <= 32 && word.filter(\.isUppercase).count >= 2 && allowed(word) {
+            if word.count >= 3 && word.count <= 32 && word.filter(\.isUppercase).count >= 2 && distinctive(word) {
                 ranked.append((word, 25))
             }
         }

@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { decodeEntry, type Item } from '../src/lib/library';
-import { effectiveTags, rows } from '../src/lib/paper';
+import { deriveKeywords, effectiveTags, rows } from '../src/lib/paper';
 import { containsTag, editedTags, normalizeTag, ownTagsInLibrary, tagSuggestions, validTags } from '../src/lib/paper-tags';
 
 const item = (extra: Partial<Item> = {}): Item => ({ kind: 'item', id: 'aaaaaaaa-0000-4000-8000-000000000001', document_id: 'dddddddd-0000-4000-8000-000000000001',
   created_seq: 1, state_seq: 1, membership_revision: 1, visible: true, added_at: 0, last_remove_seq: 0, scope: 'shared_catalog', page_count: 1, readiness: 'unverified', ...extra });
 
 describe('native paper tag parity', () => {
+  it('derives specific keywords, never the generic ones (builds 70 and 75; PaperDiscoveryTests.genericKeywordsNeverDescribeAPaper)', () => {
+    const tags = deriveKeywords('Interactive Learning for LLM Reasoning with TreeCut',
+      'Large language models show strong reasoning. We evaluate mathematical reasoning and tool use on a benchmark.');
+    for (const generic of ['LLM', 'Reasoning', 'Large language models', 'Evaluation']) expect(tags).not.toContain(generic);
+    for (const specific of ['TreeCut', 'Mathematical reasoning', 'Tool use']) expect(tags).toContain(specific);
+  });
   it('normalizes whitespace and Unicode controls without changing spelling', () => {
     expect(normalizeTag(' \tMy\n  Research\u200b\u0085Tag\r ')).toBe('My Research Tag');
     expect(normalizeTag('  \t\u200e\n')).toBeNull();

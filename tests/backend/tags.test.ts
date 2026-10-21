@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { TAG_NAMES, TAG_VOCABULARY, TAG_VOCABULARY_VERSION, tagsFromCategories, vocabularyName } from '../../supabase/functions/_shared/tag-vocabulary.ts';
+import { distinctiveKeyword, GENERIC_KEYWORDS, TAG_NAMES, TAG_VOCABULARY, TAG_VOCABULARY_VERSION, tagsFromCategories, vocabularyName } from '../../supabase/functions/_shared/tag-vocabulary.ts';
 import { classifyPaper, createTagClient, estimateMicrousd, parseTags, priceUsage, TAG_MODEL, TAG_SCHEMA, TAG_SYSTEM_PROMPT, tagCatalog,
   tagRequest, type Classification, type ClaimedVersion, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 
@@ -32,6 +32,18 @@ test('the app carries the same vocabulary (names, kinds, definitions, categories
   }));
   assert.deepEqual(rows, TAG_VOCABULARY.map(tag => ({ name: tag.name, kind: tag.kind, definition: tag.definition, categories: tag.categories ?? [] })));
   assert.ok(swift.includes(`public static let version = "${TAG_VOCABULARY_VERSION}"`));
+  // The generic keywords (builds 70 and 75): the same list on both sides.
+  const generic = /public static let generic: Set<String> = \[([\s\S]*?)\]/.exec(swift);
+  assert.ok(generic, 'TagVocabulary.generic');
+  assert.deepEqual([...generic[1].matchAll(/"(.*?)"/g)].map(match => match[1]).sort(), [...GENERIC_KEYWORDS].sort());
+});
+
+test('generic keywords never describe a paper; specific ones and the vocabulary spelling do', () => {
+  for (const name of ['LLM', 'LLMs', 'Large language models', 'Reasoning', 'Evaluation', ' benchmarks ', 'Machine learning', 'AI']) {
+    assert.equal(distinctiveKeyword(name), false, name);
+  }
+  for (const name of ['Mathematical reasoning', 'Tool use', 'Mixture of experts', 'TreeCut', 'Robotics']) assert.equal(distinctiveKeyword(name), true, name);
+  for (const name of GENERIC_KEYWORDS) assert.equal(name, name.trim().toLowerCase());
 });
 
 test('fallback tags come from arXiv categories that mean the same thing', () => {

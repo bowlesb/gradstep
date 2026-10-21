@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom';
 import { vocabularyName } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
 import { BackendError } from '../lib/backend';
 import { CommandRefreshError, type CommandResponse, type Item } from '../lib/library';
-import { effectiveTags, allowedKeyword } from '../lib/paper';
+import { effectiveTags, allowedKeyword, distinctiveKeyword } from '../lib/paper';
 import { containsTag, editedTags, MAX_OWN_TAGS, normalizeTag, ownTagsInLibrary, tagSuggestions } from '../lib/paper-tags';
 import type { useLibrary } from './useLibrary';
 import './library-actions.css';
@@ -179,7 +179,7 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
   const label = moving ? 'Move to catalog' : editing ? 'Edit tags' : archive ? (archiveTarget ? 'Archive paper' : 'Unarchive paper') : 'Remove paper';
   const verb = moving ? 'Move' : editing ? 'Save' : archive ? (archiveTarget ? 'Archive' : 'Unarchive') : 'Remove';
   const own = useMemo(() => ownTagsInLibrary(library.entries, baseline.id), [library.entries, baseline.id]);
-  const suggestions = useMemo(() => tagSuggestions(baseline.tags ?? [], baseline.metadata?.categories ?? [], tags, own, draft).filter(t=>allowedKeyword(t.name)), [baseline, tags, own, draft]);
+  const suggestions = useMemo(() => tagSuggestions(baseline.tags ?? [], baseline.metadata?.categories ?? [], tags, own, draft).filter(t=>distinctiveKeyword(t.name)), [baseline, tags, own, draft]);
   const typed = normalizeTag(draft), ownCount = tags.filter(tag => !containsTag(baseline.tags ?? [], tag)).length;
   const invalidDraft = draft.trim().length > 0 && !typed;
   let invalidTags = false;
