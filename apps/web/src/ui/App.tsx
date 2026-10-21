@@ -542,6 +542,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     for (const c of chat?.history.state.conversationSummaries() ?? []) if (c.documentID) counts.set(c.documentID, (counts.get(c.documentID) ?? 0) + 1);
     return counts;
   }, [chat, historyVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The account's sync state with Sync now (RootView's Account › Sync; B10): paused, syncing, waiting, synced.
+  const syncState = chat ? {
+    label: chat.history.issue ? 'Sync paused' : chat.history.syncing ? 'Syncing…' : chat.history.unsaved
+      ? `${chat.history.unsaved.toLocaleString()} ${chat.history.unsaved === 1 ? 'change' : 'changes'} waiting to sync` : chat.history.status === 'ready' ? 'Synced' : 'Not synced yet',
+    detail: chat.history.issue, canSync: !chat.history.syncing && (!!chat.history.issue || chat.history.unsaved > 0 || chat.history.status !== 'ready'),
+    run: () => { void chat.history.sync().catch(() => {}); },
+  } : null;
   const paperTopics = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), effectiveTags(e)])), [library.entries]);
   const chatCount = useCallback((entry: ClientEntry) => chatCounts.get(isReaderPaper(entry) ? paperIdentity(entry) : entry.id) ?? 0, [chatCounts]);
   const paperNames = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), e.metadata?.title ?? 'Paper'])), [library.entries]);
@@ -772,7 +779,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <AccountMenu compact={phone} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
-            onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} />
+            onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -799,7 +806,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} papers={answerPapers} />
         </RegionBoundary>} />
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
-      <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>
+      <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} onReport={report} /></RegionBoundary>
       {savedNote && <div className="notes-saved" role="status" data-testid="notes-saved"><span>Saved to {savedNote.title}{savedNote.offline ? ' · Waiting to sync' : ''}</span>
         <button className="link" onClick={() => { setSavedNote(null); void navigate(`/notes/${savedNote.noteID}`); }} data-testid="open-saved-note">Open note</button>
         <button className="icon-button" aria-label="Dismiss" onClick={() => setSavedNote(null)}><Icon name="close" size={14} /></button></div>}
@@ -904,9 +911,10 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
   </nav>;
 }
 
-function AccountMenu({ compact = false, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks }: { compact?: boolean; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+function AccountMenu({ compact = false, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks, sync }: { compact?: boolean; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
-  passageMarks: boolean; onPassageMarks: (on: boolean) => void }) {
+  passageMarks: boolean; onPassageMarks: (on: boolean) => void;
+  sync?: { label: string; detail: string | null; canSync: boolean; run: () => void } | null }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
   // AI credits and Subscription plan, read again each time the menu opens (native Settings › AI credits); the last values
@@ -948,6 +956,8 @@ function AccountMenu({ compact = false, account, email, theme, setTheme, onHelp,
           {compact && <p className="fine menu-heading">Settings</p>}
           <p className="menu-email">{email}</p>
           <p className="fine">This browser is an approved device.</p>
+          {sync && <div className="menu-fact" data-testid="account-sync" title={sync.detail ?? undefined}><span>Sync</span>
+            <span className="menu-fact-value">{sync.label}{sync.canSync && <button type="button" className="link small" onClick={sync.run} data-testid="sync-now"> Sync now</button>}</span></div>}
           {/* Owner, build 57: "Credits -> AI credits", "Plan -> Subscription Plan"; the explanations behind ⓘ. Bought in the apps. */}
           <div className="menu-facts" role="group" aria-label="AI credits">
             <div className="menu-fact" data-testid="account-credits"><span>AI credits <InfoTip text={CREDITS_INFO} testID="credits-info" /></span>

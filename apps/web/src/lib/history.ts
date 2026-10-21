@@ -85,6 +85,8 @@ export class History {
   /** Pending events the gate held back in the last send. */
   readonly held = new Set<string>();
   get unsaved(): number { return this.pending.length; }
+  /** A sync is under way (the account menu's Syncing…). */
+  get syncing(): boolean { return !!this.running; }
   isPending(id: string): boolean { const resolved = this.state.resolve(id); return this.pending.some(p => p.id === resolved); }
   /** An event ID after any local rebase. */
   resolve(id: string): string { return this.state.resolve(id); }

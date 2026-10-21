@@ -30,6 +30,8 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await expect(menu.getByRole('menuitem')).toHaveText(['Chats', 'Diagrams', 'Equation explanations', 'Figure explanations', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
     'My reports', 'Sign out…', 'Delete account…'].map(t => new RegExp(`^\\s*${t.replace(/[.…&]/g, c => `\\${c}`)}$`)));
   await expect(menu.getByRole('group', { name: 'Admin' })).toHaveCount(0);
+  // The sync state (B10, RootView's Account › Sync), with Sync now only while something is waiting.
+  await expect(menu.getByTestId('account-sync')).toHaveText(/^Sync\s*(Synced|Syncing…|Not synced yet|Sync paused|\d+ changes? waiting to sync)(\s*Sync now)?$/);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-account-menu.png` });
 
   await menu.getByRole('menuitem', { name: 'Privacy & data' }).click();

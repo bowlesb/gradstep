@@ -1,4 +1,15 @@
+import { config } from '../lib/backend';
+export const WEB_VERSION = '0.1.0';
 import { Dialog } from './common';
+
+/** The apps' About and Acknowledgements (RootView): what this page is, and the work it is built on. */
+const ACKNOWLEDGEMENTS: [string, string, string][] = [
+  ['Mermaid', 'Draws diagrams from answers in this browser (includes DOMPurify, d3 and other bundled libraries).', 'MIT License · DOMPurify: Apache 2.0 / MPL 2.0'],
+  ['htmlparser2, Temml', 'Prepare a paper’s arXiv HTML for the reader in this browser, and typeset formulas in answers.', 'MIT License'],
+  ['markdown-it', 'Formats chat answers in this browser.', 'MIT License'],
+  ['arXiv', 'Papers’ official HTML versions, downloaded by this browser, and their metadata. Papers keep their authors’ licenses; shared episodes are limited to CC BY and CC0 papers.', 'arXiv API terms'],
+  ['DataCite', 'Paper details, ML paper search and the shared Feed: the records arXiv registers for its papers. Our servers never contact arXiv.', 'CC0 data'],
+];
 
 /** The short, user-facing explanation of data paths, models and spending controls. Keep this separate from legal copy. */
 export function HowGradstepWorks({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -35,6 +46,12 @@ export function HowGradstepWorks({ open, onClose }: { open: boolean; onClose: ()
       </section>
       <section className="info-section"><h3>Your controls</h3>
         <p>You choose the model and answer length, and you can leave web search off. Each request is bounded before it runs, and the app shows what was charged afterward. Report a problem from the account menu so we can inspect the workflow and its accounting record.</p>
+      </section>
+      <section className="info-section" data-testid="about-version"><h3>This version</h3>
+        <p>Version {WEB_VERSION} (web {__WEB_BUILD__}) · {config.environment === 'production' ? 'Beta' : 'Private beta · staging'}</p>
+      </section>
+      <section className="info-section" data-testid="acknowledgements"><h3>Acknowledgements</h3>
+        <ul className="acknowledgements">{ACKNOWLEDGEMENTS.map(([name, use, license]) => <li key={name}><strong>{name}</strong> — {use} <span className="fine">{license}</span></li>)}</ul>
       </section>
       <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
     </div>

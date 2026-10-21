@@ -178,6 +178,9 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await page.getByTestId('how-gradstep-works').click();
       await expect(page.getByTestId('how-gradstep-works-dialog')).toBeVisible();
       await expect(page.getByText('A credit is a Gradstep usage unit, not cash.')).toBeVisible();
+      // The apps' About: this version, and the work it is built on (B10).
+      await expect(page.getByTestId('about-version')).toContainText(/Version \d+\.\d+\.\d+ \(web /);
+      await expect(page.getByTestId('acknowledgements').locator('li strong')).toHaveText(['Mermaid', 'htmlparser2, Temml', 'markdown-it', 'arXiv', 'DataCite']);
       await page.getByRole('button', { name: 'Done' }).click();
       expect(problems).toEqual([]);
     });

@@ -9,7 +9,7 @@ import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type
   type Mine, type MineRequest, mineCheckDelay, MINE_CHECK_LIMIT_MS, expectedWait, plainProviders } from '../lib/podcast';
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
 import { Icon } from './PodcastIcons';
-import { Dialog } from './common';
+import { Dialog, MenuButton } from './common';
 import { asOf } from '../lib/retry';
 import './Podcast.css';
 import { useMedia } from './prefs';
@@ -410,18 +410,26 @@ export function usePodcastPlayer(account: string) {
     schedule(); window.addEventListener('online', wake); document.addEventListener('visibilitychange', wake);
     return () => { controller.abort(); clearTimeout(timer); window.removeEventListener('online', wake); document.removeEventListener('visibilitychange', wake); };
   }, [episode, status, valid, account, revoke]);
+  /** Clear progress (the apps' episode menu): its saved place goes; it plays from the start. */
+  const clearProgress = useCallback(() => {
+    const e = current.current.episode, element = audio.current;
+    if (!valid() || !e) return;
+    removePosition(account, e.releaseID, lifetime);
+    if (element && current.current.status === 'ready') { element.currentTime = 0; setPosition(0); }
+  }, [valid, account, lifetime, setPosition]);
   const openReplacement = useCallback(async () => {
     if (!replacementID || !valid()) return;
     const controller = new AbortController(); loading.current?.abort(); loading.current = controller;
     try { const replacement = await podcastEpisode(account, replacementID, controller.signal); if (valid() && !controller.signal.aborted) await open(replacement); }
     catch (e) { if (valid() && !controller.signal.aborted) setIssue(message(e)); }
   }, [account, replacementID, valid, open]);
-  return { episode, detail, status, issue, playing, get positionMs() { return position.current; }, subscribePosition, getPosition, rate, open, play, pause, toggle, seek, skip, setRate, stop, bind, setIssue, replacementID, openReplacement };
+  return { episode, detail, status, issue, playing, get positionMs() { return position.current; }, subscribePosition, getPosition, rate, open, play, pause, toggle, seek, skip, setRate, stop, bind, setIssue, replacementID, openReplacement, clearProgress };
 }
 export type PlayerModel = ReturnType<typeof usePodcastPlayer>;
 
 /** Evidence: true opens the passage, false offers Add, null means the navigation was superseded. */
-export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel; onEvidence: (episode: Episode, evidence: Evidence) => boolean | null | Promise<boolean | null>; onAdd?: (episode: Episode) => Promise<void> }) {
+export function PodcastDock({ player, onEvidence, onAdd, onReport }: { player: PlayerModel; onEvidence: (episode: Episode, evidence: Evidence) => boolean | null | Promise<boolean | null>; onAdd?: (episode: Episode) => Promise<void>;
+  /** Report a problem at the current time (the apps' player options); its screenshot shows the player at that time. */ onReport?: () => void }) {
   const { episode, detail, status, issue, playing, rate } = player;
   const positionMs = useSyncExternalStore(player.subscribePosition, player.getPosition);
   const [expanded, setExpanded] = useState(false);
@@ -478,6 +486,12 @@ export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel
         <div className="dock-actions">
           <button className={`icon-button${expanded ? ' on' : ''}`} onClick={() => setExpanded(e => !e)} aria-expanded={expanded} aria-controls="podcast-details"
             aria-label={expanded ? 'Hide transcript and chapters' : 'Show transcript and chapters'} title="Transcript and chapters" data-testid="podcast-expand"><Icon name="transcript" /></button>
+          {/* The player's … (B10, PodcastPlayerViews' options): report at this time. Clear progress is on an episode's own menu
+              on the apps; the browser's episode cards have none, so it sits here with the playing episode. */}
+          <MenuButton icon="more" label="Player options" testID="podcast-menu">{close => <>
+            {onReport && <button type="button" role="menuitem" className="menu-item" data-testid="podcast-report" onClick={() => { close(false); onReport(); }}>Report a problem at {clock(positionMs)}</button>}
+            <button type="button" role="menuitem" className="menu-item" data-testid="podcast-clear-progress" disabled={status !== 'ready'} onClick={() => { close(); player.clearProgress(); }}>Clear progress</button>
+          </>}</MenuButton>
           <button className="icon-button" onClick={player.stop} aria-label="Stop and close the player" title="Stop" data-testid="podcast-stop"><Icon name="close" /></button>
         </div>
       </div>
