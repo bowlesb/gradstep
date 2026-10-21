@@ -273,6 +273,35 @@ day's anomalies, whether the tripwire paused the month, and today's absorbed ear
 synthetic attempts to zero (`worker_fault_drill_reconcile`, test accounts only), so they leave no liability. Still open:
 aborted real attempts (a Stop, a dropped connection) stay `unknown` until reconciled (audit item 1, above).
 
+## Pauses across months — 2026-10-21 (review A7, migration 0103; not deployed)
+
+Migration 060 creates next month's row ahead of time, copying the switch then; an owner's pause and the tripwire
+changed only one month, so a pause made on the 20th was silently lifted at 00:00 UTC on the 1st. The tripwire also
+counted test-account anomalies, so more than five drill or fixture overruns in an hour paused AI for every reader.
+
+- **A pause is until an owner resumes.** `v1_admin_pause_work` sets the switch for the current UTC month and every month
+  already created after it (the audit row lists them); a month created later copies the current one, as before.
+  Resuming resumes them all. The tripwire pauses the current and later months, whatever month the overrunning
+  operation belonged to.
+- **Test accounts never trip the pause.** Their anomalies are still recorded (`test_account`) and shown on Health, but
+  `anomalies_toward_tripwire` counts real accounts only.
+- **Limit changes** carry to later months too (A11, migration 0104, below). No limit is raised by either migration.
+
+## Operator budget command — 2026-10-21 (review A11, migration 0104; not deployed)
+
+`scripts/pipeline-ops.py budget` called `worker_set_platform_budget` (no actor, no audit) with `p_enabled = not
+--disable`, so changing a limit silently resumed a tripwire-paused month; it used the Mac's local date (an evening on
+the last day in Pacific time updated the previous month); next month kept the old limit; `grant` issued uncapped,
+unaudited credits; `resolve` handled only retired Mathpix OCR.
+
+- `worker_owner_set_budget_limit(actor, request, limit, reason)`: owner only, the current UTC month and every later
+  month already created, never the pause switch, within the schema ceiling ($50), audited (`platform_budget_limit`,
+  before and after) and replay-safe. The unaudited `worker_set_platform_budget` is no longer executable by the service
+  role (migrations and the local fixtures still use it as the database owner).
+- `pipeline-ops.py budget --usd N --actor OWNER --reason TEXT` uses it; pausing stays the admin site's control. `grant`
+  and `resolve` are removed (the admin site's audited, capped grant remains; OCR is retired).
+- This does not raise the $100/month operating budget or any month's provider limit.
+
 ## October cap raised on the owner's instruction — 2026-10-15 01:30 UTC
 
 The owner's chat refused with "AI answers are paused right now" (`platform_budget_exhausted`): October stood at
