@@ -200,6 +200,10 @@ export interface Health {
   reconciliation?: { automatic_pending: number; gave_up: number; without_generation: number; other_providers: number; manual_held_microusd: number; reconciled_24h: number;
     /** Migration 0140: unresolved attempts of retired direct providers (legacy history), by provider; Tavily's apart. Absent on older servers. */
     legacy?: { attempts: number; held_microusd: number; oldest_at: string | null; by_provider: Record<string, number> }; search_unresolved?: number };
+  /** Migration 0143: AI recommendations (requests, papers added, charged, failed), last 24 h and 30 days. Absent on older servers. */
+  recommendations?: { enabled: boolean; daily_runs: number;
+    last_24h: { runs: number; papers_added: number; charged: number; failed: number; running: number; accounts: number };
+    last_30d: { runs: number; papers_added: number; charged: number; failed: number; accounts: number } };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

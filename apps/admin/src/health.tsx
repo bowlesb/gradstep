@@ -82,7 +82,9 @@ export function Health({ load, budget, reloadKey, days, onDays }: {
         <section className="panel" aria-labelledby="use-title"><h2 id="use-title">What people do</h2>
           <div className="mini-stats"><Stat label="Papers added" value={data.use.papers_added.toLocaleString()} />
             <Stat label="Chat answers" value={data.use.chat_answers.toLocaleString()} note={plural(data.use.chatting_accounts, 'account')} />
-            <Stat label="Podcasts started" value={data.use.podcasts_started.toLocaleString()} /></div>
+            <Stat label="Podcasts started" value={data.use.podcasts_started.toLocaleString()} />
+            {data.recommendations && <Stat label="Recommendations" value={data.recommendations.last_30d.runs.toLocaleString()}
+              note={`Last 30 days: ${plural(data.recommendations.last_30d.papers_added, 'paper')} added, ${data.recommendations.last_30d.charged} charged, ${data.recommendations.last_30d.failed} failed; ${data.recommendations.last_24h.runs} in 24 h${data.recommendations.enabled ? '' : ' (switched off)'}`} />}</div>
           <DailyBars name="Use per day" compact days={view.people} series={[
             { key: 'papers', tone: 'p50', label: 'papers added', values: data.use.daily.map(d => d.papers) },
             { key: 'chats', tone: 'p-deepseek', label: 'chat answers', values: data.use.daily.map(d => d.chats) },
