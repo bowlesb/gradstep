@@ -134,7 +134,7 @@ function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
     <section className="panel"><div className="section-heading"><h2>Paper pipeline</h2><span className={'badge ' + (pipeline.policy.enabled ? 'positive' : '')}>{pipeline.policy.enabled ? 'Running' : 'Stopped'}</span></div>
       <Counts values={pipeline.stages} empty="No papers have been imported." />
       <p className="muted">OCR is capped at {pipeline.policy.max_ocr_pages} pages per paper; reader renderer {pipeline.policy.renderer_version}.</p>
-      {uncertain.length > 0 && <p className="error" role="alert">{uncertain.length} paid submission(s) are uncertain and keep their credit hold until reconciled with scripts/pipeline-ops.py resolve.</p>}
+      {uncertain.length > 0 && <p className="error" role="alert">{uncertain.length} historical paid OCR submission(s) are uncertain and keep their credit hold until an operator reconciles them.</p>}
     </section>
     <section className="panel"><h2>Recent papers</h2>
       <table><thead><tr><th>Paper</th><th>Stage</th><th>Interested</th><th>Updated</th></tr></thead><tbody>{pipeline.papers.map(p => <tr key={p.id}>
@@ -143,7 +143,8 @@ function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
         <td>{p.interested}</td><td>{date(p.updated_at)}</td></tr>)}</tbody></table>
       {!pipeline.papers.length && <Empty text="No papers yet." />}
     </section>
-    <section className="panel"><h2>Paid OCR attempts</h2>
+    <section className="panel"><h2>Paid OCR attempts (retired)</h2>
+      <p className="muted">History only: server OCR stopped on 2026-10-13 (every PDF is processed on the device); no new attempts are made.</p>
       <table><thead><tr><th>State</th><th>Pages</th><th>Provider job</th><th>Created</th></tr></thead><tbody>{pipeline.attempts.map(a => <tr key={a.id}>
         <td>{statusName(a.state)}{a.error_code ? <><br /><small className="muted">{statusName(a.error_code)}</small></> : null}</td>
         <td>{a.pages_reported ?? '—'} / {a.page_limit}</td><td><code>{a.provider_job_id ?? '—'}</code></td><td>{date(a.created_at)}</td></tr>)}</tbody></table>

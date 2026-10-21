@@ -237,7 +237,7 @@ failed or throttled calls in the last hour (and ≥ 20 calls); any breaker open 
   read by `provider-health.ts` before the real call; honoured only when the request's account is a test account
   (`@example.invalid`/`@example.test`) **and** the environment is not production (`SCIENCE_READER_ENVIRONMENT`), so a
   forgotten row can't hurt a real reader. Operator RPC to set/clear, audit-logged.
-- `scripts/fault-drill.mjs --provider=anthropic --mode=throttle --minutes=5`: sets the row, runs the affected
+- `scripts/fault-drill.mjs --provider=openrouter --mode=throttle --minutes=5` (`anthropic` until 2026-10-18): sets the row, runs the affected
   workflow checks (chat smoke, podcast short, search, add DOI) with a disposable account, asserts the user-visible
   outcome and the telemetry counts, clears the row.
 
@@ -358,12 +358,16 @@ and `--mode=overrun` (no fault: through the service RPCs a test account's operat
 micro-USD attempt ceiling; checks the two anomaly rows, `work_enabled` still true, and a real Haiku answer; it refuses
 to run when one more anomaly could trip the tripwire). Recovery answers use Claude Haiku 5.5 (about $0.0002 each).
 
-Wired today: Anthropic on chat. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
+Wired today: OpenRouter on chat (Anthropic until the OpenRouter-only cutover of 2026-10-18; chat no longer calls
+Anthropic, so an Anthropic drill injected nothing — review D4, 2026-10-21). The overrun drill admits its synthetic
+attempt as `openrouter`/`chat`/`anthropic/claude-haiku-5.5`. The streamed `midstream`/`slow` faults are synthesized
+only for the Anthropic and DeepSeek stream formats in `provider-health.ts`; an OpenRouter-format synthetic stream is
+needed before `--mode=midstream`/`stop` exercise the live path. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
 worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn't pass it yet); search and add-paper
 (their provider calls carry no account yet).
 
 **First drill.** After migration 073 and the functions are deployed to staging:
-`node scripts/fault-drill.mjs --provider=anthropic --mode=throttle --route=chat --minutes=5`.
+`node scripts/fault-drill.mjs --provider=anthropic --mode=throttle --route=chat --minutes=5` (today: `--provider=openrouter`, the default).
 
 ## Fix 1 and early endings as built — 2026-10-16
 

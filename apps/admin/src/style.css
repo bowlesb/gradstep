@@ -172,8 +172,8 @@ dialog.modal{background:#181a23;border-color:#272a37;box-shadow:0 24px 70px rgba
 
 /* Health tab (docs/architecture/ADMIN_HEALTH.md). Provider tones extend the --viz palette: distinct in hue and lightness
    on the white panel; text never uses a series color. */
-:root{--viz-p-anthropic:#5b5ef0;--viz-p-deepseek:#1f9a8a;--viz-p-google:#e09a1f;--viz-p-tavily:#a14fd0;--viz-p-other:#8d94a5}
-.tone-p-anthropic{--tone:var(--viz-p-anthropic)}.tone-p-deepseek{--tone:var(--viz-p-deepseek)}.tone-p-google{--tone:var(--viz-p-google)}.tone-p-tavily{--tone:var(--viz-p-tavily)}.tone-p-other{--tone:var(--viz-p-other)}
+:root{--viz-p-openrouter:#2f7fe0;--viz-p-anthropic:#5b5ef0;--viz-p-deepseek:#1f9a8a;--viz-p-google:#e09a1f;--viz-p-tavily:#a14fd0;--viz-p-other:#8d94a5}
+.tone-p-openrouter{--tone:var(--viz-p-openrouter)}.tone-p-anthropic{--tone:var(--viz-p-anthropic)}.tone-p-deepseek{--tone:var(--viz-p-deepseek)}.tone-p-google{--tone:var(--viz-p-google)}.tone-p-tavily{--tone:var(--viz-p-tavily)}.tone-p-other{--tone:var(--viz-p-other)}
 .health .group-title{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#858c9e;margin:30px 0 12px}
 .health .group-title:first-of-type{margin-top:6px}
 .attention{list-style:none;margin:0 0 18px;padding:0;display:flex;flex-direction:column;gap:8px}
@@ -203,7 +203,7 @@ dialog.modal{background:#181a23;border-color:#272a37;box-shadow:0 24px 70px rgba
 @media(max-width:1000px){.metrics.headline{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.mini-stats{grid-template-columns:1fr 1fr 1fr;gap:6px}.scale-rows{grid-template-columns:1fr}.health .metric small{font-size:11px}}
 @media(prefers-color-scheme:dark){
-:root{--viz-p-anthropic:#7a80f2;--viz-p-deepseek:#35b5a3;--viz-p-google:#e3a63d;--viz-p-tavily:#b874e0;--viz-p-other:#80869a}
+:root{--viz-p-openrouter:#5aa0f2;--viz-p-anthropic:#7a80f2;--viz-p-deepseek:#35b5a3;--viz-p-google:#e3a63d;--viz-p-tavily:#b874e0;--viz-p-other:#80869a}
 .health .group-title{color:#8a91a5}
 .attention li.warning{background:#2a2112;border-color:#5a4318;color:#f1cf94}
 .attention li.info{background:#1d1f3d;border-color:#34366b;color:#c9cbff}
