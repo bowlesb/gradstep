@@ -103,3 +103,10 @@ from the model when parts exist.
 **Resources (Mac):** run once per image in a cancellable background task; two model runs per figure (≈ 80 ms
 warm FP32 R50-M on the M1 Max, plus ≈ 0.9 s first load); one model instance; cache by image SHA-256 + model
 SHA-256 + `policyRevision`.
+
+## Selection rule (declared before the last R50-M epochs finished and before any test-2 prediction)
+
+The release candidate is the checkpoint of `rc-r50m-clean` or `rc-r18-clean` with the highest mean app success
+over the two validation sets under `policy-letters-decode-agree` at threshold .5 or .6; ties go to the lower
+arXiv harmful rate, then to the smaller model. Test 2 is then scored once for that system, with the 10-21 frozen
+system and v13 as fixed comparators.

@@ -80,6 +80,22 @@ def evaluate_figure(gt, crops, img=None, mask=None):
         for i, p in enumerate(panels):
             comp[i, j] = ink_in(excl[i], c) / pin[i]
             dom[i, j] = ink_in(ii, P.inter(c, p)) / denom
+    # Groupable (integration step 2: the explainer may group offered parts): every crop belongs mostly to
+    # one panel, and the union of each panel's crops holds >= 99.5% of that panel's own ink.
+    owner = [int(np.argmax(dom[:, j])) if dom[:, j].max() >= 0.6 else -1 for j in range(len(disp))]
+    groupable = all(o >= 0 for o in owner)
+    if groupable:
+        for i in range(n):
+            js = [j for j, o in enumerate(owner) if o == i]
+            if not js:
+                groupable = False; break
+            u = np.zeros(mask.shape, bool)
+            for j in js:
+                x0, y0, x1, y1 = disp[j]; u[y0:y1, x0:x1] = True
+            x0, y0, x1, y1 = boxes_px[i]
+            own = np.zeros(mask.shape, bool); own[y0:y1, x0:x1] = mask[y0:y1, x0:x1] & (cover[y0:y1, x0:x1] == 1)
+            if (own & u).sum() < 0.995 * max(1, own.sum()):
+                groupable = False; break
     ok = (comp >= 0.9) & (dom >= 0.6)
     score = ok * 10 + comp
     r, c = linear_sum_assignment(-score)
@@ -92,7 +108,7 @@ def evaluate_figure(gt, crops, img=None, mask=None):
     for x0, y0, x1, y1 in disp:
         cov[y0:y1, x0:x1] = True
     total = max(1, int(mask.sum()))
-    out.update(matched=matched, complete=complete, false_crops=false, coverage=float((mask & cov).sum() / total),
+    out.update(groupable=bool(groupable), matched=matched, complete=complete, false_crops=false, coverage=float((mask & cov).sum() / total),
                completeness=[float(comp[i, j]) for i, j in pairs])
     merged = any(((comp[:, j] >= 0.9).sum() >= 2) for j in range(len(disp)))
     if matched == n and complete == n and false == 0:
@@ -131,6 +147,8 @@ def aggregate(rows):
         # figure is a safe miss: the reader still sees everything). Lower is better.
         'harmful_rate': sum(r['outcome'] in ('false_split', 'clipped', 'extra_crops', 'merged_panels', 'missed_panels', 'wrong_boxes') for r in rows) / max(1, len(rows)),
         'kept_whole_compound_rate': sum(r['outcome'] == 'not_split' for r in comps) / max(1, len(comps)),
+        # Step 2 view: share of compound figures whose offered parts can be grouped into exactly the complete panels.
+        'compound_groupable_rate': sum(1 for r in comps if r.get('groupable')) / max(1, len(comps)),
         'full_coverage_rate_when_split': (sum(1 for r in split_comps if (r.get('coverage') or 0) >= 0.999) / max(1, len(split_comps))),
         'outcomes': dict(collections.Counter(r['outcome'] for r in rows)),
     }

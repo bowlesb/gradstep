@@ -407,6 +407,8 @@ def decide(pred_a, img, cfg, pred_b=None, caption_letters=(), mask=None, comps=N
                 parts = [{'id': f'P{k + 1}', 'box': [float(v) for v in b], 'score': round(_score_of(b, pred_a, cfg.get('panel_class', 0)), 4)}
                          for k, b in enumerate(reading_order(g))]
                 return {'status': 'split', 'reason': 'letter-grouped', 'parts': parts}
+    if cfg.get('parts_only'):
+        L = 0  # step-2 parts: plotting-area granularity; the explainer groups parts using the caption it reads
     if cfg.get('caption_decode') and L >= 2:
         crops = caption_decode(pred_a, L, img, c, cfg.get('decode_min_score', .15)) or []
         reason = 'caption-decoded'

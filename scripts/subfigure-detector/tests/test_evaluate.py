@@ -48,3 +48,12 @@ def test_two_view_agreement():
     assert SW.agree(a, [[2, 0, 100, 100], [101, 0, 200, 99]])
     assert not SW.agree(a, a[:1])
     assert not SW.agree(a, [[0, 0, 50, 100], [100, 0, 200, 100]])
+
+
+def test_groupable_when_parts_refine_panels():
+    img, panels = two_panel()
+    # One annotated panel = the whole figure's left half made of two plots; detector gives each plot.
+    gtp = gt([[0, 0, 200, 200], [200, 0, 400, 200]])
+    parts = [[20, 10, 100, 168], [100, 10, 180, 168], [220, 10, 380, 168]]
+    r = E.evaluate_figure(gtp, parts, img)
+    assert r['groupable'] and r['outcome'] != 'perfect'
