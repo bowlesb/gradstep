@@ -36,8 +36,9 @@ import { RegionBoundary } from './ErrorBoundary';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { readStored, type Route, type Theme, useTheme, writeStored } from './prefs';
-/** The Library's filter and tag, remembered between visits (per browser, a convenience only). */
-const LIBRARY_FILTER_KEY = 'gradstep.library.filter', LIBRARY_TAG_KEY = 'gradstep.library.tag';
+/** The Library's status filter, remembered between visits (per browser, a convenience only). The tag isn't: every visit
+ * starts with all tags, as the apps do (B3; owner: an old tag filter came back and the library looked empty). */
+const LIBRARY_FILTER_KEY = 'gradstep.library.filter', OLD_LIBRARY_TAG_KEY = 'gradstep.library.tag';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
@@ -245,15 +246,16 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }}])));
   },[chat,library.entries,readerCache,account]);
   useEffect(()=>{if(chat&&library.state==='ready')chat.retainPromotedContexts(new Set(library.entries.filter((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible).map(paperIdentity)));},[chat,library.state,library.entries]);
-  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter and the tag are
-  // remembered between visits too, as the apps remember them (owner-approved follow-up, 2026-10-07).
-  const [view, setViewState] = useState<LibraryQuery>(() => ({ ...INITIAL_QUERY,
-    filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)),
-    tag: readStored<string>(LIBRARY_TAG_KEY, '', v => typeof v === 'string' && v.length <= 200) }));
+  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the status filter is
+  // remembered between visits too, as the apps remember it (owner-approved follow-up, 2026-10-07). The tag lasts only
+  // this visit (ReaderModel.libraryTagFilter); a tag an earlier build stored is forgotten.
+  const [view, setViewState] = useState<LibraryQuery>(() => {
+    try { localStorage.removeItem(OLD_LIBRARY_TAG_KEY); } catch { /* storage unavailable */ }
+    return { ...INITIAL_QUERY, filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)) };
+  });
   const setView = useCallback((next: LibraryQuery | ((q: LibraryQuery) => LibraryQuery)) => setViewState(previous => {
     const value = typeof next === 'function' ? next(previous) : next;
     if (value.filter !== previous.filter) writeStored(LIBRARY_FILTER_KEY, value.filter);
-    if (value.tag !== previous.tag) writeStored(LIBRARY_TAG_KEY, value.tag);
     return value;
   }), []);
   const [railTab, setRailTab] = useState<'contents' | 'library'>('contents');
