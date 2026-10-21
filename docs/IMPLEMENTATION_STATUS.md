@@ -41,8 +41,8 @@ Checks run (a heavily loaded shared Mac: load average 650–950; one stalled run
   sheet `.artifacts/visual/fb21-sheet.png`.
 - Screenshots reviewed: the promoted Figure 1 chat titled "Figure 1" with one model control; the figure page with
   equal capsules and "…"; Report this screen over Contents with the app's own snapshot; Catalogs with "…" and the share
-  sheet; the Tags menu with Search ML papers first. Evidence: `.artifacts/feedback-20261021/` (xcresults and exported
-  attachments).
+  sheet; the Tags menu with Search ML papers first. Evidence: `.artifacts/feedback-20261021/` in this worktree (logs and screenshots exported from the result bundles;
+  the bundles themselves were pruned for disk space).
 - After the merge, Playwright catalogs, library, paper-search, figure-view, parity, layout and notes specs pass on desktop
   and phone, except notes-capture (it needs its own config, where it passes 2 + 2 skipped for an uncached source) and
   a library.spec selector that the new "Search ML papers for “…”" also matched (anchored; passes).
