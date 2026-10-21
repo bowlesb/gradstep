@@ -19,7 +19,8 @@ native and browser; the browser lives in `apps/web/src`.
 
 ## 0. Implementation status — 2026-10-21 (on the feedback branch; not merged, not released)
 
-The open owner items below were implemented on branch `worktree-agent-a9ba7e1c4135d32c0` (from `641541c`). Nothing
+The open owner items below were implemented on branch `worktree-agent-a9ba7e1c4135d32c0` (from `641541c`, merged with
+`main` at `fa1f69f`). Nothing
 was uploaded to TestFlight or deployed; the physical phone was not used. "Done" means implemented with the checks
 listed in IMPLEMENTATION_STATUS.md ("Builds 66–76 open feedback"), not owner acceptance. Conflicts C1–C4 were settled
 by the owner's own requests (C1: the build-75 request is an explicit Library exception, recorded in DESIGN.md; C2: keep
@@ -43,7 +44,8 @@ the meaning, show "New" in words; C3: promotion stays, AHYZ fixed, no morph tran
 | ACLs (75) catalog CSV | Done | 90cd5a3 | 161271d | Shared fixture `tests/fixtures/library-csv/catalog.json`; browser has no DOI data |
 | AHI8 (75) catalog left of search, + into the far-right menu | Done | 0681a4c | d148697 | Browser: Add paper… is the first row of the account menu (it has no Library "…") |
 | AK1U (75) purple dot | Done | 72ac289 | f61ab4a | "New" in Progress (native) / Opened (browser) |
-| TreeCut duplicate rows | Client check done | 4181aa4 | 8a82365 | Server idempotency and merging existing duplicates: server work, not here |
+| TreeCut duplicate rows | Client check done | 4181aa4 | 8a82365 | Server-side duplicate-add idempotency is on `main` separately; merging existing duplicate rows remains open |
+| (found in testing) a DOI/reference add reported as failed | Fixed | edbd9c5 | — | Since ca5c3e1, an unsaved catalog note turned a server-successful add into "Couldn't add it right now" |
 | §1 hardening: screenshot offer, sheet reports, codes covered | Done (native) | e8ef2c7 | — | Recovery code etc. black in in-app snapshots; TestFlight/ReplayKit captures can't be redacted |
 | Stale docs (§4) | Done | docs commit | — | DESIGN.md placeholder, Sheets/X, Last read; SESSION_REVIEW Settings › Admin |
 
