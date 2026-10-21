@@ -53,8 +53,10 @@ final class DevicePDFPagePrefetch: @unchecked Sendable {
         let size = DevicePDFTextLayer.pageSize(page: pdfPage)
         let glyphs = timings.timed("text") { DevicePDFTextLayer.glyphs(page: pdfPage) }
         do {
-            // The layout's canvas from the rendered page directly (no RGB copy: the canvas is drawn from the image).
-            let detected = try timings.timed("layout") { try models.detect(page: image) }
+            // The canvas from the same pixels the on-demand path draws (the page's RGB copy): drawn from the rendered
+            // image directly, a few detections near a threshold came out differently.
+            guard let pixels = DevicePDFRaster.cgImage(DevicePDFRaster.rgb(image)) else { throw DevicePDFModelError.unusable("page image") }
+            let detected = try timings.timed("layout") { try models.detect(page: pixels) }
             return Page(width: size.width, height: size.height, imageWidth: image.width, imageHeight: image.height, scale: detected.scale,
                         glyphs: glyphs, detections: detected.detections, failure: nil)
         } catch {

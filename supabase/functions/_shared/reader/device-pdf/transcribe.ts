@@ -133,6 +133,39 @@ export function transcribe(glyphs: readonly Glyph[], size: number): string | nul
   return out;
 }
 
+/** Math the tagger did not mark, found by its fonts (table cells, where a line is a few glyphs with little context for
+ * the tagger): maximal runs of glyphs in math fonts, with the digits and operators between them, that `transcribe`
+ * can write. `line` is in x order; returns [start, end) spans of it that do not overlap `taken`. */
+export function mathRuns(line: readonly Glyph[], taken: readonly [number, number][] = []): [number, number][] {
+  const busy = new Set<number>();
+  for (const [s, e] of taken) for (let i = s; i < e; i++) busy.add(i);
+  const kind = (g: Glyph): 'math' | 'neutral' | 'text' => {
+    const style = mathStyle(g.font);
+    if (style === 'italic' || style === 'symbol' || style === 'blackboard' || style === 'boldItalic') return 'math';
+    if (style === 'roman' && /^[0-9=+\-−()[\],./<>|:;!*']$/.test(g.text)) return 'neutral';
+    return 'text';
+  };
+  const spans: [number, number][] = [];
+  let i = 0;
+  while (i < line.length) {
+    if (busy.has(i) || kind(line[i]) === 'text' || !visible(line[i])) { i++; continue; }
+    let j = i;
+    while (j < line.length && !busy.has(j) && kind(line[j]) !== 'text' && visible(line[j])
+      && (j === i || line[j].x0 - line[j - 1].x1 < 0.4 * Math.max(line[j].size, 1))) j++;
+    // Not a run that is only digits and punctuation (a number in a cell is text), nor ends of punctuation.
+    let s = i, e = j;
+    while (s < e && /^[,.;:]$/.test(line[s].text)) s++;
+    while (e > s && /^[,.;:]$/.test(line[e - 1].text)) e--;
+    // A run against a span the tagger found is part of that formula (the tagger cut its boundary), not a formula of its own.
+    const touches = (k: number, edge: Glyph, before: boolean) => k >= 0 && k < line.length && busy.has(k)
+      && (before ? edge.x0 - line[k].x1 : line[k].x0 - edge.x1) < 0.4 * Math.max(edge.size, 1);
+    const against = e > s && (touches(s - 1, line[s], true) || touches(e, line[e - 1], false));
+    if (e > s && !against && line.slice(s, e).some(g => kind(g) === 'math') && transcribe(line.slice(s, e), Math.max(...line.slice(s, e).map(g => g.size)))) spans.push([s, e]);
+    i = Math.max(j, i + 1);
+  }
+  return spans;
+}
+
 /** Tokens in order: runs of upright letters as one `\mathrm{…}` or operator name, control words kept apart. */
 function write(run: readonly { tex: string; letter: boolean }[]): string {
   let out = '', roman = '';

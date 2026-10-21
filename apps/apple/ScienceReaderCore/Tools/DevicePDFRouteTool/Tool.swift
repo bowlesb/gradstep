@@ -16,6 +16,38 @@ struct Tool {
             let value = args[i + 1]; args.removeSubrange(i...(i + 1)); return value
         }
         func flag(_ name: String) -> Bool { if let i = args.firstIndex(of: name) { args.remove(at: i); return true }; return false }
+        // --check-determinism: the tagger and the layout on fixed inputs, alone and while the recogniser runs on another
+        // thread; prints how many outputs differ from the first.
+        if flag("--check-determinism"), let models = option("--models") {
+            guard #available(macOS 15.0, *) else { exit(2) }
+            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: models), taggerUnits: option("--tagger").flatMap(MLUnits.init(rawValue:))?.compute ?? .cpuOnly)
+            // Lines of 6 to 60 glyphs, in turn (the tagger's inputs have flexible length).
+            typealias Line = (x: [Float], font: [Int32], cls: [Int32], char: [Int32])
+            var lines: [Line] = []
+            for t in stride(from: 6, through: 160, by: 3) {
+                let x: [Float] = (0..<(t * 10)).map { i -> Float in Float(sin(Double(i + t) * 0.37)) }
+                let font: [Int32] = (0..<t).map { i -> Int32 in Int32(i % 7) }
+                let cls: [Int32] = (0..<t).map { i -> Int32 in Int32(i % 9) }
+                let char: [Int32] = (0..<t).map { i -> Int32 in Int32((i * 13) % 200) }
+                lines.append((x, font, cls, char))
+            }
+            let reference = try lines.map { try loaded.tag(x: $0.x, font: $0.font, cls: $0.cls, char: $0.char) }
+            func differs(_ rounds: Int) -> (Int, Float) {
+                var n = 0; var worst: Float = 0
+                for _ in 0..<rounds { for (i, l) in lines.enumerated() {
+                    let out = (try? loaded.tag(x: l.0, font: l.1, cls: l.2, char: l.3)) ?? []
+                    if out != reference[i] { n += 1; worst = max(worst, zip(out, reference[i]).map { abs($0 - $1) }.max() ?? .infinity) }
+                } }
+                return (n, worst)
+            }
+            print("tagger alone: \(differs(4)) differ of \(4 * lines.count)")
+            final class Flag: @unchecked Sendable { var stop = false }
+            let flag = Flag()
+            for _ in 0..<2 { Thread { while !flag.stop { _ = try? loaded.recognise(batch: [[Float](repeating: 0, count: 448 * 448)]) } }.start() }
+            print("tagger while two recognisers run: \(differs(4)) differ of \(4 * lines.count)")
+            flag.stop = true
+            return
+        }
         // --bench-steps: the recogniser's encoder pass and decoder step times for its batch size (blank input, 48 steps).
         if flag("--bench-steps"), let models = option("--models") {
             guard #available(macOS 15.0, *) else { exit(2) }
@@ -37,7 +69,7 @@ struct Tool {
         }
         let detectionsPath = option("--detections"), concurrency = Int(option("--concurrency") ?? "2") ?? 2
         // --serial: the port kit's order (layout on demand, one tagger thread, formulas page by page), for comparisons.
-        let serial = flag("--serial"), prefetch = Int(option("--prefetch") ?? "2") ?? 2, taggerThreads = Int(option("--tagger-threads") ?? "4") ?? 4
+        let serial = flag("--serial"), prefetch = Int(option("--prefetch") ?? "2") ?? 2, taggerThreads = Int(option("--tagger-threads") ?? "1") ?? 1
         let previewPath = option("--preview"), record = flag("--record")
         // --rules transcribe,frontMatter,tidy: converter rules beyond the port kit (DevicePDFRoute.Options.rules).
         let rules = Set((option("--rules") ?? "").split(separator: ",").map { String($0) })

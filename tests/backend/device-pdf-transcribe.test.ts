@@ -2,7 +2,7 @@
 // what is written, and every shape that must go to the recogniser instead.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mathStyle, transcribe } from '../../supabase/functions/_shared/reader/device-pdf/transcribe.ts';
+import { mathRuns, mathStyle, transcribe } from '../../supabase/functions/_shared/reader/device-pdf/transcribe.ts';
 import { renderMath } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
 import type { Glyph } from '../../supabase/functions/_shared/reader/device-pdf/types.ts';
 
@@ -43,6 +43,16 @@ test('anything else goes to the recogniser', () => {
   assert.equal(transcribe([g('x', 'CMMI10', 0), g('y', 'CMMI10', 0.5, 10, 4)], 10), null, 'stacked full-size glyphs');
   assert.equal(transcribe([g(',', 'CMMI10', 0)], 10), null, 'punctuation alone is not a formula');
   assert.equal(transcribe([g('A', 'CMMI10', 0, 10)], 6), null, 'a glyph far larger than its line');
+});
+
+test('math in a table cell the tagger missed is found by its fonts', () => {
+  // "r = f2 if f<1" with f, r italic, the 2 a raised script, "if" roman text.
+  const line = [g('r', 'CMMI10', 0), g('=', 'CMR10', 6), g('f', 'CMMI10', 12), g('2', 'CMR7', 17.2, 7, -3.5), g('i', 'CMR10', 26, 10, 0, 2.5), g('f', 'CMR10', 28.5, 10, 0, 3),
+    g('f', 'CMMI10', 36), g('<', 'CMMI10', 42), g('1', 'CMR10', 48)];
+  assert.deepEqual(mathRuns(line), [[0, 4], [6, 9]]);
+  assert.equal(transcribe(line.slice(0, 4), 10), 'r=f^{2}');
+  assert.deepEqual(mathRuns(line, [[0, 4]]), [[6, 9]], 'spans the tagger found stay its own');
+  assert.deepEqual(mathRuns([g('1', 'CMR10', 0), g('2', 'CMR10', 5), g('.', 'CMR10', 10), g('5', 'CMR10', 12)]), [], 'a number is text');
 });
 
 test('font roles by name', () => {

@@ -44,7 +44,18 @@ public final class DevicePDFModels: @unchecked Sendable {
     public let configuration: DevicePDFModelConfiguration
     public let directory: URL
     let layout: MLModel
-    let tagger: MLModel
+    /// One layout prediction at a time: two at once on one instance gave different detections under load (2026-10-21).
+    let layoutLock = NSLock()
+    /// The tagger, one instance per thread that reads lines: concurrent predictions with different line lengths on one
+    /// flexible-shape instance gave different logits under load (2026-10-21, docs/reviews/DEVICE_PDF_ROUTE_20261021.md).
+    let taggers: [MLModel]
+    var tagger: MLModel { taggers[0] }
+    public static let taggerInstances = 4
+    /// The tagger (CPU) and the recogniser (GPU) never predict at the same time: under load, tagger predictions made
+    /// while a recogniser prediction ran gave different logits for the same line, so the same PDF read differently
+    /// (2026-10-21, docs/reviews/DEVICE_PDF_ROUTE_20261021.md). Held per tagged page and per recogniser call.
+    public let exclusive = NSLock()
+    func exclusively<T>(_ body: () throws -> T) rethrows -> T { exclusive.lock(); defer { exclusive.unlock() }; return try body() }
     /// The recogniser, when this device can load it. Without it the route still reads the paper: every formula is
     /// shown as its image (the gate's own fallback), and `recogniserIssue` says why.
     let encoder: MLModel?
@@ -78,7 +89,7 @@ public final class DevicePDFModels: @unchecked Sendable {
             } catch { throw DevicePDFModelError.unusable("\(model.file): \(error.localizedDescription)") }
         }
         layout = try load(configuration.layout.model, layoutUnits, "layout")
-        tagger = try load(configuration.tagger.model, taggerUnits, "tagger")
+        taggers = try (0..<Self.taggerInstances).map { _ in try load(configuration.tagger.model, taggerUnits, "tagger") }
         // The stateful decoder does not load everywhere (the Neural Engine on the Mac; the iOS Simulator): the asked
         // units first, then the CPU alone, then none.
         var loaded: (MLModel, MLModel)?, issue: String?
@@ -117,6 +128,7 @@ public final class DevicePDFModels: @unchecked Sendable {
         let c = configuration.layout
         let (buffer, scale) = try DevicePDFRaster.canvas(page, width: c.canvasWidth, height: c.canvasHeight)
         let input = try MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: buffer)])
+        layoutLock.lock(); defer { layoutLock.unlock() }
         let output = try layout.prediction(from: input)
         guard let boxes = output.featureValue(for: "boxes")?.multiArrayValue, let scores = output.featureValue(for: "scores")?.multiArrayValue,
               boxes.shape.count == 2, scores.shape.count == 2, boxes.shape[0] == scores.shape[0], scores.shape[1].intValue == c.classes.count else {
@@ -163,7 +175,7 @@ public final class DevicePDFModels: @unchecked Sendable {
     // MARK: Inline tagger
 
     /// One line's features (computed by the converter) to one logit per glyph.
-    public func tag(x: [Float], font: [Int32], cls: [Int32], char: [Int32]) throws -> [Float] {
+    public func tag(x: [Float], font: [Int32], cls: [Int32], char: [Int32], slot: Int = 0) throws -> [Float] {
         let t = font.count
         guard t >= 2, t <= 400, x.count == t * 10, cls.count == t, char.count == t else { throw DevicePDFModelError.unusable("tagger input") }
         let xs = try MLMultiArray(shape: [1, NSNumber(value: t), 10], dataType: .float32)
@@ -174,7 +186,7 @@ public final class DevicePDFModels: @unchecked Sendable {
             return array
         }
         let input = try MLDictionaryFeatureProvider(dictionary: ["x": xs, "font": try ints(font), "cls": try ints(cls), "char": try ints(char)])
-        guard let logits = try tagger.prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { throw DevicePDFModelError.unusable("tagger output") }
+        guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { throw DevicePDFModelError.unusable("tagger output") }
         let all = Self.floats(logits)
         guard all.count >= t else { throw DevicePDFModelError.unusable("tagger output") }
         return Array(all.prefix(t))
@@ -227,9 +239,11 @@ public final class DevicePDFModels: @unchecked Sendable {
         // exports pass them into every step.
         var cross: [String: MLMultiArray] = [:]
         if isMultifunction {
-            _ = try encoder.prediction(from: try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels]), using: state)
+            let input = try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels])
+            _ = try exclusively { try encoder.prediction(from: input, using: state) }
         } else {
-            let encoded = try encoder.prediction(from: try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels]))
+            let input = try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels])
+            let encoded = try exclusively { try encoder.prediction(from: input) }
             guard let k16 = encoded.featureValue(for: "cross_k")?.multiArrayValue, let v16 = encoded.featureValue(for: "cross_v")?.multiArrayValue else {
                 throw DevicePDFModelError.unusable("encoder outputs")
             }
@@ -245,7 +259,7 @@ public final class DevicePDFModels: @unchecked Sendable {
             var inputs: [String: MLMultiArray] = cross
             inputs["token"] = token; inputs["position"] = position
             let features = try MLDictionaryFeatureProvider(dictionary: inputs)
-            guard let logits = try decoder.prediction(from: features, using: state).featureValue(for: "logits")?.multiArrayValue else {
+            guard let logits = try exclusively({ try decoder.prediction(from: features, using: state) }).featureValue(for: "logits")?.multiArrayValue else {
                 throw DevicePDFModelError.unusable("decoder output")
             }
             let values = Self.floats(logits), vocabulary = values.count / b

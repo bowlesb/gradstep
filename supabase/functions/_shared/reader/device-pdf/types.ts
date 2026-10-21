@@ -92,6 +92,8 @@ export interface DevicePDFInput {
   frontMatter?: boolean;
   /** A confident recognition Temml refuses is tidied and tried again (math.tidyLatex). */
   tidy?: boolean;
+  /** Math the tagger missed (paragraph lines and table cells), found by its fonts (transcribe.mathRuns); with `transcribe`. */
+  fontMath?: boolean;
 }
 
 export interface Formula {

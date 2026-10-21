@@ -2,13 +2,13 @@
 // blocks in the reference's order, the reference's own index (`trace`, for bundle_conformance.py) and the
 // formulas with their crops; `emit.ts` turns the logical blocks into this reader's vocabulary.
 import { check, fail, sha256Hex, utf8 } from '../util.ts';
-import { assign, byX, canonicalText, centreIn, clipBytes, growLines, joinLines, lineText, linesOf, median, orphanRegions,
+import { argsort, assign, byX, canonicalText, centreIn, clipBytes, growLines, joinLines, lineText, linesOf, median, orphanRegions,
   pyRound, recogniserRect, union, visible } from './geometry.ts';
 import { confidence, renderMath, tidyLatex } from './math.ts';
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
 import { spansOf, tagInput } from './tagger.ts';
-import { transcribe } from './transcribe.ts';
+import { mathRuns, transcribe } from './transcribe.ts';
 import { BLOCK_TEXT_CHUNK, CROP_MARGIN, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region } from './types.ts';
 
@@ -237,6 +237,10 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       const texts: string[] = [], parts: Marked[] = [], tagFormulas: Formula[] = [];
       for (const line of linesFor(r)) {
         let spans = TAGGED.has(cls) && !inReferences ? spansFor(line) : [];
+        // Math the tagger missed, found by its fonts and written from the text layer (transcribe.mathRuns).
+        if (input.fontMath && spans.length < 64 && TAGGED.has(cls) && !inReferences && cls !== 'authors') {
+          spans = [...spans, ...fontSpans(line, spans)].sort((a, b) => a[0] - b[0]);
+        }
         if (cls === 'authors') spans = [];
         const [text, fl] = lineText(line, spans);
         texts.push(text);
@@ -311,7 +315,10 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
             for (const [gl, span] of row) {
               if (!gl.length) { tds.push({ marked: '', span: 1 }); continue; }
               const line = byXCached(gl);
-              const [text, fl] = lineText(line, spansFor(line).filter(sp => cellSpanOk(line.slice(sp[0], sp[1]))));
+              const tagged = spansFor(line).filter(sp => cellSpanOk(line.slice(sp[0], sp[1])));
+              // Math the tagger missed in a cell, found by its fonts and written from the text layer (transcribe.ts).
+              const found = input.fontMath ? mathRuns(line, tagged) : [];
+              const [text, fl] = lineText(line, [...tagged, ...found].sort((a, b) => a[0] - b[0]));
               texts.push(text);
               let marked = text;
               const size = median(line.map(g => g.size));
@@ -351,6 +358,21 @@ function byXCached(gl: Glyph[]): Glyph[] {
   let sorted = sortedCells.get(gl);
   if (!sorted) { sorted = byX(gl); sortedCells.set(gl, sorted); }
   return sorted;
+}
+
+/** `mathRuns` on a line in stream order (spans index it as given): a run found in x order counts when its glyphs are one
+ * stretch of the stream too and it overlaps none of `taken`. */
+export function fontSpans(line: readonly Glyph[], taken: readonly [number, number][]): [number, number][] {
+  const order = argsort(line, g => g.x0);
+  const at = new Map(order.map((i, k) => [i, k]));
+  const busy: [number, number][] = [];
+  for (const [s, e] of taken) for (let i = s; i < e; i++) { const k = at.get(i); if (k !== undefined) busy.push([k, k + 1]); }
+  const out: [number, number][] = [];
+  for (const [s, e] of mathRuns(order.map(i => line[i]), busy)) {
+    const idx = order.slice(s, e), lo = Math.min(...idx), hi = Math.max(...idx);
+    if (hi - lo + 1 === idx.length && !taken.some(([a, b]) => a <= hi && lo < b)) out.push([lo, hi + 1]);
+  }
+  return out;
 }
 
 const letters = (text: string) => text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');

@@ -33,8 +33,9 @@ public final class DevicePDFRoute {
         public var background = true
         /// Pages whose layout and text are read ahead at once (0: on demand, as the converter asks).
         public var prefetchPages = 2
-        /// Threads the inline tagger's lines are spread over.
-        public var taggerThreads = 4
+        /// Threads the inline tagger's lines are spread over. 1: concurrent predictions of the flexible-shape tagger gave
+        /// different logits under load even on separate instances (2026-10-21), so the default keeps one.
+        public var taggerThreads = 1
         /// A complete reading before the formulas are read (each shown as its image), handed over while the recogniser
         /// finishes (background mode only).
         public var onPreview: (@Sendable (Output) -> Void)?
@@ -158,14 +159,21 @@ public final class DevicePDFRoute {
                 inputs.append((numbers("x").map(Float.init), numbers("font").map { Int32($0) }, numbers("cls").map { Int32($0) }, numbers("char").map { Int32($0) }))
             }
             var out = [[Double]?](repeating: nil, count: count)
-            let models = self.models, threads = max(1, min(options.taggerThreads, count))
+            // One tagger instance per thread (DevicePDFModels.taggers): never more threads than instances.
+            let models = self.models, threads = max(1, min(options.taggerThreads, count, DevicePDFModels.taggerInstances))
             let start = DispatchTime.now().uptimeNanoseconds
+            // The page's lines while no recogniser call runs (DevicePDFModels.exclusive).
+            models.exclusive.lock(); defer { models.exclusive.unlock() }
             out.withUnsafeMutableBufferPointer { results in
                 let results = results
                 DispatchQueue.concurrentPerform(iterations: threads) { worker in
                     for i in stride(from: worker, to: count, by: threads) {
                         guard let input = inputs[i] else { results[i] = []; continue }
-                        results[i] = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char))?.map(Double.init)
+                        results[i] = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker))?.map(Double.init)
+                        if ProcessInfo.processInfo.environment["DEVICE_PDF_TAG_CHECK"] != nil {
+                            let again = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker))?.map(Double.init)
+                            if again != results[i] { FileHandle.standardError.write(Data("TAG MISMATCH line \(i) of \(count), \(input.font.count) glyphs\n".utf8)) }
+                        }
                     }
                 }
             }
@@ -277,7 +285,7 @@ public final class DevicePDFRoute {
             "pdf": ["sha256": digest, "bytes": data.count, "name": name], "pages": pageCount,
             "models": models.provenance, "tagger": models.taggerVocabulary, "trace": options.trace, "record": options.record,
         ]
-        for rule in options.rules where ["transcribe", "frontMatter", "tidy"].contains(rule) { input[rule] = true }
+        for rule in options.rules where ["transcribe", "frontMatter", "tidy", "fontMath"].contains(rule) { input[rule] = true }
         if !options.authors.isEmpty { input["authors"] = Array(options.authors.prefix(200)) }
         if let title = options.title { input["title"] = title }
         if let sourceID = options.sourceID, let revision = options.revision { input["paper"] = ["source_id": sourceID, "revision": revision] }
