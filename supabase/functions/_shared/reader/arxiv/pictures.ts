@@ -1,6 +1,6 @@
 // Inline pictures (LaTeXML's SVG) as standalone images: the definitions they use from elsewhere on the page, SVG
 // elements only, and TikZ labels drawn as SVG text. The device rasterizes the result (device-compiler.ts).
-import { elements, normalizeSpace, textContent, type DomNode } from '../html.ts';
+import { elements, normalizeSpace, type DomNode } from '../html.ts';
 import { nearest } from './context.ts';
 
 /** A TikZ picture may use a pattern or symbol LaTeXML defined once elsewhere in the page (Apertus 1.5's Figure 9, refused
@@ -46,17 +46,30 @@ export function svgOnly(n: DomNode): DomNode {
   return { ...n, children: (n.children ?? []).filter(c => c.type !== 'tag' || SVG_ELEMENTS.has(c.name)).map(svgOnly) };
 }
 
-/** LaTeXML draws TikZ node labels as `foreignObject` HTML, which the device SVG admission refuses. Each label becomes
- * SVG text centred in the label's box (its flip undone), so the diagram keeps its words; placement is best effort. */
+/** A label's words as a reader sees them: MathML's TeX annotation is not shown ("σ", not "σ\sigma"). */
+function labelText(n: DomNode): string {
+  if (n.type === 'text') return n.data;
+  if (n.type !== 'tag' || n.name === 'annotation' || n.name === 'annotation-xml') return '';
+  return (n.children ?? []).map(labelText).join('');
+}
+
+/** LaTeXML draws TikZ/pgfplots node labels as `foreignObject` HTML, which the device SVG admission refuses. Each label
+ * becomes SVG text centred in the label's box, so the diagram keeps its words; placement is best effort.
+ *
+ * The text is drawn in the foreignObject's own coordinates, exactly where a browser lays out its HTML: the object's
+ * `transform` (LaTeXML's counter-flip of the picture's y-up system, `matrix(1 0 0 -1 0 h)`) moves to the wrapping `g`
+ * and the text adds none. Revision 22 (build 73, 2610.22371v1 Figure 3): a second flip on the text drew every tick and
+ * axis label of a flipped picture upside down. */
 export function svgTextLabels(n: DomNode): DomNode {
   if (n.type !== 'tag') return n;
   if (n.name === 'foreignObject') {
     const width = Number(n.attribs.width) || 0, height = Number(n.attribs.height) || 0;
     const size = /font-size:\s*([\d.]+)(pt|px)/.exec(n.attribs.style ?? '');
     const fontSize = size ? (size[2] === 'pt' ? Number(size[1]) * 4 / 3 : Number(size[1])) : 13;
-    const label: DomNode = { type: 'text', data: normalizeSpace(textContent(n)), name: '', attribs: {}, children: [], parent: null };
+    const label: DomNode = { type: 'text', data: normalizeSpace(labelText(n)), name: '', attribs: {}, children: [], parent: null };
     const text: DomNode = { type: 'tag', name: 'text', attribs: { x: String(width / 2), y: String(height / 2), 'text-anchor': 'middle',
-      'dominant-baseline': 'central', 'font-size': String(Math.round(fontSize * 100) / 100), transform: `matrix(1 0 0 -1 0 ${height})` },
+      // HTML text is never stroked: a picture's line width would otherwise thicken every letter.
+      'dominant-baseline': 'central', 'font-size': String(Math.round(fontSize * 100) / 100), stroke: 'none' },
       children: [label], parent: null, data: '' };
     return { type: 'tag', name: 'g', attribs: n.attribs.transform ? { transform: n.attribs.transform } : {}, children: [text], parent: null, data: '' };
   }

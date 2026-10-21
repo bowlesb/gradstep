@@ -37,6 +37,7 @@ revision bump always adds its line.
 
 | Version | Date | What changed |
 |---|---|---|
+| 22 | 2026-10-21 | Not yet released. Plot labels no longer drawn mirrored; affiliations and contact lines read in the header. A picture's labels were flipped twice (their own counter-flip kept on the group, plus another on the new text), so every tick and axis label of a pgfplots/TikZ picture read upside down (build 73, 2610.22371v1 Figure 3; also Chain-of-Thought 2201.11903v6 and Apertus 1.5 2610.15542v1), and a math label showed its TeX beside the symbol ("σ\sigma"). Affiliation paragraphs after the abstract, with the e-mail paragraph right after them, now join the header's affiliation lines, every institution, mark and address kept (build 69, 2610.22353v1). The 123-paper replay: no failures, findings unchanged, three headers changed (2610.16794v1, 2610.19892v1, 2610.20592v1). Papers already prepared keep their copy until **Update this paper**. |
 | 21 | 2026-10-18 | TestFlight 70 on iOS/Mac and browser deployed. Image-heavy papers reduce bitmap sizes when needed to fit the existing bundle limit, keeping every figure. Native replay of 2610.20592v1 passes. |
 | 20 | 2026-10-18 | Affiliation lines retain their indexed math marks and contact details. 123-paper replay: no failures. |
 | 19 | 2026-10-18 | Separate affiliation lines after the abstract, including 2610.22353v1; browser-only checkpoint, superseded by 20. |

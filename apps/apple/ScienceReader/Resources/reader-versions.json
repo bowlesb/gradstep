@@ -1,6 +1,7 @@
 {
  "renderer_id": "gradstep-arxiv-html-mathml-v2",
  "versions": [
+  {"revision": 22, "date": "2026-10-21", "build_sha256": "f6941d46ea20cefa893f8848f124ea5a479fe1e0e341aa325273d2185c8f63c9", "note": "Plot and diagram labels read upright instead of mirrored; affiliations and contact lines after the abstract read in the header."},
   {"revision": 21, "date": "2026-10-18", "build_sha256": "8a1a5ad160069ebd968adcfa5840c9a9fc6aeb9b454239ca28ba320929db5745", "note": "Image-heavy papers reduce oversized figure bitmaps to fit the device bundle limit while keeping every figure."},
   {"revision": 20, "date": "2026-10-18", "build_sha256": "54e07557af1713d82a2bcd93cab4e0eb5e746ab384d9da60b325b4da993ecc63", "note": "Affiliation lines keep their math marks and contact details; all indexed equations remain readable."},
   {"revision": 19, "date": "2026-10-18", "build_sha256": "4862e4b7b2abdd4bb853b562ed3e232256f5eab9339fca5706b5a54bd1a5acc1", "note": "Affiliations beneath the abstract read on separate lines."},

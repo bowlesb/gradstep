@@ -147,20 +147,73 @@ export function dropRepeatedTitle(cx: ArxivContext): void {
   }
 }
 
-/** Some templates put all affiliations in one paragraph after the abstract (2610.22353). Keep the
- * paragraph identity and every institution, but give each superscript-led affiliation its own line. */
+/** A paragraph of nothing but e-mail addresses and their separators ("{a, b}@x.org, c@y.org"). */
+// (`match`, not `test`: EMAIL is global, and `test` would carry its lastIndex into the next paragraph.)
+const emailOnly = (text: string) => text.length > 0 && (text.match(EMAIL)?.length ?? 0) > 0 && !text.replace(EMAIL, '').replace(/[\s,;{}()]/g, '').length;
+
+/** Some templates put all affiliations in one paragraph after the abstract, and the authors' e-mail addresses in the
+ * paragraph after it (2610.22353). Each superscript-led affiliation gets its own line, every institution and contact
+ * kept. With an author block above (LaTeXML's or the catalog's), both read in the header as its affiliation lines
+ * (revision 22, owner build 69: "Broken sources list"): the names, then the affiliations, then the contacts. An indexed
+ * math mark moves with its line and its equation entry follows it into the header's block. Without an author block the
+ * lines stay where the paper put them (revisions 19–21). */
 export function frontAffiliations(cx: ArxivContext): void {
   // Only unwrap visual emphasis. Reusing the author-name formatter for output flattened math marks and stripped
   // e-mail: an indexed dagger disappeared from the DOM, making three real papers fail independent admission.
   const partsOf = (parts: Child[]): Child[] => parts.flatMap(part => typeof part === 'string' || isSup(part)
     || part.attribs['data-reader-equation'] ? [part]
     : ['em', 'i', 'strong', 'b', 'u', 'span'].includes(part.name) ? partsOf(part.children) : [part]);
-  for (const node of cx.top) {
+  // Whitespace at a line's ends goes (the template's tab spacing between institutions).
+  const trimLines = (parts: Child[]): Child[] => parts.flatMap((part, i) => {
+    if (typeof part !== 'string') return [part];
+    const next = parts[i + 1], previous = parts[i - 1];
+    let text = part;
+    if (i === parts.length - 1 || (typeof next === 'object' && next.name === 'br')) text = text.trimEnd();
+    if (i === 0 || (typeof previous === 'object' && previous.name === 'br')) text = text.trimStart();
+    return text ? [text] : [];
+  });
+  const authorsAt = cx.top.findIndex(node => node.name === 'p' && node.attribs.class === 'reader-authors');
+  const authors = authorsAt >= 0 ? cx.top[authorsAt] : null;
+  const header = authors ? cx.blocks.find(b => b.node === authors) : undefined;
+  // One paragraph's lines join the header's affiliation lines (made when the author block had none), before its notes.
+  const intoHeader = (node: OutNode, lines: Child[]) => {
+    if (!authors || !header) return;
+    let span = authors.children.find((c): c is OutNode => typeof c === 'object' && c.attribs.class === 'reader-affiliations');
+    if (span) span.children.push(el('br'), ...lines);
+    else {
+      span = el('span', { class: 'reader-affiliations' }, lines);
+      const notesAt = authors.children.findIndex(c => typeof c === 'object' && c.attribs.class === 'reader-notes');
+      if (notesAt >= 0) authors.children.splice(notesAt, 0, span, ' '); else authors.children.push(' ', span);
+    }
+    const entry = cx.blocks.find(b => b.node === node);
+    if (entry) {
+      for (const equation of cx.equations) if (equation.block_id === entry.id) (equation as { block_id: string }).block_id = header.id;
+      for (const [source, target] of cx.aliases) if (target === entry.id) cx.aliases.set(source, header.id);
+      cx.blocks.splice(cx.blocks.indexOf(entry), 1);
+    }
+    cx.top.splice(cx.top.indexOf(node), 1);
+  };
+  let movedPrevious = false;
+  for (let i = 0; i < cx.top.length; i += 1) {
+    const node = cx.top[i];
     if (/^h[2-6]$/.test(node.name) && fold(outText(node)) !== 'abstract') break;
-    if (node.name !== 'p' || node.attribs.class) continue;
+    if (node.name !== 'p' || node.attribs.class) { movedPrevious = false; continue; }
     const parts = partsOf(node.children), run = parseRun(unwrap(parts));
-    if (run.names.length || run.affiliations.length < 2) continue;
-    let marks = 0;
-    node.children = [el('span', { class: 'reader-affiliation-lines' }, parts.flatMap(part => isSup(part) && marks++ > 0 ? [el('br'), part] : [part]))];
+    if (!run.names.length && run.affiliations.length >= 2) {
+      // A new line at each mark that follows words, never a line holding only a mark ("† ¹IDEAS…", 2610.19892v1).
+      let words = false;
+      const lines = trimLines(parts.flatMap(part => {
+        if (isSup(part)) { const breaks = words; words = false; return breaks ? [el('br'), part] : [part]; }
+        if (typeof part !== 'string' || part.trim()) words = true;
+        return [part];
+      }));
+      if (authors && header && i > authorsAt) { intoHeader(node, lines); i -= 1; movedPrevious = true; continue; }
+      node.children = [el('span', { class: 'reader-affiliation-lines' }, lines)];
+      movedPrevious = false; continue;
+    }
+    // The contact paragraph right after affiliations that moved goes with them, every address kept.
+    if (movedPrevious && emailOnly(normalizeSpace(plain(parts)))) { intoHeader(node, trimLines(parts)); i -= 1; }
+    movedPrevious = false;
   }
+  if (authors) reorder(cx);
 }
