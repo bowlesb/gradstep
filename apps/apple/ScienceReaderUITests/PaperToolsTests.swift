@@ -215,6 +215,50 @@ final class PaperToolsTests: XCTestCase {
         #endif
     }
 
+    /// Build 78 (owner, light mode, deep in a paper after using an equation's menu): "the double tap doesn't bring up table
+    /// of contents anymore". In the numbered arXiv fixture: after scrolling, after an equation's menu was dismissed, after
+    /// a fling, and with a text selection left elsewhere, two taps on article text still open Contents.
+    func testDoubleTapOpensContentsDeepInThePaperAfterAnEquationMenuAndAFling() throws {
+        #if targetEnvironment(macCatalyst)
+        throw XCTSkip("Touch discovery belongs to iPhone and iPad")
+        #else
+        let app = openSample(appearance: "light")
+        let web = app.webViews.firstMatch
+        // A paragraph of plain article text in the middle of the screen.
+        func paragraphs() -> [XCUIElement] {
+            let screen = web.frame.insetBy(dx: 0, dy: web.frame.height * 0.2)
+            return web.staticTexts.allElementsBoundByIndex.filter { $0.label.count > 30 && $0.frame.height > 18 && screen.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+        }
+        func paragraph() -> XCUIElement? { paragraphs().first }
+        func doubleTapOpensContents(_ step: String, last: Bool = false) {
+            guard let text = last ? paragraphs().last : paragraph() else { return XCTFail("No paragraph on screen (\(step))") }
+            text.doubleTap()
+            XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 4), "Two taps open Contents \(step)")
+            capture(app, "Double tap: \(step)")
+            if app.contentsTabs.exists { app.buttons["sheet.close"].tap(); XCTAssertTrue(app.contentsTabs.waitForNonExistence(timeout: 5)) }
+        }
+        doubleTapOpensContents("at the top")
+        // An equation's menu, dismissed by a tap on the text.
+        let equation = web.staticTexts["(1)"].firstMatch
+        for _ in 0..<6 where !(equation.exists && equation.isHittable) { web.swipeUp() }
+        if equation.exists, equation.isHittable {
+            equation.tap()
+            XCTAssertTrue(app.revealEditMenuItem("Chat about Equation").exists, "The equation's menu")
+            paragraph()?.tap()
+            doubleTapOpensContents("after an equation's menu")
+        }
+        // Deep in the paper after scrolling, then right after a fling.
+        web.swipeUp()
+        doubleTapOpensContents("after scrolling")
+        web.swipeUp(velocity: .fast)
+        doubleTapOpensContents("right after a fling")
+        // A word selected elsewhere: a double tap on other text still opens Contents.
+        web.swipeDown(velocity: .slow)
+        paragraph()?.press(forDuration: 1.0)
+        doubleTapOpensContents("with a selection elsewhere", last: true)
+        #endif
+    }
+
     /// Contents with Figures, Tables and Equations tabs (owner, build 59): Contents first; each list's rows go into
     /// the paper with Back.
     func testContentsTabsListFiguresTablesAndEquations() throws {

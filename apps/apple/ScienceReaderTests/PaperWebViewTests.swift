@@ -56,7 +56,7 @@ final class PaperWebViewTests: XCTestCase {
     }
 
     func testTouchContentsGestureExcludesControlsDragAndLongPress() async throws {
-        let harness = try Harness(document: "<p id='text'>A paragraph for reading</p><p><a id='link' href='https://example.org'>A link</a></p>")
+        let harness = try Harness(document: "<p id='text'>A paragraph for reading</p><p><a id='link' href='https://example.org'>A link</a></p><div style='height:300px'></div><p id='far'>A selection far below</p>")
         defer { harness.close() }
         await fulfillment(of: [harness.loaded], timeout: 15)
         let web = try XCTUnwrap(harness.web)
@@ -64,7 +64,8 @@ final class PaperWebViewTests: XCTestCase {
             const received=[];window.webkit.messageHandlers.reader.postMessage=m=>received.push(m);
             let time=1000;
             const pointer=(target,type,x,dt,kind='touch')=>{
-              time+=dt;const e=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,isPrimary:true,pointerType:kind,clientX:x,clientY:100});
+              const box=document.getElementById(target).getBoundingClientRect();
+              time+=dt;const e=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,isPrimary:true,pointerType:kind,clientX:x,clientY:box.top+box.height/2});
               Object.defineProperty(e,'timeStamp',{value:time});document.getElementById(target).dispatchEvent(e);
             };
             const tap=(target='text',duration=30,kind='touch')=>{pointer(target,'pointerdown',100,50,kind);pointer(target,'pointerup',100,duration,kind);};
@@ -72,10 +73,21 @@ final class PaperWebViewTests: XCTestCase {
             pointer('text','pointerdown',100,50);pointer('text','pointermove',130,20);pointer('text','pointerup',130,30);
             const before=received.filter(m=>m.type==='contentsGesture').length;
             tap();tap();
-            return {before,after:received.filter(m=>m.type==='contentsGesture').length};
+            const after=received.filter(m=>m.type==='contentsGesture').length;
+            // Build 78: a selection left elsewhere doesn't swallow the double tap; touching the selection itself still
+            // adjusts it rather than opening Contents.
+            const range=document.createRange();range.selectNodeContents(document.getElementById('far'));
+            const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+            tap();tap();
+            const elsewhere=received.filter(m=>m.type==='contentsGesture').length;
+            selection.removeAllRanges();selection.addRange(range);
+            tap('far');tap('far');
+            return {before,after,elsewhere,onIt:received.filter(m=>m.type==='contentsGesture').length};
             """, [:]) as? [String: Any]
         XCTAssertEqual(result?["before"] as? Int, 0)
         XCTAssertEqual(result?["after"] as? Int, 1)
+        XCTAssertEqual(result?["elsewhere"] as? Int, 2, "a selection elsewhere doesn't block the double tap")
+        XCTAssertEqual(result?["onIt"] as? Int, 2, "two taps on the selection adjust it")
     }
 
     func testNamedNativeReferencesLinkTheWholePhraseWithoutChangingText() async throws {

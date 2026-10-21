@@ -1312,7 +1312,8 @@
       const counts = new Map();
       document.querySelectorAll('[id]').forEach(element => counts.set(element.id, (counts.get(element.id) || 0) + 1));
       const used = new Set(counts.keys());
-      items = [...document.querySelectorAll('h1,h2,h3')].filter(element => element.textContent.trim()).slice(0,500).map((element,index) => {
+      // The app's own rows (the keywords' heading) are not the paper's sections.
+      items = [...document.querySelectorAll('h1,h2,h3')].filter(element => element.textContent.trim() && !element.closest(`[${CHROME}]`)).slice(0,500).map((element,index) => {
         let id = element.id;
         if (!id || id.length > 512 || /[\u0000-\u0020\u007f]/.test(id) || counts.get(id) !== 1) {
           const stem = 'sr-heading-' + index; let suffix = 0; id = stem;
@@ -1964,14 +1965,21 @@
   if (!config?.figure_id) {
     const excluded = 'a,button,input,textarea,select,figure,math,[role="button"],.sr-cite,.sr-toc-link,[data-sr-reference],[data-sr-paper-tags],[data-reader-equation],[data-sr-chrome]';
     let down = null, first = null;
+    const onSelection = (x, y) => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
+      return [...selection.getRangeAt(0).getClientRects()].some(r => x >= r.left - 24 && x <= r.right + 24 && y >= r.top - 24 && y <= r.bottom + 24);
+    };
     const article = target => {
       const node = target instanceof Element ? target : target?.parentElement;
       return node && !node.closest(excluded) && node.closest('p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,section,article');
     };
     document.addEventListener('pointerdown', event => {
       if (event.pointerType !== 'touch' || !event.isPrimary || !article(event.target)) { down = first = null; return; }
-      // An existing selection is being adjusted, not a request to open Contents.
-      if (!first && !window.getSelection()?.isCollapsed) { down = null; return; }
+      // An existing selection is being adjusted (a touch on or beside it), not a request to open Contents. A selection
+      // left elsewhere (after Copy or Look Up) no longer swallows every double tap (owner, build 78: "the double tap
+      // doesn't bring up table of contents anymore").
+      if (!first && onSelection(event.clientX, event.clientY)) { down = null; return; }
       down = {id: event.pointerId, x: event.clientX, y: event.clientY, at: event.timeStamp};
     }, {passive: true});
     document.addEventListener('pointermove', event => {
