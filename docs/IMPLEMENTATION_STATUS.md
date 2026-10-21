@@ -1,5 +1,51 @@
 # Implementation status
 
+## Builds 66–76 open feedback — October 21 UTC (feedback branch; not merged, not released)
+
+Implemented on branch `worktree-agent-a9ba7e1c4135d32c0` from `641541c`; per-item status and commits are in the
+[triage report §0](reviews/FEEDBACK_TRIAGE_20261021.md#0-implementation-status--2026-10-21-on-the-feedback-branch-not-merged-not-released).
+Current clients remain build 77 / browser `27c45ca0`: nothing was uploaded or deployed, and the physical phone was not
+used. Reader **revision 22** (plot labels upright, affiliations and contacts in the header) is built into both compiled
+copies but unreleased; saved papers need ⋯ › Update this paper once it ships.
+
+Checks run (a heavily loaded shared Mac: load average 650–950; one Simulator was shut down externally mid-run):
+
+- `npm test` passes: backend 674 + 1 skipped, browser units 502 (54 files), compiler freshness, operations, egress.
+  The first run failed the source-metadata extractor freshness gate after the vocabulary change; the extractor was
+  rebuilt (5993578) and the compiler bundle is unchanged.
+- Swift Core: `PaperDiscoveryTests` (generic keywords) and `LibraryCSVTests` (shared fixture byte for byte) pass.
+- iPhone 17 Pro Simulator (iOS 26.4, Debug), unit: UnsentDraftTests, WorkflowSafetyTests, LibraryCommandCoordinatorTests,
+  PaperTableTests, LibraryMetadataTests, ContentsEquationLabelTests and the touched LibraryModelTests cases pass
+  (92 tests, `unit-2`); the two PaperWebViewTests cases (whole-name links, abstract list, keyword chips) and the
+  NativeSafetyTests report-snapshot and screenshot-offer cases pass in `unit-3` (the WebView cases had first timed out
+  loading under load, the existing named-reference case included).
+- iPhone UI journeys: FigureViewJourneyTests (all three, incl. the promoted chat's title and the new Report this
+  screen journey), LibraryCatalogTests (rename without flash, Export as CSV share sheet, catalog left of search, Add
+  paper… in ⋯), LibraryLayoutTests.testFiltersTagsAndRetryOnAFailedImport (tag search; search start/Cancel clear the
+  tag), LocalAIJourneyTests.testDictationOnlyFillsTheDraftAndModelsLiveInSettings (one composer model control) and
+  AddPaperFlowTests.testAddByDOIAndLink pass. First-run failures were investigated: a stale "Alignment" tag query
+  (catalog tags give way to derived keywords since build 70), a share sheet the test could not dismiss, an accessibility
+  server crash, and a real add bug since ca5c3e1 (a catalog write that can't be saved reported a server-successful
+  DOI add as failed; fixed in edbd9c5). `ChatControlsTests.testStartersAnswerOptionsAndTheTopicTitle` still fails on
+  pre-existing stale assertions (a DeepSeek segment and "Reset default settings" from before the build-69/71 model rows);
+  its composer-layout assertion was corrected.
+- Screenshots reviewed: the promoted Figure 1 chat titled "Figure 1" with one model control; the figure page with
+  equal capsules and "…"; Report this screen over Contents with the app's own snapshot; Catalogs with "…" and the share
+  sheet; the Tags menu with Search ML papers first. Evidence: `.artifacts/feedback-20261021/` (xcresults and exported
+  attachments).
+- Browser (from the parity sub-task, cherry-picked unchanged): `npm run test:fast --prefix apps/web` 502/502; affected
+  Playwright specs pass on desktop and phone (tablet where in the project) apart from pre-existing wording failures in
+  account-delete, reader "invite-only", arxiv-html consent v5→v6 and owner-58 privacy text; library-commands showed one
+  intermittent timeout per full run that passes alone. Light/dark screenshots of each changed screen were reviewed.
+- Compiler (from the compiler sub-task): the 123-paper cached replay has no failures and unchanged findings; device
+  compile of 2610.22371v1, 2610.22353v1, 2610.19892v1, 2201.11903v6 and 2610.15542v1 succeeds; before/after renders
+  of Gen4P Figure 3 and the 2610.22353v1 header were inspected.
+
+Not verified here: physical-phone behavior, the 15-case import gate (`npm run test:imports`; required before the next
+native upload because RootView.swift and importPaper changed), Mac Catalyst journeys, and the system share sheet's
+contents on this loaded Simulator (it opened but drew no content in one run). TestFlight's own screenshot feedback and
+ReplayKit session recordings cannot be redacted by the app.
+
 ## Notes and snippets — October 20 local / October 21 UTC (design/prototype only)
 
 The owner-requested Notes/capture experience has a source-grounded [architecture and UX proposal](architecture/NOTES_AND_SNIPPETS.md)

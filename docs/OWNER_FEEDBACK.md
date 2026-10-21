@@ -1,5 +1,32 @@
 # Owner feedback log
 
+## Builds 66–76 open screenshot feedback — October 21 UTC (implemented on a branch; not released)
+
+The open items from the [feedback triage](reviews/FEEDBACK_TRIAGE_20261021.md) are implemented on iPhone/iPad/Mac and
+the browser where they apply; per-item status, commits and what was left open are in the triage's §0, and checks in
+IMPLEMENTATION_STATUS.md. No TestFlight upload or browser deploy was made; the physical phone was not used.
+
+| Report | Outcome |
+|---|---|
+| `AHYZJO6d0-mkFRFYd-j1H_4` (73) Back to chat landed on "New chat" | Fixed: the promoted explainer chat is named for its figure/table and Back to chat returns to it; one Back at a time |
+| `AOogtkixgH4jspuy-KkHsEk` (75) search with a tag filter left on | Fixed: starting a search, Cancel and every route into ML paper search clear it |
+| `AExYL9iTA1wuPNXFbz2Qhfk` (75) rename flash | Fixed: no inline "Saving…" row or disabled list for a quick local write |
+| `AMZ1EYpp-g46Tu85tdnKziA` (73) orange "Refresh to try sending it again" | Fixed: automatic retry; quiet for 30 s / three tries, then "1 change hasn't synced yet. Gradstep will keep trying."; orange only when you must act |
+| `AG-KC-bgu7HdtwNQhuQ1LBk` (68) Equations spinner | Fixed: the list shows within 1.5 s, printed numbers fill in |
+| `APZf4fWGLnNqqBTZYKLgVwE` (76) only one action purple; table says "Chat about Figure" | Fixed: both capsules alike; tables say "Chat about Table" |
+| `AL-V0yuPVLvTrmalbO5c9yQ` (73) plot labels (unreported: mirrored) | Fixed in reader revision 22 (2610.22371v1 Figure 3); saved papers need ⋯ › Update this paper. The requested double-tap zoom in that sheet is still open |
+| `ADtu4d3nuppfXDfMCpltx2o` (69) affiliations/e-mails after the abstract | Fixed in revision 22: they read in the header |
+| `AIW2SzNnfmiwSiRJIhzKH1c` (70) abstract narrower than the text | Fixed for every paper, keywords or not |
+| `AB5RbQvOOBVm5rcCw7dVdFI` (70) generic keywords | LLM, Large language models, Reasoning, Evaluation and similar are no longer derived or shown; tags you type stay |
+| `AIm3cFZUGNMzCcnow--e9uU` (71) whole "Figure 1" link | Extended to Sec./Section/§/Appendix A/Lemma/Theorem/Alg./Fig |
+| `AJ_ghNZCc2TPoLQcQI64ss4` (69) duplicate model controls | Fixed: one model control in the composer (its Choose model page has Use for new chats and About) |
+| `ACN1pum4v1-mJuwgU22J7Ys` (73), `AHgUYbURvvfwbl82MH3RIxA` (75) search ML papers for a keyword/tag | Done: keyword chip menu and the Tags menu's first entry |
+| `ACLs0GZ0-xM7sxNzAZDclVY` (75) catalog as CSV | Done: Catalogs › ⋯ › Export as CSV… (browser: a download) |
+| `AHI8ygwIHDKnWw4cNgtIzhU` (75) catalog left of search, + inside the far-right menu | Done (browser: the account menu, its far-right menu); recorded as a Library exception in DESIGN.md |
+| `AK1UB0HuHvzOK_i6GEqrno8` (75) confusing purple dot | Done: "New" in words, same meaning |
+| Two "TreeCut" rows (75, unreported) | The apps no longer add a paper that is already there; server idempotency is separate |
+| Build 77 "feedback feature missing" | No app or App Store Connect cause found (triage §1); added a Report this screen offer after any screenshot, Report this screen on sheets, and recovery codes covered in report snapshots. Please delete the build-75 feedback item that shows your recovery code in App Store Connect |
+
 ## Chat shaking while dragging — October 20 UTC (iPhone/iPad and Mac TestFlight 76)
 
 The reported motion reproduces offline with completed messages. The old renderer's negative control shows
