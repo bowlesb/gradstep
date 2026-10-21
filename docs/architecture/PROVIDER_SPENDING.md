@@ -108,6 +108,29 @@ work.
 
 Automatic reconciliation (A6) is described with its migration below.
 
+### Attempt capacity in a rolling window (A2, migration 0100)
+
+`worker_provider_attempt_begin` refused once `count(*)` over every `provider_attempts` row ever stored (refused rows
+included, nothing pruned) reached 100,000 for the platform or 20,000 for one account, and the check constraints
+forbade raising either without a migration. A chat answer with a title and suggestions uses about three attempts, so
+the owner's testing account would have been refused permanently after about 6,600 answers; each admission also counted
+the whole table under the global locks. The 80% warning was computed but never shown.
+
+- **Counter rows, not table scans.** `app_private.provider_attempt_hours(scope_id, hour, attempts)`: one row per
+  account and UTC hour, plus the platform (the nil UUID). A granted attempt increments both inside the admission
+  transaction (which already holds the policy lock, so counts are serial). Refused attempts never count.
+- **Window.** `attempt_window_hours` (default 24, at most 168). `attempt_limit` and `account_attempt_limit` now mean
+  "granted attempts per window": 50,000 for the platform and 10,000 for one account, raisable by a policy update up to
+  1,000,000 / 200,000 (no migration). The per-operation bound (64) is unchanged.
+- **Retention.** Counter rows older than 8 days are deleted when the account's or platform's next hour begins; the
+  migration backfills the last 8 days from `provider_attempts`.
+- **Visibility.** `v1_admin_spending.attempt_capacity` (platform and busiest-account use against their limits) and
+  `anomalies.attempt_capacity_eighty_percent`, computed from the window; Admin › Spending shows a warning at 80%;
+  `worker_budget_health.attempt_capacity_eighty_percent` lets the scheduled budget check alert.
+- Money is unaffected: the monthly budget, operation holds and per-account limits still decide what may be spent. The
+  OpenRouter tariff date moved behind `app_private.openrouter_tariff_expires(model)` in the same migration so the
+  next one (A4) can make it renewable without another copy of the admission function.
+
 ## Service RPC contract
 
 `worker_provider_attempt_begin` takes `p_account_id`, `p_operation_id`, `p_attempt_id` (UUIDs),
