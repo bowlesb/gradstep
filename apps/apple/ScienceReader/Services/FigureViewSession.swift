@@ -70,6 +70,18 @@ enum FigureViewOutcome {
     private(set) var details: [Int: Part] = [:]
     /// The figure as the request sends it (its panels composed, or the table drawn here), which crops are cut from.
     private(set) var image: CGImage?
+    /// One card's crop as shown (FIGURE_VIEW.md "Complete crops"): completed on the image the request carried over the ink
+    /// its box cut, cut from `image` on a margin of background, or the whole figure when no crop could hold all of it.
+    struct Crop { let image: CGImage; let whole: Bool }
+    /// The walkthrough's crops by section index, and each extracted part's by its index; empty until worked out (off the
+    /// main actor), so no crop shows and then changes size.
+    private(set) var crops: [Int: Crop] = [:]
+    private(set) var detailCrops: [Int: Crop] = [:]
+    /// The share of the figure's ink the walkthrough's crops show (nil without crops, or until worked out).
+    private(set) var inkCoverage: Double?
+    @ObservationIgnored private var ink: FigureInk?
+    @ObservationIgnored private var inkReady = false
+    @ObservationIgnored private var cropGeneration = 0
     let context: FigureViewContext
     let localModelID: String?
     @ObservationIgnored private weak var model: ReaderModel?
@@ -102,6 +114,7 @@ enum FigureViewOutcome {
             }
         }
         await prepareImage()
+        await prepareInk()
         if requesting, walkthrough.state == .idle { explain() }
     }
 
@@ -166,6 +179,41 @@ enum FigureViewOutcome {
         }
     }
 
+    /// The ink of the image the request carries, decoded once off the main actor (FigureCropCompletion).
+    private func prepareInk() async {
+        guard !inkReady else { return }
+        if let encoded = sent.flatMap({ Data(base64Encoded: $0.data) }) {
+            ink = await Task.detached(priority: .userInitiated) { PresentedCrop.ink(of: encoded) }.value
+        }
+        inkReady = true
+        refreshCrops()
+    }
+
+    /// Completes every crop shown (the walkthrough's together, each extracted part alone) and cuts them, off the main actor.
+    private func refreshCrops() {
+        guard inkReady, let image else { return }
+        let sections = walkthrough.walkthrough?.sections ?? []
+        let boxed = sections.indices.filter { sections[$0].cardKind == .panel && sections[$0].box != nil }
+        let boxes = boxed.map { sections[$0].box!.fractions }
+        let extracted = details.compactMap { index, part in part.detail.map { (index, $0.box.fractions) } }
+        let ink = self.ink, figure = FigurePartCrop.Unchecked(image: image), fallback = ink == nil ? walkthrough.walkthrough?.cropCoverage(width: image.width, height: image.height) : nil
+        cropGeneration += 1
+        let generation = cropGeneration
+        Task { [weak self] in
+            struct Made: @unchecked Sendable { let crops: [Int: Crop]; let details: [Int: Crop]; let coverage: Double? }
+            let made = await Task.detached(priority: .userInitiated) { () -> Made in
+                func cut(_ shown: PresentedCrop) -> Crop? { shown.image(from: figure.image).map { Crop(image: $0, whole: shown.whole) } }
+                let all = PresentedCrop.all(boxes, ink: ink)
+                var crops: [Int: Crop] = [:], details: [Int: Crop] = [:]
+                for (k, index) in boxed.enumerated() { crops[index] = cut(all.crops[k]) }
+                for (index, box) in extracted { details[index] = PresentedCrop.all([box], ink: ink).crops.first.flatMap(cut) }
+                return Made(crops: crops, details: details, coverage: all.coverage)
+            }.value
+            guard let self, generation == cropGeneration else { return }
+            crops = made.crops; detailCrops = made.details; inkCoverage = made.coverage ?? fallback
+        }
+    }
+
     private func run(_ action: ChatAction, part: (index: Int, section: FigureWalkthrough.Section)?) {
         guard let model else { return }
         func set(_ value: Part) { store(value, action: action, index: part?.index) }
@@ -206,8 +254,17 @@ enum FigureViewOutcome {
 
     /// The walkthrough, or one part's simpler words or extract.
     private func store(_ value: Part, action: ChatAction, index: Int?) {
-        guard let index else { walkthrough = value; return }
-        if action == .figureDetail { details[index] = value } else { simpler[index] = value }
+        guard let index else {
+            let changed = walkthrough.walkthrough != value.walkthrough
+            walkthrough = value
+            if changed { refreshCrops() }
+            return
+        }
+        if action == .figureDetail {
+            let changed = details[index]?.detail != value.detail
+            details[index] = value
+            if changed { refreshCrops() }
+        } else { simpler[index] = value }
     }
 
     private func stream(_ request: ChatGenerationRequest, action: ChatAction, part index: Int?, key: FigureResultKey) async {

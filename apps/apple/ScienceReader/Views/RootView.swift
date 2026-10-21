@@ -1510,6 +1510,7 @@ struct HistoryView: View {
                 ForEach(savedDiagrams, id: \.id) { saved in
                     NavigationLink(saved.diagram.title) {
                         DiagramDetail(diagram: saved.diagram).environment(\.figureImage) { manifest, paths in model.figureImage(manifest: manifest, paths: paths) }
+                            .environment(\.figurePartCrops) { stored in model.figurePartCrops(stored) }
                     }
                         .accessibilityIdentifier("diagram.\(saved.id.wire)")
                 }

@@ -4,10 +4,36 @@ import ScienceReaderCore
 /// The image of a figure in a bundle on this device, by its manifest and member paths (several: its panels composed),
 /// set by RootView from the model.
 struct FigureImageLookupKey: EnvironmentKey { static let defaultValue: @MainActor @Sendable (String, [String]) -> CGImage? = { _, _ in nil } }
+/// An answer's figure parts completed on the image as it was sent (`ReaderModel.figurePartCrops`), set by RootView.
+struct FigurePartCropsLookupKey: EnvironmentKey { static let defaultValue: @MainActor @Sendable (StoredFigureParts) -> [FigurePartCrop?]? = { _ in nil } }
 extension EnvironmentValues {
     var figureImage: @MainActor @Sendable (String, [String]) -> CGImage? {
         get { self[FigureImageLookupKey.self] }
         set { self[FigureImageLookupKey.self] = newValue }
+    }
+    var figurePartCrops: @MainActor @Sendable (StoredFigureParts) -> [FigurePartCrop?]? {
+        get { self[FigurePartCropsLookupKey.self] }
+        set { self[FigurePartCropsLookupKey.self] = newValue }
+    }
+}
+
+/// One part as it is shown (FIGURE_VIEW.md "Complete crops"): its crop completed over the ink its box cut, on a margin of
+/// the figure's white background, or the whole figure when no crop could hold it all; `region` is where it is in the
+/// figure (fractions), for the outline.
+struct FigurePartCrop: @unchecked Sendable {
+    let image: CGImage
+    let region: CropRect
+    let whole: Bool
+    /// A figure image handed to the work off the main actor (CGImage is immutable).
+    struct Unchecked: @unchecked Sendable { let image: CGImage }
+
+    /// Every part of `stored`, completed together on the image as the question carried it: the paper's figure prepared
+    /// again exactly as it was sent (`ChatFigureFinder.prepare`, from the asset's own bytes for one image). Pure; run it
+    /// off the main actor.
+    static func all(_ stored: StoredFigureParts, image: CGImage, asset: Data?) -> [FigurePartCrop?] {
+        let sent = asset.flatMap { ChatFigureFinder.prepare($0) } ?? ChatFigureFinder.prepare(image)
+        let shown = PresentedCrop.all(stored.parts.map(\.fractions), ink: sent.flatMap { PresentedCrop.ink(of: $0.data) }).crops
+        return shown.map { crop in crop.image(from: image).map { FigurePartCrop(image: $0, region: crop.region, whole: crop.whole) } }
     }
 }
 
@@ -16,21 +42,19 @@ extension EnvironmentValues {
 struct FigurePartsView: View {
     let stored: StoredFigureParts
     @Environment(\.figureImage) private var figureImage
+    @Environment(\.figurePartCrops) private var figurePartCrops
 
     var body: some View {
         ScrollView {
-            FigurePartsContent(stored: stored, image: figureImage(stored.manifestSHA256, stored.paths))
+            FigurePartsContent(stored: stored, image: figureImage(stored.manifestSHA256, stored.paths), crops: figurePartCrops(stored))
                 .padding(20).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity)
         }
     }
 
-    /// A part of the figure, by its box in fractions of the image.
-    static func crop(_ image: CGImage, _ box: [Double]) -> CGImage? {
-        guard box.count == 4 else { return nil }
-        let w = Double(image.width), h = Double(image.height)
-        let rect = CGRect(x: box[0] * w, y: box[1] * h, width: (box[2] - box[0]) * w, height: (box[3] - box[1]) * h).integral
-            .intersection(CGRect(x: 0, y: 0, width: w, height: h))
-        return rect.width >= 2 && rect.height >= 2 ? image.cropping(to: rect) : nil
+    /// Where part `index` is outlined: its completed crop, or its box when the crop is the whole figure or not ready.
+    static func outline(_ part: ChatFigureParts.Part, _ crop: FigurePartCrop??) -> CropRect {
+        if let crop = crop ?? nil, !crop.whole { return crop.region }
+        return part.fractions
     }
 }
 
@@ -38,6 +62,8 @@ struct FigurePartsView: View {
 struct FigurePartsContent: View {
     let stored: StoredFigureParts
     let image: CGImage?
+    /// Each part's completed crop; nil while they are worked out (no crop shows and then changes size).
+    let crops: [FigurePartCrop?]?
 
     var body: some View {
             VStack(alignment: .leading, spacing: 18) {
@@ -45,8 +71,9 @@ struct FigurePartsContent: View {
                     Image(decorative: image, scale: 1).resizable().scaledToFit()
                         .overlay { GeometryReader { proxy in
                             ForEach(Array(stored.parts.enumerated()), id: \.offset) { index, part in
-                                let rect = CGRect(x: part.box[0] * proxy.size.width, y: part.box[1] * proxy.size.height,
-                                                  width: (part.box[2] - part.box[0]) * proxy.size.width, height: (part.box[3] - part.box[1]) * proxy.size.height)
+                                let r = FigurePartsView.outline(part, crops?[safeIndex: index])
+                                let rect = CGRect(x: r.x0 * proxy.size.width, y: r.y0 * proxy.size.height,
+                                                  width: (r.x1 - r.x0) * proxy.size.width, height: (r.y1 - r.y0) * proxy.size.height)
                                 RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 2)
                                     .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
                                 Text("\(index + 1)").font(.caption.weight(.bold)).foregroundStyle(.white)
@@ -54,6 +81,8 @@ struct FigurePartsContent: View {
                                     .position(x: rect.minX + 12, y: rect.minY + 10)
                             }
                         } }
+                        // The whole figure on a margin of its white background too (owner, 2026-10-21).
+                        .padding(8).background(Color.white, in: RoundedRectangle(cornerRadius: 8))
                         .accessibilityLabel("The figure with its parts outlined")
                         .accessibilityIdentifier("figureParts.whole")
                 } else {
@@ -67,8 +96,8 @@ struct FigurePartsContent: View {
                                 .frame(minWidth: 22, minHeight: 22).background(Circle().fill(Color.accentColor))
                             Text(part.label).font(.headline)
                         }
-                        if let image, let crop = FigurePartsView.crop(image, part.box) {
-                            Image(decorative: crop, scale: 1).resizable().scaledToFit().frame(maxHeight: 280)
+                        if image != nil, let crop = crops?[safeIndex: index] ?? nil {
+                            Image(decorative: crop.image, scale: 1).resizable().scaledToFit().frame(maxHeight: 280)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
                                 .accessibilityLabel("Part \(index + 1): \(part.label)")
@@ -86,6 +115,7 @@ struct FigurePartsContent: View {
 struct FigurePartsStrip: View {
     let stored: StoredFigureParts
     let image: CGImage?
+    let crops: [FigurePartCrop?]?
     let fontSize: Double
     let open: () -> Void
 
@@ -93,7 +123,7 @@ struct FigurePartsStrip: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 8) {
                 if let image {
-                    ScrollView(.horizontal, showsIndicators: false) { FigurePartsThumbnails(stored: stored, image: image, fontSize: fontSize) }
+                    ScrollView(.horizontal, showsIndicators: false) { FigurePartsThumbnails(stored: stored, image: image, crops: crops, fontSize: fontSize) }
                 }
                 Label("Figure parts: \(stored.title)", systemImage: "square.split.2x2").font(.system(size: fontSize * 0.86))
                     .foregroundStyle(Color.accentColor).lineLimit(2)
@@ -109,13 +139,14 @@ struct FigurePartsStrip: View {
 struct FigurePartsThumbnails: View {
     let stored: StoredFigureParts
     let image: CGImage
+    let crops: [FigurePartCrop?]?
     let fontSize: Double
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             ForEach(Array(stored.parts.enumerated()), id: \.offset) { index, part in
                 VStack(alignment: .leading, spacing: 4) {
-                    if let crop = FigurePartsView.crop(image, part.box) {
-                        Image(decorative: crop, scale: 1).resizable().scaledToFit()
+                    if let crop = crops?[safeIndex: index] ?? nil {
+                        Image(decorative: crop.image, scale: 1).resizable().scaledToFit()
                             .frame(maxWidth: 180, maxHeight: 120)
                             .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
@@ -135,6 +166,7 @@ struct InlineFigurePartsAnswer: View {
     let source: String
     let stored: StoredFigureParts
     let image: CGImage?
+    let crops: [FigurePartCrop?]?
     let fontSize: Double
     let identifier: String
     var onQuote: ChatQuoteHandler?
@@ -149,7 +181,7 @@ struct InlineFigurePartsAnswer: View {
                     ChatMessageText(source: text, fontSize: fontSize, streaming: false, speaker: "Assistant",
                                     identifier: index == 0 ? identifier : "\(identifier).\(index)", assistant: true, onQuote: onQuote, onCite: onCite)
                 case .part(let number):
-                    InlineFigurePart(number: number, part: stored.parts[number - 1], image: image, fontSize: fontSize)
+                    InlineFigurePart(number: number, part: stored.parts[number - 1], crop: image == nil ? nil : crops?[safeIndex: number - 1] ?? nil, fontSize: fontSize)
                 }
             }
         }
@@ -160,7 +192,7 @@ struct InlineFigurePartsAnswer: View {
 struct InlineFigurePart: View {
     let number: Int
     let part: ChatFigureParts.Part
-    let image: CGImage?
+    let crop: FigurePartCrop?
     let fontSize: Double
 
     var body: some View {
@@ -170,8 +202,8 @@ struct InlineFigurePart: View {
                     .frame(minWidth: 20, minHeight: 20).background(Circle().fill(Color.accentColor))
                 Text(part.label).font(.system(size: fontSize * 0.86, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
             }
-            if let image, let crop = FigurePartsView.crop(image, part.box) {
-                Image(decorative: crop, scale: 1).resizable().scaledToFit()
+            if let crop {
+                Image(decorative: crop.image, scale: 1).resizable().scaledToFit()
                     .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
                     .frame(maxWidth: 280, maxHeight: 280, alignment: .leading)
@@ -190,6 +222,7 @@ struct InlineFigurePart: View {
 struct FigurePartsOverview: View {
     let stored: StoredFigureParts
     let image: CGImage?
+    let crops: [FigurePartCrop?]?
     let fontSize: Double
     let open: () -> Void
 
@@ -200,8 +233,9 @@ struct FigurePartsOverview: View {
                     Image(decorative: image, scale: 1).resizable().scaledToFit()
                         .overlay { GeometryReader { proxy in
                             ForEach(Array(stored.parts.enumerated()), id: \.offset) { index, part in
-                                let rect = CGRect(x: part.box[0] * proxy.size.width, y: part.box[1] * proxy.size.height,
-                                                  width: (part.box[2] - part.box[0]) * proxy.size.width, height: (part.box[3] - part.box[1]) * proxy.size.height)
+                                let r = FigurePartsView.outline(part, crops?[safeIndex: index])
+                                let rect = CGRect(x: r.x0 * proxy.size.width, y: r.y0 * proxy.size.height,
+                                                  width: (r.x1 - r.x0) * proxy.size.width, height: (r.y1 - r.y0) * proxy.size.height)
                                 RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 1.5)
                                     .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
                                 Text("\(index + 1)").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
@@ -209,7 +243,7 @@ struct FigurePartsOverview: View {
                                     .position(x: rect.minX + 9, y: rect.minY + 8)
                             }
                         } }
-                        .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 6))
+                        .padding(5).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
                         .frame(maxWidth: 240, maxHeight: 160, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -222,4 +256,9 @@ struct FigurePartsOverview: View {
         .accessibilityLabel("Whole figure: \(stored.title), \(stored.parts.count) parts outlined")
         .accessibilityHint("Opens each part with its explanation")
     }
+}
+
+extension Array {
+    /// The element at `index`, or nil past the end (parts and their crops are kept in step, but a crop may be missing).
+    subscript(safeIndex index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

@@ -80,7 +80,8 @@ struct EquationTilesView: UIViewRepresentable {
         for (const box of document.querySelectorAll('.tile-eq')) {
           const inner = box.firstElementChild; if (!inner) continue;
           inner.style.transform = 'none';
-          const scale = Math.min(1, (box.clientWidth - 4) / Math.max(1, inner.scrollWidth), 120 / Math.max(1, inner.scrollHeight));
+          // 8 pt of the tile on each side beyond its padding (owner, 2026-10-21: a margin around every equation shown).
+          const scale = Math.min(1, (box.clientWidth - 16) / Math.max(1, inner.scrollWidth), 120 / Math.max(1, inner.scrollHeight));
           inner.style.transform = scale < 1 ? 'scale(' + scale + ')' : 'none';
         }
       };

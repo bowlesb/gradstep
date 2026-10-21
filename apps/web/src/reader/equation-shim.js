@@ -17,7 +17,8 @@
       const sizes = held.map(h => { const r = h.getBoundingClientRect(), box = h.parentElement; return [r.width, r.height, box.clientWidth, box.clientHeight]; });
       held.forEach((h, i) => {
         const [w, ht, roomW, roomH] = sizes[i];
-        const zoom = Math.min(1, w > 0 ? (roomW - 2) / w : 1, ht > 0 ? (roomH - 2) / ht : 1);
+        // 8 px of the tile on each side beyond its padding (owner, 2026-10-21: a margin around every equation shown).
+        const zoom = Math.min(1, w > 0 ? (roomW - 16) / w : 1, ht > 0 ? (roomH - 2) / ht : 1);
         if (zoom < 1) h.style.zoom = String(Math.max(0.05, zoom));
       });
     };

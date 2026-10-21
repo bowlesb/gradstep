@@ -1,5 +1,33 @@
 # Implementation status
 
+## Complete figure crops and presentation margins — 2026-10-21 (local source; not released, not deployed)
+
+Owner-approved quick win from the [subfigure detector review](reviews/SUBFIGURE_DETECTOR_20261021.md) (integration
+step 1): every AI-written figure crop — walkthrough panel cards, "Extract the subfigure" details and chat figure parts —
+is completed on the device over the ink its box cuts, on the exact image the request carried, or shown as the whole
+figure when no crop can hold all of it; every crop and whole-figure card sits on a margin of white background. No model,
+server, prompt, schema, storage or spend change. Design and limits: [Complete crops](architecture/FIGURE_VIEW.md).
+Owner, same day: margins wherever a figure or equation is presented alone — the figure/table page's image now has 12 px
+of its white background inside the white surface (shared `reader-bridge.js`, both clients; before, ink touched its edges
+in dark mode); the native equation view draws the equation inside a bordered surface (8 pt + 8 px inside it; the browser
+already had a bordered stage with 14/18 px); equation tiles fit with 8 px/pt more room on each side; the native fullscreen
+figure keeps 16 pt around the image; the browser's figure-parts overview pads the whole figure by 8 px. The native
+walkthrough's whole figure (8 pt white) and gallery thumbnails already had margins.
+
+Evidence: shared golden fixtures `tests/fixtures/figure-crops/` (8 cases on 4 images, exported from
+`scripts/subfigure-detector/app_crops.py`) reproduced exactly by Swift and TypeScript, including component digests;
+Core 391 tests pass; `npm test` passes (browser units 564, backend 686); app unit `ChatVisualTests`/figure-parts render
+pass. iPhone 17 Pro Simulator (iOS 26.4), run alone: all 5 `FigureViewJourneyTests` (including the new two-plot light
+and dark cases), equation view light/dark, equation tiles light/dark and the figure gallery pass. Playwright desktop +
+phone: `figure-view.spec.ts` and `equation-view.spec.ts` 27 passed (1 by-design desktop skip), `arxiv-html.spec.ts` (chat
+figure parts) 4 passed. On the real two-plot figure the right crop before the change cut its title, legend, x-axis and
+y-label and showed a sliver of the left plot, with the coverage note; after, both crops hold their whole plot, the note
+is gone. Before/after screenshots (light and dark, native and browser): `.artifacts/figure-crops/compare-*.png` and the
+`before-*`/`after*` files beside them. `PaperWebViewTests` has 4 failing Contents cases ("Gradstep Keywords" listed as a
+heading) that fail identically with the original `reader-bridge.js`: pre-existing, not addressed here. Not verified: a
+physical device (paused), Mac and iPad layouts, completion quality on a corpus of live AI boxes (the review's simulation
+is the only quantitative evidence; the app gates were chosen on its fixtures, not measured on the validation set).
+
 ## TestFlight 78 and browser release — 2026-10-21 UTC
 
 iOS build 78 uploaded 12:52 UTC and VALID in App Store Connect; Mac build 78 uploaded 13:01 UTC (processing at the time of

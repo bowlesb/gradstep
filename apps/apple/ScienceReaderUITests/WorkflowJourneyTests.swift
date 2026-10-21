@@ -567,6 +567,27 @@ final class WorkflowJourneyTests: XCTestCase {
     /// Explain in Chat on a tapped equation and opens the view explaining it: the equation large with its size and
     /// sideways scrolling, what it says and each symbol, background on request, a symbol's paragraph with Back, and
     /// Explain in Chat with the equation as the passage, nothing sent. One top row: Explain in Chat and the X.
+    /// Owner, 2026-10-21: "Some border basically, when we present them in the equation view": the equation sits inside a
+    /// bordered surface with room on every side, light and dark.
+    func testEquationViewDrawsTheEquationInsideABorderDark() throws {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture", "-appearance", "dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        app.show("paper")
+        let number = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
+        XCTAssertTrue(number.waitForExistence(timeout: 15), "The paper's numbered equation")
+        number.tap()
+        let item = app.revealEditMenuItem("AI Explainer")
+        XCTAssertTrue(item.exists); item.tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.1"].waitForExistence(timeout: 8))
+        app.buttons["equation.larger"].tap(); app.buttons["equation.larger"].tap()
+        capture(app, "Equation view: large, symbols described (dark)")
+    }
+
     func testEquationViewDescribesSymbolsAndLeadsToThePaperAndTheChat() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()

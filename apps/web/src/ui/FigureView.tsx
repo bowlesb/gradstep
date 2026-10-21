@@ -9,7 +9,9 @@ import { ExplainerModelDialog } from './ChatProfile';
 import type { ContextualHost } from './ContextualChat';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
-import { displayBox, cropStyle, cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
+import { cropCoverage, paddedCropStyle, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
+import { boxFractions, cropPadding, type PresentedCrop } from '../lib/figure-crops';
+import { completedFor, useCompletedCrops, useSentInk } from './useFigureCrops';
 import { safeLink } from '../lib/markdown';
 import Answer from './Answer';
 import { Dialog, SheetTop, MenuButton } from './common';
@@ -135,7 +137,15 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const result = walk, sections = result?.walkthrough?.sections ?? [];
   const note = endedEarly(result);
   const image = result?.image ?? null;
-  const coverage = image ? cropCoverage(sections, image) : null;
+  // Every crop completed on the image the request carried (FIGURE_VIEW.md "Complete crops"): grown over the ink its box
+  // cuts, or the whole figure when it can't be; the note below says when the crops leave some of the figure's ink out.
+  const ink = useSentInk(image?.data);
+  const boxed = sections.flatMap((s, i) => (!s.kind || s.kind === 'panel') && s.box ? [i] : []);
+  const completed = useCompletedCrops(ink, boxed.map(i => boxFractions(sections[i].box!)));
+  const shownFor = new Map(boxed.map((i, k) => [i, completed?.crops[k]] as const));
+  const coverage = !completed || !image ? null : completed.coverage ?? (ink === null ? cropCoverage(sections, image) : null);
+  const closerFor = useMemo(() => ink === undefined ? new Map<string, PresentedCrop>() : new Map([...details].flatMap(([k, r]) =>
+    r.detail ? [[k, completedFor(ink, [boxFractions(r.detail.box)]).crops[0]] as const] : [])), [ink, details]);
   const background = useMemo(() => image ? `url("data:image/jpeg;base64,${image.data}")` : null, [image]);
 
   return <div className="figure-explain" ref={panel}>
@@ -153,8 +163,8 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       {sections.length > 0 && <section className="equation-section" aria-labelledby="figure-parts">
         <h3 id="figure-parts">Part by part</h3>
         <ol className="figure-sections">{sections.map((s, i) => {
-          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), style = (!s.kind || s.kind === 'panel') && s.box && image ? cropStyle(displayBox(s.box), image) : null;
-          const closer = details.get(key), closerImage = closer?.image ?? image, closerStyle = closer?.detail && closerImage ? cropStyle(displayBox(closer.detail.box), closerImage) : null;
+          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), shown = shownFor.get(i), style = shown && image ? paddedCropStyle(shown, image) : null;
+          const closer = details.get(key), closerImage = closer?.image ?? image, closerShown = closer?.detail ? closerFor.get(key) : undefined, closerStyle = closerShown && closerImage ? paddedCropStyle(closerShown, closerImage) : null;
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
               <h4><span className="figure-section-label">{[cardTypeLabel(s), s.label].filter(Boolean).join(' · ')}</span><span>{s.title}</span></h4>
@@ -170,8 +180,9 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
               </>}</MenuButton>
             </div>
             {style && background && <ZoomableCrop label={`${heading}, the part of the figure it describes`} testID="figure-crop" whole={image ?? undefined}
-              style={{ aspectRatio: String(style.aspect), width: `min(100%, ${Math.round(Math.min(560, 320 * style.aspect))}px)`, backgroundImage: background,
-                backgroundSize: style.size, backgroundPosition: style.position }} />}
+              style={{ aspectRatio: String(style.aspect), width: `min(100%, ${Math.round(Math.min(560, 320 * style.aspect))}px)`, backgroundImage: `${background}, linear-gradient(#fff, #fff)`,
+                ...style.style }} />}
+            {shown?.whole && <p className="fine" data-testid="figure-crop-whole">Shown whole: a crop would cut part of this panel off.</p>}
             {s.kind === 'related_work' && <p className="fine">As described in this paper</p>}
             <Answer text={s.text} />
             {more && <div className="figure-simpler" data-testid="figure-simpler">
@@ -188,7 +199,8 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
                 : closer.phase === 'loading' ? <p className="fine" role="status">Extracting this part…</p> : <>
                   {closerStyle && closerImage && <ZoomableCrop label={`${heading}, up close`} testID="figure-detail-crop" whole={closerImage ?? undefined}
                     style={{ aspectRatio: String(closerStyle.aspect), width: `min(100%, ${Math.round(Math.min(560, 360 * closerStyle.aspect))}px)`,
-                      backgroundImage: `url("data:image/jpeg;base64,${closerImage.data}")`, backgroundSize: closerStyle.size, backgroundPosition: closerStyle.position }} />}
+                      backgroundImage: `url("data:image/jpeg;base64,${closerImage.data}"), linear-gradient(#fff, #fff)`, ...closerStyle.style }} />}
+                  {closerShown?.whole && <p className="fine" data-testid="figure-detail-whole">Shown whole: a crop would cut part of this part off.</p>}
                   <Answer text={closer.detail?.text ?? closer.text} />
                   {!closer.detail && <p className="fine" data-testid="figure-detail-no-crop">Couldn’t crop this part; here is the closer reading.</p>}
                 </>}
@@ -210,6 +222,12 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       onRetry={() => host.context?.chat.reloadProfiles() ?? Promise.resolve()}
       onUse={choice => { setChoosing(false); setChosen({ ...choice }); setPending(true); }} />}
   </div>;
+}
+
+/** The whole figure on the same margin of white background as every crop (owner, 2026-10-21). */
+function wholeStyle(whole: { data: string; width: number; height: number }): CSSProperties {
+  const p = cropPadding(whole.width, whole.height), padded = paddedCropStyle({ region: [0, 0, 1, 1], padX: p / whole.width, padY: p / whole.height }, whole);
+  return { width: '100%', aspectRatio: String(padded.aspect), backgroundImage: `url("data:image/jpeg;base64,${whole.data}"), linear-gradient(#fff, #fff)`, ...padded.style };
 }
 
 /** Zoom the extracted region, preserving its crop; no larger image or AI request is needed. */
@@ -236,6 +254,6 @@ function ZoomableCrop({ label, testID, style, whole, canExpand=true }: { label: 
       {canExpand && <button type="button" className="secondary small" onClick={()=>setExpanded(true)}>Open fullscreen</button>}</div>
   </div>{expanded && <Dialog open onClose={()=>setExpanded(false)} title={label} wide className="fullscreen-figure">
     <SheetTop onClose={()=>setExpanded(false)}><h2>{label}</h2>{whole && <button className="secondary small" onClick={()=>setShowWhole(v=>!v)}>{showWhole?'Show detail':'Whole figure'}</button>}</SheetTop>
-    <ZoomableCrop label={label} testID="fullscreen-crop" canExpand={false} style={showWhole && whole ? {width:'100%',aspectRatio:String(whole.width/whole.height),backgroundImage:`url("data:image/jpeg;base64,${whole.data}")`,backgroundSize:'100% 100%',backgroundPosition:'center'} : {...style,width:'100%'}} />
+    <ZoomableCrop label={label} testID="fullscreen-crop" canExpand={false} style={showWhole && whole ? wholeStyle(whole) : {...style,width:'100%'}} />
   </Dialog>}</>;
 }

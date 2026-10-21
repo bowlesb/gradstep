@@ -31,7 +31,10 @@ extension ReaderModel {
     /// tutors. The shared arXiv HTML fixture (tests/fixtures/reader-arxiv/package.json) as a membership of this library.
     func configureStudyFixture() throws {
         guard let resources = Bundle.main.resourceURL else { return }
-        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: resources.appendingPathComponent("ReaderSamples/arxiv-fixture.json")))
+        // `--figure-fixture-panels`: the same paper with a real two-plot Figure 1 (scripts/figure-panels-fixture.py), so the
+        // figure view's crops are checked on a real multi-panel figure.
+        let name = ChatFixtureTransport.figurePanels ? "arxiv-fixture-panels" : "arxiv-fixture"
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: resources.appendingPathComponent("ReaderSamples/\(name).json")))
         let reference = try SourcePaperReference(membershipID: UUID(uuidString: "58000000-0000-4000-8000-000000000003")!, sourceID: "2601.01234", revision: 2)
         var paper = Paper(id: reference.membershipID, title: "Authored HTML fixture", authors: "A. Author", year: 2026,
                           abstract: "A short authored paper for the HTML reader.", keywords: ["cs.LG"], fileURL: nil, artifactID: nil)

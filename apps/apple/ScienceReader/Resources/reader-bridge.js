@@ -1269,7 +1269,10 @@
       document.body.replaceChildren(figure);
       document.body.classList.add('reader-figure-detail');
       const style = document.createElement('style');
-      style.textContent = 'body.reader-figure-detail{max-width:none;padding:24px 18px 32px}body.reader-figure-detail figure{margin:0}body.reader-figure-detail img{max-width:100%;height:auto}';
+      // The figure on a margin of its own white background, so no ink sits on the edge of the white surface the
+      // reader's dark styles draw it on (owner, 2026-10-21: "some margin around them").
+      style.textContent = 'body.reader-figure-detail{max-width:none;padding:24px 18px 32px}body.reader-figure-detail figure{margin:0}body.reader-figure-detail img{max-width:100%;height:auto}'
+        + 'body.reader-figure-detail figure > img:not(.reader-inline-image){box-sizing:border-box;padding:12px;background:#fff;border-radius:8px}';
       document.head.append(style);
     }
     await document.fonts.ready;

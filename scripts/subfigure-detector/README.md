@@ -19,6 +19,7 @@ earlier `env/`). The owner's corpus `/home/ben/mathpix/data/arxiv` is read, neve
 | Teacher pseudo-labels | `render_rejects.py`, `pseudo.py` | `data/pseudo-*` |
 | Box-fusion ensembles (validation only) | `fuse.py` | `eval/ens/` |
 | Simulated imprecise AI boxes + completion | `ai_box_sim.py` | `eval/ai-box-sim-validation.json` |
+| The apps' completeness step on AI crops (reference for Swift/TypeScript) | `app_crops.py`, `export_crop_fixtures.py` | `tests/fixtures/figure-crops/` |
 | Final test, scored once | `final_test.sh` | `eval/final/` |
 | Export | `export_coreml.py` (Mac), `export_onnx.py` (host) | parity JSON |
 

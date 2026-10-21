@@ -2,7 +2,9 @@
 
 Status, 2026-10-21: a corpus-trained detector + completeness/caption policy reaches 80.4% fully-right figures
 (8.9% wrong crops) on a new held-out arXiv final test versus 59.1% for the previous detector; still below the
-gates below, so not bundled. The model-free completeness check is proposed as the first integration. See
+gates below, so not bundled. The model-free completeness check is the first integration: built on 2026-10-21 for
+every AI-written crop on iPhone/iPad/Mac and the browser (local source, not released; [Complete
+crops](FIGURE_VIEW.md#complete-crops--2026-10-21-local-source-not-released-not-deployed)). See
 [Subfigure detector](../reviews/SUBFIGURE_DETECTOR_20261021.md).
 
 Earlier status, updated 2026-10-19 UTC: iterative scientific-panel fine-tuning has run on the owner's GPU machine. The real corpus
