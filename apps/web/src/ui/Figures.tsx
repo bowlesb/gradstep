@@ -9,7 +9,7 @@ import { citedMarker } from '../lib/passage';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { toBase64 } from '../lib/bytes';
 import type { VerifiedBundle } from '../lib/bundle';
-import { figureName } from '../lib/figure-view';
+import { figureName, figureNoun } from '../lib/figure-view';
 import { frameDocument } from '../reader/frame';
 import { Dialog, MenuButton, SheetTop } from './common';
 import type { FigureHost } from './FigureView';
@@ -84,10 +84,10 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
             {fromGallery && <button className="icon-button sheet-back" disabled={discussing} onClick={() => setIndex(null)} aria-label="All figures" title="All figures"
               data-testid="figure-gallery-back"><Icon name="chevronLeft" /></button>}
             {onDiscuss && <button className="sheet-action" onClick={() => void discuss()} disabled={discussing} data-testid="figure-ask"
-              title="Ask about this figure below; nothing is sent"><Icon name="chat" size={15} />Chat about Figure</button>}
-            {figureView && !explaining && <button className="sheet-action prominent" disabled={discussing} data-testid="figure-explain"
+              title={`Ask about this ${figureNoun(names[index!]).toLowerCase()} below; nothing is sent`}><Icon name="chat" size={15} />Chat about {figureNoun(names[index!])}</button>}
+            {figureView && !explaining && <button className="sheet-action" disabled={discussing} data-testid="figure-explain"
               onClick={() => setRequest(r => ({ id: current.id, n: (r?.n ?? 0) + 1 }))}
-              title="Walks through the figure part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
+              title={`Walks through the ${figureNoun(names[index!]).toLowerCase()} part by part. Uses credits.`}><Icon name="sparkles" size={15} />AI Explainer</button>}
           </> : <h2>Figures · {figures.length}</h2>}
         </SheetTop>
         {current && doc ? <>

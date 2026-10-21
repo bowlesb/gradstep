@@ -864,12 +864,11 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .sheet-top .icon-button.sheet-close, .sheet-top .icon-button.sheet-back { flex: none; width: 34px; height: 34px; min-height: 34px; border-radius: 50%;
   color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent); }
 .sheet-top .icon-button.sheet-close:hover:not(:disabled), .sheet-top .icon-button.sheet-back:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 12%, transparent); }
-/* Explain in Chat and AI Explainer: quiet capsules; AI Explainer the tinted one. */
+/* Explain in Chat and AI Explainer: the same quiet capsule, peers (DESIGN.md "Explain actions"; owner, build 76:
+   "Confusing that only one is purple"). */
 .sheet-action { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 500;
   white-space: nowrap; color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent); }
 .sheet-action:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 11%, transparent); }
-.sheet-action.prominent { color: var(--accent); background: var(--accent-muted); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
-.sheet-action.prominent:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .sheet-action:disabled { opacity: .55; }
 @media (max-width: 420px) { .sheet-action { padding: 6px 11px; font-size: 13px; } .sheet-action .icon { display: none; } }
 /* An explainer's title: a small menu of the paper's other equations or figures (title ⌄). */

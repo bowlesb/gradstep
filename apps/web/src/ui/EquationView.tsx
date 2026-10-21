@@ -127,7 +127,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
       {/* Owner, build 62: the actions in the top row with the X; no Done, no action bar under the equation. */}
       <SheetTop onClose={onClose} testID="equation-close" trailing={context && <button type="button" className="icon-button" aria-label="Open in Chat" onClick={()=>{promoteContextual(context,[symbols?.symbols?.summary??symbols?.text,...(symbols?.symbols?.symbols.map(s=>`${s.symbol}: ${s.meaning}`)??[]),background?.text].filter(Boolean).join('\n'));onClose();}}><Icon name="chat"/></button>}>
 
-        {host && !symbols && !asking && <button className="sheet-action prominent" onClick={explain} data-testid="equation-explain"
+        {host && !symbols && !asking && <button className="sheet-action" onClick={explain} data-testid="equation-explain"
           title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
       </SheetTop>
       <h2 className="explainer-heading">{onSwitch && others.length > 1

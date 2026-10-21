@@ -283,6 +283,9 @@ test('a figure reference in the text offers Explain in Chat and AI Explainer; AI
  const detail=page.getByRole('dialog',{name:'Figure 1'});
  await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Chat about Figure');
  await expect(detail.getByTestId('figure-reference-explain')).toHaveText('AI Explainer');
+ // Peers with the same weight (owner, build 76: "Confusing that only one is purple").
+ const look=(id:string)=>detail.getByTestId(id).evaluate(e=>{const s=getComputedStyle(e);return [s.color,s.backgroundColor,s.borderColor].join('|');});
+ expect(await look('figure-reference-explain')).toBe(await look('figure-reference-ask'));
  await expect(detail.getByRole('button',{name:'Discuss in chat'})).toHaveCount(0);await expect(detail.getByRole('button',{name:'Done'})).toHaveCount(0);
  await expect(detail.getByTestId('figure-reference-go')).toBeVisible();
  await page.screenshot({path:`../../.artifacts/figure-reference-${test.info().project.name}.png`});

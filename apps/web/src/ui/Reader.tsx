@@ -15,6 +15,7 @@ import { contentsEquations, contentsFigures, contentsTables, type ContentsEquati
 import { equationNumbers } from '../lib/equation';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
+import { figureName, figureNoun } from '../lib/figure-view';
 import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
 import { EquationTiles } from './EquationTiles';
 import { FigureViewer } from './Figures';
@@ -685,6 +686,7 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
   const figure = bundle.index.figures.find(f => f.id === reference.id);
   const blockID = figure?.block_id ?? reference.id;
   const text = figure?.caption || bundle.index.blocks.find(b => b.id === blockID)?.text || reference.label;
+  const noun = figureNoun(figure ? figureName(bundle, figure.id) : reference.label);
   const discuss = async () => {
     if (!onDiscuss || busy) return;
     setBusy(true); setIssue(null);
@@ -696,8 +698,8 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
     <div className="reader-reference-detail">
       <SheetTop onClose={onClose} closeDisabled={busy} testID="figure-reference-close">
         {(onChat || onDiscuss) && <button className="sheet-action" disabled={busy} onClick={() => onChat ? onChat() : void discuss()} data-testid="figure-reference-ask"
-          title="Ask about this figure; nothing is sent"><Icon name="chat" size={15} />{busy ? 'Saving draft…' : 'Chat about Figure'}</button>}
-        {onExplain && <button className="sheet-action prominent" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
+          title={`Ask about this ${noun.toLowerCase()}; nothing is sent`}><Icon name="chat" size={15} />{busy ? 'Saving draft…' : `Chat about ${noun}`}</button>}
+        {onExplain && <button className="sheet-action" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
           title="Walks through it part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
         {!onDiscuss && !onExplain && <h2>{reference.label}</h2>}
       </SheetTop>
