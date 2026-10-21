@@ -484,7 +484,7 @@ progress.mini { height: 3px; margin-top: 4px; }
 .chat-sync button { margin-left: 8px; }
 .chat-transcript { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 8px; overscroll-behavior: contain; }
 .chat-transcript .chat-empty { min-height: 150px; padding: 12px; }
-.chat-message { margin: 0 0 24px; font-size: 14px; line-height: 1.62; overflow-wrap: anywhere; }
+.chat-message { margin: 0 0 24px; font-size: var(--chat-text, 14px); line-height: 1.62; overflow-wrap: anywhere; }
 .message-label-row { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; }
 .message-label { font-size: 10px; font-weight: 650; color: var(--faint); letter-spacing: .06em; text-transform: uppercase; margin: 0; }
 .message-label-row .link { margin-left: auto; opacity: .72; }
@@ -578,7 +578,10 @@ progress.mini { height: 3px; margin-top: 4px; }
 .history-draft { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .chat-delete { margin-top: 15px; }
 .selection-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
-@media(max-width: 600px) { .chat-message { font-size: 15px; } .chat-pane .segment { min-height: 32px; } }
+@media(max-width: 600px) { .chat-message { font-size: var(--chat-text, 15px); } .chat-pane .segment { min-height: 32px; } }
+.chat-text-size { display: flex; gap: 4px; }
+.chat-text-size .seg { flex: 1; white-space: nowrap; }
+.chat-text-size .seg:disabled { opacity: .45; }
 
 /* Small menus under an icon button (the chat's ⋯, All chats' ≡). */
 .menu-anchor { position: relative; }

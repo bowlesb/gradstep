@@ -2,7 +2,7 @@ import {readVisualAnswers} from '../lib/chat-session';
 import { decodeStoredFigureParts, hasPartMarkers, partSegments, storedPaths, stripPartMarkers } from '../lib/chat-figures';
 import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { TranscriptFollow } from '../lib/chat-follow';
 import { chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
@@ -16,7 +16,7 @@ import { Dialog, formatDate, MenuButton } from './common';
 import { CopyButton } from './CopyButton';
 import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL } from './Diagram';
 import { Icon, iconName } from './icons';
-import { useStored } from './prefs';
+import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
@@ -27,6 +27,9 @@ export function useChatUpdates(chat: ChatSession) {
   return useSyncExternalStore(chat.history.subscribe, chat.history.getVersion);
 }
 export interface PaperContext { documentID: string; title: string; available: boolean }
+/** Chat text size (B8; RootView's chat … › Smaller text / Larger text): per browser, 13–26 px; none set follows the layout. */
+const CHAT_TEXT_KEY = 'gradstep.chat.textSize', CHAT_TEXT_MIN = 13, CHAT_TEXT_MAX = 26;
+const validChatText = (v: unknown) => v === null || (typeof v === 'number' && Number.isInteger(v) && v >= CHAT_TEXT_MIN && v <= CHAT_TEXT_MAX);
 
 /** A conversation's title as shown: its topic title (generated or renamed) as is, else today's derived title. */
 export function summaryTitle(summary: ConversationSummary): string {
@@ -162,6 +165,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const choiceBusy = retired || composerBusy(c) || !!c.answer;
   const [answerOptions, setAnswerOptions] = useState(false);
   useEffect(() => setAnswerOptions(false), [c.id]);
+  // The main chat's text size; an equation or figure thread keeps the standard size, as on iPhone.
+  const [textSize, setTextSize] = useStored<number | null>(CHAT_TEXT_KEY, null, validChatText);
+  const layoutText = useMedia('(max-width: 600px)') ? 15 : 14, chatText = textSize ?? layoutText;
 
   // Starter questions (CHAT.md, 2026-10-16): a fresh seed whenever another empty chat is shown, kept while it stays on
   // screen; the paper's structure from its verified bundle on this device (none for a general chat).
@@ -190,7 +196,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
     f.style.height = 'auto'; f.style.height = `${Math.min(f.scrollHeight + 2, 168)}px`;
   }, [c.draft, c.id]);
 
-  return <div className={`chat-pane${empty ? ' chat-pane-empty' : ''}`} data-testid="chat-pane">
+  return <div className={`chat-pane${empty ? ' chat-pane-empty' : ''}`} data-testid="chat-pane"
+    style={!context && textSize !== null ? { '--chat-text': `${textSize}px` } as CSSProperties : undefined}>
     {!context && <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
       <button className={mode === 'paper' ? 'segment on' : 'segment'} aria-pressed={mode === 'paper'} disabled={!paper} onClick={() => onMode('paper')}>Paper</button>
       <button className={mode === 'general' ? 'segment on' : 'segment'} aria-pressed={mode === 'general'} onClick={() => onMode('general')}>General</button>
@@ -206,6 +213,12 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           onClick={() => { close(); startStudy(); }}><Icon name="book" size={14} /> Study mode</button>}
         {c.study && <button type="button" role="menuitem" className="menu-item" data-testid="study-end-menu" disabled={composerBusy(c) || !!c.answer}
           onClick={() => { close(); chat.endStudy(c); }}><Icon name="book" size={14} /> End study mode</button>}
+        <div className="menu-row chat-text-size" role="group" aria-label="Chat text size">
+          <button type="button" role="menuitem" className="seg" disabled={chatText <= CHAT_TEXT_MIN} onClick={() => setTextSize(Math.max(CHAT_TEXT_MIN, chatText - 1))}
+            data-testid="chat-text-smaller"><span className="a-small" aria-hidden="true">A</span> Smaller text</button>
+          <button type="button" role="menuitem" className="seg" disabled={chatText >= CHAT_TEXT_MAX} onClick={() => setTextSize(Math.min(CHAT_TEXT_MAX, chatText + 1))}
+            data-testid="chat-text-larger"><span className="a-large" aria-hidden="true">A</span> Larger text</button>
+        </div>
       </>}</MenuButton>
     </PaneHeader>}
     {!context && <div className="chat-heading">
