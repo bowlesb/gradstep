@@ -205,7 +205,7 @@ function derive(data: HealthData, budget: Budget | null) {
   if (arxiv && arxiv.calls > 0) attention.push({ tone: 'warning', text: `Our servers tried to reach arXiv ${arxiv.calls.toLocaleString()} time${arxiv.calls === 1 ? '' : 's'} in the last hour. They must never contact arXiv: find the caller in the logs (event arxiv_egress).` });
   // Outside providers (RESILIENCE.md): a breaker open now, or 5 % or more of the last hour's calls failing (with 20 or more calls).
   for (const breaker of data.providers?.breakers ?? []) {
-    attention.push({ tone: 'warning', text: `${providerName(breaker.provider)} kept failing, so calls to it are paused${breaker.reopen_at && breaker.state === 'open'
+    attention.push({ tone: 'warning', text: `${providerName(breaker.provider)}${breaker.scope ? ` (${breaker.scope.replace(/_/g, " → ")})` : ""} kept failing, so calls to it are paused${breaker.reopen_at && breaker.state === 'open'
       ? ` until ${clock.format(new Date(breaker.reopen_at))}` : ' while one test call checks it'}; only the features that use it are affected.` });
   }
   for (const r of data.providers?.last_hour ?? []) {

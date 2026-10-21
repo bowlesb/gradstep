@@ -369,6 +369,27 @@ worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn'
 **First drill.** After migration 073 and the functions are deployed to staging:
 `node scripts/fault-drill.mjs --provider=anthropic --mode=throttle --route=chat --minutes=5` (today: `--provider=openrouter`, the default).
 
+### Scoped breakers, per-feature keys and billing blame — 2026-10-21 (review A13, migration 0106; not deployed)
+
+After the OpenRouter switch every model shares one host, so the per-provider breaker turned any route's trouble into
+everyone's: five failures in 60 s from a DeepInfra outage (DeepSeek), a podcast's speech errors or a tag job's 429s
+failed every Claude and Gemini chat with synthetic 429s for 30 s–5 min. One key also let a runaway podcast or tag job
+drain the balance chat needs, and a 402 told readers to "choose another AI model" when every model shares the account.
+
+- **Scoped breakers.** `provider_breakers` is keyed by provider and `scope`. For OpenRouter the scope is the calling
+  route and the upstream the request pins, read from the end of the request body without parsing or recording content:
+  `chat_vertex` (Claude and Gemini), `chat_deepinfra` (DeepSeek), `run_vertex` (catalog tags), `podcast_vertex` /
+  `podcast_deepinfra` (scripts), `podcast_speech`, and `*_read` for receipt GETs. A scope's failures open only its own
+  breaker; other providers keep one breaker each. `worker_provider_health(..., p_scope)` (named arguments of the earlier
+  signature still resolve); health hours are unchanged (per provider and route); Health › Attention names the scope.
+- **Per-feature keys.** `OPENROUTER_TAGS_API_KEY` and `OPENROUTER_PODCAST_API_KEY` are used when present, each meant to
+  carry OpenRouter's own per-key credit limit; otherwise the chat key, as before. The reconciler reads each generation
+  with the key of the feature that created it. **Provisioning is an owner step not done here:** create the two keys in
+  OpenRouter with per-key limits that fit inside the month's provider limit, add them to `.env.providers` and the
+  pipeline worker's secret list (`scripts/pipeline_readiness.py`), then redeploy the worker.
+- **Billing blame.** A 402 from the gateway is answered `service_unavailable` with `retry_after: 300` (and a
+  `chat_provider_billing` log line and the existing Health › Attention count), never `model_unavailable`.
+
 ## Fix 1 and early endings as built — 2026-10-16
 
 Migration `202610160079_contained_overruns_and_early_endings.sql` (staging 2026-10-16), the chat function, tests

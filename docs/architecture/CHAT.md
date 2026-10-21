@@ -14,7 +14,10 @@ to refresh it, and select Flash in Answer options for an existing Sonnet chat.
 On 2026-10-17 at 04:43 UTC the owner's Sonnet request failed for the Anthropic account balance, again at 14:32 UTC.
 A fresh Flash probe also failed because AI Studio cannot satisfy the account's ZDR policy. Migration 086 and the
 adapter now pin Google Vertex US with explicit ZDR; seven deployed-route generations pass. Build 68 and the browser distinguish model-balance failure as
-`model_unavailable`, preserve the question and offer a different model instead of retrying the unfunded one.
+`model_unavailable`, preserve the question and offer a different model instead of retrying the unfunded one. Since
+every model now shares one OpenRouter account, the server answers a gateway 402 as `service_unavailable` with
+`retry_after: 300` instead (2026-10-21, review A13; [RESILIENCE.md](RESILIENCE.md)); `model_unavailable` now means the
+chosen model's own price card has lapsed (A4).
 Activation is established by the later published-table readback and ordinary default smoke. The dated model research below is historical.
 
 Build 65 feedback (2026-10-17 UTC; browser `91c7d07f`, TestFlight 66): the native Answer options sheet has no title or

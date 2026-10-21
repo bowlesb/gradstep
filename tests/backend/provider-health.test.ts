@@ -203,3 +203,33 @@ test('our own 429s and 503s say when to ask again; other errors don\'t', async (
   const plain = errorResponse(new PublicError(403, 'account_unavailable'), {});
   assert.deepEqual([plain.headers.get('retry-after'), await plain.json()], [null, { code: 'account_unavailable' }]);
 });
+
+// Review A13 (migration 0106): OpenRouter carries every model, so its breakers are scoped by route and upstream.
+import { breakerScope } from '../../supabase/functions/_shared/provider-health.ts';
+const ROUTER = 'https://openrouter.ai/api/v1/chat/completions';
+const pinned = (endpoint: string) => ({ method: 'POST', body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'x'.repeat(10_000) }],
+  provider: { only: [endpoint], allow_fallbacks: false }, user: 'u' }) });
+test('A13: OpenRouter breakers are scoped by the calling route and the pinned upstream; others keep one per provider', async () => {
+  assert.equal(breakerScope('openrouter', 'chat', ROUTER, pinned('google-vertex/us')), 'chat_vertex');
+  assert.equal(breakerScope('openrouter', 'chat', ROUTER, pinned('deepinfra/fp8')), 'chat_deepinfra');
+  assert.equal(breakerScope('openrouter', 'pipeline_worker_podcast', 'https://openrouter.ai/api/v1/audio/speech', { method: 'POST', body: '{}' }), 'podcast_speech');
+  assert.equal(breakerScope('openrouter', 'pipeline_worker_run', ROUTER, pinned('google-vertex/us')), 'run_vertex');
+  assert.equal(breakerScope('openrouter', 'chat', 'https://openrouter.ai/api/v1/generation?id=g'), 'chat_read');
+  assert.equal(breakerScope('tavily', 'chat', 'https://api.tavily.com/search', { method: 'POST', body: '{}' }), '');
+  resetBreakers();
+  const events: HealthEvent[] = [], sent: string[] = [];
+  const fetcher = providerFetch((async (_input: unknown, init?: RequestInit) => { sent.push(String(init?.body).includes('deepinfra') ? 'deepinfra' : 'vertex'); return ok(); }) as typeof fetch,
+    { route: 'chat', now: () => 1_000_000, record: async event => { events.push(event); return null; } });
+  // A DeepSeek (DeepInfra) outage has opened its own breaker: Claude and Gemini on Google Vertex still answer.
+  noteBreaker({ provider: 'openrouter', scope: 'chat_deepinfra', state: 'open', reopenAt: 1_000_000 + 60_000 });
+  assert.equal((await fetcher(ROUTER, pinned('deepinfra/fp8'))).status, 429, 'DeepInfra calls fail fast');
+  assert.equal((await fetcher(ROUTER, pinned('google-vertex/us'))).status, 200, 'Vertex calls are not blocked');
+  assert.deepEqual(sent, ['vertex']);
+  assert.deepEqual(events.map(e => [e.outcome, e.scope]), [['breaker_open', 'chat_deepinfra'], ['ok', 'chat_vertex']]);
+  assert.ok(!JSON.stringify(events).includes('xxxx'), 'no request content is recorded');
+  // The scope reaches the database, which returns the scoped breaker.
+  const calls: Record<string, unknown>[] = [];
+  const view = await rpcRecorder({ rpc: async (_name, params) => { calls.push(params); return { data: { provider: 'openrouter', scope: 'chat_vertex', state: 'closed', reopen_at: null }, error: null }; } })(events[1]);
+  assert.equal(calls[0].p_scope, 'chat_vertex'); assert.deepEqual(view, { provider: 'openrouter', state: 'closed', reopenAt: null, scope: 'chat_vertex' });
+  resetBreakers();
+});

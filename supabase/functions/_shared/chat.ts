@@ -1005,15 +1005,17 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       profile: repair ? 'diagram_fix' : profile.id, ...(request.choice?.effort === 'auto' ? { effort: profile.effort } : {}), ...billing } });
     return;
   }
-  // An unfunded provider cannot recover by retrying the same request. Keep the operator's billing detail private,
-  // but let the reader choose another model instead of repeatedly suggesting a retry. Settlement above is unchanged.
   // A4: a card that lapsed between the check above and admission: the model is unavailable, not a fault to retry.
   if (outcome.rejectionReason === 'tariff_expired') {
     emit({ event: 'error', data: { code: 'model_unavailable', credits: reportedCredits, ...billing } });
     return;
   }
+  // A13: an unfunded OpenRouter account (402) fails every model alike: it is the service's, not the chosen model's.
+  // Keep the operator's billing detail private and ask the reader to come back later instead of switching models;
+  // a quick retry cannot help. Settlement above is unchanged.
   if (ending === 'provider' && outcome.failure === 'provider_billing') {
-    emit({ event: 'error', data: { code: 'model_unavailable', credits: reportedCredits, ...billing } });
+    deps.log({ event: 'chat_provider_billing', operation_id: request.operationID, provider: profile.provider });
+    emit({ event: 'error', data: { code: 'service_unavailable', credits: reportedCredits, ...billing, retry_after: PROVIDER_BILLING_RETRY_SECONDS } });
     return;
   }
   const code: ChatErrorCode = ending === 'server' ? 'service_unavailable' : 'provider_unavailable';
@@ -1053,6 +1055,8 @@ async function stopRequested(deps: ChatDependencies, operationID: string): Promi
   return false;
 }
 
+/** How long to wait after the model gateway refused for its account's balance (A13): an operator must top it up. */
+export const PROVIDER_BILLING_RETRY_SECONDS = 300;
 /** Seconds a client should wait before asking again, by error (Resilience, fix 6); absent where waiting won't help. */
 export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rate_limited: 60, provider_unavailable: 10, service_unavailable: 10 };
 

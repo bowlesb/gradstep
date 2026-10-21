@@ -11,6 +11,7 @@ import { runMetadataPipeline, type MetadataDeps } from '../../supabase/functions
 import { pipelineService, rpcAdapter, runtimeEnv } from '../../supabase/functions/_shared/pipeline-runtime.ts';
 import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
 import { reconcileOpenRouterAttempts } from '../../supabase/functions/_shared/openrouter-reconcile.ts';
+import { featureOf, routerKey } from '../../supabase/functions/_shared/openrouter-keys.ts';
 import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 // No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('pipeline-worker/run');
@@ -34,7 +35,8 @@ function deps(): MetadataDeps {
 
 /** Claude Haiku chooses catalog tags when the OpenRouter key is configured; otherwise only the arXiv-category fallback runs. */
 function taggingDeps(): TaggingDeps {
-  const key = runtimeEnv('OPENROUTER_CHAT_API_KEY');
+  // Its own key with its own OpenRouter limit when provisioned (review A13); otherwise the chat key, as before.
+  const key = routerKey('tags', runtimeEnv);
   const client = key ? createTagClient(key) : null;
   return {
     rpc: rpcAdapter(pipelineService()), classify: client ? (input, attribution) => classifyPaper(client, input, attribution) : null,
@@ -53,8 +55,8 @@ export async function runOnce(make: () => MetadataDeps = deps, now: () => number
   await sweepAccountDeletions(pipelineService(), fields => log('account_deletion', fields)).catch(() => {});
   // Unresolved OpenRouter attempts (a Stop, a broken stream) settle at their generation record's cost: bounded, one GET
   // each, audited, and backed off in the database (review A6, migration 0102).
-  const routerKey = runtimeEnv('OPENROUTER_CHAT_API_KEY');
-  await reconcileOpenRouterAttempts({ rpc: rpcAdapter(pipelineService()), keyFor: () => routerKey ?? null, log }).catch(() => {});
+  // A generation is read with the key of the feature that created it (review A13).
+  await reconcileOpenRouterAttempts({ rpc: rpcAdapter(pipelineService()), keyFor: feature => routerKey(featureOf(feature), runtimeEnv), log }).catch(() => {});
   // Historical upload/provider attempts retain their liability. This worker
   // never reads their PDFs to reconcile them or collects provider outputs;
   // the server no longer links any PDF, Storage or OCR code.

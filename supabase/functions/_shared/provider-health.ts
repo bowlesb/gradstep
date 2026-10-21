@@ -21,8 +21,9 @@ export type HealthOutcome = 'ok' | 'throttled' | 'overloaded' | 'server_error' |
 export type FaultMode = 'throttle' | 'overload' | 'error' | 'timeout' | 'malformed' | 'midstream' | 'slow';
 export const FAULT_MODES: readonly FaultMode[] = ['throttle', 'overload', 'error', 'timeout', 'malformed', 'midstream', 'slow'];
 /** `drill`: a fault drill's synthetic answer, counted apart and never moving the breaker. */
-export interface HealthEvent { provider: ProviderName; route: string; outcome: HealthOutcome; latencyMs: number; retryAfterS: number | null; drill?: boolean }
-export interface BreakerView { provider: ProviderName; state: 'closed' | 'open' | 'half_open'; reopenAt: number | null }
+/** `scope` (review A13, migration 0106): which breaker a call belongs to within its provider ('' = the provider's own). */
+export interface HealthEvent { provider: ProviderName; route: string; outcome: HealthOutcome; latencyMs: number; retryAfterS: number | null; drill?: boolean; scope?: string }
+export interface BreakerView { provider: ProviderName; state: 'closed' | 'open' | 'half_open'; reopenAt: number | null; scope?: string }
 /** Records one call; resolves with the provider's breaker as the database sees it (or null). Must never throw. */
 export type HealthRecorder = (event: HealthEvent) => Promise<BreakerView | null>;
 export interface ActiveFault { provider: string; route: string | null; mode: FaultMode; rate: number }
@@ -68,6 +69,22 @@ export function retryAfterSeconds(value: string | null | undefined, now = Date.n
   return Number.isFinite(at) ? Math.min(86_400, Math.max(0, Math.ceil((at - now) / 1000))) : null;
 }
 
+/** OpenRouter carries every model (review A13): its breaker is scoped by the calling route and the upstream the request
+ * pins, so a DeepInfra outage, a podcast's speech errors or a tag job's 429s never fail chat on Google Vertex. Read from
+ * the end of the request body (the `provider.only` pin follows the messages), never parsing or recording the content. */
+export function breakerScope(provider: ProviderName, route: string, input: unknown, init?: RequestInit): string {
+  if (provider !== 'openrouter') return '';
+  const short = route === 'chat' ? 'chat' : route.replace(/^pipeline_worker_?/, '') || 'server';
+  let path = '';
+  try { path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : (input as { url?: string }).url ?? '').pathname; } catch { path = ''; }
+  const tail = typeof init?.body === 'string' ? init.body.slice(-4096) : '';
+  const only = /"only":\["([a-z0-9-]+)/.exec(tail)?.[1] ?? '';
+  const upstream = path.endsWith('/audio/speech') ? 'speech' : (init?.method ?? 'GET').toUpperCase() === 'GET' ? 'read'
+    : only === 'google-vertex' ? 'vertex' : only === 'deepinfra' ? 'deepinfra' : only ? only.replace(/[^a-z0-9]/g, '').slice(0, 12) : 'other';
+  return `${short.replace(/[^a-z0-9_]/g, '_').slice(0, 16)}_${upstream}`.slice(0, 32);
+}
+const breakerKey = (provider: ProviderName, scope = '') => scope ? `${provider}:${scope}` : provider;
+
 /** Route names for the table: the function or worker that called (`pipeline-worker/podcast` → `pipeline_worker_podcast`). */
 export function routeName(caller: string): string {
   const name = caller.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32);
@@ -80,17 +97,18 @@ export function routeName(caller: string): string {
 /** A probe whose answer never came back (its recording failed) stops blocking the next one after this long. */
 const PROBE_MS = 30_000;
 interface Known { state: BreakerView['state']; reopenAt: number | null; probingSince: number | null }
-const known = new Map<ProviderName, Known>();
-/** A recorded call's answer: the provider's breaker now. A new state or cool-off ends this realm's probe. */
+const known = new Map<string, Known>();
+/** A recorded call's answer: the provider's (or its scope's) breaker now. A new state or cool-off ends this realm's probe. */
 export function noteBreaker(view: BreakerView | null): void {
   if (!view || !(PROVIDERS as readonly string[]).includes(view.provider)) return;
-  const previous = known.get(view.provider);
+  const key = breakerKey(view.provider, view.scope);
+  const previous = known.get(key);
   const same = previous && previous.state === view.state && previous.reopenAt === view.reopenAt;
-  known.set(view.provider, { state: view.state, reopenAt: view.reopenAt, probingSince: same ? previous.probingSince : null });
+  known.set(key, { state: view.state, reopenAt: view.reopenAt, probingSince: same ? previous.probingSince : null });
 }
 /** Whether a call may go now. Open: no, until the cool-off ends; then one probe from this realm at a time. */
-export function breakerVerdict(provider: ProviderName, now: number): { allow: true; probe: boolean } | { allow: false; retryAfterS: number } {
-  const state = known.get(provider);
+export function breakerVerdict(provider: ProviderName, now: number, scope = ''): { allow: true; probe: boolean } | { allow: false; retryAfterS: number } {
+  const state = known.get(breakerKey(provider, scope));
   if (!state || state.state === 'closed') return { allow: true, probe: false };
   if (state.reopenAt !== null && now < state.reopenAt) return { allow: false, retryAfterS: Math.max(1, Math.ceil((state.reopenAt - now) / 1000)) };
   if (state.probingSince !== null && now - state.probingSince < PROBE_MS) return { allow: false, retryAfterS: 5 };
@@ -194,7 +212,7 @@ function host(input: unknown): string | null {
 export function providerFetch(inner: Fetch, options: ProviderFetchOptions): Fetch {
   const now = options.now ?? Date.now, random = options.random ?? Math.random;
   const route = routeName(options.route);
-  const record = (event: HealthEvent) => {
+  const recordEvent = (event: HealthEvent) => {
     if (!options.record) return;
     const pending = options.record(event).then(noteBreaker, () => undefined);
     options.keepAlive?.(pending);
@@ -204,6 +222,8 @@ export function providerFetch(inner: Fetch, options: ProviderFetchOptions): Fetc
     const provider = name ? providerForHost(name) : null;
     if (!provider) return inner(input, init);
     const started = now();
+    const scope = breakerScope(provider, route, input, init);
+    const record = (event: HealthEvent) => recordEvent(scope ? { ...event, scope } : event);
     // 1. Drills: a fault set for this test account (the database checks the account again).
     const account = options.account?.() ?? null;
     if (account && options.faults && options.faultsEnabled?.()) {
@@ -227,7 +247,7 @@ export function providerFetch(inner: Fetch, options: ProviderFetchOptions): Fetc
       }
     }
     // 2. The breaker: an open provider is answered here, at once, as a 429 with its cool-off.
-    const verdict = breakerVerdict(provider, now());
+    const verdict = breakerVerdict(provider, now(), scope);
     if (!verdict.allow) {
       record({ provider, route, outcome: 'breaker_open', latencyMs: 0, retryAfterS: verdict.retryAfterS });
       return syntheticResponse(provider, 'breaker', verdict.retryAfterS);
@@ -240,7 +260,7 @@ export function providerFetch(inner: Fetch, options: ProviderFetchOptions): Fetc
       // The caller giving up (the reader left) says nothing about the provider; its own deadline does.
       if (!signal?.aborted || (reason && reason.name === 'TimeoutError')) {
         record({ provider, route, outcome: signal?.aborted ? 'timeout' : classifyError(error), latencyMs: now() - started, retryAfterS: null });
-      } else if (verdict.probe) { const state = known.get(provider); if (state) state.probingSince = null; }
+      } else if (verdict.probe) { const state = known.get(breakerKey(provider, scope)); if (state) state.probingSince = null; }
       throw error;
     }
     record({ provider, route, outcome: classifyStatus(response.status), latencyMs: now() - started,
@@ -257,10 +277,12 @@ export interface HealthRpc { rpc(name: string, params: Record<string, unknown>):
 
 function breakerFrom(value: unknown): BreakerView | null {
   if (!value || typeof value !== 'object') return null;
-  const row = value as { provider?: unknown; state?: unknown; reopen_at?: unknown };
+  const row = value as { provider?: unknown; state?: unknown; reopen_at?: unknown; scope?: unknown };
   if (typeof row.provider !== 'string' || !['closed', 'open', 'half_open'].includes(row.state as string)) return null;
   const reopenAt = typeof row.reopen_at === 'string' ? Date.parse(row.reopen_at) : NaN;
-  return { provider: row.provider as ProviderName, state: row.state as BreakerView['state'], reopenAt: Number.isFinite(reopenAt) ? reopenAt : null };
+  const scope = typeof row.scope === 'string' && /^[a-z0-9_]{1,32}$/.test(row.scope) ? row.scope : '';
+  return { provider: row.provider as ProviderName, state: row.state as BreakerView['state'], reopenAt: Number.isFinite(reopenAt) ? reopenAt : null,
+    ...(scope ? { scope } : {}) };
 }
 
 /** worker_provider_health over a service client, bounded; never throws. */
@@ -268,7 +290,8 @@ export function rpcRecorder(client: HealthRpc, timeoutMs = 3_000): HealthRecorde
   return async event => {
     try {
       const call = Promise.resolve(client.rpc('worker_provider_health', { p_provider: event.provider, p_route: event.route, p_outcome: event.outcome,
-        p_latency_ms: Math.max(0, Math.round(event.latencyMs)), p_retry_after_s: event.retryAfterS, ...(event.drill ? { p_drill: true } : {}) }));
+        p_latency_ms: Math.max(0, Math.round(event.latencyMs)), p_retry_after_s: event.retryAfterS, ...(event.drill ? { p_drill: true } : {}),
+        ...(event.scope ? { p_scope: event.scope } : {}) }));
       const result = await Promise.race([call, new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs))]);
       return result && !result.error ? breakerFrom(result.data) : null;
     } catch { return null; }

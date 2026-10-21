@@ -164,7 +164,7 @@ export interface Health {
   providers?: {
     daily: { day: string; by_provider: Record<string, { calls: number; failed: number; throttled: number; breaker_open: number }> }[];
     last_hour: { provider: string; calls: number; failed: number; throttled: number; breaker_open: number; latency_ms_avg: number | null }[];
-    breakers: { provider: string; state: 'open' | 'half_open'; reopen_at: string | null }[];
+    breakers: { provider: string; /** Migration 0106 (review A13): the route and upstream a scoped breaker covers, e.g. chat_deepinfra. */ scope?: string; state: 'open' | 'half_open'; reopen_at: string | null }[];
   };
   /** Migration 079 (RESILIENCE.md fix 1): operations whose provider cost passed their ceiling. Recorded, never a pause by
    * itself; more than `pause_after` within `window_minutes` pause the month (the tripwire). Absent on older servers. */
