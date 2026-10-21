@@ -53,7 +53,7 @@ test('equation explanation, model choice and follow-up remain together with encr
  await keywords.locator('h2').click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
  await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
  await display.click(); const bar=page.getByRole('toolbar',{name:'Selected passage'});
- await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','Focus','Copy as Text','Related','Add to note']); // Focus (build 78), Copy as Text (B10), Add to note (Notes)
+ await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','Focus','Copy as Text','Related','Save snippet']); // Focus (build 78), Copy as Text (B10), Save snippet (Snippets)
  await bar.getByRole('button',{name:'Chat about Equation',exact:true}).click();
  const view=page.getByTestId('equation-view'), context=view.getByTestId('contextual-chat');
  await expect(context.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();
