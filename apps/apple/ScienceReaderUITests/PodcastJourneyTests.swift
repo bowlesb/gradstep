@@ -554,7 +554,7 @@ final class PodcastJourneyTests: XCTestCase {
         let app = launch()
         // The theme is a saved preference: leave it as other suites expect.
         addTeardownBlock { @MainActor in
-            if !app.buttons["tab.settings"].exists { return }
+            if !app.buttons["tab.notes"].exists { return }
             app.show("settings")
             let match = app.settingsTheme().buttons["Match device"]
             if match.waitForExistence(timeout: 5) { match.tap() }

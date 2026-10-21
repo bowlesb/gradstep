@@ -50,23 +50,50 @@ private struct FigurePageActions: ViewModifier {
     @State private var explainOnOpen = true
     @State private var choosingAI = false
 
+    /// Drawing a snippet over this figure page (Add to note: the whole item first, then adjust).
+    private var capturing: Bool { host?.model.notes.capturing == .figure }
+    private var paper: Paper? { host.flatMap { host in host.model.papers.first { $0.id == host.paperID } ?? host.model.selectedPaper } }
+
     func body(content: Content) -> some View {
         content
+            .overlay {
+                if let host, capturing, let paper {
+                    SnippetCaptureOverlay(model: host.model, origin: .figure, capture: { rect, size in
+                        try await SnippetCapturer.webRegion(rect, overlaySize: size, web: ReaderWebView.figurePages.object(forKey: figureID as NSString),
+                                                            paper: paper, origin: .figure)
+                    }, wholeTitle: "Whole page")
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if let host, !capturing { NoteSavedBanner(model: host.model, origin: .figure, leave: host.close).padding(.bottom, 12) }
+            }
             .sheetTopRow(
-                chat: host.flatMap { host in context.map { context in
+                chat: capturing ? nil : host.flatMap { host in context.map { context in
                     ExplainAction(identifier: "figureView.askInChat", hint: "Ask about this figure here; nothing is sent") {
                         explainOnOpen = false; expandSheet?(); explaining = true
                     }
                 } },
                 // An arXiv paper on this device only: the walkthrough reads the paper numbered here.
-                explainer: host != nil && context != nil
+                explainer: host != nil && context != nil && !capturing
                     ? ExplainAction(identifier: "figureView.explain", hint: "Open the saved explanation, or choose a model for a new one.") {
                         if let host, let context, FigureExplainSession.hasSavedAnswer(context: context, model: host.model) {
                             explainOnOpen = false; expandSheet?(); explaining = true
                         } else { choosingAI = true }
                     }
                     : nil,
-                close: close)
+                close: capturing ? nil : close)
+            .toolbar {
+                if let host {
+                    if capturing { SnippetCaptureToolbar(model: host.model) } else {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button { addToNote(host) } label: { Image(systemName: "note.text.badge.plus") }
+                                .accessibilityLabel("Add to note").accessibilityIdentifier("figureView.addToNote")
+                        }
+                    }
+                }
+            }
+            .modifier(OptionalComposerHost(model: host?.model, origin: .figure))
+            .onDisappear { if capturing { host?.model.notes.capturing = nil } }
             .navigationDestination(isPresented: $explaining) {
                 if let host, let context { FigureExplainView(model: host.model, context: context, requesting: explainOnOpen, finish: host.finish, close: host.close) }
             }
@@ -81,6 +108,19 @@ private struct FigurePageActions: ViewModifier {
                 explaining = false
                 context = host.flatMap { $0.model.figureContext(paperID: $0.paperID, figureID: figureID) }
             }
+    }
+
+    /// Add to note: the whole figure or table is chosen to start; the corners adjust it, Use snippet keeps it.
+    private func addToNote(_ host: FigureViewHost) {
+        guard host.model.notesAvailability == .ready else {
+            host.model.error = host.model.isSignedIn ? "Unlock Notes on this device to save snippets." : "Sign in to save snippets to your encrypted notes."
+            return
+        }
+        Task { @MainActor in
+            host.model.notes.captureInitialRect = await SnippetCapturer.figureBounds(in: ReaderWebView.figurePages.object(forKey: figureID as NSString))
+            host.model.notes.notice = nil
+            host.model.notes.capturing = .figure
+        }
     }
 }
 

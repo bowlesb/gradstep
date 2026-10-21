@@ -226,6 +226,8 @@ struct EquationView: View {
                     model.promoteContextualChat(chatToken, explanation: equationExplanation(session)); finish(.continueChat)
                 }, close: { finish(nil) })
             .background(Color(uiColor: .systemGroupedBackground))
+            .overlay(alignment: .bottom) { NoteSavedBanner(model: model, origin: .equation) { finish(nil) }.padding(.bottom, 80) }
+            .noteComposerHost(model, origin: .equation)
         }
         .frame(minWidth: Platform.isMac ? 560 : nil, minHeight: Platform.isMac ? 640 : nil)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
@@ -346,12 +348,37 @@ struct EquationView: View {
                         .frame(minWidth: 52).accessibilityIdentifier("equation.sizeValue")
                 }
                 .accessibilityElement(children: .contain).accessibilityLabel("Equation size")
-
+                Spacer(minLength: 0)
+                // Notes: the equation as shown, into a note (NOTES_AND_SNIPPETS.md "figure, table and equation pages").
+                Button { addToNote(context) } label: { Label("Add to note", systemImage: "note.text.badge.plus") }
+                    .buttonStyle(.borderless).accessibilityIdentifier("equation.addToNote")
             }
             .font(.subheadline)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
+    }
+
+    /// The rendered equation (WKWebView's snapshot of its own view, on this card's background) as a region snippet.
+    private func addToNote(_ context: EquationViewContext) {
+        guard model.notesAvailability == .ready else {
+            model.error = model.isSignedIn ? "Unlock Notes on this device to save snippets." : "Sign in to save snippets to your encrypted notes."
+            return
+        }
+        guard let web = EquationWebView.shown, web.window != nil,
+              let paper = model.papers.first(where: { $0.id == context.paperID }) ?? model.selectedPaper else { return }
+        Task { @MainActor in
+            let configuration = WKSnapshotConfiguration()
+            configuration.afterScreenUpdates = true
+            guard let image = try? await web.takeSnapshot(configuration: configuration),
+                  let opaque = SnippetCapturer.opaque(image, background: .secondarySystemGroupedBackground, traits: web.traitCollection) else { return }
+            let anchor = NoteAnchor(manifestSHA256: context.bundle.manifestSHA256, rendererRevision: ReaderVersions.revision(of: context.bundle) ?? 0,
+                                    blockIDs: [context.blockID], rects: [], viewport: nil, quote: nil)
+            let snippet = CapturedSnippet(kind: .region, image: opaque, quote: nil, source: SnippetCapturer.source(for: paper, label: context.label),
+                                          anchor: anchor, capturedAt: Date(), origin: .equation, paperID: paper.id)
+            model.notes.notice = nil
+            model.notes.composer = NoteComposerRequest(snippet: snippet)
+        }
     }
 
     private func sizeButton(_ symbol: String, label: String, id: String, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -476,6 +503,8 @@ struct EquationView: View {
 /// Its size follows the reader's text size times the chosen scale; off "Scroll sideways" a wider equation is scaled to
 /// fit, on it keeps its size and scrolls. No page script runs; only this view's layout script, in its own world.
 struct EquationWebView: UIViewRepresentable {
+    /// The equation on screen, for Add to note (weak: a closed page is gone).
+    @MainActor static weak var shown: WKWebView?
     let bundle: VerifiedReaderBundle
     let markup: String
     let fontSize: Double
@@ -499,6 +528,7 @@ struct EquationWebView: UIViewRepresentable {
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.navigationDelegate = context.coordinator
         web.accessibilityIdentifier = "equation.display"
+        Self.shown = web
         context.coordinator.loadSource(web)
         return web
     }

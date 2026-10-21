@@ -145,6 +145,7 @@ struct PodcastListenView: View {
                     MenuRow("Check for new episodes", systemImage: "arrow.clockwise") { center.loadCatalog() }
                 }
                 Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
+                SettingsMenuSection(model: model)
             } label: { HeaderButtonLabel(systemImage: "ellipsis") }
             .buttonStyle(.plain).accessibilityLabel("Listen options")
         }

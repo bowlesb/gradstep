@@ -231,7 +231,18 @@ def library_stack():
     return [('line', union([b1, b2])), ('point', disc(50, 26, 10))]
 
 
+def notes():
+    """Notes (2026-10-20): a notebook page holding a captured box and a line of writing; the box's corner handle is the
+    amber point (the snippet just drawn)."""
+    page = rrect(18, 8, 86, 92, 10)
+    rings = union([poly([(8, 28), (26, 28)]), poly([(8, 50), (26, 50)]), poly([(8, 72), (26, 72)])])
+    box = rrect(38, 26, 70, 52, 5)
+    line = poly([(38, 72), (66, 72)])
+    return [('line', union([page, rings, box, line])), ('point', disc(70, 52, 8))]
+
+
 GLYPHS = {
+    'notes': notes,
     'library_valley': library_valley, 'library_amber_spine': library_amber_spine, 'library_stack': library_stack,
     'feed': feed, 'feed_cards': feed_cards, 'library': library, 'paper': paper, 'chat': chat, 'chat_two': chat_two,
     'settings': settings, 'gear': gear, 'nabla': nabla, 'chat_new': chat_new, 'chat_history': chat_history,

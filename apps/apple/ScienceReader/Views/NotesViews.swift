@@ -1,0 +1,768 @@
+import ScienceReaderCore
+import SwiftUI
+import UIKit
+
+// Notes (docs/architecture/NOTES_AND_SNIPPETS.md "Notes and navigation"): a list of named notes (search, +, rename and
+// delete with confirmation, entry count, last edited) and each note's stream of snippets, quotations and the reader's
+// writing, oldest first. iPhone: the fifth tab; iPad and Mac: a destination with list and detail side by side.
+
+struct NotesView: View {
+    @Bindable var model: ReaderModel
+    /// iPad and Mac: list and detail side by side.
+    var wide = false
+    @State private var renaming: NotesState.Note?
+    @State private var deleting: NotesState.Note?
+    @State private var creating = false
+    @State private var name = ""
+    @State private var issue: String?
+
+    var body: some View {
+        Group {
+            switch model.notesAvailability {
+            case .signedOut: unavailable(locked: false)
+            case .locked: unavailable(locked: true)
+            case .ready:
+                if wide { wideBody } else { phoneBody }
+            }
+        }
+        .alert("New note", isPresented: $creating) {
+            TextField("Note name", text: $name).accessibilityIdentifier("notes.name")
+            Button("Cancel", role: .cancel) {}
+            Button("Create") { let title = name; Task { await create(title) } }
+        } message: { Text("A note can collect snippets from as many papers as you like.") }
+        .alert("Rename note", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { note in
+            TextField("Note name", text: $name).accessibilityIdentifier("notes.name")
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { let title = name; Task { await rename(note.id, title) } }
+        }
+        .confirmationDialog(deleting.map { "Delete “\($0.title)”?" } ?? "Delete note?",
+                            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible,
+                            presenting: deleting) { note in
+            Button("Delete note", role: .destructive) { Task { await delete(note.id) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { note in
+            Text("This removes the note and its \(note.entries.count) \(note.entries.count == 1 ? "entry" : "entries") from your devices when they sync. Your papers stay in the Library.")
+        }
+        .alert("Couldn’t save on this device", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+            Button("OK") { issue = nil }
+        } message: { Text(issue ?? "") }
+        .environment(\.noteActions, NoteActions(newNote: { name = ""; creating = true },
+                                                 rename: { note in name = note.title; renaming = note },
+                                                 delete: { deleting = $0 }))
+    }
+
+    // MARK: Phone: list, then the note pushed
+
+    private var phoneBody: some View {
+        NavigationStack {
+            NotesList(model: model, selection: nil)
+                .navigationDestination(item: Bindable(model.notes).openNoteID) { id in
+                    NoteDetailView(model: model, noteID: id)
+                }
+        }
+    }
+
+    // MARK: iPad and Mac: list and detail
+
+    private var wideBody: some View {
+        HStack(spacing: 0) {
+            NavigationStack { NotesList(model: model, selection: model.notes.openNoteID) }
+                .frame(width: 340)
+            Divider()
+            NavigationStack {
+                if let id = model.notes.openNoteID, model.notes.state.note(id) != nil {
+                    NoteDetailView(model: model, noteID: id, showsBack: false).id(id)
+                } else {
+                    ContentUnavailableView {
+                        Label { Text(model.notes.state.notes.isEmpty ? "Your ideas, collected" : "Choose a note") } icon: { Image(GradstepSymbol.notes) }
+                    } description: {
+                        Text(model.notes.state.notes.isEmpty ? "Create a note, or capture a snippet while reading." : "Its snippets and writing show here.")
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: Locked and signed out
+
+    private func unavailable(locked: Bool) -> some View {
+        NavigationStack {
+            ContentUnavailableView {
+                Label { Text(locked ? "Unlock notes" : "Notes") } icon: { Image(GradstepSymbol.notes) }
+            } description: {
+                Text(locked ? "Notes are encrypted with this account’s keys. Approve this device or use your recovery code to open them here."
+                     : "Sign in to keep encrypted notes of what you read, on all your devices.")
+            } actions: {
+                Button { model.openSignIn() } label: { ProminentLabel(title: locked ? "Unlock notes" : "Sign in") }
+                    .buttonStyle(.borderedProminent).accessibilityIdentifier(locked ? "notes.unlock" : "notes.signIn")
+            }
+            .navigationTitle("Notes").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: nil) } }
+            .tabBarSpace()
+        }
+    }
+
+    // MARK: Writes
+
+    private func create(_ title: String) async {
+        do { let id = try await model.createNote(title); model.notes.openNoteID = id }
+        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The note couldn’t be saved." }
+    }
+    private func rename(_ id: UUID, _ title: String) async {
+        do { try await model.renameNote(id, to: title) }
+        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The note couldn’t be renamed." }
+    }
+    private func delete(_ id: UUID) async {
+        do { try await model.deleteNote(id) }
+        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The note couldn’t be deleted." }
+    }
+}
+
+/// The list's and detail's shared actions (presented by NotesView, so both layouts use one set of dialogs).
+struct NoteActions {
+    var newNote: () -> Void = {}
+    var rename: (NotesState.Note) -> Void = { _ in }
+    var delete: (NotesState.Note) -> Void = { _ in }
+}
+private struct NoteActionsKey: EnvironmentKey { nonisolated(unsafe) static let defaultValue = NoteActions() }
+extension EnvironmentValues {
+    var noteActions: NoteActions {
+        get { self[NoteActionsKey.self] }
+        set { self[NoteActionsKey.self] = newValue }
+    }
+}
+
+/// A screen's ⋯ (DESIGN.md): its actions, then Report this screen, then Settings.
+struct NotesScreenMenu: View {
+    @Bindable var model: ReaderModel
+    let note: NotesState.Note?
+    var addText: (() -> Void)? = nil
+    @Environment(\.noteActions) private var actions
+
+    var body: some View {
+        Menu {
+            if let note {
+                if let addText { MenuRow("Add text", systemImage: "text.badge.plus", action: addText).accessibilityIdentifier("note.addText") }
+                MenuRow("Rename note", systemImage: "pencil") { actions.rename(note) }.accessibilityIdentifier("note.rename")
+                Button(role: .destructive) { actions.delete(note) } label: { Label("Delete note", systemImage: "trash") }
+                    .accessibilityIdentifier("note.delete")
+            } else if model.notesAvailability == .ready {
+                MenuRow("New note", systemImage: "plus") { actions.newNote() }.accessibilityIdentifier("notes.menu.new")
+            }
+            MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
+            SettingsMenuSection(model: model)
+        } label: { Image(systemName: "ellipsis") }
+            .accessibilityLabel(note == nil ? "Notes options" : "Note options")
+            .accessibilityIdentifier(note == nil ? "notes.options" : "note.options")
+    }
+}
+
+// MARK: - List
+
+struct NotesList: View {
+    @Bindable var model: ReaderModel
+    /// The note shown beside the list (iPad and Mac), highlighted.
+    let selection: UUID?
+    @Environment(\.noteActions) private var actions
+
+    var body: some View {
+        let notes = model.notes.shownNotes
+        List(selection: Binding(get: { selection }, set: { if let id = $0 { model.notes.openNoteID = id } })) {
+            if let status = statusLine {
+                Label(status, systemImage: "icloud.and.arrow.up").font(.footnote).foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden).accessibilityIdentifier("notes.status")
+            }
+            if model.notes.state.malformedCount > 0 || !model.notes.state.futureNoteIDs.isEmpty || model.notes.state.incompleteEntryCount > 0 {
+                Text(problemLine).font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
+                    .accessibilityIdentifier("notes.problems")
+            }
+            ForEach(notes) { note in
+                Button { model.notes.openNoteID = note.id } label: { NoteRow(model: model, note: note) }
+                    .buttonStyle(.plain)
+                    .tag(note.id)
+                    .accessibilityIdentifier("notes.row.\(note.title)")
+                    .contextMenu {
+                        Button { actions.rename(note) } label: { Label("Rename", systemImage: "pencil") }
+                        Button(role: .destructive) { actions.delete(note) } label: { Label("Delete", systemImage: "trash") }
+                    }
+                    .swipeActions {
+                        Button(role: .destructive) { actions.delete(note) } label: { Label("Delete", systemImage: "trash") }
+                        Button { actions.rename(note) } label: { Label("Rename", systemImage: "pencil") }.tint(.accentColor)
+                    }
+                    .macRowHover()
+            }
+        }
+        .listStyle(.plain)
+        .overlay {
+            if notes.isEmpty {
+                let searching = !model.notes.search.trimmingCharacters(in: .whitespaces).isEmpty
+                ContentUnavailableView {
+                    Label { Text(searching ? "No matching notes" : "Your ideas, collected") } icon: {
+                        searching ? Image(systemName: "magnifyingglass") : Image(GradstepSymbol.notes)
+                    }
+                } description: {
+                    Text(searching ? "Try a title, a comment or quoted text." : "Create a note, or capture your first snippet in Paper with ⋯ › Draw snippet.")
+                } actions: {
+                    if searching { Button("Clear search") { model.notes.search = "" } }
+                    else { Button { actions.newNote() } label: { ProminentLabel(title: "New note") }.buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("notes.empty.new") }
+                }
+            }
+        }
+        .searchable(text: Bindable(model.notes).search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search notes")
+        .navigationTitle("Notes").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { actions.newNote() } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("New note").accessibilityIdentifier("notes.new")
+            }
+            ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: nil) }
+        }
+        .tabBarSpace()
+    }
+
+    private var statusLine: String? {
+        let count = model.notes.pendingCount
+        guard count > 0 else { return nil }
+        return "Saved on this device · \(count) waiting to sync"
+    }
+
+    private var problemLine: String {
+        var parts: [String] = []
+        let future = model.notes.state.futureNoteIDs.count + model.notes.state.futureRecordCount
+        if future > 0 { parts.append("Update Gradstep to see \(future == 1 ? "a note" : "\(future) notes and entries") made with a newer version.") }
+        if model.notes.state.incompleteEntryCount > 0 { parts.append("Some entries are still arriving.") }
+        if model.notes.state.malformedCount > 0 {
+            parts.append("\(model.notes.state.malformedCount) \(model.notes.state.malformedCount == 1 ? "entry" : "entries") couldn’t be read; send a report so it can be fixed.")
+        }
+        return parts.joined(separator: " ")
+    }
+}
+
+struct NoteRow: View {
+    let model: ReaderModel
+    let note: NotesState.Note
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(GradstepSymbol.notes).symbolRenderingMode(.palette).foregroundStyle(Color.accentColor, Color.gradstepAmber)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 40, height: 44).background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(note.title).font(.headline).lineLimit(2)
+                    if note.hasConflict { Text("2 versions").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+                }
+                Text(NotesCenter.preview(note)).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(meta).font(.footnote).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private var meta: String {
+        let count = note.entries.count
+        let date = Date(timeIntervalSince1970: Double(note.lastEdited) / 1000).formatted(date: .abbreviated, time: .omitted)
+        return "\(count) \(count == 1 ? "entry" : "entries") · \(date)" + (model.notes.isWaiting(note) ? " · Waiting to sync" : "")
+    }
+}
+
+// MARK: - A note's stream
+
+struct NoteDetailView: View {
+    @Bindable var model: ReaderModel
+    let noteID: UUID
+    var showsBack = true
+    @State private var writing: NoteTextRequest?
+    @State private var zoomed: NotesState.Entry?
+    @State private var details: NotesState.Entry?
+    @State private var reviewing: NotesState.Entry?
+    @State private var deletingEntry: NotesState.Entry?
+    @State private var issue: String?
+    @Environment(\.noteActions) private var actions
+
+    var body: some View {
+        if let note = model.notes.state.note(noteID) {
+            stream(note)
+        } else {
+            ContentUnavailableView("This note is no longer here", systemImage: "trash",
+                                   description: Text("It may have been deleted on another device."))
+        }
+    }
+
+    private func stream(_ note: NotesState.Note) -> some View {
+        ScrollViewReader { reader in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if note.hasConflict { conflictBanner(note).padding(.bottom, 16) }
+                    if note.futureEntryCount > 0 {
+                        StatusBanner(tone: .info, systemImage: "arrow.down.app", message: "Update Gradstep to see \(note.futureEntryCount) more \(note.futureEntryCount == 1 ? "entry" : "entries") in this note.")
+                            .padding(.bottom, 16)
+                    }
+                    if note.entries.isEmpty {
+                        emptyNote.frame(maxWidth: .infinity).padding(.top, 48)
+                    }
+                    ForEach(Array(note.entries.enumerated()), id: \.element.id) { index, entry in
+                        if index == 0 || !Calendar.current.isDate(day(entry), inSameDayAs: day(note.entries[index - 1])) {
+                            Text(day(entry).formatted(date: .abbreviated, time: .omitted)).font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 8).padding(.bottom, 14)
+                                .accessibilityAddTraits(.isHeader)
+                        }
+                        NoteEntryView(model: model, entry: entry, number: index + 1,
+                                      edit: { writing = NoteTextRequest(noteID: note.id, entryID: entry.id, text: entry.record.comment,
+                                                                         kind: entry.record.kind) },
+                                      zoom: { zoomed = entry }, details: { details = entry }, review: { reviewing = entry },
+                                      delete: { deletingEntry = entry })
+                            .id(entry.id)
+                    }
+                    if !note.entries.isEmpty {
+                        Button { writing = NoteTextRequest(noteID: note.id, entryID: nil, text: "", kind: .text) } label: {
+                            Label("Add text", systemImage: "plus").font(.subheadline.weight(.semibold))
+                        }
+                        .frame(minHeight: 44).accessibilityIdentifier("note.addTextBottom")
+                    }
+                }
+                .padding(.horizontal, DesignMetrics.margin).padding(.vertical, 16)
+                .frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
+            }
+            .onAppear { scrollToFocus(reader) }
+            .onChange(of: model.notes.focusEntryID) { _, _ in scrollToFocus(reader) }
+        }
+        .navigationTitle(note.title).navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(!showsBack)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { writing = NoteTextRequest(noteID: note.id, entryID: nil, text: "", kind: .text) } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Add text").accessibilityIdentifier("note.add")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NotesScreenMenu(model: model, note: note, addText: { writing = NoteTextRequest(noteID: note.id, entryID: nil, text: "", kind: .text) })
+            }
+        }
+        .tabBarSpace()
+        .sheet(item: $writing) { request in NoteTextSheet(model: model, request: request).macSheetKeys(enabled: false) }
+        .fullScreenCover(item: $zoomed) { entry in SnippetZoomView(model: model, entry: entry) }
+        .sheet(item: $details) { entry in NoteSourceSheet(model: model, entry: entry).macSheetKeys() }
+        .sheet(item: $reviewing) { entry in NoteVersionsSheet(model: model, entry: entry).macSheetKeys() }
+        .confirmationDialog("Delete this snippet?", isPresented: Binding(get: { deletingEntry != nil }, set: { if !$0 { deletingEntry = nil } }),
+                            titleVisibility: .visible, presenting: deletingEntry) { entry in
+            Button("Delete snippet", role: .destructive) {
+                Task { do { try await model.deleteEntry(entry.id) } catch { issue = (error as? LocalizedError)?.errorDescription } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in Text("This removes it and its comment from this note when your devices sync.") }
+        .alert("Couldn’t save on this device", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+            Button("OK") { issue = nil }
+        } message: { Text(issue ?? "") }
+    }
+
+    private func day(_ entry: NotesState.Entry) -> Date { Date(timeIntervalSince1970: Double(entry.record.capturedAt) / 1000) }
+
+    private func scrollToFocus(_ reader: ScrollViewProxy) {
+        guard let focus = model.notes.focusEntryID else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            reader.scrollTo(focus, anchor: .top)
+            model.notes.focusEntryID = nil
+        }
+    }
+
+    private var emptyNote: some View {
+        ContentUnavailableView {
+            Label { Text("A place for your next idea") } icon: { Image(GradstepSymbol.notes) }
+        } description: {
+            Text("Add your own writing, or collect a snippet while reading with Paper ⋯ › Draw snippet.")
+        } actions: {
+            Button { writing = NoteTextRequest(noteID: noteID, entryID: nil, text: "", kind: .text) } label: { ProminentLabel(title: "Add text") }
+                .buttonStyle(.borderedProminent).accessibilityIdentifier("note.empty.addText")
+            if model.selectedPaper != nil { Button("Open Paper") { model.tab = .paper; if !model.compactLayout { model.wideMode = .reader } } }
+        }
+    }
+
+    private func conflictBanner(_ note: NotesState.Note) -> some View {
+        StatusBanner(tone: .problem, systemImage: "square.on.square", message: "2 versions of this note’s name", actionsBelow: true) {
+            ForEach(note.heads, id: \.eventID) { version in
+                Button("Keep “\(version.record.title)”") { Task { try? await model.renameNote(note.id, to: version.record.title) } }
+            }
+        }
+    }
+}
+
+/// Add text or Edit comment.
+struct NoteTextRequest: Identifiable {
+    let id = UUID()
+    let noteID: UUID
+    /// nil: a new text entry.
+    let entryID: UUID?
+    let text: String
+    let kind: NoteEntryRecord.Kind
+}
+
+// MARK: - One entry
+
+struct NoteEntryView: View {
+    @Bindable var model: ReaderModel
+    let entry: NotesState.Entry
+    let number: Int
+    let edit: () -> Void
+    let zoom: () -> Void
+    let details: () -> Void
+    let review: () -> Void
+    let delete: () -> Void
+
+    var body: some View {
+        let record = entry.record
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("\(Date(timeIntervalSince1970: Double(record.capturedAt) / 1000).formatted(date: .omitted, time: .shortened)) · \(kindLabel)")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if entry.hasConflict {
+                    Button("2 versions · Review", action: review).font(.footnote.weight(.semibold)).tint(.orange)
+                        .accessibilityIdentifier("entry.review")
+                }
+                Spacer(minLength: 0)
+                Menu {
+                    MenuRow(record.kind == .text ? "Edit text" : "Edit comment", systemImage: "pencil", action: edit)
+                        .accessibilityIdentifier("entry.edit")
+                    if record.source != nil {
+                        MenuRow("Open in paper", systemImage: "doc.text") { if !model.openNoteSource(record) { details() } }
+                            .accessibilityIdentifier("entry.openInPaper")
+                        MenuRow("Source details", systemImage: "info.circle", action: details)
+                    }
+                    Button(role: .destructive, action: delete) { Label(record.kind == .text ? "Delete text" : "Delete snippet", systemImage: "trash") }
+                        .accessibilityIdentifier("entry.delete")
+                } label: {
+                    Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Entry \(number) options").accessibilityIdentifier("entry.options.\(number)")
+            }
+            .padding(.bottom, -8)
+            switch record.kind {
+            case .region:
+                if let media = record.media {
+                    Button(action: zoom) { NoteImageView(model: model, media: media.thumb ?? media.full, full: media.full, maxHeight: 260) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Snippet \(number)\(record.source?.label.map { ", \($0)" } ?? ""). Opens full size.")
+                        .accessibilityIdentifier("entry.image.\(number)")
+                }
+            case .quote:
+                Text(record.quote ?? "").font(.system(.body, design: .serif)).lineSpacing(3)
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                    .textSelection(.enabled)
+            case .text: EmptyView()
+            }
+            if !record.comment.isEmpty {
+                Text(record.comment).font(.body).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("entry.comment.\(number)")
+            } else if record.kind != .text {
+                Button("Add a comment", action: edit).font(.subheadline).frame(minHeight: 32).accessibilityIdentifier("entry.addComment.\(number)")
+            }
+            if let source = record.source {
+                Button(action: details) {
+                    (Text(source.title).foregroundStyle(Color.accentColor) + Text(sourceDetail(source)).foregroundStyle(.secondary))
+                        .font(.footnote).multilineTextAlignment(.leading).lineLimit(3)
+                }
+                .buttonStyle(.plain).accessibilityHint("Shows where this came from").accessibilityIdentifier("entry.source.\(number)")
+            }
+            if let sync = model.notes.sync(of: entry).label {
+                Label(sync, systemImage: model.notes.sync(of: entry) == .waiting || model.notes.sync(of: entry) == .uploadingImage
+                      ? "icloud.slash" : "exclamationmark.triangle")
+                    .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("entry.sync.\(number)")
+            }
+        }
+        .padding(.leading, 16).padding(.bottom, 24)
+        .overlay(alignment: .topLeading) {
+            // The stream's line, with the entry's amber point (the prototype's timeline).
+            ZStack(alignment: .top) {
+                Rectangle().fill(Color(uiColor: .separator)).frame(width: 1)
+                Circle().fill(Color.gradstepAmber).frame(width: 7, height: 7).padding(.top, 18)
+            }
+            .frame(width: 7).accessibilityHidden(true)
+        }
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var kindLabel: String {
+        switch entry.record.kind { case .region: "Region snippet"; case .quote: "Text snippet"; case .text: "Your writing" }
+    }
+
+    private func sourceDetail(_ source: NoteSource) -> String {
+        var parts: [String] = []
+        if let revision = source.revision, source.kind != .document { parts.append("v\(revision)") }
+        if let label = source.label { parts.append(label) } else if let section = source.section { parts.append(section) }
+        if let page = source.page { parts.append("Page \(page)") }
+        parts.append(Date(timeIntervalSince1970: Double(entry.record.capturedAt) / 1000).formatted(date: .abbreviated, time: .shortened))
+        return " · " + parts.joined(separator: " · ")
+    }
+}
+
+/// A snippet's image: the thumbnail first, decrypted and checked on this device; a placeholder with Retry while it is
+/// missing (never another crop).
+struct NoteImageView: View {
+    let model: ReaderModel
+    let media: NoteMedia
+    var full: NoteMedia? = nil
+    var maxHeight: CGFloat = 260
+    @State private var image: UIImage?
+    @State private var failed: String?
+    @State private var attempt = 0
+
+    var body: some View {
+        let ratio = CGFloat(media.width) / CGFloat(max(1, media.height))
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().interpolation(.high).aspectRatio(ratio, contentMode: .fit)
+            } else {
+                Rectangle().fill(Color(uiColor: .secondarySystemBackground)).aspectRatio(ratio, contentMode: .fit)
+                    .overlay {
+                        if let failed {
+                            VStack(spacing: 6) {
+                                Label(failed, systemImage: "photo").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                                Button("Retry") { self.failed = nil; attempt += 1 }.font(.footnote.weight(.semibold))
+                                    .accessibilityIdentifier("entry.image.retry")
+                            }.padding(8)
+                        } else { ProgressView() }
+                    }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(uiColor: .separator), lineWidth: 0.5))
+        .task(id: "\(media.blobID.wire)/\(attempt)") {
+            do { image = try await model.noteImage(media) }
+            catch { failed = Self.message(error) }
+        }
+    }
+
+    static func message(_ error: Error) -> String {
+        switch error {
+        case NoteAssetError.downloadLimit: "This month’s image downloads are used up. The snippet’s words are still here."
+        case NoteAssetError.notFound: "This image isn’t available yet."
+        case NoteAssetError.signInRequired: "Sign in again to download this image."
+        case is NoteBlobCrypto.Failure: "This image didn’t pass its check, so it isn’t shown."
+        default: "Image not downloaded."
+        }
+    }
+}
+
+// MARK: - Full size
+
+struct SnippetZoomView: View {
+    let model: ReaderModel
+    let entry: NotesState.Entry
+    @Environment(\.dismiss) private var dismiss
+    @State private var image: UIImage?
+    @State private var failed: String?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(uiColor: .systemBackground).ignoresSafeArea()
+                if let image { ZoomableImage(image: image).ignoresSafeArea(edges: .bottom).accessibilityIdentifier("zoom.image") }
+                else if let failed { ContentUnavailableView(failed, systemImage: "photo") }
+                else { ProgressView() }
+            }
+            .navigationTitle(entry.record.source?.label ?? "Snippet").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("zoom.done") } }
+            .task {
+                guard let media = entry.record.media?.full else { return }
+                do { image = try await model.noteImage(media) } catch { failed = NoteImageView.message(error) }
+            }
+        }
+        .macSheetKeys()
+    }
+}
+
+/// Pinch and double-tap zoom over an image (UIScrollView), centered.
+struct ZoomableImage: UIViewRepresentable {
+    let image: UIImage
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> UIScrollView {
+        let scroll = UIScrollView()
+        scroll.minimumZoomScale = 1; scroll.maximumZoomScale = 6
+        scroll.delegate = context.coordinator
+        scroll.showsVerticalScrollIndicator = false; scroll.showsHorizontalScrollIndicator = false
+        let view = UIImageView(image: image)
+        view.contentMode = .scaleAspectFit
+        view.isAccessibilityElement = true; view.accessibilityLabel = "Snippet image"
+        scroll.addSubview(view)
+        context.coordinator.imageView = view
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTap(_:)))
+        tap.numberOfTapsRequired = 2
+        scroll.addGestureRecognizer(tap)
+        return scroll
+    }
+    func updateUIView(_ scroll: UIScrollView, context: Context) {
+        context.coordinator.imageView?.image = image
+        DispatchQueue.main.async { context.coordinator.layout(scroll) }
+    }
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        weak var imageView: UIImageView?
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+        func layout(_ scroll: UIScrollView) {
+            guard let imageView, scroll.zoomScale == 1 else { return }
+            imageView.frame = CGRect(origin: .zero, size: scroll.bounds.size)
+            scroll.contentSize = scroll.bounds.size
+        }
+        @objc func doubleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let scroll = recognizer.view as? UIScrollView else { return }
+            scroll.setZoomScale(scroll.zoomScale > 1 ? 1 : 3, animated: !UIAccessibility.isReduceMotionEnabled)
+        }
+    }
+}
+
+// MARK: - Writing
+
+struct NoteTextSheet: View {
+    let model: ReaderModel
+    let request: NoteTextRequest
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var saving = false
+    @State private var issue: String?
+    @State private var confirmDiscard = false
+    @FocusState private var focused: Bool
+
+    private var isNew: Bool { request.entryID == nil }
+    private var label: String { request.kind == .text ? "Your writing" : "Your comment" }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                TextEditor(text: $text)
+                    .focused($focused)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .frame(minHeight: 160)
+                    .accessibilityLabel(label).accessibilityIdentifier("note.text")
+                if !isNew {
+                    Text("The original source and capture time stay with the snippet.").font(.footnote).foregroundStyle(.secondary)
+                }
+                if let issue { Text(issue).font(.footnote).foregroundStyle(.red).accessibilityIdentifier("note.text.issue") }
+                Spacer()
+            }
+            .padding(DesignMetrics.margin)
+            .navigationTitle(isNew ? "Add text" : (request.kind == .text ? "Edit text" : "Edit comment")).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { if text != request.text { confirmDiscard = true } else { dismiss() } }.macBarButton()
+                        .accessibilityIdentifier("note.text.cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isNew ? "Save" : "Done") { save() }.disabled(saving || (isNew && text.allSatisfy(\.isWhitespace)))
+                        .accessibilityIdentifier("note.text.save")
+                }
+            }
+            .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep editing", role: .cancel) {}
+            }
+        }
+        .onAppear { text = request.text; focused = true }
+        .interactiveDismissDisabled(text != request.text)
+    }
+
+    private func save() {
+        saving = true; issue = nil
+        Task {
+            defer { saving = false }
+            do {
+                if let entryID = request.entryID { try await model.editComment(entryID, comment: text) }
+                else { model.notes.focusEntryID = try await model.addText(text, to: request.noteID) }
+                dismiss()
+            } catch {
+                issue = "Couldn’t save on this device. " + ((error as? LocalizedError)?.errorDescription ?? "Your text is still here.")
+            }
+        }
+    }
+}
+
+// MARK: - Source and versions
+
+struct NoteSourceSheet: View {
+    let model: ReaderModel
+    let entry: NotesState.Entry
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let source = entry.record.source {
+                    Section {
+                        Text(source.title).font(.headline)
+                        if !source.authors.isEmpty { Text(source.authors.prefix(6).joined(separator: ", ")).font(.subheadline).foregroundStyle(.secondary) }
+                    }
+                    Section {
+                        if let id = source.sourceID, source.kind != .document { LabeledContent("Version", value: id + (source.revision.map { "v\($0)" } ?? "")) }
+                        if let label = source.label { LabeledContent("Item", value: label) }
+                        if let section = source.section { LabeledContent("Section", value: section) }
+                        if let page = source.page { LabeledContent("PDF page", value: "\(page)") }
+                        LabeledContent("Captured", value: Date(timeIntervalSince1970: Double(entry.record.capturedAt) / 1000)
+                            .formatted(date: .abbreviated, time: .shortened))
+                        LabeledContent("Paper on this device", value: available ? "Yes" : "No")
+                    } footer: {
+                        Text(available ? "Open in paper returns to the captured passage when this copy of the paper has it."
+                             : "Your snippet is still here. Add this exact paper version to your Library to open its source.")
+                    }
+                    if available {
+                        Button("Open in paper") { dismiss(); _ = model.openNoteSource(entry.record) }.accessibilityIdentifier("source.open")
+                    } else if let url = source.url.flatMap(URL.init(string:)) {
+                        Link("View on arXiv", destination: url)
+                    }
+                }
+            }
+            .navigationTitle("Snippet details").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var available: Bool {
+        guard let source = entry.record.source else { return false }
+        return model.papers.contains { paper in
+            (source.membershipID != nil && paper.sourceMembership?.membershipID == source.membershipID)
+                || (source.kind == .arxiv && paper.sourceID == source.sourceID)
+                || (source.kind == .document && paper.id.wire == source.sourceID)
+        }
+    }
+}
+
+/// "2 versions · Review": both versions in full; keeping one writes a revision whose parents are both (no silent merge).
+struct NoteVersionsSheet: View {
+    let model: ReaderModel
+    let entry: NotesState.Entry
+    @Environment(\.dismiss) private var dismiss
+    @State private var issue: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section { Text("This was edited on two devices before they synced. Keep the version you want; the other is replaced everywhere.")
+                    .font(.footnote).foregroundStyle(.secondary) }
+                ForEach(Array(entry.heads.enumerated()), id: \.element.eventID) { index, version in
+                    Section(version.editedAt.map { "Version \(index + 1) · " + Date(timeIntervalSince1970: Double($0) / 1000).formatted(date: .abbreviated, time: .shortened) }
+                            ?? "Version \(index + 1)") {
+                        Text(version.record.comment.isEmpty ? "No comment" : version.record.comment)
+                        Button("Keep this version") {
+                            Task {
+                                do { try await model.keepVersion(entry.id, version: version.record); dismiss() }
+                                catch { issue = (error as? LocalizedError)?.errorDescription }
+                            }
+                        }.accessibilityIdentifier("versions.keep.\(index + 1)")
+                    }
+                }
+                if let issue { Text(issue).foregroundStyle(.red) }
+            }
+            .navigationTitle("2 versions").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+    }
+}

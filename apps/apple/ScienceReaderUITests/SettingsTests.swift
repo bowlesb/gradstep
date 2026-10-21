@@ -16,7 +16,7 @@ final class SettingsTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons[sample].waitForExistence(timeout: 15))
         // The wide iPad layout has no tab bar; Settings is its gear button.
-        if app.buttons["tab.settings"].exists { app.show("settings") } else { app.buttons["Settings"].tap() }
+        app.show("settings")
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         return app
     }

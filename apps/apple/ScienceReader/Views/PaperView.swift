@@ -281,6 +281,14 @@ struct PaperView: View {
                                      }), scope: readerScope)
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .topLeading) { referenceActions }
+                            // Draw snippet: over the page's own view, the same size, so its coordinates are the page's.
+                            .overlay {
+                                if model.notes.capturing == .paper {
+                                    SnippetCaptureOverlay(model: model, origin: .paper) { rect, size in
+                                        try await SnippetCapturer.webRegion(rect, overlaySize: size, web: ReaderWebView.paper, paper: paper, origin: .paper)
+                                    }
+                                }
+                            }
                     }
                     .modifier(PassageChooser(model: model))
                     .overlay { if readerFailed {
@@ -399,6 +407,8 @@ struct PaperView: View {
             .navigationTitle("Paper").navigationBarTitleDisplayMode(.inline)
             .toolbar(readingActive ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
+                // Drawing a snippet: Cancel and what to do take the bar's place; the page itself doesn't move.
+                if model.notes.capturing == .paper { SnippetCaptureToolbar(model: model) } else {
                 ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(GradstepSymbol.contents) }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
                 ToolbarItem(placement: .principal) { titleView }
                 // Reading mode (READING_MODE.md): the paper alone, full screen on the Mac (its View menu has ⇧⌘R).
@@ -434,6 +444,9 @@ struct PaperView: View {
                             }.accessibilityIdentifier("paper.chatColumn")
                         }
                         MenuRow("Find in paper", systemImage: "magnifyingglass") { showFind() }.accessibilityIdentifier("paper.find")
+                            .disabled(!canFind)
+                        // Notes: draw a box around anything on the page and add it to a note (NOTES_AND_SNIPPETS.md).
+                        MenuRow("Draw snippet", systemImage: "crop") { beginDrawing() }.accessibilityIdentifier("paper.drawSnippet")
                             .disabled(!canFind)
                         if model.selectedPaper?.readerBundle?.index.figures.isEmpty == false {
                             MenuRow("Figures", systemImage: "photo.on.rectangle") { showFigures = true }
@@ -474,9 +487,12 @@ struct PaperView: View {
                                 .accessibilityIdentifier("paper.readerVersion")
                         }
                         MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
+                        SettingsMenuSection(model: model)
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
+                }
             }
+            .noteComposerHost(model, origin: .paper)
             .confirmationDialog(authorToSearch ?? "Author", isPresented: Binding(get: { authorToSearch != nil }, set: { if !$0 { authorToSearch = nil } }), titleVisibility: .visible) {
             if let name = authorToSearch {
                 Button("Find papers by \(name)") {
@@ -594,6 +610,7 @@ struct PaperView: View {
             selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; figureToShow = nil
             citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil; figureReferenceToShow = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
+            if model.notes.capturing == .paper { model.notes.capturing = nil }
         }
         // Settings › Your assets › an explanation: its equation or figure once its paper shows (ReaderModel.openExplanation),
         // after the reset above; the kept answer shows there without a new request.
@@ -654,7 +671,10 @@ struct PaperView: View {
     }
 
     /// A− / A+ shows unless the paper failed or is loading, or a reference's outcome spans the bottom.
-    private var showsTextSize: Bool { !readerFailed && !loadingPaper && model.referenceNotice == nil && !readingActive }
+    private var showsTextSize: Bool {
+        !readerFailed && !loadingPaper && model.referenceNotice == nil && !readingActive && model.notes.capturing == nil
+            && model.notes.notice?.origin != .paper
+    }
     /// A− / A+'s distance from the trailing edge, and its width (two 44 pt buttons and a hairline; the control keeps
     /// its size at every text size). Back keeps clear of it on the same row.
     private static let textSizeInset: CGFloat = 12
@@ -664,12 +684,17 @@ struct PaperView: View {
     /// row), over the paper's fade; with none showing, the fade alone (under the tab bar). The selection actions are
     /// in the edit menu (build 16 #5).
     private func bottomControls(scope: ReaderDocumentScope) -> some View {
-        let notice = readerFailed ? nil : model.referenceNotice
-        let back = citationBack && !readerFailed
-        let explainerBack = model.explainerReturn?.paperID == model.selectedPaper?.id && model.explainerReturn != nil
+        // While a snippet is drawn its own panel has the bottom of the page.
+        let capturing = model.notes.capturing != nil
+        let notice = readerFailed || capturing ? nil : model.referenceNotice
+        let back = citationBack && !readerFailed && !capturing
+        let explainerBack = model.explainerReturn?.paperID == model.selectedPaper?.id && model.explainerReturn != nil && !capturing
         // After a chat citation opened the paper: a way back to the conversation, unless the chat is beside the page.
-        let chatBack = model.returnToChatAvailable && !readerFailed && !(besideChat && !model.readerChatHidden)
+        let chatBack = model.returnToChatAvailable && !readerFailed && !(besideChat && !model.readerChatHidden) && !capturing
+        let saved = model.notes.notice?.origin == .paper && !capturing
         return VStack(spacing: 8) {
+            // "Saved to <note> · Open note" after Add to note; the reading position is where it was.
+            if saved { NoteSavedBanner(model: model, origin: .paper) }
             if let notice { referenceBanner(notice) }
             if back || chatBack || explainerBack {
                 HStack(spacing: 8) {
@@ -686,10 +711,40 @@ struct PaperView: View {
                 .padding(.trailing, showsTextSize ? Self.textSizeInset + Self.textSizeWidth + (wideReader ? 52 : 0) + 12 : 12)
             }
         }
-        .padding(.top, notice != nil || back || chatBack || explainerBack ? 6 : 0)
-        .padding(.bottom, notice != nil || back || chatBack || explainerBack ? 8 : 0)
+        .padding(.top, notice != nil || back || chatBack || explainerBack || saved ? 6 : 0)
+        .padding(.bottom, notice != nil || back || chatBack || explainerBack || saved ? 8 : 0)
         .frame(maxWidth: .infinity)
         .chromeBand(.bottom)
+        .animation(.easeInOut(duration: 0.2), value: saved)
+    }
+
+    // MARK: - Notes
+
+    /// Paper ⋯ › Draw snippet, or the context menu's: the page stops where it is and takes no other touches until Cancel.
+    private func beginDrawing() {
+        guard model.notesAvailability == .ready else {
+            model.error = model.isSignedIn ? "Unlock Notes on this device to save snippets: they are encrypted with your account’s keys."
+                : "Sign in to save snippets to your encrypted notes."
+            return
+        }
+        guard canFind else { return }
+        selection = nil; selectionClearID = UUID(); reference = nil
+        if let scroll = ReaderWebView.paper?.scrollView { scroll.setContentOffset(scroll.contentOffset, animated: false) }
+        model.notes.notice = nil
+        model.notes.capturing = .paper
+    }
+
+    /// The selection menu's Add to note: the selected text as a quotation, in the composer.
+    private func addToNote(_ chosen: ReaderSelection, quote: String, scope: ReaderDocumentScope) {
+        guard model.readerDocumentScope == scope else { return }
+        guard model.notesAvailability == .ready else {
+            model.error = model.isSignedIn ? "Unlock Notes on this device to save quotations." : "Sign in to save quotations to your encrypted notes."
+            return
+        }
+        guard let paper = model.selectedPaper, let snippet = SnippetCapturer.quote(chosen, quote: quote, paper: paper) else { return }
+        selection = nil; selectionClearID = UUID()
+        model.notes.notice = nil
+        model.notes.composer = NoteComposerRequest(snippet: snippet)
     }
 
     // MARK: - Citations and references
@@ -754,6 +809,8 @@ struct PaperView: View {
             showContents = true
         }
         hooked.onReferenceAction = { value, action in handleReferenceAction(value, action, scope: scope) }
+        hooked.onAddToNote = { chosen, quote in addToNote(chosen, quote: quote, scope: scope) }
+        hooked.onDrawSnippet = { if model.readerDocumentScope == scope { beginDrawing() } }
         return hooked
     }
     /// The web content process died (memory, a swipe that unloaded the page): reload once, quietly; say so the second time.
@@ -920,6 +977,9 @@ struct PaperWebView: UIViewRepresentable {
     var onPassage: (UUID, Bool) -> Void = { _, _ in }
     /// J, K and Esc typed in the paper ("next", "previous", "escape"): sections and reading mode.
     var onKey: (String) -> Void = { _ in }
+    /// Notes: Add to note on the selected text (what was selected, its quote), and Draw snippet from the context menu.
+    var onAddToNote: ((ReaderSelection, String) -> Void)? = nil
+    var onDrawSnippet: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -992,6 +1052,14 @@ struct PaperWebView: UIViewRepresentable {
                 web?.callAsyncJavaScript("window.__scienceReaderClearEquation(id);", arguments: ["id": id], in: nil, in: .defaultClient,
                                          completionHandler: nil)
             }
+            if onAddToNote != nil {
+                web.noteAction = { [weak coordinator, weak web] in if let coordinator, let web { coordinator.runNoteAction(in: web) } }
+            }
+            if onDrawSnippet != nil {
+                web.drawSnippet = { [weak coordinator] in coordinator?.parent.onDrawSnippet?() }
+            }
+        } else if let figureID {
+            ReaderWebView.figurePages.setObject(web, forKey: figureID as NSString)
         }
         web.isOpaque = false; web.backgroundColor = .systemBackground
         web.isFindInteractionEnabled = false
@@ -1228,6 +1296,17 @@ struct PaperWebView: UIViewRepresentable {
             }
         }
 
+        /// Add to note: what is selected now, as the bundle resolves it (as the chat actions read it).
+        func runNoteAction(in web: WKWebView) {
+            guard active, ready, let bundle = parent.bundle else { return }
+            let load = loadingID
+            web.callAsyncJavaScript("return window.__scienceReaderSelectionNow();", arguments: [:], in: nil, in: .defaultClient) { [weak self] result in
+                guard let self, self.active, self.loadingID == load, case .success(let value) = result,
+                      let (selection, quote) = Self.selection(value, bundle: bundle) else { return }
+                self.parent.onAddToNote?(selection, quote)
+            }
+        }
+
         func clearSelectionIfNeeded(in web: WKWebView) {
             guard let id = parent.selectionClearID, id != lastSelectionClearID else { return }
             lastSelectionClearID = id
@@ -1373,24 +1452,57 @@ struct LocalPDFReaderView: View {
     /// rendering for older PDFs"): the HTML reader's Contents never applied to a PDF kept on the device.
     private var outline: [PDFOutlineEntry] { PDFOutlineEntry.entries(in: presentation.data) }
 
+    /// Notes: Draw snippet over this PDF (PDFKit renders the chosen part of the page; NOTES_AND_SNIPPETS.md).
+    var model: ReaderModel? = nil
+
+    private var capturing: Bool { model?.notes.capturing == .pdf }
+
     var body: some View {
         NavigationStack {
             LocalPDFKitView(data: presentation.data, jump: $jump)
                 .ignoresSafeArea(.container, edges: .bottom)
+                .overlay {
+                    if let model, capturing {
+                        SnippetCaptureOverlay(model: model, origin: .pdf) { rect, size in
+                            try SnippetCapturer.pdfRegion(rect, overlaySize: size, view: LocalPDFKitView.current, presentation: presentation)
+                        }
+                        .ignoresSafeArea(.container, edges: .bottom)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if let model, !capturing {
+                        NoteSavedBanner(model: model, origin: .pdf) { model.localPaperPresentation = nil }.padding(.bottom, 12)
+                    }
+                }
                 .navigationTitle(presentation.title)
                 .toolbar {
+                    if let model, capturing { SnippetCaptureToolbar(model: model) } else {
                     ToolbarItem(placement: .topBarLeading) {
                         Button { showContents = true } label: { Image(GradstepSymbol.contents) }
                             .accessibilityLabel("Table of contents").accessibilityIdentifier("pdf.contents")
                     }
-                    if let readWithModel {
+                    if readWithModel != nil || model != nil {
                         ToolbarItem(placement: .topBarTrailing) {
                             Menu {
-                                Button(action: readWithModel) { Label("Read with the on-device model (experimental)", systemImage: "cpu") }
+                                if let model {
+                                    MenuRow("Draw snippet", systemImage: "crop") {
+                                        if model.notesAvailability == .ready { model.notes.notice = nil; model.notes.capturing = .pdf }
+                                        else { model.error = "Sign in and unlock Notes on this device to save snippets." }
+                                    }
+                                    .accessibilityIdentifier("pdf.drawSnippet")
+                                }
+                                if let readWithModel {
+                                    Button(action: readWithModel) { Label("Read with the on-device model (experimental)", systemImage: "cpu") }
+                                }
                             } label: { Image(systemName: "ellipsis") }.accessibilityLabel("PDF options").accessibilityIdentifier("pdf.options")
                         }
                     }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                    }
                 }
+                .onDisappear { if capturing { model?.notes.capturing = nil } }
                 .sheet(isPresented: $showContents) {
                     NavigationStack {
                         let entries = outline
@@ -1415,12 +1527,17 @@ struct LocalPDFReaderView: View {
                     .macSheetKeys()
                 }
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                }
         }
+        .modifier(OptionalComposerHost(model: model, origin: .pdf))
+    }
+}
+
+/// The note composer for a capture in a view that may have no model (the local PDF reader in tests).
+struct OptionalComposerHost: ViewModifier {
+    let model: ReaderModel?
+    let origin: CapturedSnippet.Origin
+    func body(content: Content) -> some View {
+        if let model { content.noteComposerHost(model, origin: origin) } else { content }
     }
 }
 
@@ -1455,7 +1572,9 @@ struct PDFOutlineEntry: Identifiable, Equatable {
     }
 }
 
-private struct LocalPDFKitView: UIViewRepresentable {
+struct LocalPDFKitView: UIViewRepresentable {
+    /// The PDF on screen, for Draw snippet (weak: a closed reader is gone).
+    @MainActor static weak var current: PDFView?
     let data: Data
     @Binding var jump: PDFOutlineEntry?
 
@@ -1466,6 +1585,7 @@ private struct LocalPDFKitView: UIViewRepresentable {
         view.displayDirection = .vertical
         view.backgroundColor = .systemBackground
         view.document = PDFDocument(data: data)
+        Self.current = view
         return view
     }
 
