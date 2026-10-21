@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { addPaper, type AddPaperDeps } from '../../supabase/functions/_shared/add-paper.ts';
-import { openAlexAllowed, paperFinder } from '../../supabase/functions/_shared/find-paper.ts';
+import { openAlexAllowed, paperFinder, serverAddOperationID } from '../../supabase/functions/_shared/find-paper.ts';
 import { doiInURL, doiOf, landingForPDF, pageFacts, parseAddInput, probeLink } from '../../supabase/functions/_shared/identify.ts';
 import type { FindResult, FoundPaper } from '../../supabase/functions/_shared/chat.ts';
 
@@ -282,4 +282,43 @@ test('the finder asks OpenAlex only when the switch says so: lazily, once, and n
   assert.equal(reads, 0, 'the policy is not read until a title is looked up');
   await finder.findPaper(wanted, signal(), { web: true }); await finder.findPaper(wanted, signal(), { web: true });
   assert.equal(reads, 1, 'read once per request');
+});
+
+test('server adds go through one locked RPC with a retry-stable operation id; outcomes map to added/present/failed (review A5)', async () => {
+  const request = 'A1B2C3D4-0000-4000-8000-00000000000F';
+  const arxiv = { source_id: '2305.18290', title: 'DPO', year: 2023, kind: 'arxiv' as const };
+  const web = { source_id: 'openalex:W2963403868', title: 'Optuna', year: 2019, kind: 'web' as const };
+  const id = await serverAddOperationID(request, arxiv);
+  assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(await serverAddOperationID(request.toLowerCase(), arxiv), id, 'stable for a retried request (case-insensitive)');
+  assert.equal(await serverAddOperationID(request, { ...arxiv, kind: undefined }), id, 'an untyped paper is arXiv');
+  assert.notEqual(await serverAddOperationID(request, { ...arxiv, source_id: '1706.03762' }), id, 'another paper, another operation');
+  assert.notEqual(await serverAddOperationID('a1b2c3d4-0000-4000-8000-000000000010', arxiv), id, 'another request, another operation');
+  assert.notEqual(await serverAddOperationID(request, web), id);
+  const random = [await serverAddOperationID(undefined, arxiv), await serverAddOperationID('not-a-uuid', arxiv)];
+  assert.notEqual(random[0], random[1], 'no request identity: a random id');
+
+  const calls: { name: string; params: Record<string, unknown> }[] = [];
+  let answer: { data: unknown; error: unknown } = { data: null, error: null };
+  const user = { rpc: (name: string, params: Record<string, unknown>) => { calls.push({ name, params }); return { abortSignal: async () => answer }; } };
+  const finder = paperFinder(user as never, undefined, fetch, { requestID: request });
+  answer = { data: { result: { status: 'applied', kind: 'import' }, replayed: false }, error: null };
+  assert.equal(await finder.importPaper(arxiv, signal()), 'added');
+  assert.deepEqual(calls[0], { name: 'v2_add_paper_once', params: { p_operation_id: id, p_source_id: '2305.18290', p_web: false } });
+  answer = { data: { result: { status: 'applied' }, replayed: true }, error: null };
+  assert.equal(await finder.importPaper(arxiv, signal()), 'added', 'a replayed receipt is still the add');
+  assert.equal(calls[1].params.p_operation_id, id, 'the retry sends the same operation id');
+  answer = { data: { result: { status: 'present', kind: 'import', id: 'x' } }, error: null };
+  assert.equal(await finder.importPaper(arxiv, signal()), 'present');
+  answer = { data: null, error: { message: 'library_active_import_limit' } };
+  assert.equal(await finder.importPaper(arxiv, signal()), 'failed');
+  answer = { data: { result: { status: 'revision_conflict' } }, error: null };
+  assert.equal(await finder.importPaper(arxiv, signal()), 'failed');
+  answer = { data: { result: { status: 'applied' } }, error: null };
+  assert.equal(await finder.importPaper(web, signal()), 'added');
+  assert.deepEqual(calls.at(-1)!.params, { p_operation_id: await serverAddOperationID(request, web), p_source_id: 'openalex:W2963403868', p_web: true });
+  const stopped = new AbortController(); stopped.abort();
+  const before = calls.length;
+  assert.equal(await finder.importPaper(arxiv, stopped.signal), 'failed');
+  assert.equal(calls.length, before, 'a stopped request sends nothing');
 });

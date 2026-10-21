@@ -54,7 +54,7 @@ Deno.serve(async request => {
       reference, web, consentVersion: body.consent_version, enabled: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
       apiKey: Deno.env.get('TAVILY_API_KEY'), fetcher: fetch,
     });
-    const finder = paperFinder(user, spending.search, fetch, { openAlex });
+    const finder = paperFinder(user, spending.search, fetch, { openAlex, requestID: operationID });
     const { result, route } = await resolveReference({ fetch, openAlex,
       findPaper: (wanted, signal, options) => finder.findPaper(wanted, signal, { ...options, tavily: !!spending.search }) }, reference, web, budget)
       .catch(() => ({ result: { status: 'unavailable' as const }, route: 'none' as const }))

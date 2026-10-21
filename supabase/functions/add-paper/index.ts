@@ -45,7 +45,7 @@ Deno.serve(async request => {
     const started = Date.now();
     const budget = AbortSignal.any([request.signal, AbortSignal.timeout(BUDGET_MS)]);
     // Add is free: it never uses the paid web search (it passed the key text here, which was never called).
-    const finder = paperFinder(user, undefined, fetch, { openAlex });
+    const finder = paperFinder(user, undefined, fetch, { openAlex, requestID: body.operation_id });
     const outcome = await addPaper({ fetch, resolveHost: edgeResolveHost, findPaper: finder.findPaper, importPaper: finder.importPaper, openAlex }, query, web, budget);
     // Outcomes join the reliability events (no account ids; the reader's text is never stored).
     await service.rpc('worker_record_reference_event', { p_result: outcome.status, p_route: `add_${outcome.route}`,

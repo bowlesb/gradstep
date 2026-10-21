@@ -83,8 +83,9 @@ Deno.serve(async request => {
   const search = tavilyKey ? admittedTavily(spending, 'chat_search', providerFetch, tavilyKey) : null;
   // Ingest asks OpenAlex only while the owner's `openalex_enabled` switch is on (off since migration 075): the policy is
   // read lazily, only when an Ingest looks a title up, and an unreadable policy keeps OpenAlex off.
+  // An Ingest's import is named after this chat operation (migration 120), so it can never be queued twice.
   const finder = paperFinder(user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined, fetch, {
-    openAlex: () => Promise.resolve(service.rpc('worker_search_policy')).then(({ data, error }) => !error && openAlexAllowed(data), () => false) });
+    requestID: spending.operationID, openAlex: () => Promise.resolve(service.rpc('worker_search_policy')).then(({ data, error }) => !error && openAlexAllowed(data), () => false) });
   const deps: ChatDependencies = {
     accountID,
     rpc,

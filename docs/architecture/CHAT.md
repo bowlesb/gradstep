@@ -141,8 +141,11 @@ lookup, oldest-first title phrase, then all title words; one paced request at a 
 words before a colon), the cited year within [year−3, year+1], the cited first author among the first three
 authors, and no negation-word difference; without an author the title must be exact, and titles under four words
 need author and year. A visible library entry or active import for that source reports "already in your library";
-otherwise `v2_begin_import` runs **as the user** (their JWT; the app starts chat streams with ≥ 5 minutes of token
-validity), exactly like the app's Add, so normal conversion, credit holds and quotas apply. Post-settlement work has
+otherwise the paper is imported **as the user** (their JWT; the app starts chat streams with ≥ 5 minutes of token
+validity), exactly like the app's Add, so normal conversion, credit holds and quotas apply. Since review A5
+(2026-10-21) the presence check and the import are one locked RPC, `v2_add_paper_once`, and the import's operation
+UUID is derived from the chat operation, so a finished `source_only` paper is present and a retry never queues it
+twice ([HTML_FIRST_READER.md](HTML_FIRST_READER.md#server-adds-without-duplicates-review-a5-2026-10-21-migration-120-not-deployed)). Post-settlement work has
 a 45 s budget; Stop cancels it and nothing is imported. Results are appended as inert text: queued, already in the
 library, not found, search unavailable, not openly available (with an https link), needs a newer app, or could not
 be added. A `tool_use` stop is reported as `end_turn`.
