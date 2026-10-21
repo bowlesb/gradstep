@@ -54,3 +54,10 @@ it('Back after a jump: offered unless the bridge says not, with the section it r
   expect((readFrameMessage({ type: 'citation', state: 'jumped', from: 'x'.repeat(200) }) as { from: string }).from).toHaveLength(60);
   expect(readFrameMessage({ type: 'citation', state: 'other' })).toBeNull();
 });
+it('a link out of the paper is https only, without credentials (A18)', () => {
+  expect(readFrameMessage({ type: 'link', url: 'https://example.org/data?x=1' })).toEqual({ type: 'link', url: 'https://example.org/data?x=1' });
+  expect(readFrameMessage({ type: 'link', url: 'http://example.org/code' })).toEqual({ type: 'link', url: 'https://example.org/code' });
+  for (const url of ['javascript:alert(1)', 'data:text/html,x', 'https://user:pass@example.org/', 'mailto:a@example.org', 'https://example.org/' + 'a'.repeat(5000), ' https://example.org/', 42]) {
+    expect(readFrameMessage({ type: 'link', url })).toBeNull();
+  }
+});

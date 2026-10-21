@@ -85,7 +85,9 @@ export type FrameMessage =
   | { type: 'reference'; reference: ReaderReference } | { type: 'figureref'; reference: ReaderFigureReference }
   | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'contentsGesture' } | { type: 'invalid' }
   | { type: 'find'; count: number; index: number; matches: { index: number; text: string }[] }
-  | { type: 'key'; key: FrameKey };
+  | { type: 'key'; key: FrameKey }
+  /** A link out of the paper the reader clicked (frame-shim.js): opened in a new tab, never in the frame. */
+  | { type: 'link'; url: string };
 
 /** App shortcuts typed while the paper frame has focus (forwarded by the frame shim). */
 export type FrameKey = 'find' | 'search' | 'escape' | 'left' | 'right' | 'help' | 'reading' | 'next' | 'previous';
@@ -141,8 +143,20 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
         }) : [] } : null;
     }
     case 'key': return FRAME_KEYS.includes(v.key as FrameKey) ? { type: 'key', key: v.key as FrameKey } : null;
+    case 'link': { const url = typeof v.url === 'string' ? outboundLink(v.url) : null; return url ? { type: 'link', url } : null; }
   }
   return null;
+}
+
+/** A paper's own link out (the apps open only https in Safari): http becomes https, no credentials, bounded. */
+export function outboundLink(raw: string): string | null {
+  if (raw.length > 4096 || /[\u0000-\u0020\u007f]/.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || !url.hostname) return null;
+    url.protocol = 'https:';
+    return url.href;
+  } catch { return null; }
 }
 
 const ID = /^[0-9A-Za-z_-]{1,200}$/;

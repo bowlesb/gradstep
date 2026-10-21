@@ -46,6 +46,14 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(page.getByTestId('citation-back')).toBeInViewport();
  await page.getByTestId('citation-back').click();
  await expect(page.getByTestId('citation-back')).toBeHidden();
+ // A link out of the paper opens a new tab (the apps hand it to Safari); the paper stays in its frame (A18).
+ await page.context().route('https://example.org/**',route=>route.fulfill({status:200,contentType:'text/html',body:'<!doctype html><title>Outside</title>'}));
+ const opened=page.context().waitForEvent('page');
+ await frame.locator('a[href="https://example.org/paper"]').click();
+ expect((await opened).url()).toBe('https://example.org/paper');
+ await (await opened).close();
+ await expect(frame.locator('math').first()).toBeVisible();
+ await expect(frame.locator('a[href="https://example.org/paper"]')).toBeVisible();
  expect(sourceRequests).toBe(2);expect(pdfRequests).toBe(0);expect(artifacts).toBe(0);
  if(!await page.getByTestId('chat-pane').isVisible())await page.getByTestId('ask').click();
  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Explain the authored equation.');
@@ -101,7 +109,7 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await page.getByRole('button',{name:'Send',exact:true}).click();
  await expect(page.getByTestId('figure-part-inline').first()).toBeVisible();
  const asked=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests[1];
- expect(asked.consent_version).toBe('cloud-ai-v5');
+ expect(asked.consent_version).toBe('cloud-ai-v6');
  expect(asked.figures).toHaveLength(1);
  expect(asked.figures[0]).toMatchObject({id:'F1',media_type:'image/jpeg',caption:'Figure 1: A test figure.'});
  expect(asked.figures[0].data.startsWith('/9j/')).toBe(true);

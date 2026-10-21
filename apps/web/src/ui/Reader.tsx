@@ -291,6 +291,18 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     return () => window.removeEventListener('message', receive);
   }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled, onContents, workspace?.left.open]);
 
+  // A link out of the paper, from the paper or one of its figure frames: a new tab, as the apps open Safari (A18).
+  useEffect(() => {
+    const open = (event: MessageEvent) => {
+      if (event.data?.gradstep !== 'reader' || event.data.value?.type !== 'link') return;
+      if (![...document.querySelectorAll<HTMLIFrameElement>('iframe.reader-frame, iframe.figure-frame')].some(f => f.contentWindow === event.source)) return;
+      const message = readFrameMessage(event.data.value);
+      if (message?.type === 'link') window.open(message.url, '_blank', 'noopener,noreferrer');
+    };
+    window.addEventListener('message', open);
+    return () => window.removeEventListener('message', open);
+  }, []);
+
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
 
   const marksJSON = useMemo(() => JSON.stringify(marks.slice(0, 500).map(m => bridgeAnchor(m.id, m.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256))), [marks, item.artifact_id, bundle?.manifestSHA256]);
