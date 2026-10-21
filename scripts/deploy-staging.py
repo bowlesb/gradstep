@@ -26,13 +26,17 @@ def parse_args(argv=None):
     parser.add_argument('--defer-activation', action='store_true', help='Deploy while paused; leave Vault/scheduling unchanged and run no workflow checks')
     parser.add_argument('--functions', nargs='*', help='Subset of functions to deploy')
     parser.add_argument('--rotate-pipeline-secret', action='store_true', help='Generate a new worker secret and update the function and Vault')
-    parser.add_argument('--chat-web-search', choices=['on', 'off'], help='Override infra chat_web_search (Anthropic web search in chat)')
+    parser.add_argument('--chat-web-search', choices=['on', 'off'], help='Override infra chat_web_search (web search in chat: our search_web tool, run with Tavily)')
     parser.add_argument('--chat-deepseek', choices=['on', 'hidden', 'off'],
                         help='Override infra chat_deepseek: DeepSeek in chat published (on), accepted but unpublished for checks (hidden), or off')
     parser.add_argument('--chat-gemini', choices=['on', 'hidden', 'off'],
                         help='Override infra chat_gemini: Gemini through OpenRouter published (on), checks only (hidden), or off')
     parser.add_argument('--skip-checks', action='store_true', help='Do not run the workflow checks after deploying (docs/architecture/WORKFLOW_CHECKS.md)')
     return parser.parse_args(argv)
+
+
+# Secrets no function reads since every model call went through OpenRouter (owner, 2026-10-18 and 2026-10-21).
+RETIRED_SECRETS = ['ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'CHAT_CLAUDE_OPENROUTER']
 
 
 def dotenv(path):
@@ -150,12 +154,10 @@ def deploy(args):
     chat_deepseek = args.chat_deepseek or config.get('chat_deepseek', 'off')
     if chat_deepseek not in ('on', 'hidden', 'off'):
         raise SystemExit('infra chat_deepseek must be on, hidden or off')
-    if chat_deepseek != 'off' and not providers.get('OPENROUTER_CHAT_API_KEY'):
-        raise SystemExit('chat_deepseek needs OPENROUTER_CHAT_API_KEY in .env.providers')
     chat_gemini = args.chat_gemini or config.get('chat_gemini', 'off')
     if chat_gemini not in ('on', 'hidden', 'off'):
         raise SystemExit('infra chat_gemini must be on, hidden or off')
-    chat_claude_openrouter = 'on'  # Owner: every remote inference uses the attributed OpenRouter transport.
+    # Owner, 2026-10-18 and 2026-10-21: every model call goes through OpenRouter (one attributed transport); no direct key.
     if not providers.get('OPENROUTER_CHAT_API_KEY'):
         raise SystemExit('All model routes require the dedicated OPENROUTER_CHAT_API_KEY in .env.providers')
     function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
@@ -163,7 +165,6 @@ def deploy(args):
                         {'name': 'CHAT_WEB_SEARCH', 'value': web_search},
                         {'name': 'CHAT_DEEPSEEK', 'value': chat_deepseek},
                         {'name': 'CHAT_GEMINI', 'value': chat_gemini},
-                        {'name': 'CHAT_CLAUDE_OPENROUTER', 'value': chat_claude_openrouter},
                         # Every function refuses requests to arXiv (the guard's default, stated here; _shared/egress.ts).
                         {'name': 'EGRESS_ARXIV', 'value': 'block'},
                         # Fault drills (docs/architecture/RESILIENCE.md): test accounts only; never set for production.
@@ -182,6 +183,8 @@ def deploy(args):
     for name in ['TAVILY_API_KEY', 'OPENROUTER_CHAT_API_KEY']:
         if providers.get(name): function_secrets.append({'name': name, 'value': providers[name]})
     request(base + '/secrets', mgmt, function_secrets)
+    # Retired direct-provider credentials and switches are removed from the project if an earlier deploy left them.
+    request(base + '/secrets', mgmt, RETIRED_SECRETS, method='DELETE', allow_missing=True)
     print('Set function secrets:', ', '.join(s['name'] for s in function_secrets), f'(chat web search {web_search}; chat DeepSeek {chat_deepseek}; chat Gemini {chat_gemini})')
 
     for name in (args.functions if args.functions is not None else config['functions']):
