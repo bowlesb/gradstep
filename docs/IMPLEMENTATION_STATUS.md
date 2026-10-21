@@ -1,5 +1,55 @@
 # Implementation status
 
+## Browser review fixes — October 21 UTC (local; not deployed)
+
+The browser findings of the [2026-10-21 review](reviews/WEB_SERVER_REVIEW_20261021.md#fix-status--2026-10-21-browser-built-and-tested-locally-not-deployed)
+are fixed on branch `worktree-agent-a07aac6f6943c5a8b`, one commit per finding or group (the review's table lists
+them). **Not deployed**: no Pages build was published and no hosted request or staging account was used. The
+released browser is still Pages `27c45ca0`. iPhone sources were read for wording and behaviour, not changed.
+
+- **Correctness**: links out of a paper open in a new tab and the frame keeps the paper (A18; frame sandbox and CSP
+  unchanged). Stop, storage retirement and sign-out reach the gap between a figure answer's two passes (A19). A
+  temporary sync failure no longer refuses the next question; key, capacity, conflict and local-storage failures still
+  do (A20). The A19 and A20 unit tests fail on the old code.
+- **Parity with the apps**: actions on selected answer text and formulas (B1); Papers in this answer (B2); every visit
+  starts with all tags (B3); kept explanations survive reloads, sealed with the device's local key (B4); crop or
+  redact a report's screenshot (B5); AI model first for explainers and the composer, the answering model named,
+  Change AI (B7); chat text size (B8); Library Venue/Source/Pages/Chats and All chats Kind/Topics/Answer length (B9);
+  the smaller B10 differences, with player options, account Sync and About's version and acknowledgements.
+  Not done: approving another device from the browser (B6, needs a cross-device run), Other lengths… in the player,
+  and the sign-in method in the account menu (the owner removed it in build 58).
+- **Performance** (temporary render probe, desktop, DPO fixture; not committed):
+
+  | Measure | Before | After |
+  |---|---|---|
+  | 40 reader scroll steps: app / chat / library model / reader renders | 80 / 80 / 80 / 80 | 0 / 0 / 0 / 50 |
+  | ~225-delta streamed answer: branch scans / summaries / chat renders | 707 / 14 / 342 | 3 / 2 / 151 |
+  | Four figure frames: `frameDocument` | 69.2 ms | 1.0 ms |
+  | Initial JS (entry + preloads; production build, staging env) | 1,034.3 kB (310.9 kB gzip) | 806.8 kB (241.2 kB gzip) after C5; 887.7 kB (265.4 kB gzip) after merging browser Notes (~42 kB) and the B features (~10 kB) |
+
+  Caches are bounded (C8), the journal counts records with `count()`, and the compiler no longer ships in `dist/`.
+- **Shared code** (D8, browser side): the browser uses the server's arXiv parser, `visualDocument` (now
+  `_shared/visual-document.ts`) and `parseBalance`. Consent versions, the study/figure/equation pairs (E4) and
+  Retry-After parsing were not changed. **D11**: error codes in words, DOI/web papers go into the viewed catalog,
+  diagrams follow the app theme, the podcast route line names OpenRouter, five unused exports removed.
+- **Journeys failing on main before this work** now pass. The tests were stale for account-delete, reader, build-62,
+  library-actions, chat-controls, chat-redesign, equation-view, journal and arxiv-html (current wording, consent v6,
+  three model/length groups, Find similar papers first, the saved-draft hint going away). The app was wrong for
+  owner-58: Privacy &amp; data still mentioned a backup search provider; it now uses the apps' wording. One app
+  regression of this work was caught by arxiv-html (the lazy reader asked arXiv twice) and fixed in 114df10.
+- **Evidence**: `apps/web` unit tests 545 passing. Root `npm test`: every fast-tier step passes except compiler
+  freshness (below): backend 697, browser units 545, operations, egress scan, Edge and admin type checks. Playwright
+  on desktop and phone, after merging main, for the 20 affected specs (account-assets, account-delete, arxiv-html,
+  build-62, catalogs, chat, chat-controls, chat-redesign, equation-view, figure-view, journal, layout, library-actions,
+  library-columns, notes, owner-58, parity, podcast-workspace, reader, support-reports): 179 passed, 25 skipped by
+  their engine or width gates, none failing (account-assets expected the old tab-only wording; updated in b54d0d8 and
+  rerun). One opaque-diagram case failed once under load and passed 12 of 12 when repeated. notes-capture with its
+  own config: 10 passed; its arXiv cases skip without the local corpus. Screenshots reviewed in light and dark under
+  `.artifacts/` (web-chat, web-columns, web-support, figure views, web-build62, owner-58, web-podcast-workspace).
+- **Limits**: the committed device compiler was built in a checkout whose `node_modules/.deno` made it bundle `fflate`
+  twice, so `build-arxiv-compiler.mjs --check` fails in a fresh worktree (known; not rebuilt here). Browser Notes adds
+  about 42 kB to the first load and could be loaded lazily next. WebKit keeps its durable-key limitation.
+
 ## Server, admin and scripts review fixes — October 21 UTC (built and tested locally; not deployed)
 
 Fixes for the verified server/admin/scripts findings of the [2026-10-21 review](reviews/WEB_SERVER_REVIEW_20261021.md)

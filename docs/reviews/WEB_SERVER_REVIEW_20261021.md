@@ -1,6 +1,6 @@
 # Browser, admin and server review — 2026-10-21
 
-Status: review, owner request of 2026-10-20 (night); fixes for its server, admin and scripts findings are listed under "Fix status" below (2026-10-21, not deployed). The review itself touched no code, configuration, database, deployment, phone
+Status: review, owner request of 2026-10-20 (night); fixes for its server, admin and scripts findings, and separately for its browser findings, are listed under "Fix status" below (2026-10-21, not deployed). The review itself touched no code, configuration, database, deployment, phone
 or NAS. Scope: `apps/web`, `apps/admin`, `supabase/functions` (every function and `_shared`),
 `supabase/migrations`, `scripts/` and `tests/`, with emphasis on the 26 commits since 2026-10-16 (OpenRouter for all
 inference, Gemini chat, owner testing allowance, durable beta admission, library catalogs, private-table RLS).
@@ -58,7 +58,7 @@ deletion), 0135 (default privileges). Deploy order and live checks: IMPLEMENTATI
 | A15 | Fixed | 7d49e6a | OpenAlex only on an explicit `true`, failing closed; code kept behind the owner's switch. |
 | A16 | Fixed | 4bab39d (0125) | Device-source records deleted with the account (and those of accounts closed earlier). |
 | A17 | Fixed | 818d5c4 (0126) | Reserve (quota, rate, policy) before the upload. |
-| A18–A20 | Skipped | — | Browser (`apps/web`), outside this pass. |
+| A18–A20 | Fixed in the browser pass | — | See "Fix status — 2026-10-21 (browser)" below. |
 | A21 | Fixed | 78813f0 (0127) | Audited withdrawal; no transfer through deletion; admit refuses suspended accounts. Supersedes the 10-19 linked-address re-admission. |
 | A22 | Fixed | 4a3b036, 39f54af (0128) | Back-off ordering, no 30-day cut-off, stalls on Health; compatible with 095's note-asset sweep. |
 | A23 | Fixed | 0abd0a4 | Invalid tool calls dropped with the text kept; `done` reports the recorded settlement; `key_count` in the ledger. |
@@ -72,6 +72,47 @@ deletion), 0135 (default privileges). Deploy order and live checks: IMPLEMENTATI
 | D7 | Fixed | b3d98c0 | Obsolete/risky scripts removed; dedicated App Store Connect key; one PostgreSQL tools resolver. Provisioning and research scripts kept (still referenced). |
 | D9 | Fixed | 6c93427 | `feed-refresh` in the routine deploy; every function in `config.toml`; admission hook declared (not verified against a local stack). |
 | D10 | Fixed | 5ba4bc0 | Support paging and Close/Reopen; Accounts truncation notice; 30 s RPC bound; missing messages; abandoned TOTP enrolment removed. |
+
+## Fix status — 2026-10-21 (browser; built and tested locally, not deployed)
+
+The browser findings (A18–A20, B, C1–C5, C8, browser parts of D8 and D11), on branch
+`worktree-agent-a07aac6f6943c5a8b`. Each was re-verified against the code first; all were real except where noted.
+iPhone wording and behaviour were read from `apps/apple/ScienceReader` (unchanged). Nothing was deployed: the released
+browser is still Pages `27c45ca0`. Evidence: `npm test` in `apps/web` (545 unit cases), the affected Playwright
+journeys on the desktop and phone projects (screenshots reviewed in light and dark), and before/after render counts and
+bundle sizes for C. Details: IMPLEMENTATION_STATUS.md, 2026-10-21 (browser review fixes).
+
+| Finding | Status | Commit(s) | Notes |
+|---|---|---|---|
+| A18 | Fixed | 13035ba | `frame-shim.js` takes a click on an outside link that the bridge didn't handle (not while text is selected) and posts it; the app opens https links without credentials in a new tab with `noopener`. Frame sandbox and CSP unchanged. Re-verified in the code (nothing handled such a click); the `arxiv-html` journey now follows a link and keeps the paper. |
+| A19 | Fixed | c9a86a6 | One controller stays registered across both passes; Stop, storage retirement and sign-out are checked again after the figure images. New unit test fails on the old code. |
+| A20 | Fixed | cb6b7d9 | Only key/authority, capacity, conflict and local-storage failures block sending; a connection or rate-limit failure leaves sending on. Two unit tests fail on the old code. |
+| B1 | Fixed | 27ed2de | Selected answer text: Quote in Chat, Explain, Define; a formula adds Copy LaTeX and Copy as text (ChatRichTextView). |
+| B2 | Fixed | 117ea96 | Papers in this answer: a port of `ChatPaperMentions.swift` (its test cases pass); Library opens a paper you have, Add to library adds one (arXiv by ID, DOI through `add-reference`). |
+| B3 | Fixed | e9fee0c | The tag filter is no longer saved; the old key is removed. The status filter is still remembered. |
+| B4 | Fixed | 5d9ba2e | Kept explanations sealed with the device's local key in IndexedDB, at most 400 per kind; deleted with Forget this device. A figure's image is prepared again from the paper. |
+| B5 | Fixed | 69e2771 | Crop or redact: Cover private text and Crop, drawn into the uploaded image; previews are `data:` URLs. |
+| B6 | Not done | — | A browser approver changes who holds key authority and needs a cross-device acceptance run (iPhone paused); not small and safe. Still documented as Not done in DECISIONS.md. |
+| B7 | Fixed | d0e494a, fac8641 | Explainers ask AI model (Default / Choose model) first, name the answering model and offer Change AI; the composer's model button opens the same choice (AISelectionButton), with Length still in ⋯ › Answer options. |
+| B8 | Fixed | e4ddbd0 | Chat ⋯ › Smaller text / Larger text (13–26 px), separate from the paper's A−/A+; contextual chats keep the standard size, as on iPhone. |
+| B9 | Fixed | 2714d4d, 8ae1b18 | Library: Venue, Source, Pages, Chats (Chats on by default; added once to saved choices). All chats: Kind, Topics, Answer length. |
+| B10 | Mostly fixed | bd27a29, 134c7ac | Use for new ‹activity›; Copy as Text on a tapped equation; Back to Table Explainer; passage chats by title; Go to passage in the chat ⋯ and All chats; Underline passages with chats; player options with Report a problem at ‹time› and Clear progress; account Sync with Sync now; version and Acknowledgements. Not done: Other lengths… (the paper's Listen has no length chooser once an episode exists) and the sign-in method in the menu (the owner removed it in build 58; `owner-58.spec.ts` asserts it stays out). |
+| B11 | Fixed | 958603d | The six docs corrected in place, each marked "Corrected 2026-10-21, B11". |
+| C1 | Fixed | cc9c3b3 | Activity and playback position live in external stores; 40 scroll steps: `Signed` renders 80 → 0, chat 80 → 0, library model 80 → 0, reader 80 → 50. |
+| C2 | Fixed | cc9c3b3 | Branches and summaries cached per history change; streamed deltas published every 100 ms (first at once); running byte count. ~225-delta answer: branch scans 707 → 3, summaries 14 → 2, chat renders 342 → 151. |
+| C3 | Fixed | cc9c3b3 | `PrivateState` indexes events by entity and caches derived views per change; catalogs and device PDFs derived once per state. Catalog-deletion batching (one refresh) not changed. |
+| C4 | Fixed | cc9c3b3 | `frameDocument` keeps one parsed template per bundle: four figure frames 69.2 ms → 1.0 ms. |
+| C5 | Fixed | 7ace3d9, 114df10 | Reader, account dialogs and approval QR load when needed (the reader chunk is fetched right after sign-in); the compiler moved to `src/reader/`. Initial JS 1,034.3 → 806.8 kB (310.9 → 241.2 kB gzip); after merging browser Notes (about 42 kB in the entry) and the B features (about 10 kB), 887.7 kB (265.4 kB gzip). Podcast, Feed and Notes stay in the first load; lazy Notes would be the next step. |
+| C8 | Fixed | cc9c3b3 | LRU caps (200 equation, 24 figure results); contextual composers released when their view closes; the journal counts records with `count()`. The second decryption in `History.restore` is a different layer (event envelopes, not journal records), not a duplicate. |
+| D8 | Partly fixed (browser) | dea3b6a | The browser uses the server's arXiv parser and `visualDocument` (new `_shared/visual-document.ts`) and `parseBalance`. Not done: consent-version registry, study/figure/equation server pairs (E4), Retry-After parsing. |
+| D11 | Fixed (browser) | dea3b6a | Catalog and item errors in words; DOI/web additions go into the viewed catalog and a placement failure no longer fails the add; diagrams follow the app's theme; the podcast route line names OpenRouter; five unused exports removed. Kept: `add.ts`'s capabilities (the apps send the same `web_import`, `pdf_upload`) and `library-storage.ts` (deliberately staged). |
+
+Journeys failing on `main` before this work (listed by the Notes agent) now pass (ef0b49d): the tests were stale for
+account-delete, reader (invite-only wording), build-62 and library-actions (Find similar papers now first; a broad
+tag the vocabulary refuses), chat-controls (three radio groups, consent v6, the saved-draft hint going away,
+per-activity defaults), chat-redesign (model groups), equation-view (Gradstep Keywords, toolbar), journal (saved-draft
+hint) and arxiv-html (consent v6). The app was wrong for owner-58: Privacy &amp; data still described a backup search
+provider; it now uses the apps' wording.
 
 ---
 
