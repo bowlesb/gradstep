@@ -66,6 +66,7 @@ private struct FigurePageActions: ViewModifier {
                         } else { choosingAI = true }
                     }
                     : nil,
+                noun: context?.label.hasPrefix("Table") == true ? "Table" : "Figure",
                 close: close)
             .navigationDestination(isPresented: $explaining) {
                 if let host, let context { FigureExplainView(model: host.model, context: context, requesting: explainOnOpen, finish: host.finish, close: host.close) }

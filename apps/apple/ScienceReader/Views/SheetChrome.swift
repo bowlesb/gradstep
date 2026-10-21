@@ -2,8 +2,8 @@ import SwiftUI
 
 // An information sheet's top row (owner, build 62; docs/DESIGN.md "Sheet top row" and "Explain actions"): the page's
 // actions on the left, a round X on the right, no centred title and no Done. It is the sheet's own navigation bar, so on
-// iOS 26 its items are Liquid Glass (the prominent action tinted), a pushed page keeps the system Back and its swipe, and
-// earlier systems show plain bar buttons.
+// iOS 26 its items are Liquid Glass, a pushed page keeps the system Back and its swipe, and earlier systems show plain bar
+// buttons. The two explain actions are peers, drawn alike (owner, build 76: "Confusing that only one is purple?").
 
 /// One of a figure's or an equation's two explain actions.
 struct ExplainAction {
@@ -27,10 +27,12 @@ struct SheetCloseButton: View {
 }
 
 extension View {
-    /// The sheet's top row: **Explain in Chat** and **AI Explainer** (each when offered) on the left, the X on the right
-    /// (nil for a page whose sheet closes elsewhere). The bar shows no title.
-    func sheetTopRow(chat: ExplainAction? = nil, explainer: ExplainAction? = nil, openChat: ExplainAction? = nil, close: (() -> Void)?) -> some View {
-        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, close: close))
+    /// The sheet's top row: **Chat about Figure** (or Table) and **AI Explainer** (each when offered) on the left, the X on
+    /// the right (nil for a page whose sheet closes elsewhere). The bar shows no title. `noun` names what is shown
+    /// (build 76: a table's sheet said "Chat about Figure").
+    func sheetTopRow(chat: ExplainAction? = nil, explainer: ExplainAction? = nil, openChat: ExplainAction? = nil, noun: String = "Figure",
+                     close: (() -> Void)?) -> some View {
+        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, noun: noun, close: close))
     }
 }
 
@@ -38,6 +40,7 @@ private struct SheetTopRowModifier: ViewModifier {
     let chat: ExplainAction?
     let explainer: ExplainAction?
     let openChat: ExplainAction?
+    let noun: String
     let close: (() -> Void)?
 
     func body(content: Content) -> some View {
@@ -79,13 +82,13 @@ private struct SheetTopRowModifier: ViewModifier {
         HStack(spacing: 8) {
             if let chat {
                 Button(action: chat.action) {
-                    BarCapsule(title: "Chat about Figure", symbol: symbol ? "bubble.left.and.text.bubble.right" : nil, prominent: false)
+                    BarCapsule(title: "Chat about \(noun)", symbol: symbol ? "bubble.left.and.text.bubble.right" : nil)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Chat about Figure").accessibilityHint(chat.hint).accessibilityIdentifier(chat.identifier)
+                .accessibilityLabel("Chat about \(noun)").accessibilityHint(chat.hint).accessibilityIdentifier(chat.identifier)
             }
             if let explainer {
-                Button(action: explainer.action) { BarCapsule(title: "AI Explainer", symbol: symbol ? "sparkles" : nil, prominent: true) }
+                Button(action: explainer.action) { BarCapsule(title: "AI Explainer", symbol: symbol ? "sparkles" : nil) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("AI Explainer").accessibilityHint(explainer.hint).accessibilityIdentifier(explainer.identifier)
             }
@@ -95,33 +98,19 @@ private struct SheetTopRowModifier: ViewModifier {
     }
 }
 
-/// One action in the top row: a glass capsule (`ChromeSurface`), the main one tinted with the accent and white words.
+/// One action in the top row: a glass capsule (`ChromeSurface`) with accent words; both actions look the same.
 private struct BarCapsule: View {
     let title: String
     let symbol: String?
-    let prominent: Bool
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        let label = HStack(spacing: 5) {
+        HStack(spacing: 5) {
             if let symbol { Image(systemName: symbol) }
             Text(title).lineLimit(1)
         }
         .padding(.horizontal, 14).frame(minHeight: 36)
         .contentShape(Capsule())
-        if prominent {
-            label.foregroundStyle(.white).background(tinted)
-        } else {
-            label.foregroundStyle(Color.accentColor).modifier(ChromeSurface(shape: Capsule(), interactive: true))
-        }
-    }
-
-    @ViewBuilder private var tinted: some View {
-        if #available(iOS 26.0, *), !reduceTransparency {
-            Capsule().fill(Color.clear).glassEffect(.regular.tint(.accentColor).interactive(), in: Capsule())
-        } else {
-            Capsule().fill(Color.accentColor)
-        }
+        .foregroundStyle(Color.accentColor).modifier(ChromeSurface(shape: Capsule(), interactive: true))
     }
 }
 
