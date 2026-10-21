@@ -152,17 +152,19 @@ No physical iPhone or paid model call was used.
 
 ## Subfigure detector from the PDF corpus — 2026-10-21 (research; not released)
 
-A new app-level evaluation (complete crops as displayed, no false splits, correct counts) on 238 new
-held-out arXiv figures shows the previous best detector correct on only **50.8%** (93.6% on the old frozen
-set). The 17K-paper corpus was turned into a data engine: exact labels from 35,779 figure PDFs' drawing
-operations, caption-verified whitespace labels, 7,000 synthetic compounds/negatives and agreement-filtered
-pseudo-labels. With a new completeness post-processor, caption-count/grouping and two-view agreement, the best
-system reaches **73.5% (95% CI 68–79)** on the new validation set and 95.5% on the old one. It does **not**
-meet the acceptance gates; non-plot compounds (framed diagrams, lettered image grids) remain the main
-failure. The completeness step alone is a cheap, model-free fix for clipped AI crops (simulated: perfect
-splits 43% → 90% at 6% box error). A 235-figure arXiv final test is annotated and locked, not yet scored.
-FP32 Core ML parity holds for a trained two-class checkpoint. $0 model spend; no app code changed.
-Details and integration proposal: [Subfigure detector](reviews/SUBFIGURE_DETECTOR_20261021.md).
+A new app-level evaluation scores crops as displayed: complete panels, no false splits, correct counts.
+On a new held-out arXiv final test (235 figures, 201 papers in unseen author families), the previous best
+detector is fully right on **59.1%** of figures and shows wrong crops on 24.7%. The 17K-paper corpus was turned
+into a data engine (exact labels from 35,779 figure PDFs' drawing operations, caption-verified whitespace and
+LaTeX sub-figure labels, synthetic compounds, agreement-filtered pseudo-labels). The frozen system
+(RT-DETRv2-M + completeness post-processor + caption-constrained decoding + two-view agreement), scored once:
+**80.4% (95% CI 75.3–85.3) fully right, 8.9% harmful**; on the old SCI-3000 test 91.9% vs 88.1%. It does
+**not** meet the acceptance gates (panel recall 80%), so it is a candidate-part provider, not an automatic
+cropper. The model-free completeness step alone fixes many clipped crops (test 59.1% → 64.7%; simulated AI boxes
+with 6% error: perfect splits 43% → 90%) and is the recommended first integration. A rights-clean model
+(no SCI-3000) is equally good. FP32 Core ML (identical delivered crops) and ONNX exports verified on the Mac/host.
+$0 model spend; no app code changed. Details, integration plan and failure galleries:
+[Subfigure detector](reviews/SUBFIGURE_DETECTOR_20261021.md).
 
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 

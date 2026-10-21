@@ -1,6 +1,11 @@
 # Local figure regions
 
-Status, updated 2026-10-19 UTC: iterative scientific-panel fine-tuning has run on the owner's GPU machine. The real corpus
+Status, 2026-10-21: a corpus-trained detector + completeness/caption policy reaches 80.4% fully-right figures
+(8.9% wrong crops) on a new held-out arXiv final test versus 59.1% for the previous detector; still below the
+gates below, so not bundled. The model-free completeness check is proposed as the first integration. See
+[Subfigure detector](../reviews/SUBFIGURE_DETECTOR_20261021.md).
+
+Earlier status, updated 2026-10-19 UTC: iterative scientific-panel fine-tuning has run on the owner's GPU machine. The real corpus
 has 1,846 figures from 398 papers; 235 figures from 60 papers are reserved for the final test. No detector is
 qualified or bundled with the app. See [training/data evidence](../reviews/SUBFIGURE_TRAINING_20261018.md) and
 [earlier Mac export results](../reviews/LOCAL_FIGURE_REGIONS_20261018.md). No physical iPhone measurements.

@@ -1,35 +1,43 @@
 # Subfigure detector from the 17K-paper corpus — 2026-10-21
 
-Status: **research, not qualified, not released.** No application code, model catalogue, backend or build
-changed. This report is updated in increments; the final-test result is added only after the system is
-frozen on validation. Earlier work and acceptance gates: [training 10-18/19](SUBFIGURE_TRAINING_20261018.md),
-[Local figure regions](../architecture/LOCAL_FIGURE_REGIONS.md).
+Status: **research, not qualified for automatic cropping, not released.** No application code, model
+catalogue, backend or build changed. Final test scored once at 2026-10-21 12:43 UTC after freezing the system
+on validation. Earlier work and acceptance gates: [training 10-18/19](SUBFIGURE_TRAINING_20261018.md),
+[Local figure regions](../architecture/LOCAL_FIGURE_REGIONS.md). Evidence:
+`.artifacts/subfigure-detector-20261021/` (metrics, galleries, export parity, Core ML package); runs and
+data on the GPU host in `/home/ben/science-reader-subfigures/d21/`.
 
-## Summary (first complete version, 04:30 PDT)
+## Summary
 
-- **The old measurement hid the real problem.** On the new arXiv validation set — single-file figures from
-  held-out author families, i.e. the image the app actually sends — the previous best detector (`v13`) gives a
-  fully correct result (single kept whole, or every panel cropped completely with no extra crop) for only
-  **50.8% of figures (95% CI 44–57)**, versus 93.6% on the older frozen validation set. 21% of single figures
-  are split, 31 of 176 compound figures are not split at all, and 28 are clipped.
-- **A deterministic completeness step fixes clipped crops cheaply.** Growing each crop over the ink it cuts
-  (never into another crop) and attaching orphan ink (letters, shared legends) raises the same old detector
-  to 57.1% and full-ink coverage of split figures from 57% to 82%, with no retraining. On simulated
-  model-written boxes off by up to 6% of a panel, it raises perfect compound splits from 43% to 90%.
-  This step can also check the AI's own boxes today.
-- **The corpus became a data engine:** 35,779 figure PDFs labelled exactly from their drawing operations
-  (28,619 used for training), 8,078 caption-verified whitespace labels, 7,000 synthetic compounds/hard
-  negatives built from real panels, and 11,748 teacher pseudo-labels kept only when two views and the caption
-  agree. 2 new human-style evaluation sets were annotated (473 figures, 406 papers).
-- **Best system so far** (RT-DETRv2-S trained on that data + completion + caption-count/grouping +
-  two-view agreement): **73.5% (68–79) on new arXiv validation**, 95.5% on frozen validation; single false
-  splits 4.8%; crop precision 85%. That is +22.7 points over the previous detector on the app's domain, but
-  **it does not meet the acceptance gates** (95% panel recall, <2% wrong crops): panel recall is ~75%.
-- Remaining failures are concentrated in **non-plot compounds** (framed diagrams, lettered image grids,
-  touching raster plots): 52% correct, versus 93% for vector plot figures. A larger backbone run, an
-  ensemble and a LaTeX-subfigure page-composite data source are in progress.
-- FP32 Core ML export of a trained two-class checkpoint matches PyTorch on 20 validation images (max box error
-  0.00027, identical delivered crops). Cost: **$0 model API**, owner's GPU (electricity not priced).
+- **The earlier evaluation hid the real problem.** On a new held-out arXiv test (235 single-image figures from
+  201 papers in unseen author families — the image the app actually sends), the previous best detector
+  (`v13`) is fully right (single figure kept whole, or every panel cropped completely with no extra crop) on
+  only **59.1% (95% CI 52.8–65.5)** of figures and shows wrong crops on 24.7%; it scored 93.6% on the older
+  SCI-3000-based validation set.
+- **Frozen system** — RT-DETRv2-M trained on the corpus data engine + completeness post-processor + caption
+  -constrained decoding + two-view agreement — on that final test: **80.4% (75.3–85.3)** fully right,
+  **8.9% (5.5–12.6) harmful** (wrong crops shown), 6.6% of single figures split, compound panels found 80.1%,
+  delivered-crop precision 96.9%. Paired difference versus v13: **+21.3 points (15.4–27.5)** fully right,
+  **−15.7 points (−21.2 to −10.2)** harmful. On the old SCI-3000 final test (never scored before): 91.9%
+  (87.4–95.8) versus 88.1%, harmful 1.7% versus 8.5%.
+- **It does not meet the acceptance gates** (≥ 95% panel recall, < 2% wrong crops). The system abstains
+  (keeps the whole figure) on 14% of compound figures, and lettered groups of several plots, framed diagram
+  panels and touching raster panels still fail. It is suitable as a *candidate-part provider and a crop
+  checker*, not as an unsupervised cropper.
+- **The completeness step is the cheapest win and fixes the owner's complaint class directly.** Growing each
+  crop over the ink it cuts and attaching orphan letters/legends (pure geometry, ~31 ms) lifts the old
+  detector from 59.1% to 64.7% on the test and full-ink coverage of split figures from 65% to 87%. On
+  simulated model-written boxes off by up to 6% of a panel, perfect splits rise from 43% to 90%. It can check
+  the AI's own boxes today, with no model download.
+- **The corpus became a data engine:** exact panel labels from the drawing operations of 35,779 figure PDFs,
+  8,078 caption-verified whitespace labels, 5,443 LaTeX sub-figure page composites, 7,000 synthetic compounds
+  and hard negatives built from real panels, 11,748 agreement-filtered teacher pseudo-labels, and two new
+  annotated evaluation sets (473 figures, 406 papers). Vector supervision alone gave most of the gain.
+- A **rights-clean** model trained without the SCI-3000 images scores the same within error on both tests
+  (81.7% / 90.2%), so a distributable recipe exists.
+- FP32 **Core ML** export of the frozen checkpoint (132 MB) gives identical delivered crops on 20 validation
+  images (edges within 0.03 px; 40 ms warm on the M1 Max); **ONNX** (132 MB) matches PyTorch to 1e-4.
+- Cost: **$0** model API, no rented GPU; owner’s RTX 3090 for about 6.5 GPU-hours (electricity not priced).
 
 ## What the app needs, and how it is measured
 
@@ -145,7 +153,7 @@ which the project explicitly keeps out of research runs. Spend **$0**.
    greedily choose exactly L mutually non-overlapping boxes by score, require them to cover ≥ 70% of the
    figure's ink, complete them, and require the 0.75-zoom view to agree; otherwise use steps 1–3.
 
-## Results on validation (selection only; final test not yet scored)
+## Results on validation (all selection happened here)
 
 App success with 95% CI; other columns are point estimates. All new rows use completion.
 
@@ -169,8 +177,8 @@ App success with 95% CI; other columns are point estimates. All new rows use com
 | r3 rights-clean + agreement | **94.6** (92–97) | 0.5 | 83.5 (76–90) | 86.6 | 75.8 | 74.9 | 96.1 | 100.0 |
 | r5 + agreement | **96.5** (94–99) | 0.0 | 88.7 (82–95) | 90.7 | 80.7 | 80.1 | 97.4 | 100.0 |
 
-(The frozen set has no captions, so its caption step is inactive.) Selection between r2, r5 and the
-running r4/r6 is still open; differences among r1/r2/r5 with the full policy are within the intervals.
+(The frozen set has no captions, so its caption step is inactive.) Differences among r1/r2/r5 with the full
+policy are within the intervals.
 
 **Caption-constrained decoding** (policy step 5, two-view agreement, threshold .5 / .6 for unlettered
 figures) improves every model on arXiv validation without hurting the frozen set:
@@ -206,7 +214,7 @@ policy, and v13 raw / v13 + completion.
 validation with the full policy — no better than r2 alone — and 97.1% on frozen validation. The models make
 correlated errors; the limit is the training data for non-plot compounds, not variance.
 
-**Where the best system still fails** (r2 + policy, arXiv validation): perfect 116/176 compounds,
+**Where the r2 system failed on validation** (r2 + caption-count policy, arXiv validation): perfect 116/176 compounds,
 not split 24, clipped 16, extra crops 10, merged 6, wrong boxes 3, missed 1; false splits 3/62 singles.
 By label type: vector plot figures 93%, regrouped plots 71%, singles 93%, **hand-boxed non-plot compounds
 52%** (v13: 32%). By file: vector PDF 74%, raster 70%. By panel count: 2 → 75%, 3–4 → 62%, 5+ → 38%.
@@ -218,6 +226,49 @@ the same categories for v13 in `galleries/v13raw-*.jpg`.
   each plot (training data labels unlettered axes individually). Caption grouping fixes some; ambiguous
   row-vs-column layouts are deliberately not guessed.
 - *Clipped*: touching panels with overlapping labels; long titles running over the neighbour.
+
+## Final test (scored once, 12:43 UTC, after freezing)
+
+`final_test.sh` refused to run if results existed, hashed the frozen checkpoint, system, policy code and both
+GT files (`final-test/eval/final/frozen-inputs.sha256`), then predicted and scored. No threshold, policy or
+model was changed afterwards. Intervals: 5,000 paper-level bootstrap resamples.
+
+| New arXiv final test (235 figures, 201 papers; 174 compound / 61 single) | Fully right | Harmful | Single false split | Compound perfect | Count right | Panel recall | Complete panels | Crop precision | Full coverage | Kept whole (compound) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| v13 (previous best), raw | **59.1** (52.8–65.5) | 24.7 (19.2–30.3) | 16.4 | 50.6 | 65.5 | 72.5 | 64.1 | 77.6 | 65.4 | 21.8 |
+| v13 + completion | **64.7** (58.5–70.7) | 19.1 (14.0–24.2) | 16.4 | 58.0 | 65.5 | 72.5 | 69.3 | 77.6 | 86.8 | 21.8 |
+| **Frozen system (R50-M + policy)** | **80.4** (75.3–85.3) | **8.9** (5.5–12.6) | 6.6 | 75.9 (69.5–82.1) | 82.2 | 80.1 | 77.9 | 96.9 | 91.9 | 14.4 |
+| Rights-clean comparator (r3 R18 + same policy) | **81.7** (76.6–86.6) | 11.9 (8.0–16.0) | 4.9 | 77.0 | 84.5 | 86.9 | 83.9 | 91.8 | 90.6 | 8.6 |
+
+Paired paper-level bootstrap, frozen system minus v13 raw: fully right **+21.3 points (15.4 to 27.5)**,
+harmful **−15.7 points (−21.2 to −10.2)**. Outcomes of the frozen system: 132 perfect + 57 correct whole;
+25 compounds kept whole; 8 clipped, 4 false splits, 3 extra-crop, 3 merged, 3 wrong-box figures.
+By file: raster 83.9% (56), vector PDF 79.3% (179). By panels: single 93.4%, 2 → 83.7%, 3–4 → 75.0%,
+5+ → 25.0% (12). By label type: vector-proposal figures 92.6%, hand-boxed non-plot compounds 67.9%, regrouped
+plot groups 64.0%. Stratum: caption-lettered 72.9%, natural remainder 88.0%. The test is a few points easier
+than validation (75.6%); both are inside each other's intervals.
+
+| Old SCI-3000 final test (235 figures, 60 papers; never scored before) | Fully right | Harmful | Single false split | Compound perfect | Panel recall | Crop precision |
+|---|---|---|---|---|---|---|
+| v13 raw | 88.1 (82.6–93.1) | 8.5 | 1.8 | 78.9 | 84.6 | 96.9 |
+| v13 + completion | 89.4 (84.1–94.1) | 7.2 | 1.8 | 81.3 | 83.5 | 95.7 |
+| **Frozen system** | **91.9** (87.4–95.8) | **1.7** | 0.0 | 84.6 | 69.0 | 98.7 |
+| Rights-clean comparator | 90.2 (85.1–94.6) | 3.0 | 2.7 | 83.7 | 66.5 | 98.7 |
+
+Paired: +3.8 points (0.7 to 7.1) fully right, −6.8 points (−11.2 to −3.0) harmful. On this biomedical-heavy
+set the new system abstains more (panel recall 69% vs 85%) — it trades recall for far fewer wrong crops, the
+right trade for an app that otherwise shows the whole figure.
+
+**Acceptance gates: not met.** Panel recall 80% (gate 95%) and wrong-crop rate 8.9% of figures / crop precision
+96.9% (gate < 2% extra crops) on the app's domain. Galleries of every outcome on the test:
+`galleries/final-test-*.jpg` (viewed only after scoring). Remaining failure modes, same as validation: lettered
+parts that are groups of several plots (the detector crops each plot, or abstains), framed diagram panels
+joined by arrows, touching raster panels with overlapping labels, and 5+ panel grids.
+
+FDE-Gym regression figures (the owner's crop-complaint paper; development set, not test): the two-panel
+overview and the (a)/(b) scatter pair are split into complete crops; the workflow diagram, worked-example
+panel, stacked bars, heatmap and grouped bar chart are kept whole (`galleries/fde-gym-frozen-system.jpg`).
+The earlier detectors put an extra crop inside the scatter plot and cut the heatmap's labels.
 
 ## Runs
 
@@ -232,7 +283,7 @@ where possible. Checkpoint selection by mean app success over both validation se
 | r2-r18-all | + whitespace 8.1K + synthetic 7K | 12 (7) | 74 min / 6.1 GB | EMA e07 SHA `235392cd…`; teacher for r5 |
 | r3-r18-clean | r2 without SCI-3000 (rights-clean) | 11 (5) | 76 min / 6.1 GB | ran concurrently with r2 |
 | r5-r18-pseudo | r2 + grouped 159 + pseudo 11.7K | 12 (7) | 49 min / 6.1 GB | |
-| r4-r50m-pseudo | r5 data, RT-DETRv2-M (R50) | running | | |
+| **r4-r50m-pseudo** | r5 data, RT-DETRv2-M (R50, COCO EMA init) | 10 (4) | 88 min (partly shared GPU) / 14.1 GB | **frozen system**, EMA e04 SHA `f7736570…a167` |
 | r6-r18-subfig-ft | r5 data + 5,443 LaTeX sub-figure composites, fine-tuned from r5 e07, LR 1e-4 | 6 (3) | ≈45 min (shared GPU) / 6.1 GB | no gain; rejected |
 
 Exact configs, source/data hashes, per-epoch metrics, predictions and resource samples are in each
@@ -241,13 +292,17 @@ Exact configs, source/data hashes, per-epoch metrics, predictions and resource s
 
 ## Export
 
-`export_coreml.py` converts a two-class checkpoint (here r1's best) to an FP32 ML Program on this Mac
-(coremltools 9.0, Torch 2.8) and replays 20 arXiv validation images: max matched box error 0.00027,
-probability error 0.00055, **identical delivered crops (count and edges within 0.0002 px)**. Package
-80.3 MB; first prediction 1.17 s, warm median 85 ms on a busy M1 Max. ONNX (opset 17,
-`export_onnx.py`) of r2's EMA e07 (SHA `235392cd…`) is 80.2 MB and matches PyTorch in onnxruntime 1.31 on 30
-validation images (max box error 0.00061, probability error 0.00004; 120 ms median on the busy host CPU). The selected final checkpoint will be re-exported; physical-device memory/thermals
-remain unmeasured (paused).
+`export_coreml.py` (Mac, coremltools 9.0, Torch 2.8, FP32 ML Program, macOS 14 target) converts the frozen
+R50-M checkpoint and replays 20 arXiv validation images through PyTorch and Core ML, including the complete
+crop policy. **Delivered crops are identical on all 20** (same count, edges within 0.03 px). Raw outputs match
+to < 1e-4 on 19 images; on one image a low-probability query is matched to a different near-tied query
+(box 0.70 normalized, probability 0.006), the DETR top-k reordering already seen in the 10-18 export. Package
+132.3 MB; trace 4.3 s, conversion 7.6 s; first prediction 0.89 s, warm median 40 ms. An earlier R18 checkpoint
+exports to 80.3 MB with max box error 0.00027. **ONNX** (opset 17, `export_onnx.py`): frozen R50-M 132.4 MB,
+max box error 0.00009 and probability error 0.00004 against PyTorch in onnxruntime 1.31 on 30 validation
+images (202 ms median, busy host CPU); R18 r2 80.2 MB, max box error 0.00061. Package and parity reports:
+`.artifacts/subfigure-detector-20261021/export/`. App memory, cancellation, iPhone and browser timing remain
+unmeasured; physical-device work stays paused.
 
 ## Integration proposal (not implemented)
 
@@ -268,15 +323,40 @@ remain unmeasured (paused).
 5. Mac first (FP32 Core ML, on-demand pinned download). iPhone/iPad after physical-device measurement.
    Browser via onnxruntime-web needs a smaller (INT8/FP16) variant with its own parity test.
 
-## Rights
+## Rights and data handling
 
-Training uses the CC BY 4.0 / CC0 arXiv corpus, project-generated plots, and (r1/r2/r5) the earlier
-SCI-3000-derived set whose redistribution rights are unresolved. **r3 excludes SCI-3000** and is 2.5 points
-lower on arXiv validation (within the interval); a distributable model should come from the clean recipe,
-with CC BY attribution for the arXiv sources.
+Training/evaluation figures come only from the owner's corpus papers marked CC BY 4.0 (≈ 99%) or CC0
+(`metrics-v1/data-licenses.json`), project-generated plots/composites, and (r1, r2, r4, r5) the earlier
+SCI-3000-derived set whose redistribution rights are unresolved. **r3 excludes SCI-3000** and matches the
+frozen system within error on both tests; a distributable model should be retrained with that clean recipe on
+the R50-M backbone and carry CC BY attribution for the arXiv sources. PDFs and sources were read on the GPU
+host under this task's explicit authorization (earlier runs processed PDFs only on the Mac); nothing under
+`/home/ben/mathpix` was written and its service was not touched. No paper content left the owner's machines.
+Annotations are Claude visual development labels, not independent human review.
+
+## Cost
+
+$0 model/API spend (no vision LLM was used: the only OpenRouter key on the Mac is the app's production chat
+key). No rented GPU or new commitment. GPU: about 6.5 hours of RTX 3090 time across 6 training runs plus
+evaluation (peak 14.1 GB for R50-M; 85 °C stop guard, max sampled 74 °C, 379 W); CPU labelling ≈ 1 hour on 20–28 cores.
+Electricity is not priced. The $100/month service budget is unchanged.
+
+## What did not work
+
+- The first synthetic layout generator (panels floating in cells) and the first caption-grouping rule
+  (rows before columns, ~50% wrong) — discarded after visual review.
+- LaTeX sub-figure page composites as a fine-tune: no gain (72.3% vs 73.5% validation).
+- Pseudo-labels: no measurable gain over r2 at R18 (+/- 1 point); kept for the R50-M run.
+- Weighted-box-fusion ensembles: no gain; errors are correlated.
+- The rights-clean run is not worse; SCI-3000 adds nothing measurable on arXiv figures.
 
 ## Next
 
-Finish r4 (R50-M), evaluate ensembles, add the LaTeX-subfigure page-composite source (real framed
-diagrams/photo panels with subcaptions, positions from PDF placements), freeze the system on validation,
-score the final test once, export the selected checkpoint and update this report.
+1. Ship the **completeness check** for AI-written crops (integration step 1) — model-free, directly targets
+   the TestFlight complaints.
+2. Retrain the R50-M recipe **without SCI-3000** for a distributable checkpoint; re-export and re-run parity.
+3. Fix the dominant failure — lettered groups of several plots — with labels at the caption's granularity:
+   group vector axes by printed letter positions (letters sit at group corners), and teach a "part" vs "axes"
+   distinction; add more framed-diagram compounds from single-image sources.
+4. A larger, independently (human) reviewed test before any automatic-cropping release; measure on the Mac app
+   and, once resumed, the phone.
