@@ -1,5 +1,5 @@
 // Shared structured generation for tags and podcast scripts. The caller owns admission and settlement.
-import { holdForParams } from './anthropic.ts';
+import { holdForParams } from './inference.ts';
 import { openRouterChat } from './openrouter-chat.ts';
 import { routedClaudeModel } from './openrouter-claude-pricing.ts';
 import { routedDeepSeekModel } from './openrouter-deepseek-pricing.ts';

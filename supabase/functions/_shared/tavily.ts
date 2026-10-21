@@ -1,5 +1,5 @@
-// Tavily web search for chat: the primary search provider, with Anthropic's
-// server-side search as the backup (docs/architecture/CHAT.md "Web search").
+// Tavily web search for chat: our search_web tool, which the model calls through OpenRouter and our server runs
+// (docs/architecture/CHAT.md "Web search"). No provider-native search exists.
 // Deno and Node compatible. Never log queries, results or the API key.
 
 export const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';

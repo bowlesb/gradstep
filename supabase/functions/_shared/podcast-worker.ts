@@ -26,10 +26,9 @@ export interface PodcastStorage {
 export interface PodcastDeps {
   rpc<T>(name: string, params: Record<string, unknown>): Promise<T>;
   storage: PodcastStorage;
-  /** The Anthropic script provider (every profile before version 4). */
+  /** The script writer and reviewer: OpenRouter (openrouter-script.ts) for every spec. A spec's `script.provider`
+   * (`anthropic` or `deepseek`, frozen with the quote since 2026-10-14) names the model family, not a provider. */
   script: ScriptProvider | null;
-  /** Script providers by the spec's `script.provider` (2026-10-14: `deepseek`); `anthropic` falls back to `script`. */
-  scriptProviders?: Partial<Record<string, ScriptProvider>>;
   speech: SpeechProvider | null;
   encoder: AudioEncoder;
   sha256Hex(bytes: Uint8Array): Promise<string>;
@@ -562,12 +561,13 @@ function structurallyBroken(script: Script, report: CheckReport, kept: CheckedSe
   });
 }
 
-/** The script provider the spec names (`script.provider`, 2026-10-14): `deepseek` from `scriptProviders`, else Anthropic. */
+/** The model families a spec's writer may name (`script.provider`, 2026-10-14); OpenRouter serves both. */
+const SCRIPT_FAMILIES: readonly string[] = ['anthropic', 'deepseek'];
+/** The script provider for a spec: OpenRouter, when the spec names a family it serves. */
 function scriptProviderFor(deps: PodcastDeps, spec: Pick<Spec, 'script'>): ScriptProvider {
-  const name = spec.script.provider ?? 'anthropic';
-  const provider = name === 'anthropic' ? deps.scriptProviders?.anthropic ?? deps.script : deps.scriptProviders?.[name] ?? null;
-  if (!provider) throw new Failure('script_unavailable', false);
-  return provider;
+  const family = spec.script.provider ?? 'anthropic';
+  if (!deps.script || !SCRIPT_FAMILIES.includes(family)) throw new Failure('script_unavailable', false);
+  return deps.script;
 }
 
 async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, route: 'podcast_script' | 'podcast_review' | 'podcast_script_repair', params: ScriptParams,

@@ -22,17 +22,17 @@ test('A4: card validity comes from the table; a lapse is seen a day ahead for pu
 
 test('A4: the published table drops a model whose card lapses within a day, and stops recommending it', () => {
   const validity = tariffValidity(policy);
-  const table = publishedProfiles({ deepseek: false, gemini: true, claudeOpenRouter: true, available: model => tariffOpen(validity, model, PUBLISH_MARGIN_MS, NOW) });
+  const table = publishedProfiles({ deepseek: false, gemini: true, available: model => tariffOpen(validity, model, PUBLISH_MARGIN_MS, NOW) });
   assert.ok(!table.models.some(m => m.id === 'gemini')); assert.ok(!table.profiles.some(p => p.model === 'gemini'));
   assert.equal(table.default_recommended, undefined);
   assert.ok(table.models.some(m => m.id === 'sonnet'), 'Claude, valid until March, is still offered');
-  const open = publishedProfiles({ deepseek: false, gemini: true, claudeOpenRouter: true, available: () => true });
+  const open = publishedProfiles({ deepseek: false, gemini: true, available: () => true });
   assert.deepEqual(open.default_recommended, { model: 'gemini', effort: 'medium', length: 'standard' });
 });
 
 test('A4: a request for a model whose card lapses is model_unavailable before any hold, and side requests skip a lapsed model', async () => {
   const calls: string[] = [], events: ChatEvent[] = [];
-  const deps: ChatDependencies = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', claudeOpenRouter: true, gemini: true,
+  const deps: ChatDependencies = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', gemini: true,
     rpc: async name => { calls.push(name); return null; }, sha256Hex: async () => 'a'.repeat(64), loadPaper: async () => null, log: () => {},
     generate: async () => { throw new Error('must not send'); }, modelAvailable: async model => model !== 'gemini-3.8-flash' };
   await runChat(deps, { operation_id: 'bbbbbbbb-0000-4000-8000-000000000001', consent_version: 'cloud-ai-v6', mode: 'general',

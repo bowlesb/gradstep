@@ -39,7 +39,7 @@ test('missing attribution and direct model endpoints cannot become an untracked 
   let sent = 0; const fetcher = async () => { sent++; return new Response('{}'); };
   await assert.rejects(openRouterPost({ apiKey: 'fixture', fetch: fetcher }, 'chat/completions', body, signal(), undefined), OpenRouterNotDispatched);
   const guarded = guardedFetch(fetcher, 'test');
-  for (const host of ['api.anthropic.com', 'api.deepseek.com', 'us-aiplatform.googleapis.com', 'generativelanguage.googleapis.com'])
+  for (const host of ['api.anthropic.com', 'api.deepseek.com', 'us-aiplatform.googleapis.com', 'generativelanguage.googleapis.com', 'texttospeech.googleapis.com'])
     await assert.rejects(guarded(`https://${host}/anything`), ModelEgressBlocked);
   assert.equal(sent, 0);
   const redirect = guardedFetch(async () => new Response(null, { status: 307, headers: { location: 'https://api.anthropic.com/v1/messages' } }), 'test');

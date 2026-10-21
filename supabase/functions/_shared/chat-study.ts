@@ -4,10 +4,11 @@
 // (concepts with a state, links between them, the journey so far) is what the tutor adapts to: the client sends
 // the last map with each turn, and after each answer a small forced request to Claude Haiku 5.5 updates it, sent
 // back as an SSE `study` event. The server stores nothing; the map lives on the device like the conversation.
-import type Anthropic from '@anthropic-ai/sdk';
+import type { ModelRequest, ToolDefinition } from './model-request.ts';
 import { excerpt } from './chat-title.ts';
 
-export const STUDY_MODEL = 'claude-haiku-5-5';
+/** Haiku 5.5 through OpenRouter (Google Vertex). */
+export const STUDY_MODEL = 'anthropic/claude-haiku-5.5';
 export const STUDY_MAX_TOKENS = 1_200;
 export const STUDY_TIMEOUT_MS = 12_000;
 export const STUDY_MAP_LIMITS = Object.freeze({ concepts: 60, links: 120, label: 80, note: 160, paragraphs: 8, journey: 80, bytes: 16_384 });
@@ -90,7 +91,7 @@ Each turn, in under 180 words:
 3. On the first turn, with an empty map, start with one calibrating question about the paper's central idea or the reader's starting point.
 End with exactly one question in bold. Never list several questions. Plain words; math in TeX. Do not describe the map in your text; it is updated separately.`;
 
-export const UPDATE_STUDY_MAP_TOOL: Anthropic.Beta.Messages.BetaTool = {
+export const UPDATE_STUDY_MAP_TOOL: ToolDefinition = {
   name: 'update_study_map',
   description: 'Records the reader\'s knowledge map after this exchange: every concept touched so far with its state, links between concepts, the concept in focus, the journey, and the step the tutor should take next.',
   input_schema: {
@@ -117,7 +118,7 @@ const UPDATE_INSTRUCTIONS = `You maintain a reader's knowledge map while they st
 
 /** What the map request reads: the previous map, the reader's latest answer and the tutor's reply. Never the paper. */
 export function studyMapRequestParams(input: { map: StudyMap; answer: string | null; reply: string })
-  : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
+  : ModelRequest {
   const parts = [
     `<study_map>${JSON.stringify(input.map)}</study_map>`,
     input.answer === null ? '<reader_answer>none: the first turn</reader_answer>' : `<reader_answer>${excerpt(input.answer, 1_200)}</reader_answer>`,

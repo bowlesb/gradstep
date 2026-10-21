@@ -21,11 +21,13 @@ export function isArxivHost(host: string): boolean {
   return name === 'arxiv.org' || name.endsWith('.arxiv.org'); // egress-ok: parse
 }
 
-/** Paid inference is OpenRouter-only. This also blocks accidental use of retained historical adapters. */
+/** Paid inference is OpenRouter-only (owner, 2026-10-18; 2026-10-21 "exclusively use open router"). No direct-provider
+ * adapter remains; this refuses any direct model or speech host before a request, so no model call can leave without
+ * OpenRouter's per-account attribution and our ledger's admission. */
 export function isDirectModelHost(host: string): boolean {
   const name = host.toLowerCase().replace(/\.+$/, '');
   return ['api.anthropic.com', 'api.deepseek.com', 'api.openai.com', 'generativelanguage.googleapis.com',
-    'aiplatform.googleapis.com'].includes(name) || name.endsWith('-aiplatform.googleapis.com');
+    'aiplatform.googleapis.com', 'texttospeech.googleapis.com'].includes(name) || name.endsWith('-aiplatform.googleapis.com');
 }
 export class ModelEgressBlocked extends Error {
   readonly code = 'model_route_requires_openrouter';
@@ -70,6 +72,11 @@ function note(host: string, caller: string, mode: EgressMode, log: (line: string
   return attempt;
 }
 
+/** A refused direct model request: the host and caller only (never the path, body or account). */
+function blockedModel(host: string, caller: string, log: (line: string) => void) {
+  log(JSON.stringify({ event: 'model_egress_blocked', host: host.toLowerCase().replace(/\.+$/, ''), caller }));
+}
+
 /** A fetch that refuses (block) or reports (report) arXiv on the first request and every redirect hop. In block mode
  * redirects are followed here, one hop at a time, so a hop to arXiv is refused before it is requested; in report mode
  * the platform follows them and a final arXiv URL is reported after the fact. */
@@ -78,7 +85,7 @@ export function guardedFetch(inner: Fetch, caller: string, options: { mode?: () 
   const guarded = async (input: Parameters<Fetch>[0], init?: FetchInit): Promise<Response> => {
     const mode = modeOf();
     const host = requestHost(input);
-    if (host && isDirectModelHost(host)) throw new ModelEgressBlocked();
+    if (host && isDirectModelHost(host)) { blockedModel(host, caller, log); throw new ModelEgressBlocked(); }
     if (host !== null && isArxivHost(host)) {
       note(host, caller, mode, log);
       if (mode === 'block') throw new EgressBlocked(host);
@@ -96,7 +103,7 @@ export function guardedFetch(inner: Fetch, caller: string, options: { mode?: () 
     let url = typeof input === 'string' || input instanceof URL ? new URL(String(input)) : new URL((input as Request).url);
     let request: FetchInit = { ...init, redirect: 'manual' };
     for (let hop = 0; ; hop++) {
-      if (isDirectModelHost(url.hostname)) throw new ModelEgressBlocked();
+      if (isDirectModelHost(url.hostname)) { blockedModel(url.hostname, caller, log); throw new ModelEgressBlocked(); }
       const response = await inner(hop === 0 && input instanceof Request ? input : url.href, hop === 0 && input instanceof Request ? { ...init, redirect: 'manual' } : request);
       if (response.status < 300 || response.status >= 400 || response.status === 304) return response;
       const location = response.headers.get('location');

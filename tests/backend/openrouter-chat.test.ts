@@ -1,21 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import type Anthropic from '@anthropic-ai/sdk';
 import { openRouterAttempt, openRouterChat, openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
 import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL } from '../../supabase/functions/_shared/gemini-pricing.ts';
 // A fixed clock: card validity is the database's (migration 0101), not a constant in the adapter.
 const NOW = Date.parse('2026-12-01T00:00:00Z');
-import { chatRequestParams, priceAttempts, holdForParams } from '../../supabase/functions/_shared/anthropic.ts';
+import { chatRequestParams, priceAttempts, holdForParams } from '../../supabase/functions/_shared/inference.ts';
 import { publishedProfiles, resolveChoice, providerForModel } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { validateChatRequest, runChat, type ChatDependencies, type ChatEvent } from '../../supabase/functions/_shared/chat.ts';
-import { admittedAnthropic } from '../../supabase/functions/_shared/provider-spending.ts';
+import { admittedModelCalls } from '../../supabase/functions/_shared/provider-spending.ts';
 
 const attribution = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', operationID: 'bbbbbbbb-0000-4000-8000-000000000001', attemptID: 'cccccccc-0000-4000-8000-000000000001', feature: 'chat', caller: 'chat', dispatch: async () => true };
 const params = chatRequestParams({ instructions: 'rules', paper: { title: 'Paper', text: '[¶1] Paper text.' },
   actionInstructions: 'explain the figure', turns: [{ role: 'user', text: 'What does this mean?' }],
   tools: [{ name: 'search_web', input_schema: { type: 'object', properties: { query: { type: 'string' } } } }],
-  model: { id: GEMINI_MODEL, effort: 'medium', fallbacks: false }, maxTokens: 1000 });
+  model: { id: GEMINI_MODEL, effort: 'medium' }, maxTokens: 1000 });
 const usage = { prompt_tokens: 1000, completion_tokens: 200, prompt_tokens_details: { cached_tokens: 800, cache_write_tokens: 100 }, cost: 0.001 };
 const event = (delta: unknown = {}, rest: Record<string, unknown> = {}) => ({ id: 'gen-test', model: GEMINI_OPENROUTER_MODEL,
   choices: [{ delta, finish_reason: null }], ...rest });
@@ -59,7 +58,7 @@ test('streamed Unicode and authoritative cache-inclusive cost reach settlement o
   assert.equal(outcome.attempts[0].cacheStorageTokens, 100);
   assert.ok(holdForParams(params).microusd > priceAttempts(outcome.attempts));
   const calls: { name: string; p: Record<string, unknown> }[] = [];
-  const admitted = admittedAnthropic({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
+  const admitted = admittedModelCalls({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
     rpc: async (name, p) => { calls.push({ name, p }); return { granted: true }; } }, async () => outcome);
   await admitted(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {} });
   // C6: admission and dispatch are one call (migration 0107), with the model and pinned endpoint it is sent as.
@@ -137,7 +136,7 @@ test('pre-inference refusals cost zero, 5xx is uncertain, and a lapsed card (adm
     assert.equal(outcome.exact, status !== 503); assert.equal(outcome.retryAfterMs, 2000);
   }
   // A4: admission refuses a lapsed card (app_private.openrouter_tariffs) before the adapter runs: the model is unavailable.
-  const refused = admittedAnthropic({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
+  const refused = admittedModelCalls({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
     rpc: async () => ({ granted: false, reason: 'tariff_expired' }) }, async () => { throw new Error('must not send'); });
   const expired = await refused(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1, onText: () => {} });
   assert.equal(expired.exact, true); assert.equal(expired.rejectionReason, 'tariff_expired'); assert.deepEqual(expired.attempts, []);
@@ -175,7 +174,7 @@ test('the enabled chat orchestrator quotes Flash and settles the reported cost',
   };
   const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000001';
   const sha256Hex = async (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-  const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture',
+  const generate = admittedModelCalls({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture',
     fetch: async () => response([event({ content: 'An answer.' }), final()]) }));
   await runChat({ accountID, rpc, sha256Hex, generate, gemini: true, loadPaper: async () => null, log: () => {} },
     { operation_id: operationID, consent_version: 'cloud-ai-v5', mode: 'general', messages: [{ role: 'user', text: 'Hi' }],
@@ -193,8 +192,8 @@ import { isRouterClaude, routedClaudeModel, routerClaudeRates } from '../../supa
 import { resolveProfile } from '../../supabase/functions/_shared/chat-profiles.ts';
 test('Claude routing preserves its cache TTL, effort, tool schema and exact billed usage', async () => {
   for (const model of ['haiku', 'sonnet', 'opus'] as const) {
-    const profile = resolveProfile({ model, effort: 'high', length: 'standard' }, true);
-    assert.equal(profile.provider, 'openrouter'); assert.equal(profile.fallbacks, false);
+    const profile = resolveProfile({ model, effort: 'high', length: 'standard' });
+    assert.equal(profile.provider, 'openrouter');
     assert.equal(providerForModel(profile.apiModel), 'openrouter'); assert.ok(isRouterClaude(profile.apiModel));
     const request = { ...params, model: profile.apiModel, output_config: { effort: 'high' as const } };
     const wire = openRouterChatParams(request) as any;
@@ -210,7 +209,7 @@ test('Claude routing preserves its cache TTL, effort, tool schema and exact bill
     assert.equal(openRouterAttempt({ ...usage, prompt_tokens_details: { cached_tokens: 800, cache_write_tokens: 300 } }, profile.apiModel), null);
   }
   assert.equal(routerClaudeRates(routedClaudeModel('claude-haiku-5-5'), 100001).input, 0.55);
-  const table = publishedProfiles({ deepseek: true, gemini: true, claudeOpenRouter: true });
+  const table = publishedProfiles({ deepseek: true, gemini: true });
   assert.equal(table.models.find(m => m.id === 'sonnet')!.provider, 'openrouter');
   assert.equal(table.models.find(m => m.id === 'sonnet')!.consent_version, 'cloud-ai-v5');
   assert.equal(table.profiles[26].id, 'opus-high-detailed');
@@ -224,12 +223,12 @@ test('routed Claude plus title and suggestions all admit and settle as OpenRoute
       return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
     const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000002';
     const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
-    const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', fetch: async (_url, init) => {
+    const generate = admittedModelCalls({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', fetch: async (_url, init) => {
       const sent = JSON.parse(String(init?.body)); models.push(sent.model);
       assert.ok(isRouterClaude(sent.model));
       return response([event({ content: sent.response_format ? JSON.stringify({ questions: ['What changes the scale?', 'When are log axes useful?'] }) : 'A complete answer.' }), final()].map(e => ({ ...e, model: sent.model })));
     } }));
-    await runChat({ accountID, rpc, sha256Hex, generate, claudeOpenRouter: true, loadPaper: async () => null, log: () => {} },
+    await runChat({ accountID, rpc, sha256Hex, generate, loadPaper: async () => null, log: () => {} },
       { operation_id: operationID, consent_version: consent, mode: 'general', messages: [{ role: 'user', text: 'Hi' }],
         topic_title: true, follow_ups: true, profile: { model: 'sonnet', effort: 'low', length: 'brief' } }, e => events.push(e), new AbortController().signal);
     if (consent === 'cloud-ai-v4') {
@@ -294,7 +293,7 @@ test('A23: an invalid or cut-off tool call is dropped and the streamed answer is
 // A1 (review 2026-10-21): Stop on an OpenRouter answer charges what was written, never the hold. The real adapter, a
 // stream the reader stops after its first words, and OpenRouter's generation record (or its absence).
 import { stoppedReaderMicrousd, STOPPED_RECEIPT_WAIT_MS } from '../../supabase/functions/_shared/openrouter-chat.ts';
-import { creditsFor } from '../../supabase/functions/_shared/anthropic.ts';
+import { creditsFor } from '../../supabase/functions/_shared/inference.ts';
 const SONNET = routedClaudeModel('claude-sonnet-5-5');
 function stoppable(first: unknown[], signal: AbortSignal | null | undefined, id = 'gen-stop') {
   const bytes = new TextEncoder().encode(first.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
@@ -312,7 +311,7 @@ async function stoppedAnswer(options: { record: 'found' | 'missing'; first: unkn
       : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : name === 'worker_local_chat_context' ? { title: 'A long paper' }
       : name === 'worker_chat_stop_requested' ? true : null; };
   const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
-  const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', now: () => 1_000, sleep: async () => {},
+  const generate = admittedModelCalls({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', now: () => 1_000, sleep: async () => {},
     fetch: async (url, init) => {
       if (String(url).includes('/generation?id=')) {
         gets.push(String(url));
@@ -328,7 +327,7 @@ async function stoppedAnswer(options: { record: 'found' | 'missing'; first: unkn
   const text = 'word '.repeat(30_000); // ~150 KB of paper: the case the review measured (≈89 credits for a Stop)
   const local = { format: 'reader-local-context-v2', membership_id: 'cccccccc-0000-4000-8000-000000000003', source: 'arxiv', source_id: '2305.18290',
     revision: 3, manifest_sha256: 'a'.repeat(64), source_sha256: 'b'.repeat(64), text };
-  await runChat({ accountID, rpc, sha256Hex, generate, claudeOpenRouter: true, loadPaper: async () => null, log: () => {}, sleep: async () => {} },
+  await runChat({ accountID, rpc, sha256Hex, generate, loadPaper: async () => null, log: () => {}, sleep: async () => {} },
     { operation_id: operationID, consent_version: 'cloud-ai-v6', mode: 'paper', local_context: local, capabilities: ['stop_signal'],
       messages: [{ role: 'user', text: 'Summarize the method.' }], profile: { model: 'sonnet', effort: 'low', length: 'standard' } },
     e => { events.push(e); if (e.event === 'delta') client.abort(); }, client.signal);
