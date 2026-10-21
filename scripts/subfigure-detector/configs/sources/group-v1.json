@@ -1,0 +1,13 @@
+[
+ {"name": "vector-compound", "path": "data/train-v1/vector-compound.jsonl", "n": 6000},
+ {"name": "vector-single", "path": "data/train-v1/vector-single.jsonl", "n": 2500},
+ {"name": "vector-letter-groups", "path": "data/train-v4/vector-letter-groups.jsonl"},
+ {"name": "xycut-compound-verified", "path": "data/train-v2/xycut-compound-verified.jsonl"},
+ {"name": "xycut-single", "path": "data/train-v2/xycut-single.jsonl", "n": 1000},
+ {"name": "synthetic-compound", "path": "data/train-v2/synthetic-compound.jsonl", "n": 1500},
+ {"name": "synthetic-negative", "path": "data/train-v2/synthetic-negative.jsonl", "n": 300},
+ {"name": "synthetic-groups", "path": "data/synth-cls-groups/rows.jsonl", "n": 600},
+ {"name": "synthetic-framed", "path": "data/synth-cls-framed/rows.jsonl", "n": 600},
+ {"name": "synthetic-touching", "path": "data/synth-cls-touching/rows.jsonl", "n": 600},
+ {"name": "synthetic-many", "path": "data/synth-cls-many/rows.jsonl", "n": 600}
+]
