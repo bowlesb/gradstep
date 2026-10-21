@@ -32,9 +32,9 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// A figure page's top row (DESIGN.md "Sheet top row"): Explain in Chat and AI Explainer on the left, the X on the
-    /// right, and the walkthrough AI Explainer opens (in the page's own navigation stack, so Back returns to the figure).
-    /// Without a host (a figure outside the open paper) only the X.
+    /// A figure page's top row (DESIGN.md "Sheet top row"): Snippet, Chat and AI Explainer as words (owner, build 78), and
+    /// the walkthrough AI Explainer opens (in the page's own navigation stack, so Back returns to the figure). The sheet
+    /// swipes away (the Mac keeps an X). Without a host (a figure outside the open paper) no actions.
     func figurePageActions(figureID: String, close: @escaping () -> Void) -> some View {
         modifier(FigurePageActions(figureID: figureID, close: close))
     }
@@ -68,6 +68,10 @@ private struct FigurePageActions: ViewModifier {
                 if let host, !capturing { NoteSavedBanner(model: host.model, origin: .figure, leave: host.close).padding(.bottom, 12) }
             }
             .sheetTopRow(
+                // Add to note: the whole figure or table chosen to start (build 78: "Snippet", in words, first).
+                snippet: capturing ? nil : host.map { host in
+                    ExplainAction(identifier: "figureView.addToNote", hint: "Saves this figure, or a part of it, as a snippet") { addToNote(host) }
+                },
                 chat: capturing ? nil : host.flatMap { host in context.map { context in
                     ExplainAction(identifier: "figureView.askInChat", hint: "Ask about this figure here; nothing is sent") {
                         explainOnOpen = false; expandSheet?(); explaining = true
@@ -82,8 +86,6 @@ private struct FigurePageActions: ViewModifier {
                     }
                     : nil,
                 noun: context?.label.hasPrefix("Table") == true ? "Table" : "Figure",
-                report: capturing ? nil : host.map { host in { ReportPresenter.present(host.model, sheet: context?.label ?? "Figure", afterMenu: true) } },
-                addToNote: capturing ? nil : host.map { host in { addToNote(host) } },
                 close: capturing ? nil : close)
             .toolbar {
                 if let host, capturing { SnippetCaptureToolbar(model: host.model) }
@@ -158,7 +160,7 @@ struct FigureExplainView: View {
             openChat: ExplainAction(identifier: "figureView.openInChat", hint: "Continue this conversation in Chat.") {
                 guard let chatToken else { return }
                 model.promoteContextualChat(chatToken, explanation: figureExplanation, image: session?.image); finish(.continueChat)
-            }, report: { ReportPresenter.present(model, sheet: "\(context.label) explainer", afterMenu: true) }, close: close)
+            }, close: close)
         .background(Color(uiColor: .systemGroupedBackground))
         .task(id: context.figureID) {
             // Reappearing after the fullscreen figure (iPhone/iPad cover) keeps this figure's session and whatever is

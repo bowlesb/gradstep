@@ -67,10 +67,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   hasn't synced yet. Gradstep will keep trying." · Details); orange only when the reader must act (sign in again,
   review a refused change). Temporary failures retry by themselves (5 s, 15 s, 1 min, then every 5 min); no message
   asks the reader to Refresh (owner, build 73: "Awful. Unclear product experience").
-- **Sheets**: information sheets have a round X on the right (see Sheet top row; no Done); task sheets have Cancel on
-  the left and the confirming action on the right; short sheets open at medium height. A sheet with options has a "…"
-  just left of its X, ending with **Report this screen** (figure, table and equation pages and explainers; Catalogs).
-  Contents, whose tabs fill its top row on a phone, ends each list with a quiet Report this screen row.
+- **Sheets**: information sheets have a round X on the right (see Sheet top row; no Done) — except figure, table and
+  equation pages, which have no X on a touch screen (below); task sheets have Cancel on the left and the confirming action
+  on the right; short sheets open at medium height. Catalogs' "…" ends with **Report this screen**. Contents, whose tabs
+  fill its top row on a phone, ends each list with a quiet Report this screen row.
 - **Sheet top row** (owner, build 62, 2026-10-16: "the top horizontal space is poorly used… use Liquid Glass… remove Done,
   use an X"): an information sheet (Contents, a figure or table, the equation view, an explainer) has one glass row at
   the top: its controls on the left (tabs, or the page's actions), a round glass **X** on the right. No centred title
@@ -79,14 +79,19 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   are a glass segmented control. A pushed page keeps a round glass Back on the left of the same row. Code:
   `Views/SheetChrome.swift` (`SheetTopRow`, `GlassTabs`, `SheetRowTitle`; the round buttons are `HeaderButtonLabel`);
   first used by Contents (iPhone, iPad, Mac). Figure, table and equation pages use the same file's `sheetTopRow(...)`,
-  which puts the two Explain actions in the sheet's own navigation bar: there they sit in the middle, between a pushed
-  page's system Back and the X, as one item that shrinks to fit (iOS 26 moves bar buttons that don't fit into a "More"
-  menu). The browser puts them on the left of its row.
-- **Explain actions**: wherever a figure, table or equation is shown on its own, the top row offers **Chat about Figure**
-  (**Chat about Table** for a table; a draft in the paper's chat, nothing sent) and **AI Explainer** (the walkthrough /
-  symbol explanation, requested only then). They are peers and look the same: two glass capsules with accent words,
-  neither tinted (owner, build 76: "Confusing that only one is purple?"). The equation's edit menu item "Equation" is **AI Explainer** too (owner, build 62). An explainer's title is a
-  small menu (⌄) listing the paper's other figures or equations, to switch without going back to Contents.
+  which puts their actions in the sheet's own navigation bar, in the middle (between a pushed page's system Back and
+  the right edge), as one item that shrinks to fit (iOS 26 moves bar buttons that don't fit into a "More" menu).
+  *Figure, table and equation pages* (owner, build 78, 2026-10-21: "The report this screen isn't needed. The snippet
+  icon is inconsistent. use txt at top Snippet, Chat, AI Explainer. X also not needed"): the row is only words —
+  **Snippet** (Add to note), **Chat** (VoiceOver: "Chat about Figure/Table/Equation") and **AI Explainer** — with no
+  icons, no "…" and no X. The sheet swipes down to close (VoiceOver: the escape gesture); the Mac, which has no swipe,
+  keeps its X, and so does the browser's dialog (Esc also closes it). A pushed explainer keeps its Open in Chat symbol.
+  The after-screenshot Report this screen offer is off unless turned on in Settings; Settings › Report a problem remains.
+- **Explain actions**: wherever a figure, table or equation is shown on its own, the top row offers **Chat** (a draft in
+  the paper's chat, nothing sent; on the equation view, its conversation below) and **AI Explainer** (the walkthrough /
+  symbol explanation, requested only then), after **Snippet**. They are peers and look the same: glass capsules with
+  accent words, none tinted (owner, build 76: "Confusing that only one is purple?"). An explainer's title is a small
+  menu (⌄) listing the paper's other figures or equations, to switch without going back to Contents.
 
 - **Contents discovery** (owner, 2026-10-18): open at full height. On touch devices, double-tapping article text opens
   Contents; links, equations, figures, reference entries and selections retain their own actions. Long-press selection

@@ -169,3 +169,23 @@ extension XCUIApplication {
         if titled.exists { titled.buttons.firstMatch.tap() } else { navigationBars.buttons["BackButton"].firstMatch.tap() }
     }
 }
+
+/// A figure, table or equation page (owner, build 78: "use txt at top Snippet, Chat, AI Explainer… X also not needed"): its
+/// top row is words, Snippet first whenever the page belongs to the open paper; on a touch screen the sheet swipes away
+/// (the Mac keeps `sheet.close`).
+extension XCUIApplication {
+    /// A figure or table page's Snippet, there as soon as the page shows.
+    var figurePageSnippet: XCUIElement { buttons["figureView.addToNote"] }
+    /// Closes the page's sheet: its X on the Mac, otherwise a downward drag starting on `anchor` (an element of its top row).
+    func closeInfoSheet(from anchor: XCUIElement) {
+        let close = buttons["sheet.close"]
+        if close.exists, close.isHittable { close.tap(); return }
+        for _ in 0..<2 where anchor.exists {
+            // Twice at most: a half-height sheet may first settle at its smaller detent.
+            anchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)),
+                       withVelocity: .fast, thenHoldForDuration: 0)
+            if anchor.waitForNonExistence(timeout: 3) { return }
+        }
+    }
+}

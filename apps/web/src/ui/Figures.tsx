@@ -85,13 +85,15 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
           {current ? <>
             {fromGallery && <button className="icon-button sheet-back" disabled={discussing} onClick={() => setIndex(null)} aria-label="All figures" title="All figures"
               data-testid="figure-gallery-back"><Icon name="chevronLeft" /></button>}
+            {/* Owner, build 78: "use txt at top Snippet, Chat, AI Explainer" — words, in that order, no icons. */}
+            {onAddToNote && <button className="sheet-action" disabled={discussing} onClick={() => onAddToNote(current.id)} data-testid="figure-add-to-note"
+              title={`Save this ${figureNoun(names[index!]).toLowerCase()} as a snippet`}>Snippet</button>}
             {onDiscuss && <button className="sheet-action" onClick={() => void discuss()} disabled={discussing} data-testid="figure-ask"
-              title={`Ask about this ${figureNoun(names[index!]).toLowerCase()} below; nothing is sent`}><Icon name="chat" size={15} />Chat about {figureNoun(names[index!])}</button>}
+              aria-label={`Chat about ${figureNoun(names[index!])}`}
+              title={`Ask about this ${figureNoun(names[index!]).toLowerCase()} below; nothing is sent`}>Chat</button>}
             {figureView && !explaining && <button className="sheet-action" disabled={discussing} data-testid="figure-explain"
               onClick={() => setRequest(r => ({ id: current.id, n: (r?.n ?? 0) + 1 }))}
-              title={`Walks through the ${figureNoun(names[index!]).toLowerCase()} part by part. Uses credits.`}><Icon name="sparkles" size={15} />AI Explainer</button>}
-            {onAddToNote && <button className="sheet-action" disabled={discussing} onClick={() => onAddToNote(current.id)} data-testid="figure-add-to-note"
-              title="Save this figure in a note"><Icon name="notes" size={15} />Add to note</button>}
+              title={`Walks through the ${figureNoun(names[index!]).toLowerCase()} part by part. Uses credits.`}>AI Explainer</button>}
           </> : <h2>Figures · {figures.length}</h2>}
         </SheetTop>
         {current && doc ? <>

@@ -361,8 +361,8 @@ final class NativeSafetyTests: XCTestCase {
         attachment.lifetime = .keepAlways; add(attachment)
     }
 
-    /// A screenshot in Gradstep offers Report this screen in its own window, never over the recovery code, and not when
-    /// turned off in Settings.
+    /// A screenshot in Gradstep offers Report this screen in its own window only when turned on in Settings (off by
+    /// default since build 78), and never over the recovery code.
     func testScreenshotOffersReportUnlessOffOrOnTheRecoveryCode() async throws {
         let defaults = UserDefaults.standard, key = ScreenshotReportPrompt.enabledKey, prior = defaults.object(forKey: key)
         defer { defaults.set(prior, forKey: key); ScreenshotReportPrompt.shared.dismiss() }
@@ -372,9 +372,12 @@ final class NativeSafetyTests: XCTestCase {
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
                 .contains { !$0.isHidden && $0.windowLevel == .alert + 1 }
         }
+        defaults.removeObject(forKey: key)
+        NotificationCenter.default.post(name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+        XCTAssertFalse(promptShown(), "off by default (owner, build 78: \"The report this screen isn't needed\")")
         defaults.set(true, forKey: key)
         NotificationCenter.default.post(name: UIApplication.userDidTakeScreenshotNotification, object: nil)
-        XCTAssertTrue(promptShown(), "the offer appears after a screenshot")
+        XCTAssertTrue(promptShown(), "the offer appears after a screenshot once turned on")
         XCTAssertFalse(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
             .contains { $0.windowLevel == .alert + 1 && $0.isKeyWindow }, "it never takes focus from the screen")
         ScreenshotReportPrompt.shared.dismiss(); XCTAssertFalse(promptShown(), "one tap dismisses it")

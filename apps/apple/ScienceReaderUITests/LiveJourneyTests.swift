@@ -148,10 +148,10 @@ final class LiveJourneyTests: XCTestCase {
             XCTAssertFalse(app.descendants(matching: .any)["figureView.failure"].exists)
             sleep(2); capture(app, "Figure walkthrough (live)")
             app.swipeUp(); sleep(1); capture(app, "Figure walkthrough, further down (live)")
-            // Back to the figure, then its X closes the sheet (DESIGN.md "Sheet top row").
+            // Back to the figure, then the sheet swipes away (DESIGN.md "Sheet top row"; build 78: no X on a touch screen).
             app.navigationBars.buttons["BackButton"].firstMatch.tap()
             XCTAssertTrue(explain.waitForExistence(timeout: 10))
-            app.buttons["sheet.close"].tap()
+            app.closeInfoSheet(from: explain)
         }
         let done = app.buttons["Done"]
         if done.waitForExistence(timeout: 5) { done.tap() }

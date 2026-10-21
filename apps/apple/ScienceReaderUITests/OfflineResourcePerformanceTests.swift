@@ -205,8 +205,8 @@ final class OfflineResourcePerformanceTests: XCTestCase {
             }
             XCTAssertTrue(figure.exists); XCTAssertTrue(figure.isHittable)
             figure.tap()
-            // The figure sheet's X (DESIGN.md "Sheet top row").
-            let done = app.buttons["sheet.close"]
+            // The figure page's top row (DESIGN.md "Sheet top row"; build 78: words, no X on a touch screen).
+            let done = app.figurePageSnippet
             XCTAssertTrue(done.waitForExistence(timeout: 10))
             XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
             let detail = app.webViews.element(boundBy: app.webViews.count - 1)
@@ -222,7 +222,7 @@ final class OfflineResourcePerformanceTests: XCTestCase {
                 let capture = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
                 capture.name = "16M-pixel encrypted fixture figure"; capture.lifetime = .keepAlways; add(capture)
             }
-            done.tap()
+            app.closeInfoSheet(from: done)
             XCTAssertTrue(web.waitForExistence(timeout: 5))
             // A modal may hide RootView's probe from accessibility. Collect
             // the recorded figure event after dismissing the real sheet.

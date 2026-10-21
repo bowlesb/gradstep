@@ -218,8 +218,8 @@ final class ReaderNavigationTests: XCTestCase {
             capture("Figure references are links (\(appearance))")
 
             link.tap()
-            // The sheet's top row: Explain in Chat, AI Explainer and the X (no title: the caption names the figure).
-            XCTAssertTrue(app.buttons["sheet.close"].waitForExistence(timeout: 5), "The figure opens in a sheet")
+            // The sheet's top row: Snippet, Chat and AI Explainer in words (build 78; no title: the caption names the figure).
+            XCTAssertTrue(app.figurePageSnippet.waitForExistence(timeout: 5), "The figure opens in a sheet")
             // The sheet's own web view: the one below the paper's top, in the half-height sheet.
             var detail: XCUIElement?
             waitUntil("The sheet's figure view") {

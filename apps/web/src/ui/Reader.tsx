@@ -846,11 +846,12 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
   return <Dialog open onClose={() => { if (!busy) onClose(); }} title={reference.label} wide>
     <div className="reader-reference-detail">
       <SheetTop onClose={onClose} closeDisabled={busy} testID="figure-reference-close">
+        {/* Owner, build 78: Snippet, Chat, AI Explainer in words. */}
+        {onAddToNote && <button className="sheet-action" disabled={busy} onClick={onAddToNote} data-testid="table-add-to-note" title="Save this as a snippet">Snippet</button>}
         {(onChat || onDiscuss) && <button className="sheet-action" disabled={busy} onClick={() => onChat ? onChat() : void discuss()} data-testid="figure-reference-ask"
-          title={`Ask about this ${noun.toLowerCase()}; nothing is sent`}><Icon name="chat" size={15} />{busy ? 'Saving draft…' : `Chat about ${noun}`}</button>}
+          aria-label={`Chat about ${noun}`} title={`Ask about this ${noun.toLowerCase()}; nothing is sent`}>{busy ? 'Saving draft…' : 'Chat'}</button>}
         {onExplain && <button className="sheet-action" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
-          title="Walks through it part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
-        {onAddToNote && <button className="sheet-action" disabled={busy} onClick={onAddToNote} data-testid="table-add-to-note" title="Save this in a note"><Icon name="notes" size={15} />Add to note</button>}
+          title="Walks through it part by part. Uses credits.">AI Explainer</button>}
         {!onDiscuss && !onExplain && !onAddToNote && <h2>{reference.label}</h2>}
       </SheetTop>
       <iframe className="figure-frame" title={reference.label} sandbox="allow-scripts" srcDoc={doc} />

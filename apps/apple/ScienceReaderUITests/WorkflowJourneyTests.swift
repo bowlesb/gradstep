@@ -467,12 +467,12 @@ final class WorkflowJourneyTests: XCTestCase {
         }
         XCTAssertTrue(figure.waitForExistence(timeout: 5)); XCTAssertTrue(figure.isHittable)
         figure.tap()
-        // The figure sheet's X (DESIGN.md "Sheet top row").
-        let done = app.buttons["sheet.close"]
+        // The figure page's top row (DESIGN.md "Sheet top row"; build 78: words, no X on a touch screen).
+        let done = app.figurePageSnippet
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
         capture(app, "Figure reopened from encrypted local member bytes")
-        done.tap()
+        app.closeInfoSheet(from: done)
         // A second process must recover the saved question as well as the paper.
         app.terminate(); app.launch()
         XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
@@ -623,7 +623,8 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(symbol.waitForExistence(timeout: 8), "The symbols are described")
         let composer = app.descendants(matching: .any).matching(identifier: "contextChat.composer").firstMatch
         XCTAssertTrue(composer.exists, "Follow up in this view")
-        XCTAssertTrue(app.buttons["sheet.close"].exists)
+        XCTAssertTrue(app.buttons["equation.addToNote"].exists && app.buttons["equation.chat"].exists, "Snippet and Chat in the top row")
+        XCTAssertFalse(app.buttons["sheet.close"].exists, "no X on a touch screen (build 78): the sheet swipes away")
         XCTAssertFalse(app.buttons["equation.explain"].exists, "asked already")
         XCTAssertFalse(app.buttons["Done"].exists, "no Done")
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].exists)
@@ -709,8 +710,8 @@ final class WorkflowJourneyTests: XCTestCase {
         let finished = NSPredicate { _, _ in text.label.contains("synthetic fixture answer") }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: finished, object: nil)], timeout: 8), .completed)
         capture(app, "Equation view, wide layout")
-        app.buttons["sheet.close"].tap()
-        XCTAssertTrue(app.buttons["sheet.close"].waitForNonExistence(timeout: 5))
+        app.closeInfoSheet(from: app.buttons["equation.chat"])
+        XCTAssertTrue(app.buttons["equation.chat"].waitForNonExistence(timeout: 5))
         XCUIDevice.shared.portraitWhereSupported()
     }
 
@@ -1361,18 +1362,18 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(figure.waitForExistence(timeout: 5)); XCTAssertTrue(figure.isHittable)
         let readingOffset = figure.frame.minY - web.frame.minY
         figure.tap()
-        // The figure sheet's X (DESIGN.md "Sheet top row").
-        let done = app.buttons["sheet.close"]
+        // The figure page's top row (DESIGN.md "Sheet top row"; build 78: words, no X on a touch screen).
+        let done = app.figurePageSnippet
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
         let detail = app.webViews.allElementsBoundByIndex.last!
         let image = detail.images.firstMatch
         XCTAssertTrue(image.waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(image.frame.minY, done.frame.maxY, "The dismiss control must not cover the figure at large text sizes")
+        XCTAssertGreaterThanOrEqual(image.frame.minY, done.frame.maxY, "The top row must not cover the figure at large text sizes")
         let caption = detail.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Figure 1. A simplified attention data flow.")).firstMatch
         XCTAssertTrue(caption.waitForExistence(timeout: 5)); XCTAssertTrue(caption.isHittable)
         capture(app, "Offline figure and readable caption in the detail sheet")
-        done.tap()
+        app.closeInfoSheet(from: done)
         XCTAssertTrue(figure.waitForExistence(timeout: 5))
         XCTAssertEqual(figure.frame.minY - web.frame.minY, readingOffset, accuracy: 6)
         capture(app, "Closing the figure preserves the paper position")

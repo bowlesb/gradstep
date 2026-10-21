@@ -95,7 +95,7 @@ import XCTest
                        "The new turn is in view above the composer, not hidden below the keyboard")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Haiku · Standard · by Qwen")).firstMatch.exists)
         let capture = XCTAttachment(screenshot: app.screenshot()); capture.name = "Equation with two local follow-ups"; capture.lifetime = .keepAlways; add(capture)
-        app.buttons["sheet.close"].tap()
+        app.closeInfoSheet(from: app.buttons["equation.chat"])
         app.webViews.firstMatch.staticTexts["(1)"].firstMatch.tap(); app.revealEditMenuItem("Chat about Equation").tap()
         XCTAssertTrue(follow.waitForExistence(timeout: 8), "the same encrypted conversation reopens")
     }

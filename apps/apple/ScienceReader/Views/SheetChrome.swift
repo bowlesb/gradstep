@@ -1,11 +1,14 @@
 import SwiftUI
 
 // An information sheet's top row (owner, build 62; docs/DESIGN.md "Sheet top row" and "Explain actions"): the page's
-// actions on the left, a round X on the right, no centred title and no Done. It is the sheet's own navigation bar, so on
-// iOS 26 its items are Liquid Glass, a pushed page keeps the system Back and its swipe, and earlier systems show plain bar
-// buttons. The two explain actions are peers, drawn alike (owner, build 76: "Confusing that only one is purple?").
+// actions as words, no centred title and no Done. Build 78 (owner, 2026-10-21: "The report this screen isn't needed. The
+// snippet icon is inconsistent. use txt at top Snippet, Chat, AI Explainer. X also not needed"): a figure, table or
+// equation page's row is three glass capsules with words — Snippet, Chat, AI Explainer — and nothing else; the sheet
+// closes by swiping it down (or VoiceOver's escape). The Mac, which has no swipe, keeps its X. It is the sheet's own
+// navigation bar, so on iOS 26 its items are Liquid Glass, a pushed page keeps the system Back and its swipe, and earlier
+// systems show plain bar buttons. The actions are peers, drawn alike (owner, build 76: "Confusing that only one is purple?").
 
-/// One of a figure's or an equation's two explain actions.
+/// One of a page's top-row actions.
 struct ExplainAction {
     let identifier: String
     let hint: String
@@ -27,80 +30,77 @@ struct SheetCloseButton: View {
 }
 
 extension View {
-    /// The sheet's top row: **Chat about Figure** (or Table) and **AI Explainer** (each when offered) on the left, the X on
-    /// the right (nil for a page whose sheet closes elsewhere). The bar shows no title. `noun` names what is shown
-    /// (build 76: a table's sheet said "Chat about Figure").
-    /// `report`: the sheet's ⋯ with Report this screen (build 77 hardening: the recent feedback was given on these sheets,
-    /// which had no ⋯).
-    func sheetTopRow(chat: ExplainAction? = nil, explainer: ExplainAction? = nil, openChat: ExplainAction? = nil, noun: String = "Figure",
-                     report: (() -> Void)? = nil, addToNote: (() -> Void)? = nil, close: (() -> Void)?) -> some View {
-        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, noun: noun, report: report,
-                                     addToNote: addToNote, close: close))
+    /// The sheet's top row: **Snippet**, **Chat** and **AI Explainer** (each when offered) as words. `noun` names what is
+    /// shown for VoiceOver ("Chat about Table"; build 76). `openChat`, on a pushed explainer, continues its conversation in
+    /// Chat. `close` is how the sheet closes: VoiceOver's escape everywhere, and the X on the Mac only (build 78: no X on a
+    /// touch screen, where the sheet swipes away); nil for a page whose sheet closes elsewhere.
+    func sheetTopRow(snippet: ExplainAction? = nil, chat: ExplainAction? = nil, explainer: ExplainAction? = nil,
+                     openChat: ExplainAction? = nil, noun: String = "Figure", close: (() -> Void)?) -> some View {
+        modifier(SheetTopRowModifier(snippet: snippet, chat: chat, explainer: explainer, openChat: openChat, noun: noun, close: close))
     }
 }
 
 private struct SheetTopRowModifier: ViewModifier {
+    let snippet: ExplainAction?
     let chat: ExplainAction?
     let explainer: ExplainAction?
     let openChat: ExplainAction?
     let noun: String
-    let report: (() -> Void)?
-    /// Notes: Add to note lives in the sheet's ⋯ (2026-10-21: a separate bar button overlapped the two actions).
-    let addToNote: (() -> Void)?
     let close: (() -> Void)?
-    private var hasOptions: Bool { report != nil || addToNote != nil }
+    /// The X is the Mac's way to close a sheet; a touch screen swipes it down.
+    private var showsClose: Bool { close != nil && Platform.isMac }
 
     func body(content: Content) -> some View {
         content
             .navigationBarTitleDisplayMode(.inline)
+            .accessibilityAction(.escape) { close?() }
             .toolbar {
                 // One item, not a group: iOS 26 moves bar buttons that don't fit into an overflow menu (both words
                 // and the X went there in a half-height sheet); one view is laid out in the space it has.
-                if chat != nil || explainer != nil {
-                    // With the sheet's "…" beside the X the side groups are wider than the bar allows for: keep clear of both.
+                if snippet != nil || chat != nil || explainer != nil {
                     if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, hasOptions ? 12 : 0) }.sharedBackgroundVisibility(.hidden)
+                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, showsClose ? 12 : 0) }.sharedBackgroundVisibility(.hidden)
                     } else {
-                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, hasOptions ? 12 : 0) }
+                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, showsClose ? 12 : 0) }
                     }
                 }
-                // Nothing on the right (a page drawing a snippet has its own Cancel): no empty glass button there.
-                if openChat != nil || hasOptions || close != nil {
+                // Nothing on the right otherwise: no empty glass button there.
+                if openChat != nil || showsClose {
                     ToolbarItem(placement: .topBarTrailing) {
                         HStack(spacing: 16) {
                             if let openChat {
                                 Button(action: openChat.action) { Image(systemName: "bubble.left.and.text.bubble.right") }
                                     .accessibilityLabel("Open in Chat").accessibilityHint(openChat.hint).accessibilityIdentifier(openChat.identifier)
                             }
-                            if hasOptions { SheetOptionsMenu(report: report, addToNote: addToNote) }
-                            if let close { SheetCloseButton(action: close) }
+                            if showsClose, let close { SheetCloseButton(action: close) }
                         }
                     }
                 }
             }
     }
 
-    /// Words always (owner: the two options by name), the same size for both: with the symbol where the bar has room,
-    /// then without it, then a step smaller.
+    /// Words only (owner, build 78: "use txt"), the same size for all; a step smaller where the bar is narrow.
     private var actions: some View {
         ViewThatFits(in: .horizontal) {
-            row(symbol: true, font: .subheadline.weight(.semibold))
-            row(symbol: false, font: .subheadline.weight(.semibold))
-            row(symbol: false, font: .footnote.weight(.semibold))
+            row(font: .subheadline.weight(.semibold))
+            row(font: .footnote.weight(.semibold))
         }
     }
 
-    private func row(symbol: Bool, font: Font) -> some View {
+    private func row(font: Font) -> some View {
         HStack(spacing: 8) {
+            if let snippet {
+                Button(action: snippet.action) { BarCapsule(title: "Snippet") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Snippet").accessibilityHint(snippet.hint).accessibilityIdentifier(snippet.identifier)
+            }
             if let chat {
-                Button(action: chat.action) {
-                    BarCapsule(title: "Chat about \(noun)", symbol: symbol ? "bubble.left.and.text.bubble.right" : nil)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Chat about \(noun)").accessibilityHint(chat.hint).accessibilityIdentifier(chat.identifier)
+                Button(action: chat.action) { BarCapsule(title: "Chat") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Chat about \(noun)").accessibilityHint(chat.hint).accessibilityIdentifier(chat.identifier)
             }
             if let explainer {
-                Button(action: explainer.action) { BarCapsule(title: "AI Explainer", symbol: symbol ? "sparkles" : nil) }
+                Button(action: explainer.action) { BarCapsule(title: "AI Explainer") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("AI Explainer").accessibilityHint(explainer.hint).accessibilityIdentifier(explainer.identifier)
             }
@@ -110,34 +110,26 @@ private struct SheetTopRowModifier: ViewModifier {
     }
 }
 
-/// A sheet's ⋯ (DESIGN.md "Screen options"): Report this screen, the last item as everywhere else.
+/// A sheet's ⋯ (DESIGN.md "Screen options"): Report this screen, the last item as everywhere else (Catalogs).
 struct SheetOptionsMenu: View {
-    var report: (() -> Void)? = nil
-    var addToNote: (() -> Void)? = nil
+    let report: () -> Void
     var body: some View {
         Menu {
-            if let addToNote {
-                Section { MenuRow("Add to note", systemImage: "note.text.badge.plus", action: addToNote).accessibilityIdentifier("figureView.addToNote") }
-            }
-            if let report { Section { MenuRow("Report this screen", systemImage: "ladybug", action: report) } }
+            Section { MenuRow("Report this screen", systemImage: "ladybug", action: report) }
         } label: { Image(systemName: "ellipsis") }
             .accessibilityLabel("Options").accessibilityIdentifier("sheet.options")
     }
 }
 
-/// One action in the top row: a glass capsule (`ChromeSurface`) with accent words; both actions look the same.
+/// One action in the top row: a glass capsule (`ChromeSurface`) with accent words; all look the same.
 private struct BarCapsule: View {
     let title: String
-    let symbol: String?
 
     var body: some View {
-        HStack(spacing: 5) {
-            if let symbol { Image(systemName: symbol) }
-            Text(title).lineLimit(1)
-        }
-        .padding(.horizontal, 12).frame(minHeight: 36)
-        .contentShape(Capsule())
-        .foregroundStyle(Color.accentColor).modifier(ChromeSurface(shape: Capsule(), interactive: true))
+        Text(title).lineLimit(1)
+            .padding(.horizontal, 12).frame(minHeight: 36)
+            .contentShape(Capsule())
+            .foregroundStyle(Color.accentColor).modifier(ChromeSurface(shape: Capsule(), interactive: true))
     }
 }
 

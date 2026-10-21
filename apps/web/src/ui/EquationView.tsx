@@ -143,9 +143,13 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
       {/* Owner, build 62: the actions in the top row with the X; no Done, no action bar under the equation. */}
       <SheetTop onClose={onClose} testID="equation-close" trailing={context && <button type="button" className="icon-button" aria-label="Open in Chat" onClick={()=>{promoteContextual(context,[symbols?.symbols?.summary??symbols?.text,...(symbols?.symbols?.symbols.map(s=>`${s.symbol}: ${s.meaning}`)??[]),background?.text].filter(Boolean).join('\n'));onClose();}}><Icon name="chat"/></button>}>
 
+        {/* Owner, build 78: Snippet, Chat, AI Explainer in words. Chat goes to the conversation below. */}
+        {onAddToNote && <button className="sheet-action" onClick={onAddToNote} data-testid="equation-add-to-note" title="Save this equation as a snippet">Snippet</button>}
+        {context && <button className="sheet-action" data-testid="equation-chat" aria-label="Chat about Equation" title="Ask about this equation below; nothing is sent"
+          onClick={() => { const field = document.querySelector<HTMLTextAreaElement>('[data-testid=equation-view] [data-testid=contextual-chat] textarea');
+            field?.scrollIntoView({ block: 'nearest' }); field?.focus(); }}>Chat</button>}
         {host && !symbols && !asking && <button className="sheet-action" onClick={explain} data-testid="equation-explain"
-          title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
-        {onAddToNote && <button className="sheet-action" onClick={onAddToNote} data-testid="equation-add-to-note" title="Save this equation as an image in a note"><Icon name="notes" size={15} />Add to note</button>}
+          title="Describes the equation and each of its symbols. Uses credits.">AI Explainer</button>}
       </SheetTop>
       <h2 className="explainer-heading">{onSwitch && others.length > 1
         ? <MenuButton icon="chevronDown" text={title} label={title} align="start" testID="equation-heading">{close => others.map(e =>

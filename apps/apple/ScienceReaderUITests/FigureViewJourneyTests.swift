@@ -61,14 +61,17 @@ final class FigureViewJourneyTests: XCTestCase {
     func testExplainWalksThroughAFigureWithCropsAndEachPartsMenu() throws {
         let app = launch()
         openFigureOne(app)
-        // Owner, build 62 (DESIGN.md "Sheet top row"): one row at the top, Explain in Chat and AI Explainer on the left and
-        // the X on the right, no Done; nothing is asked of the AI on opening.
-        let explain = app.buttons["figureView.explain"], ask = app.buttons["figureView.askInChat"], close = app.buttons["sheet.close"]
-        XCTAssertTrue(explain.waitForExistence(timeout: 5)); XCTAssertTrue(ask.exists); XCTAssertTrue(close.exists)
-        XCTAssertEqual(explain.label, "AI Explainer"); XCTAssertEqual(ask.label, "Chat about Figure")
+        // Owner, build 78 (DESIGN.md "Sheet top row"): one row at the top, Snippet, Chat and AI Explainer in words, in that
+        // order; no ⋯, no Report, no X on a touch screen (the sheet swipes away), no Done; nothing is asked on opening.
+        let explain = app.buttons["figureView.explain"], ask = app.buttons["figureView.askInChat"], snippet = app.figurePageSnippet
+        XCTAssertTrue(explain.waitForExistence(timeout: 5)); XCTAssertTrue(ask.exists); XCTAssertTrue(snippet.exists)
+        XCTAssertEqual(explain.label, "AI Explainer"); XCTAssertEqual(ask.label, "Chat about Figure"); XCTAssertEqual(snippet.label, "Snippet")
         XCTAssertEqual(explain.frame.midY, ask.frame.midY, accuracy: 4, "one row")
-        XCTAssertEqual(close.frame.midY, ask.frame.midY, accuracy: 4, "the X in the same row")
-        XCTAssertLessThan(ask.frame.maxX, close.frame.minX, "the actions on the left, the X on the right")
+        XCTAssertEqual(snippet.frame.midY, ask.frame.midY, accuracy: 4, "one row")
+        XCTAssertLessThan(snippet.frame.maxX, ask.frame.minX, "Snippet, then Chat")
+        XCTAssertLessThan(ask.frame.maxX, explain.frame.minX, "Chat, then AI Explainer")
+        XCTAssertFalse(app.buttons["sheet.close"].exists, "no X")
+        XCTAssertFalse(app.buttons["sheet.options"].exists, "no ⋯ (Report this screen isn't needed here)")
         XCTAssertFalse(app.buttons["Done"].exists, "no Done")
         XCTAssertFalse(app.descendants(matching: .any)["figureView.section.1"].exists)
         capture(app, "Figure page: the top row")
@@ -180,7 +183,7 @@ final class FigureViewJourneyTests: XCTestCase {
         #endif
         second.tap()
         menuItem(app, "figureView.showInPaper", "Show in the paper").tap()
-        XCTAssertTrue(app.buttons["sheet.close"].waitForNonExistence(timeout: 5), "The figure's sheet closes")
+        XCTAssertTrue(app.buttons["figureView.askInChat"].waitForNonExistence(timeout: 5), "The figure's sheet closes")
         XCTAssertTrue(app.webViews.firstMatch.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The paper is shown")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "doesn’t have")).firstMatch.waitForExistence(timeout: 2),
                        "The paragraph is found")
@@ -192,7 +195,7 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["figureView.loading"].exists)
 
         // The ordinary figure page also reopens its saved explainer directly (owner feedback, build 71).
-        app.buttons["sheet.close"].tap()
+        app.closeInfoSheet(from: app.buttons["figureView.explain"])
         openFigureOne(app)
         app.buttons["figureView.explain"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 5), "the existing explanation opens directly")
@@ -298,12 +301,9 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
         XCTAssertTrue(app.buttons["figureView.askInChat"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["figureView.askInChat"].label, "Chat about Figure")
-        capture(app, "Figure page: both explain actions alike, and its options")
-        app.buttons["sheet.options"].tap()
-        menuItem(app, "Report this screen", "Report this screen").tap()
-        XCTAssertTrue(composer.waitForExistence(timeout: 8), "the report opens over the figure page")
-        composer.buttons["Cancel"].tap()
-        XCTAssertTrue(app.buttons["figureView.askInChat"].waitForExistence(timeout: 5), "the figure page is still open")
+        capture(app, "Figure page: Snippet, Chat and AI Explainer alike")
+        // Build 78: "The report this screen isn't needed" on this page: no ⋯ (Settings › Report a problem remains).
+        XCTAssertFalse(app.buttons["sheet.options"].exists, "no ⋯ on the figure page")
     }
 
     /// The figure page's own Ask in chat: the figure's caption is the passage (in dark mode, with the walkthrough seen first).

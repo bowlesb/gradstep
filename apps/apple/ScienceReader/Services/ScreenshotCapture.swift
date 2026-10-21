@@ -115,12 +115,13 @@ private final class ReportHostingController: UIHostingController<AnyView> {
 
 /// After the reader takes a screenshot in Gradstep: a small "Report this screen" offer at the top for a few seconds, in
 /// its own window over any sheet. It never covers the system's screenshot thumbnail (bottom left) or TestFlight's
-/// feedback, takes no focus, and one tap on × (or waiting) dismisses it. Settings › Offer to report after a screenshot.
+/// feedback, takes no focus, and one tap on × (or waiting) dismisses it. Settings › Offer to report after a screenshot,
+/// off unless turned on (owner, build 78, on a screenshot showing it: "The report this screen isn't needed").
 @MainActor
 final class ScreenshotReportPrompt {
     static let shared = ScreenshotReportPrompt()
     static let enabledKey = "report.screenshotPrompt"
-    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
+    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? false }
     private weak var model: ReaderModel?
     private var observer: NSObjectProtocol?
     private var window: UIWindow?

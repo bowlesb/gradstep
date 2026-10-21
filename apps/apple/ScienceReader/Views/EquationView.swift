@@ -214,8 +214,15 @@ struct EquationView: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let session { composer(session) }
             }
-            // The top row (DESIGN.md "Sheet top row"): Explain in Chat, AI Explainer until it is asked, and the X.
+            // The top row (DESIGN.md "Sheet top row"; owner, build 78): Snippet, Chat and AI Explainer (until it is
+            // asked) in words; the sheet swipes away (the Mac keeps an X).
             .sheetTopRow(
+                snippet: session.map { session in
+                    ExplainAction(identifier: "equation.addToNote", hint: "Saves this equation as a snippet") { addToNote(session.context) }
+                },
+                chat: session.map { _ in
+                    ExplainAction(identifier: "equation.chat", hint: "Ask about this equation below; nothing is sent") { chatFocus += 1 }
+                },
                 explainer: session.flatMap { session in
                     session.symbols.state == .idle
                         ? ExplainAction(identifier: "equation.explain", hint: "Choose a model to describe this equation.") { choosingAI = true }
@@ -224,8 +231,7 @@ struct EquationView: View {
                 openChat: ExplainAction(identifier: "equation.openInChat", hint: "Continue this conversation in Chat.") {
                     guard let chatToken, let session else { return }
                     model.promoteContextualChat(chatToken, explanation: equationExplanation(session)); finish(.continueChat)
-                }, report: { ReportPresenter.present(model, sheet: "\(session?.context.label ?? "Equation") explainer", afterMenu: true) },
-                close: { finish(nil) })
+                }, noun: "Equation", close: { finish(nil) })
             .background(Color(uiColor: .systemGroupedBackground))
             .overlay(alignment: .bottom) { NoteSavedBanner(model: model, origin: .equation) { finish(nil) }.padding(.bottom, 80) }
             .noteComposerHost(model, origin: .equation)
@@ -354,9 +360,6 @@ struct EquationView: View {
                 }
                 .accessibilityElement(children: .contain).accessibilityLabel("Equation size")
                 Spacer(minLength: 0)
-                // Notes: the equation as shown, into a note (NOTES_AND_SNIPPETS.md "figure, table and equation pages").
-                Button { addToNote(context) } label: { Label("Add to note", systemImage: "note.text.badge.plus") }
-                    .buttonStyle(.borderless).accessibilityIdentifier("equation.addToNote")
             }
             .font(.subheadline)
         }

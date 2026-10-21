@@ -194,7 +194,7 @@ test('Contents › Tables lists the paper’s HTML tables by caption; a row open
  await expect(detail.frameLocator('iframe.figure-frame').locator('th').first()).toHaveText('Value');
  await expect(detail.frameLocator('iframe.figure-frame').getByText('Table 1: Values.')).toBeVisible();
  // A table's sheet names the table (build 76: it said "Chat about Figure").
- await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Chat about Table');
+ await expect(detail.getByTestId('figure-reference-ask')).toHaveAccessibleName('Chat about Table');
  await page.screenshot({path:`../../.artifacts/contents-table-detail-${test.info().project.name}.png`});
  await detail.getByTestId('figure-reference-go').click();
  await expect(detail).toBeHidden(); await expect(page.getByTestId('citation-back')).toBeVisible();

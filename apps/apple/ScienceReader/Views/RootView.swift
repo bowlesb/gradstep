@@ -1252,7 +1252,7 @@ struct SettingsView: View {
     var dismissSettings: (() -> Void)? = nil
     @State private var showDeleteAccount = false
     @State private var width: CGFloat = 0
-    @AppStorage(ScreenshotReportPrompt.enabledKey) private var screenshotPrompt = true
+    @AppStorage(ScreenshotReportPrompt.enabledKey) private var screenshotPrompt = false
     /// A count in Your assets: "None" when empty, as Downloaded papers.
     static func count(_ value: Int) -> String { value > 0 ? value.formatted() : "None" }
 

@@ -214,12 +214,9 @@ final class NotesJourneyTests: XCTestCase {
         let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure:")).firstMatch
         for _ in 0..<6 where !(figure.exists && figure.isHittable) { web.swipeUp() }
         XCTAssertTrue(figure.waitForExistence(timeout: 5)); figure.tap()
-        // Add to note is in the figure page's ⋯ (beside the X), with Report this screen.
-        let options = app.buttons["sheet.options"]
-        XCTAssertTrue(options.waitForExistence(timeout: 10), "The figure page has a ⋯")
-        options.tap()
+        // Add to note is the figure page's Snippet, first in its top row (owner, build 78).
         let add = app.buttons["figureView.addToNote"]
-        XCTAssertTrue(add.waitForExistence(timeout: 5), "The figure page's ⋯ offers Add to note")
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "The figure page's top row offers Snippet")
         add.tap()
         let use = app.buttons["capture.use"]
         let shown = use.waitForExistence(timeout: 10)

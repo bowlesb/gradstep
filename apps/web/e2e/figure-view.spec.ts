@@ -63,7 +63,9 @@ test('a figure is explained only on request, part by part with its crop; a part 
  // figure; no Done, no action bar under it; nothing is asked on opening.
  let viewer=await openFigure(page);
  const explain=viewer.getByTestId('figure-explain'),ask=viewer.getByTestId('figure-ask'),close=viewer.getByTestId('figure-close');
- await expect(explain).toHaveText('AI Explainer');await expect(ask).toHaveText('Chat about Figure');await expect(close).toHaveAccessibleName('Close');
+ await expect(explain).toHaveText('AI Explainer');await expect(ask).toHaveText('Chat');await expect(ask).toHaveAccessibleName('Chat about Figure');await expect(close).toHaveAccessibleName('Close');
+ // Build 78: words only, Snippet first when Notes is available ("use txt at top Snippet, Chat, AI Explainer").
+ await expect(viewer.locator('.sheet-top-start .sheet-action svg')).toHaveCount(0);
  const [explainBox,askBox,closeBox,figureBox]=[(await explain.boundingBox())!,(await ask.boundingBox())!,(await close.boundingBox())!,(await viewer.locator('iframe.figure-frame').boundingBox())!];
  const middle=(b:{y:number;height:number})=>b.y+b.height/2;
  expect(Math.abs(middle(explainBox)-middle(askBox))).toBeLessThan(2);expect(Math.abs(middle(closeBox)-middle(askBox))).toBeLessThan(3);
@@ -341,7 +343,7 @@ test('a figure reference in the text offers Explain in Chat and AI Explainer; AI
  const link=frame.locator('.sr-cite[data-sr-figure]').first();
  await expect(link).toBeAttached({timeout:20000});await link.scrollIntoViewIfNeeded();await link.click();
  const detail=page.getByRole('dialog',{name:'Figure 1'});
- await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Chat about Figure');
+ await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Chat');await expect(detail.getByTestId('figure-reference-ask')).toHaveAccessibleName('Chat about Figure');
  await expect(detail.getByTestId('figure-reference-explain')).toHaveText('AI Explainer');
  // Peers with the same weight (owner, build 76: "Confusing that only one is purple").
  const look=(id:string)=>detail.getByTestId(id).evaluate(e=>{const s=getComputedStyle(e);return [s.color,s.backgroundColor,s.borderColor].join('|');});
