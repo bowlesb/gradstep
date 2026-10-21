@@ -642,7 +642,9 @@ final class ReaderModel {
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
     var chatTitle: String {
         guard !chatWasDeleted else { return "Deleted conversation" }
-        guard let root = activeConversation.flatMap({ privateState.revisions(for: $0).first }) else { return "New chat" }
+        // A figure, table or equation explainer continued in Chat is that item's chat until it has a title of its own
+        // (build 73: Back to chat landed on a "New chat" showing Figure 2's explainer).
+        guard let root = activeConversation.flatMap({ privateState.revisions(for: $0).first }) else { return promotedChatContext?.label ?? "New chat" }
         return ChatTitle.display(root.payload.text ?? "", source: root.payload.titleSource)
     }
     /// The visible conversation has a topic title (generated or renamed); without one, its next answer asks for one.
@@ -5352,6 +5354,8 @@ extension ReaderModel {
     var promotedChatContext: PromotedChatContext? { chatComposerID.flatMap { promotedChatContexts[$0] } }
 
     func rememberExplainer(paperID: UUID, manifest: String, item: String, label: String, equation: Bool) {
+        // One way back at a time: the explainer the reader just left, not an older chat (build 73).
+        returnToChatAvailable = false
         explainerReturn = ExplanationSubject(paperID: paperID, paperTitle: selectedPaper?.title ?? "",
             manifestSHA256: manifest, itemID: item, label: label, action: equation ? "equation" : "figure", savedAt: Date(), localModelID: localAIModelID)
     }

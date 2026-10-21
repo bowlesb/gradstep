@@ -211,6 +211,9 @@ final class FigureViewJourneyTests: XCTestCase {
         capture(app, "Ask in chat about a part")
         app.buttons["figureView.openInChat"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["chat.promotedContext"].waitForExistence(timeout: 5))
+        // Build 73 (AHYZ): the figure's chat is named for the figure, never "New chat".
+        let chatTitle = app.buttons["chat.context"].label
+        XCTAssertTrue(chatTitle.contains("Figure") && !chatTitle.contains("New chat"), chatTitle)
         let promotedComposer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(promotedComposer.waitForExistence(timeout: 5))
         XCTAssertTrue((promotedComposer.value as? String ?? "").contains("Left half"), "Promotion preserves the draft")

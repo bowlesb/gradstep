@@ -157,6 +157,8 @@ extension ReaderModel {
         let anchor = TextAnchor(manifestSHA256: paper.readerBundle?.manifestSHA256 ?? String(repeating: "0", count: 64), quote: "", elementID: "¶\(marker)")
         passageRequest = PaperPassageRequest(documentID: paper.id, conversationID: activeConversation ?? UUID(), anchor: anchor)
         returnToChatAvailable = tab == .chat
+        // From a chat, Back goes to that chat, not to an explainer left earlier (one Back at a time, build 73).
+        if returnToChatAvailable { explainerReturn = nil }
         tab = .paper
         if wideMode != .browse { wideMode = .reader }
     }
