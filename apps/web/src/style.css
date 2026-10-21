@@ -982,4 +982,13 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 /* Actions on a selected answer passage or formula (B1): above the composer, in view while the transcript scrolls. */
 .answer-math { display: contents; }
 .chat-selection-bar { position: sticky; bottom: 6px; left: auto; transform: none; margin: 6px auto 0; width: max-content; max-width: calc(100% - 8px); }
+/* Crop or redact a support screenshot (B5). */
+.support-preview-actions { display: flex; flex-direction: column; gap: 6px; }
+.screenshot-editor-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.screenshot-editor-area { position: relative; margin: 6px auto 0; touch-action: none; user-select: none; cursor: crosshair; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.screenshot-editor-area img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.screenshot-cover { position: absolute; background: #000; }
+.screenshot-cover.drafting { opacity: .75; }
+.screenshot-crop { position: absolute; border: 2px solid #f5c400; box-shadow: 0 0 0 9999px #0006; }
 
