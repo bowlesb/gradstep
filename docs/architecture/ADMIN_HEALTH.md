@@ -38,8 +38,15 @@ Attention lists operations that cost more than their ceiling in the last 24 hour
 and how many count toward the hourly tripwire), says when the tripwire paused new paid work, and names any real
 account with more than 20 answers that ended early without charge today, with what Gradstep paid (they are still
 served). "Is it working?" shows answers not charged over the window and the provider cost Gradstep absorbed for them
-(`v1_admin_health.early_endings`; `anomalies`). Not yet deployed to `admin.gradstep.ai`; the database side is live on
-staging.
+(`v1_admin_health.early_endings`; `anomalies`). Included in the admin deploys since 2026-10-18 (Pages `a0540bb2`,
+PROVIDER_SPENDING.md); the database side is live on staging.
+
+**Added 2026-10-21 (review fixes; not deployed).** Overview and Health read the current UTC month's budget, not next
+month's row (A3). Attention also names OpenRouter price cards that lapse within six weeks (A4, migration 0101),
+unresolved provider attempts the automatic reconciler cannot settle with the amount they still reserve (A6, migration
+0102), and a scoped breaker's route and upstream (A13, migration 0106). Spending warns at 80% of the provider-attempt
+window (A2). Support pages older reports and offers Close/Reopen, Accounts says when the list is truncated, every admin
+request is bounded to 30 s, and an abandoned authenticator enrolment no longer blocks a new one (D10).
 
 ## Who counts
 

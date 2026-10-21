@@ -37,6 +37,8 @@ const accountErrors: Record<string, string> = {
   sign_in_change_unconfirmed: 'The change was recorded but sign-in could not be updated. Try again.',
   request_superseded: 'A newer change to this account came after this one. Reload to see its current state.',
   testing_allowance_role_required: 'The testing allowance is only for owner and tester accounts.',
+  account_disabled: 'This account is disabled. Enable its sign-in first.',
+  invalid_request: 'The request was refused as invalid. Check the fields and try again.',
 };
 export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T> {
   if (!backend || !url || !key) throw new Error('The backend has not been configured for this build.');
@@ -70,6 +72,7 @@ const observationErrors: Record<string, string> = {
   invalid_observed_at: 'The observation time was refused. Check this device’s clock before continuing.',
   observation_id_conflict: 'This entry conflicts with its recorded receipt. Keep its request ID for review; do not resubmit it as a new entry.',
   observation_capacity: 'This component has reached its monthly evidence-entry limit. Review its existing records.',
+  invalid_observation: 'The entry was refused as invalid. Check its fields; it was not recorded.',
 };
 const unconfirmedObservation = 'The observation was not confirmed. Retry the same entry; it will not be added twice.';
 export async function adminSpendingObservation(ownerID: string, body: SpendingObservationRequest): Promise<SpendingObservationReceipt> {
@@ -97,9 +100,14 @@ export async function adminSpendingObservation(ownerID: string, body: SpendingOb
   return result;
 }
 
+/** Every admin read or change is bounded in time (D10): a hung request is reported, never left spinning. */
+export const RPC_TIMEOUT_MS = 30_000;
 export async function rpc<T>(name: string, parameters: Record<string, unknown> = {}): Promise<T> {
   if (!backend) throw new Error('The backend has not been configured for this build.');
-  const { data, error } = await backend.rpc(name, parameters);
+  let result: Awaited<ReturnType<NonNullable<typeof backend>['rpc']>>;
+  try { result = await backend.rpc(name, parameters).abortSignal(AbortSignal.timeout(RPC_TIMEOUT_MS)); }
+  catch { throw new Error('The request did not finish in time. Your changes were not confirmed.'); }
+  const { data, error } = result;
   if (error) {
     const errors: Record<string, string> = {
       owner_mfa_required: 'An owner account with two-factor authentication is required.',

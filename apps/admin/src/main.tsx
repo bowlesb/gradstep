@@ -200,6 +200,9 @@ function TwoFactor({ onVerified }: { onVerified: () => Promise<void> }) {
   useEffect(() => { void backend?.auth.mfa.listFactors().then(({ data }) => { const first = data?.totp.find(item => item.status === 'verified'); if (first) setFactor(first.id); }); }, []);
   async function enroll() {
     if (!backend) return; setBusy(true); setError('');
+    // D10: an abandoned, never-verified enrolment would block a new one with the same name; remove it first.
+    const listed = await backend.auth.mfa.listFactors();
+    for (const stale of listed.data?.all.filter(f => f.factor_type === 'totp' && f.status === 'unverified') ?? []) await backend.auth.mfa.unenroll({ factorId: stale.id });
     const { data, error } = await backend.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Gradstep administration' });
     if (error) setError('Authenticator setup could not start. Try again.');
     else { setFactor(data.id); setQR(data.totp.qr_code.startsWith('data:') ? data.totp.qr_code : 'data:image/svg+xml,' + encodeURIComponent(data.totp.qr_code)); }
@@ -233,8 +236,19 @@ function BudgetPanel({ overview, onChanged }: { overview: Overview; onChanged: (
   </section>;
 }
 
+const REPORT_PAGE = 50;
 function Support({ accountID, reports, refresh }: { accountID: string; reports: Report[]; refresh: () => Promise<void> }) {
   const [selected, setSelected] = useState<string | null>(null); const [thread, setThread] = useState<Thread | null>(null);
+  // D10: older reports page in (v2_reports' cursor); the first page comes with the dashboard refresh.
+  const [older, setOlder] = useState<Report[]>([]); const [more, setMore] = useState(true); const [paging, setPaging] = useState(false);
+  useEffect(() => { setOlder([]); setMore(reports.length >= REPORT_PAGE); }, [reports]);
+  const listed = [...reports, ...older.filter(o => !reports.some(r => r.id === o.id))];
+  const loadOlder = async () => {
+    const last = listed.at(-1); if (!last) return; setPaging(true); setError('');
+    try { const page = await rpc<Report[]>('v2_reports', { p_before_created_at: last.created_at, p_before_id: last.id, p_limit: REPORT_PAGE });
+      setOlder(o => [...o, ...page]); setMore(page.length >= REPORT_PAGE); }
+    catch (e) { setError((e as Error).message); } finally { setPaging(false); }
+  };
   const [reply, setReply] = useState(''); const [build, setBuild] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -245,8 +259,9 @@ function Support({ accountID, reports, refresh }: { accountID: string; reports: 
     try { await mutate(accountID, 'v1_set_report_status', { p_report_id: selected, p_status: value, p_fixed_build: value === 'ready_to_retest' ? build : null }); await load(); await refresh(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  return <div className="support-layout"><section className="panel report-list"><h2>Reports</h2>{!reports.length && <Empty text="No reports have been submitted." />}
-    {reports.map(report => <button key={report.id} disabled={busy} className={selected === report.id ? 'report selected-report' : 'report'} onClick={() => setSelected(report.id)}><strong>{report.title}</strong><span>{statusName(report.status)} · Build {report.build}</span><small>{date(report.created_at)}</small></button>)}
+  return <div className="support-layout"><section className="panel report-list"><h2>Reports</h2>{!listed.length && <Empty text="No reports have been submitted." />}
+    {listed.map(report => <button key={report.id} disabled={busy} className={selected === report.id ? 'report selected-report' : 'report'} onClick={() => setSelected(report.id)}><strong>{report.title}</strong><span>{statusName(report.status)} · Build {report.build}</span><small>{date(report.created_at)}</small></button>)}
+    {more && listed.length > 0 && <button className="secondary" disabled={paging} onClick={() => void loadOlder()}>{paging ? 'Loading…' : 'Load older reports'}</button>}
     </section><section className="panel report-detail">
       {!thread ? <Empty text="Select a report to review the issue and reply." /> : <><span className="badge">{statusName(thread.report.status)}</span><h2>{thread.report.title}</h2><p className="report-note">{thread.report.note}</p>
         <p className="muted">Version {thread.report.app_version} ({thread.report.build}) · {thread.report.os_version} · {thread.report.screen}</p>
@@ -256,7 +271,10 @@ function Support({ accountID, reports, refresh }: { accountID: string; reports: 
         <form onSubmit={async event => { event.preventDefault(); setBusy(true); setError(''); try { await mutate(accountID, 'v1_reply_to_report', { p_report_id: selected, p_body: reply }); setReply(''); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
           <label>Reply<textarea required disabled={busy} maxLength={10000} rows={4} value={reply} onChange={e => setReply(e.target.value)} /></label><button disabled={busy || !reply.trim()}>Send reply</button>
         </form>
-        <div className="status-controls"><button className="secondary" disabled={busy} onClick={() => void status('investigating')}>Investigating</button><label>Fixed in build<input value={build} maxLength={40} onChange={e => setBuild(e.target.value)} placeholder="e.g. 12" /></label><button className="secondary" disabled={busy || !build.trim()} onClick={() => void status('ready_to_retest')}>Ready to retest</button></div>
+        <div className="status-controls"><button className="secondary" disabled={busy} onClick={() => void status('investigating')}>Investigating</button><label>Fixed in build<input value={build} maxLength={40} onChange={e => setBuild(e.target.value)} placeholder="e.g. 12" /></label><button className="secondary" disabled={busy || !build.trim()} onClick={() => void status('ready_to_retest')}>Ready to retest</button>
+          {thread.report.status === 'verified'
+            ? <button className="secondary" disabled={busy} onClick={() => void status('open')}>Reopen</button>
+            : <button className="secondary" disabled={busy} onClick={() => void status('verified')} title="Resolved and confirmed; it leaves the open count">Close</button>}</div>
       </>}{error && <p className="error" role="alert">{error}</p>}
     </section></div>;
 }

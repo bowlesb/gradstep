@@ -129,6 +129,7 @@ export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: numb
         </table>
       </div>
       {list && !list.accounts.length && <p className="empty">{query ? 'No account email contains that text.' : 'No accounts yet.'}</p>}
+      {list && list.accounts.length < list.matched && <p className="notice" role="status">Showing the first {list.accounts.length.toLocaleString()} of {plural(list.matched, 'matching account')}{sort === 'created' ? (ascending ? ', oldest first' : ', newest first') : ''}. Search by email to find others.</p>}
       {!list && loading && <p className="empty" role="status">Loading accounts…</p>}
       <p className="footnote">Test accounts (<code>@example.invalid</code>) are synthetic logins created by automated checks. Credits are those available now; held credits belong to work in progress. Deleting an account stays in the app (Settings › Delete account).</p>
     </section>
