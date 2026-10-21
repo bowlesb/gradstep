@@ -1,5 +1,54 @@
 # Implementation status
 
+## Notes images server — October 21 UTC (staging live)
+
+The server half of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#server-status--blob-api-live-on-staging-2026-10-21-utc)
+is deployed to staging: `PUT`/`GET /functions/v1/note-assets/{blobID}`, the private `note-assets` bucket, the
+`note_assets` inventory with quotas (128 MiB/4,000 objects per account, 512 MiB environment, pending counted;
+downloads 512 MiB/account and 4 GiB/environment per UTC month, metered before reading), account deletion of every
+`{account}/` object with a verifying re-list, backup coverage and a Note images panel on the admin Spending page.
+Native and browser Notes clients are separate work; nothing here is evidence of client encryption or sync.
+
+- **Migration 095** applied by `scripts/deploy-staging.py` (via `migrate-supabase.py`) at **06:37:37 UTC**, ledger
+  SHA-256 `646df2f48e47e470d36ea57538c5a015c6f858e83c7539b55eb8d49b846d3c45` matching source; 001–094 re-verified.
+  Pre-migration encrypted checkpoint `20261021T063543Z-8bc9ea5dac4b` restores **212 tables / 15 objects** locally.
+- **Bucket** `note-assets` created and verified: private, 2,097,180-byte limit, `application/octet-stream` only;
+  staging has no `storage.objects` policies, so clients have no direct grant. **Functions** `account-delete` (06:37)
+  and `note-assets` deployed; the final `note-assets` revision (refused bodies drained, below) was redeployed with the
+  same Supabase CLI command at ~06:49 UTC from commit `8dfa578`'s sources.
+- **Live check** `node scripts/smoke-note-assets.mjs` passes (runs started **06:51:10** and, with the maximum-size case, **06:51:34 UTC**) with two disposable
+  `@example.invalid` accounts: preflight 204 (PUT and `x-content-sha256` allowed); no session 401; A's contract-
+  encrypted 540-byte blob PUT 200 `{state:"ready",bytes:540}`, repeated PUT 200, GET 200 with identical SHA-256,
+  `application/octet-stream`, `private, no-store`, decrypting under its account/blob AAD; another digest for the
+  same ID 409; wrong digest header 400; 2 MiB + 29 B 413; 2 MiB + 28 B stored and read back (200/200); B's GET of A's
+  blob 404 and B's same-ID object stored in B's folder with A's unchanged; both accounts deleted through
+  `account-delete` → `{deleted:true, complete:true}`, folders listed empty, zero inventory and personal rows, old
+  tokens 401. Afterwards: zero inventory rows, totals 0/0, bucket empty, personal counters erased; the environment
+  month records 6 downloads and 6 read-backs (~2.0 MiB each).
+- The **first live run** (06:40 UTC) found that Supabase's gateway held the 413 for an unread 2 MiB body until a
+  504; unauthenticated 1 MiB PUTs reproduced it (504 after 160 s) and cancelling the stream did not help. The
+  function now reads and discards up to 4 MiB of a refused body; re-probed 401s return in ~1.2–1.4 s. That run's
+  fallback cleanup deleted both fixtures (0 rows, 0 objects). The same gateway behavior may affect other upload
+  functions' early refusals; not investigated here.
+- **Deploy workflow suite** (06:37 UTC): 17 pass, 1 warning (pipeline budget 76% used), 1 failure `budget.health`
+  from a pre-existing unknown Anthropic chat attempt created 2026-10-17 14:48 UTC; `cleanup.accounts` deleted 5
+  check accounts through the new deletion path.
+- **Local tests:** `npm test` passes (after the final change too). `npm run test:database` passes in full, including
+  `tests/database/note_assets.sql` (privileges/RLS, idempotency, conflicts, bounds, account/object/environment quotas
+  with pending rows, two-account isolation, monthly limits with no charge on refusal, admin summary, deletion grace,
+  plan, release and status) and `note_assets_concurrency.py` (one remaining slot of eight, eight identical PUTs → one
+  row, eight digests for one ID → one winner, eight downloads at a three-download allowance → three). Backend:
+  `note-assets.test.ts` 13/13 (uses the `notes-v1.json` encryption vector), `account-deletion.test.ts` 9/9. Deno type
+  check passes. `tests/operations/test_staging_deployment.py` passes except the pre-existing stale DeepSeek fixture
+  (no OpenRouter key); five other stale fixtures were repaired by adding that key to the default. `test_restore_quarantine.py`
+  keeps its pre-existing `pdf_device_only` fixture error. Admin `check-spending-dashboard.mjs` passes; panel
+  screenshots (desktop light, phone dark) were reviewed. Admin Pages **8aee70b1** is deployed and its live assets verified.
+
+Evidence (main checkout): `.artifacts/note-assets/` (three check reports, deploy log, workflow report, screenshots),
+`.artifacts/backups/20261021T063543Z-8bc9ea5dac4b`. No paid model call, owner account, physical phone or NAS access.
+The Cloud Run worker's deletion sweep still runs the previous shared module (it removes every inventoried object but
+does not re-list) until its next deploy. The admin panel was not viewed with live data, which needs an owner session.
+
 ## Notes and snippets — October 20 local / October 21 UTC (design/prototype only)
 
 The owner-requested Notes/capture experience has a source-grounded [architecture and UX proposal](architecture/NOTES_AND_SNIPPETS.md)
