@@ -70,6 +70,9 @@ class StagingDeploymentTests(unittest.TestCase):
                 if url.endswith('/bucket/paper-assets'):
                     events.append('bucket_read')
                     return config['paper_bucket']
+                if 'note_bucket' in config and url.endswith('/bucket/note-assets'):
+                    events.append('note_bucket_read')
+                    return {**config['note_bucket'], **getattr(self, 'remote_note_drift', {})}
                 if url.endswith('/secrets'):
                     events.append('function_secrets')
                     self.secret_names = [entry['name'] for entry in body]
@@ -98,6 +101,22 @@ class StagingDeploymentTests(unittest.TestCase):
         self.assertNotIn('health', events, 'deferred deployment does not assert that the old worker is stopped')
         self.assertLess(events.index('remote_identity'), events.index('function_secrets'))
         self.assertLess(events.index('function_secrets'), events.index(('deploy', 'chat')))
+
+    def test_note_images_bucket_is_verified_private_before_its_function_deploys(self):
+        note = {'id': 'note-assets', 'name': 'note-assets', 'public': False, 'file_size_limit': 2097180,
+                'allowed_mime_types': ['application/octet-stream']}
+        arguments = ['--defer-activation', '--skip-migrations', '--functions', 'note-assets']
+        events, error = self.run_fixture(arguments, config_extra={'note_bucket': note, 'functions': ['note-assets']})
+        self.assertIsNone(error)
+        self.assertLess(events.index('note_bucket_read'), events.index(('deploy', 'note-assets')))
+        for drift in ({'public': True}, {'file_size_limit': 4194304}, {'allowed_mime_types': ['image/png']}):
+            self.remote_note_drift = drift
+            events, error = self.run_fixture(arguments, config_extra={'note_bucket': note, 'functions': ['note-assets']})
+            self.assertIsInstance(error, SystemExit)
+            self.assertNotIn('function_secrets', events); self.assertNotIn(('deploy', 'note-assets'), events)
+        self.remote_note_drift = {}
+        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], config_extra={'note_bucket': note})
+        self.assertIsNone(error); self.assertNotIn('note_bucket_read', events)
 
     def test_egress_scan_blocks_first_and_functions_refuse_arxiv(self):
         events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'])

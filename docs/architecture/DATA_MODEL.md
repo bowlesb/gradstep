@@ -116,7 +116,7 @@ The source slice accepts normalized arXiv base IDs and separate revisions. Its r
 | `device_envelopes` | Recipient, epoch, wrapped key bundle | Only intended device can unwrap |
 | `enrollment_requests` | Recipient public key, challenge, expiry, approval state | Account login alone cannot approve |
 | `sync_events` | Account, event ID, epoch, ciphertext, digest, committed cursor | Chat/notes/anchors/relationships encoded inside ciphertext |
-| `encrypted_blobs` | Opaque ID, owner, checksum, length, key epoch, storage reference | Private filenames and relationships remain encrypted |
+| `encrypted_blobs` | Opaque ID, owner, checksum, length, key epoch, storage reference | Private filenames and relationships remain encrypted. Built for Notes images as `note_assets` (migration 095, staging): account, blob ID, stored-bytes SHA-256, length, pending/ready; the per-blob key lives only in the encrypted entry ([Notes](NOTES_AND_SNIPPETS.md#server-status--blob-api-live-on-staging-2026-10-21-utc)) |
 | `device_cursors` | Device, last acknowledged committed position, timestamp | Operational progress only |
 
 See [Privacy and sync](PRIVACY_AND_SYNC.md) for the consistency model. This avoids adding plaintext `chat_messages.content`, `chats.title`, or public `diagrams.body_html` and trying to remove them after launch. Private diagrams returned by an AI tool follow the encrypted conversation lifecycle.

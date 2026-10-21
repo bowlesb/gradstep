@@ -100,6 +100,7 @@ parser.add_argument('--reader-issuer-fence-candidate', action='store_true',
 parser.add_argument('--openrouter-only', action='store_true', help='Run the affected OpenRouter cutover fixture only.')
 parser.add_argument('--auth-admission-only', action='store_true', help='Run the affected durable beta-admission fixture only.')
 parser.add_argument('--testing-allowance-only', action='store_true', help='Run testing allowance, provider and account lifecycle checks.')
+parser.add_argument('--note-assets-only', action='store_true', help='Run the encrypted note image inventory, quota and deletion checks (migration 095).')
 args = parser.parse_args()
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
 fence = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql'
@@ -111,6 +112,9 @@ if args.reader_issuer_fence_candidate:
 all_migrations = migrations
 if args.testing_allowance_only:
     phase([*all_migrations, ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/durable_beta_admission.sql'], ['testing_allowance_concurrency'])
+    raise SystemExit(0)
+if args.note_assets_only:
+    phase([*all_migrations, ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql'], ['note_assets_concurrency'])
     raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql'], [])
@@ -145,5 +149,5 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 
 # Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
 # function's anon/authenticated reach. First in its phase, before any fixture creates objects.
-phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql'], ['testing_allowance_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency'])
 current_schema_phase(all_migrations, CURRENT_GENERAL)

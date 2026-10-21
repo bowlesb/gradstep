@@ -79,6 +79,48 @@ Mac and browser add Notes to their existing destination lists; Mac keeps ⌘, fo
 equation pages › Add to note (whole item, then optional adjust). Native HTML reader: `WKWebView.takeSnapshot` of the
 chosen rect; local PDF: PDFKit page render of the rect. Notes ⋯/+: New note, Add text.
 
+### Server status — blob API live on staging (2026-10-21 UTC)
+
+Migration `202610210095_note_assets.sql` and the `note-assets` Edge function are deployed to staging
+(`coxhjvqpflgxkleydati`); clients are separate work. Evidence: [implementation status](../IMPLEMENTATION_STATUS.md#notes-images-server--october-21-utc-staging-live).
+The API as deployed (`{base}` = `https://<project>.supabase.co/functions/v1/note-assets`; both methods send
+`Authorization: Bearer <access token>` and `apikey`, like every user function):
+
+| Request | Responses (JSON errors are `{code}`, plus `retry_after` seconds and `Retry-After` when waiting helps) |
+|---|---|
+| `PUT {base}/{blobID}`, body = stored blob (28 B … 2 MiB + 28 B), `x-content-sha256: <hex>` | **200** `{state:"ready",bytes}` (also for a repeat of a ready object, which writes nothing) · **400** `digest_required` (missing/malformed header), `digest_mismatch` (body ≠ header), `invalid_blob` (< 28 B), `invalid_id` · **409** `conflict` (this account already has the ID with another digest or length) · **413** `too_large` · **429** `quota` (stored quota; no `retry_after`, objects stay until account deletion) or `quota` with `retry_after` (monthly read-back allowance, renews at the next UTC month) or `rate_limited` (60 s) · **401**/**403** as other functions · **503** `not_ready` (the stored bytes did not read back identically; repeat the same PUT) or `service_unavailable` (10 s) |
+| `GET {base}/{blobID}` | **200** the bytes, `Content-Type: application/octet-stream`, `Content-Length`, `X-Content-SHA256` (CORS-exposed) · **404** `not_found` (no ready object of this ID for this account; pending objects and other accounts' objects look the same) · **429** `quota` + `retry_after` until the next UTC month, or `rate_limited` · **416** for `Range` · **503** `integrity_failed`/`asset_unavailable` (a charged read that failed; retry) |
+
+Every response carries `Cache-Control: private, no-store`. Browser preflight allows `GET, PUT, OPTIONS` and the
+`x-content-sha256` header for the shared reader origins. Blob IDs are per account: the same UUID under two accounts
+is two objects (`{account}/{blob}`), never a conflict or a disclosure. Upper-case UUIDs/hex are accepted and
+normalized to lower case. Downloads are charged in full before Storage is read; a failed read keeps its charge.
+
+Behind it: one policy row (`app_private.note_asset_policy`, the single place for quotas) with the contract's limits,
+plus two server-side bounds the contract did not list: each upload attempt's read-back is metered (256 MiB/account,
+1 GiB/environment per month; a retry of a pending object is another read-back) and the shared request limiter allows
+`note-upload` 300/hour/account (3,000 environment) and `note-download` 1,000/hour/account (10,000 environment).
+Authentication is exactly the other functions' (Auth `getUser`, open account via `v1_account_context`, the request
+limiter, not spending-suspended); no user-facing function checks device identity, so neither does this one — the
+entry event carrying the key still needs device and management authority through `v1_append_event`. The bucket
+(private, 2,097,180-byte limit, `application/octet-stream` only, no Storage policies) is provisioned and drift-checked
+by `scripts/deploy-staging.py` from `infra/staging.json`, like every other bucket. Inventory: `app_private.note_assets`
+(account, blob, stored-bytes SHA-256, length, `pending|ready`, attempt count/time), environment totals and monthly
+transfer counters, all RLS deny-by-default and reachable only through service-role functions. Logs carry method,
+status, error code, byte count and duration only.
+
+Account deletion plans every inventoried object plus the `{account}/` folder. While a pending object's last write
+began less than 10 minutes ago (above Edge's wall-clock limit) nothing is removed and `account-delete` answers
+`complete:false`; the worker sweep finishes later. After removal the function lists the folder again and only an
+empty listing lets `finish` delete the inventory rows and release capacity. The Cloud Run worker's sweep runs the
+previous shared module until its next deploy: it removes every inventoried object but does not re-list. Ready
+objects are included in `scripts/backup.py` checkpoints and counted by `restore-local.py`. Owner's Spending page
+(admin) shows stored/pending bytes and this month's downloads and read-backs against the limits.
+
+Supabase's gateway held an early refusal (401, 413, …) to an unread upload body over a few hundred KiB until a 504
+after 160 s; the function therefore reads and discards (never buffers) up to 4 MiB of a refused body before
+answering. A client that declares more than that may still see a gateway timeout instead of 413.
+
 ## Product contract
 
 A **note** is a named, ordered stream of snippets and the reader's own writing. A note can be a project spanning

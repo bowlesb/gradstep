@@ -137,6 +137,9 @@ def backup(environment, output):
             counts.append(f"select '{schema}.{name}' as identity,count(*) as count from \"{schema}\".\"{name}\"")
         metadata['table_counts'] = snapshot.query("select jsonb_object_agg(identity,count) from ("+' union all '.join(counts)+') counts')
         objects = snapshot.query("select coalesce(jsonb_agg(jsonb_build_object('id',id,'bucket',bucket,'path',path,'bytes',byte_count,'sha256',encode(sha256,'hex'),'media_type',media_type) order by id),'[]') from app_private.stored_objects where state='verified'")
+        # Encrypted note images (migration 095) have their own inventory; ready objects are named by its row ID.
+        if snapshot.query("select to_jsonb(to_regclass('app_private.note_assets') is not null)"):
+            objects += snapshot.query("select coalesce(jsonb_agg(jsonb_build_object('id',id,'bucket','note-assets','path',account_id::text||'/'||blob_id::text,'bytes',byte_count,'sha256',encode(sha256,'hex'),'media_type','application/octet-stream') order by id),'[]') from app_private.note_assets where state='ready'")
         if len(objects) > 20000 or sum(item['bytes'] for item in objects) > MAX_BYTES:
             raise RuntimeError('Object checkpoint exceeds manual backup size limit')
         with tempfile.TemporaryFile() as dump_errors:
@@ -150,7 +153,7 @@ def backup(environment, output):
                 if dump.poll() is None:
                     dump.kill(); dump.wait()
         for item in objects:
-            if item['bucket'] not in ['paper-assets','paper-uploads','podcast-assets','private-content','support'] or not re.fullmatch(r'[0-9a-f-]{36}', item['id']):
+            if item['bucket'] not in ['paper-assets','paper-uploads','podcast-assets','private-content','support','note-assets'] or not re.fullmatch(r'[0-9a-f-]{36}', item['id']):
                 raise RuntimeError('Unexpected object identity')
             path = item['path']
             if path.startswith('/') or any(part in ['', '.', '..'] for part in path.split('/')) or '\\' in path:

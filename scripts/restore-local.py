@@ -206,7 +206,11 @@ def restore(checkpoint, environment, fixture=None):
             if sql("select count(*) from pg_tables where schemaname='app_private' and not rowsecurity;").strip() != '0':
                 raise RuntimeError('Restored application table lacks RLS')
             expected = len(manifest['objects'])
-            if int(sql("select count(*) from app_private.stored_objects where state='verified';").strip()) != expected:
+            restored = int(sql("select count(*) from app_private.stored_objects where state='verified';").strip())
+            # Encrypted note images (migration 095) are inventoried separately; checkpoints before it have none.
+            if sql("select to_regclass('app_private.note_assets') is not null;").strip() == 't':
+                restored += int(sql("select count(*) from app_private.note_assets where state='ready';").strip())
+            if restored != expected:
                 raise RuntimeError('Restored object references differ from checkpoint')
             # Test-only identities/data supplied on stdin by the synthetic check.
             if fixture:

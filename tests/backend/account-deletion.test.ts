@@ -20,7 +20,7 @@ function fakeService(files: Record<string, string[]>, options: { failRemoveTimes
       },
       remove: async (paths: string[]) => {
         if (removeFailures > 0) { removeFailures--; return { error: { message: 'temporary' } }; }
-        removed.push({ bucket, paths }); return { error: null };
+        removed.push({ bucket, paths }); files[bucket] = tree(bucket).filter(path => !paths.includes(path)); return { error: null };
       },
     }) },
     rpc: async (name: string) => {
@@ -72,6 +72,9 @@ test('only the account’s own folders and its conversions’ raw/reader folders
   assert.ok(allowedPrefix(account, 'paper-assets', `raw/${sha}/`) && allowedPrefix(account, 'paper-assets', `reader/${sha}/`));
   assert.ok(allowedPrefix(account, 'support', `${account}/`));
   assert.ok(allowedPrefix(account, 'paper-uploads', `${account}/`), 'PDF uploads (migration 039)');
+  // Encrypted note images (migration 095): the account's own folder only.
+  assert.ok(allowedPrefix(account, 'note-assets', `${account}/`));
+  assert.ok(!allowedPrefix(account, 'note-assets', '') && !allowedPrefix(account, 'note-assets', 'other/') && !allowedPrefix(account, 'note-assets', `private/${account}/`));
   for (const [bucket, prefix] of [['paper-assets', 'private/other/'], ['paper-assets', 'reader/'], ['paper-assets', 'originals/'],
     ['support', 'other/'], ['paper-uploads', 'other/'], ['paper-uploads', ''], ['private-content', `${account}/`], ['paper-assets', `raw/${sha}/../`]]) {
     assert.equal(allowedPrefix(account, bucket, prefix), false, `${bucket}:${prefix}`);
@@ -126,4 +129,20 @@ test('a truncated file or folder scan never confirms erasure or releases capacit
     assert.ok(listed <= 21, 'an incomplete scan is not retried three times');
     assert.deepEqual([removed, finished, loginDeleted], [0, 0, 0]);
   }
+});
+
+test('note images: every planned object and the folder are removed, and a second listing must be empty', async () => {
+  const blob = '0f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a', stray = '7b0e8c1d-2a3f-4c5d-8e6f-7a8b9c0d1e2f';
+  const { service, removed, rpcs } = fakeService({ 'note-assets': [`${account}/${blob}`, `${account}/${stray}`, `other/${blob}`] });
+  const plan = { objects: [{ bucket: 'note-assets', path: `${account}/${blob}` }], prefixes: [{ bucket: 'note-assets', prefix: `${account}/` }] };
+  assert.deepEqual(await completeAccountDeletion(service, account, plan), { complete: true });
+  assert.deepEqual(removed.flatMap(r => r.paths).sort(), [`${account}/${blob}`, `${account}/${stray}`], 'an uninventoried object in the folder too; never another account');
+  assert.deepEqual(rpcs, ['worker_delete_account_finish']);
+
+  // Storage reports success but the folder still lists an object: not finished, inventory rows kept.
+  const stuck = fakeService({ 'note-assets': [`${account}/${blob}`] });
+  const unremoved = { ...stuck.service as object, storage: { from: (bucket: string) => ({ ...(stuck.service as never as { storage: { from(b: string): object } }).storage.from(bucket),
+    remove: async () => ({ error: null }) }) } } as never;
+  assert.deepEqual(await completeAccountDeletion(unremoved, account, plan), { complete: false, step: 'files', code: 'deletion_unverified' });
+  assert.deepEqual(stuck.rpcs, [], 'finish (which removes the inventory rows) is not called');
 });
