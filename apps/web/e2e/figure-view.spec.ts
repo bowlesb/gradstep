@@ -12,15 +12,17 @@ import {durableKeys} from './key-capability';
 const html=readFileSync(new URL('../../../tests/fixtures/reader-arxiv/source.html',import.meta.url));
 const raster=readFileSync(new URL('../../../tests/fixtures/reader-mathpix/figure-exif.jpg',import.meta.url));
 const member='58000000-0000-4000-8000-000000000003';
+// A real two-plot figure (DPO's Figure 2, from the apps' bundled sample; 1360 × 501) for the completed crops.
+const twoPlots=readFileSync(new URL('../../apple/ScienceReader/Resources/ReaderSamples/cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71/assets/71e93518051c67deb7400d9a48cc2ee6f96ed251dd2b8f916ab4fca9a702418c.jpg',import.meta.url));
 // A second figure, for the walkthrough's heading menu.
 const twoFigures=html.toString('utf8').replace('<figure id="tab1">','<figure id="S1.F2"><img src="2601.01234v2/figure.jpg"><figcaption>Figure 2: A second figure.</figcaption></figure><figure id="tab1">');
 // The authored arXiv fixture as a source membership (the official HTML this browser prepares), as the equation journey.
-async function openFixture(page:Page,request:APIRequestContext,source:Buffer|string=html){
+async function openFixture(page:Page,request:APIRequestContext,source:Buffer|string=html,image:Buffer=raster){
  await request.post(`${fixtureOrigin}/__reset`);
  await page.route('https://arxiv.org/**',async route=>{
   const url=route.request().url();
   if(url==='https://arxiv.org/html/2601.01234v2')await route.fulfill({status:200,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:source});
-  else if(url==='https://arxiv.org/html/2601.01234v2/figure.jpg')await route.fulfill({status:200,contentType:'image/jpeg',headers:{'access-control-allow-origin':'*'},body:raster});
+  else if(url==='https://arxiv.org/html/2601.01234v2/figure.jpg')await route.fulfill({status:200,contentType:'image/jpeg',headers:{'access-control-allow-origin':'*'},body:image});
   else throw Error('Unexpected source acquisition '+url);
  });
  await page.route(`${fixtureOrigin}/rest/v1/rpc/v3_library_page`,async route=>{
@@ -96,8 +98,10 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer.getByTestId('figure-summary')).toBeVisible();
  const crop=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
  await expect(crop).toBeVisible();
- // The authored bitmap is 12 pixels wide: the 2% margin rounds outward to 7 complete pixels, not a fractional 6.24.
- expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['171.43% 100%','100%','0%',true]);
+ // The authored bitmap is 12 pixels wide and one block of ink: the completed crop is exactly the right half (6 whole
+ // pixels), on 8 pixels of white background (FIGURE_VIEW.md "Complete crops"; padding percentages are of the width).
+ expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,'),s.backgroundClip,
+  Math.round(parseFloat(s.paddingLeft)/e.getBoundingClientRect().width*1000)/1000];})).toEqual(['200% 100%, 100% 100%','100%, 0%','0%, 0%',true,'content-box, border-box',Math.round(8/22*1000)/1000]);
  // Math is typeset, [¶N] is a link; AI Explainer has gone, Explain in Chat stays; no credit counts (owner, build 59).
  await expect(viewer.getByTestId('figure-section-1').locator('math')).toBeVisible();
  await expect(viewer.getByTestId('figure-section-0').locator('.cite')).toHaveText('¶2');
@@ -154,7 +158,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(closer).toContainText('three boxes joined by arrows');
  const closerCrop=closer.getByTestId('figure-detail-crop');
  await expect(closerCrop).toBeVisible();
- expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['171.43% 100%','0%','0%']);
+ expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['200% 100%, 100% 100%','0%, 0%','0%, 0%']);
  await expect(closer.getByTestId('figure-detail-no-crop')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
  sent=await chats();
@@ -381,4 +385,41 @@ test('concept and related-work cards keep distinct titles and paper provenance w
  await expect(viewer.getByTestId('figure-detail-item')).toHaveCount(0);
  await page.keyboard.press('Escape');
  await page.screenshot({path:`../../.artifacts/figure-card-kinds-${test.info().project.name}.png`});
+});
+
+// Owner, 2026-10-21: "ALWAYS include all pixels of the figure when it breaks it up into subplots" and "some margin around
+// them". The walkthrough's boxes clip titles, tick labels and axis titles, as models write them; each crop is completed on
+// this device (figure-crops.ts) and shown on a margin of background, with no coverage note since the crops hold all ink.
+test('crops of a real two-plot figure are completed over the ink they cut and shown with a margin',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ // FIGURE_CROPS_STAGE=before names the screenshots of a build without the step (the assertions are soft so they're taken).
+ const stage=process.env.FIGURE_CROPS_STAGE??'after',shot=(name:string)=>`../../.artifacts/figure-crops/${stage}-browser-${name}-${test.info().project.name}.png`;
+ await openFixture(page,request,html,twoPlots);
+ await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{mode:'figure_panels'}});
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
+ const viewer=await openFigure(page);
+ await page.screenshot({path:shot('figure-page-light')});
+ await viewer.getByTestId('figure-explain').click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ const left=viewer.getByTestId('figure-section-0').getByTestId('figure-crop'),right=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
+ await expect(left).toBeVisible();await expect(right).toBeVisible();
+ await left.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('walkthrough-light')});
+ await expect.soft(viewer.getByTestId('figure-coverage-fallback')).toHaveCount(0);
+ // Completed on the 1360 × 501 image sent: [8, 8, 672, 492] and [704, 16, 1352, 496], each with 10 px of background on
+ // every side; the clipped boxes with the old 2 % margin were 626 × 416 and 626 × 416.
+ const aspect=async(l:typeof left)=>{const b=(await l.boundingBox())!;return b.width/b.height;};
+ expect.soft(await aspect(left)).toBeCloseTo(684/504,1);expect.soft(await aspect(right)).toBeCloseTo(668/500,1);
+ await viewer.getByTestId('figure-section-menu-1').click();
+ await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
+ const closer=viewer.getByTestId('figure-section-1').getByTestId('figure-detail-crop');
+ await expect(closer).toBeVisible();expect.soft(await aspect(closer)).toBeCloseTo(668/500,1);
+ await closer.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('detail-light')});
+ await page.emulateMedia({colorScheme:'dark'});
+ await left.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('walkthrough-dark')});
+ await closer.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('detail-dark')});
+ await page.emulateMedia({colorScheme:'light'});
 });

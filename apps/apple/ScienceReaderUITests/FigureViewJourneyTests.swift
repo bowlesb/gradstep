@@ -33,11 +33,11 @@ final class FigureViewJourneyTests: XCTestCase {
         return app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    private func launch(appearance: String = "light") -> XCUIApplication {
+    private func launch(appearance: String = "light", extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=figure_walkthrough", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
-                               "-appearance", appearance]
+                               "-appearance", appearance] + extra
         app.launch()
         // The fixture selects its arXiv paper: the Paper tab on a phone, Reader in the wide layout.
         XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
@@ -221,6 +221,53 @@ final class FigureViewJourneyTests: XCTestCase {
         app.typeText(" Follow-up")
         XCTAssertTrue((promotedComposer.value as? String ?? "").hasSuffix(" Follow-up"), "Promotion focuses the retained composer")
         capture(app, "Continue the same figure conversation in Chat")
+    }
+
+    /// A real two-plot figure whose boxes clip titles, tick labels and axis titles, as models write them (owner,
+    /// 2026-10-21: "ALWAYS include all pixels of the figure when it breaks it up into subplots"): each part's crop is
+    /// completed on the device and shown with a margin of background; no coverage note, since the crops hold all ink.
+    func testCropsOfARealTwoPlotFigureAreCompleteWithMargins() throws { completeCrops(appearance: "light") }
+    func testCropsOfARealTwoPlotFigureAreCompleteWithMarginsDark() throws { completeCrops(appearance: "dark") }
+
+    private func completeCrops(appearance: String) {
+        let app = launch(appearance: appearance, extra: ["--figure-fixture-panels"])
+        openFigureOne(app)
+        capture(app, "Two-plot figure page (\(appearance))")
+        app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        let left = app.descendants(matching: .any)["figureView.section.1.crop"], right = app.descendants(matching: .any)["figureView.section.2.crop"]
+        XCTAssertTrue(left.waitForExistence(timeout: 10), "the left plot, cropped"); XCTAssertTrue(right.waitForExistence(timeout: 5), "the right plot, cropped")
+        XCTAssertFalse(app.staticTexts["figureView.coverageFallback"].exists, "the completed crops hold all of the figure's ink")
+        // Completed on the 1360×501 image sent: the left crop is [8, 8, 672, 492] plus 10 px of background on every side
+        // (684 × 504, aspect 1.36); the clipped box with the old 2 % margin was 626 × 416 (1.50).
+        XCTAssertEqual(left.frame.width / left.frame.height, 684.0 / 504.0, accuracy: 0.04, "left crop \(left.frame)")
+        XCTAssertEqual(right.frame.width / right.frame.height, (1352.0 - 704 + 20) / (496.0 - 16 + 20), accuracy: 0.04, "right crop \(right.frame)")
+        // Each crop whole on screen, above the composer, for the screenshots.
+        let composer = app.descendants(matching: .any)["contextChat.composer"].firstMatch
+        let inView = { (crop: XCUIElement) in crop.isHittable && crop.frame.minY > 120 && crop.frame.maxY < composer.frame.minY - 8 }
+        #if targetEnvironment(macCatalyst)
+        let page = app.scrollViews["figureView.walkthrough"]
+        for _ in 0..<6 where !inView(left) { page.scroll(byDeltaX: 0, deltaY: left.frame.maxY >= composer.frame.minY ? -120 : 120) }
+        #else
+        for _ in 0..<6 where !inView(left) { left.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
+        #endif
+        capture(app, "Two-plot walkthrough: left plot (\(appearance))")
+        #if targetEnvironment(macCatalyst)
+        for _ in 0..<6 where !inView(right) { page.scroll(byDeltaX: 0, deltaY: right.frame.maxY >= composer.frame.minY ? -120 : 120) }
+        #else
+        for _ in 0..<6 where !inView(right) { right.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
+        #endif
+        capture(app, "Two-plot walkthrough: right plot (\(appearance))")
+        partMenu(app, 2).tap()
+        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
+        let closer = app.descendants(matching: .any)["figureView.section.2.detailCrop"]
+        XCTAssertTrue(closer.waitForExistence(timeout: 10), "the right plot, up close")
+        XCTAssertEqual(closer.frame.width / closer.frame.height, right.frame.width / right.frame.height, accuracy: 0.04, "the same completed region")
+        #if !targetEnvironment(macCatalyst)
+        for _ in 0..<6 where !inView(closer) { closer.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
+        #endif
+        capture(app, "Two-plot walkthrough: right plot up close (\(appearance))")
     }
 
     /// Report this screen on the sheets that had no "…" (where the builds 66–76 feedback was given), with the app's own

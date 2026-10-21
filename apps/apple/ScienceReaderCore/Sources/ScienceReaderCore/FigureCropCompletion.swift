@@ -1,4 +1,5 @@
 import CoreGraphics
+import ImageIO
 import Foundation
 
 // The completeness step for AI-written figure crops (docs/reviews/SUBFIGURE_DETECTOR_20261021.md, integration step 1;
@@ -270,6 +271,27 @@ public struct PresentedCrop: Equatable, Sendable {
         let p = Double(FigureCropCompletion.padding(width: width, height: height)), W = Double(width), H = Double(height)
         let r = crop ?? CropRect(0, 0, W, H)
         region = CropRect(r.x0 / W, r.y0 / H, r.x1 / W, r.y1 / H); whole = crop == nil; padX = p / W; padY = p / H
+    }
+
+    /// Without the pixels to check (the image couldn't be decoded): the AI's box with the earlier 2 % of context, padded.
+    public init(unchecked fractions: CropRect) {
+        region = CropRect(max(0, fractions.x0 - 0.02), max(0, fractions.y0 - 0.02), min(1, fractions.x1 + 0.02), min(1, fractions.y1 + 0.02))
+        whole = false; padX = 0.01; padY = 0.01
+    }
+
+    /// Every box of one figure, completed together on the ink of the image the request carried (or unchecked without it),
+    /// with the share of the figure's ink the presented crops show (nil without the ink, or without boxes).
+    public static func all(_ fractions: [CropRect], ink: FigureInk?) -> (crops: [PresentedCrop], coverage: Double?) {
+        guard !fractions.isEmpty else { return ([], nil) }
+        guard let ink else { return (fractions.map { PresentedCrop(unchecked: $0) }, nil) }
+        let result = FigureCropCompletion.complete(ink, fractions: fractions)
+        return (result.crops.map { PresentedCrop(ink: ink.width, ink.height, crop: $0) }, result.coverage)
+    }
+
+    /// The image a request carried (JPEG or PNG bytes), decoded as the device decodes it, as ink.
+    public static func ink(of encoded: Data) -> FigureInk? {
+        guard let source = CGImageSourceCreateWithData(encoded as CFData, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return FigureInk(image: image)
     }
 
     /// The region cut from an image of this size (outward rounding) on a background of its padding: a new image, drawn on

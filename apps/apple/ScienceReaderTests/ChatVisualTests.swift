@@ -91,8 +91,11 @@ struct ChatFigureTests {
         let context = try #require(CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         let image = try #require(context.makeImage())
-        let crop = try #require(FigurePartsView.crop(image, [0, 0, 0.5, 1]))
-        #expect(crop.width == 100 && crop.height == 100)
+        // A uniform (black) figure is one figure-wide component: the crop is the box, on a margin of white (8 px here).
+        let crops = FigurePartCrop.all(stored, image: image, asset: nil)
+        let crop = try #require(crops.first ?? nil)
+        #expect(crop.image.width == 100 + 16 && crop.image.height == 100 + 16 && !crop.whole)
+        #expect(crop.region == CropRect(0, 0, 0.5, 1))
     }
 
     @Test func theStreamCarriesParts() throws {
@@ -118,10 +121,11 @@ struct FigurePartsRenderingTests {
             .init(label: "DPO: final LM", box: [0.76, 0.15, 1.00, 0.80], note: "Trained directly, no reward model or RL."),
         ]
         let stored = StoredFigureParts(manifestSHA256: String(repeating: "0", count: 64), blockID: "b", assetPath: "x", paragraph: 7, title: "RLHF vs. DPO", parts: parts)
+        let crops = FigurePartCrop.all(stored, image: image, asset: data)
         // The image renderer draws no scroll views: their contents are rendered directly.
         let view = VStack(alignment: .leading, spacing: 16) {
-            FigurePartsThumbnails(stored: stored, image: image, fontSize: 17).fixedSize()
-            FigurePartsContent(stored: stored, image: image)
+            FigurePartsThumbnails(stored: stored, image: image, crops: crops, fontSize: 17).fixedSize()
+            FigurePartsContent(stored: stored, image: image, crops: crops)
         }.padding(16).frame(width: 760, alignment: .leading).clipped().background(Color.white)
         let renderer = ImageRenderer(content: view); renderer.scale = 2; renderer.proposedSize = ProposedViewSize(width: 760, height: nil)
         let png = try #require(renderer.uiImage?.pngData())

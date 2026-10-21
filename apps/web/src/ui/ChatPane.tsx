@@ -14,7 +14,7 @@ import { AnswerOptionsDialog, ExplainerModelDialog } from './ChatProfile';
 import { safeLink } from '../lib/links';
 import { Dialog, formatDate, MenuButton } from './common';
 import { CopyButton } from './CopyButton';
-import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL } from './Diagram';
+import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL, usePartCrops } from './Diagram';
 import { Icon, iconName } from './icons';
 import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
@@ -555,10 +555,11 @@ function FigurePartsAnswer({ text, diagram, image }: { text: string; diagram: { 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagram.source]);
   const { url, size } = useFigureDataURL(figure);
+  const crops = usePartCrops(stored, figure);
   return <>
     <div className="answer-with-parts">{partSegments(text, stored.parts.length).map((segment, i) => segment.kind === 'text'
       ? <Answer key={i} text={segment.text} />
-      : <FigurePartInline key={i} number={segment.number} part={stored.parts[segment.number - 1]} url={url} size={size} />)}</div>
-    <FigurePartsOverview title={diagram.title} stored={stored} url={url} size={size} />
+      : <FigurePartInline key={i} number={segment.number} part={stored.parts[segment.number - 1]} url={url} size={size} shown={crops?.[segment.number - 1]} />)}</div>
+    <FigurePartsOverview title={diagram.title} stored={stored} url={url} size={size} crops={crops} />
   </>;
 }

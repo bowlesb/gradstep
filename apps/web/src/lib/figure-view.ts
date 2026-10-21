@@ -121,6 +121,19 @@ export function cropStyle(box: FigureBox, image: { width: number; height: number
   return { aspect: (box.w * image.width) / Math.max(1e-6, box.h * image.height), size: `${pct(1 / box.w)} ${pct(1 / box.h)}`,
     position: `${pct(at(box.x, box.w))} ${pct(at(box.y, box.h))}` };
 }
+/** A completed crop (figure-crops.ts `presented`) as CSS for the crop element: its region of the sent image fills the
+ * content box, and a margin of white background (the figure's own, as figures are drawn on white) pads it on every side,
+ * scaled with the crop (padding percentages are of the width). `aspect` includes the padding. */
+export function paddedCropStyle(shown: { region: [number, number, number, number]; padX: number; padY: number }, image: { width: number; height: number }):
+  { aspect: number; style: Record<string, string> } {
+  const [l, t, r, b] = shown.region, region = cropRect({ x: l, y: t, w: r - l, h: b - t }, image);
+  const plain = cropStyle({ x: region.x / image.width, y: region.y / image.height, w: region.width / image.width, h: region.height / image.height }, image);
+  const pad = Math.max(1, Math.round(shown.padX * image.width)), outerW = region.width + 2 * pad, outerH = region.height + 2 * pad;
+  const pct = (n: number) => `${Math.round(n * 1e6) / 1e4}%`;
+  return { aspect: outerW / outerH, style: { boxSizing: 'border-box', padding: pct(pad / outerW),
+    backgroundOrigin: 'content-box, border-box', backgroundClip: 'content-box, border-box', backgroundRepeat: 'no-repeat',
+    backgroundSize: `${plain.size}, 100% 100%`, backgroundPosition: `${plain.position}, 0% 0%` } };
+}
 /** The box in pixels of the sent image, clamped to it (an outline over the whole figure, or a canvas crop). */
 export function cropRect(box: FigureBox, image: { width: number; height: number }): { x: number; y: number; width: number; height: number } {
   const x = Math.min(image.width - 1, Math.max(0, Math.floor(box.x * image.width + 1e-9))), y = Math.min(image.height - 1, Math.max(0, Math.floor(box.y * image.height + 1e-9)));

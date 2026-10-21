@@ -1,5 +1,47 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Complete crops — 2026-10-21 (local source; not released, not deployed)
+
+Owner, TestFlight feedback: "ALWAYS include all pixels of the figure when it breaks it up into subplots", "The crop
+dimensions are not good", "Looks like the whole sub figure not included?"; and, 2026-10-21, "when we present user
+figures they have some margin around them". Integration step 1 of the
+[subfigure detector review](../reviews/SUBFIGURE_DETECTOR_20261021.md): a model-free completeness step on every
+AI-written crop, on both clients, with no server, prompt, schema or storage change (boxes are stored as the AI wrote
+them; completion is recomputed wherever a crop is shown).
+
+- **Where.** Walkthrough panel cards (all boxes completed together), each "Extract the subfigure" detail (alone), and
+  chat figure parts (all parts of one answer together: inline, strip, overview and full view) on iPhone/iPad/Mac and
+  in the browser.
+- **On what.** The exact image the request carried: the walkthrough's sent JPEG; for chat parts, the paper's figure
+  prepared again exactly as it was sent (`ChatFigureFinder.prepare` / `prepareFigure`). Ink is `min(R,G,B) < 235`.
+- **Steps** (`scripts/subfigure-detector/app_crops.py`, ported to `ScienceReaderCore/FigureCropCompletion.swift` and
+  `apps/web/src/lib/figure-crops.ts`; same parameters as the research `policy.complete`): ink components (dilation
+  radius 0.3% of the long side, 4-connected); each box grows over the components it cuts (labels, ticks, its own
+  clipped body; never more than 8% into another box; at most 4 passes). Only when the grown boxes hold ≥ 70% of the
+  ink (they tile the figure) is unowned ink attached to the nearest box(es) — and only context-sized ink (at most half
+  that box), with ink inside a held shared legend staying with it. App additions over the research policy, needed
+  because AI boxes include single detail boxes and partial sets: that tiling gate, the size limit and the held
+  legend. A box that still cuts a component it may own (not a figure-wide frame/background, not mostly another box's)
+  shows **the whole figure** for that card, with "Shown whole: a crop would cut part of this panel off."
+- **Margin.** Every presented crop, and a whole-figure card, is cut exactly and drawn on padding of the figure's white
+  background: `max(8, round(2% of the shorter side))` pixels of the sent image, scaled with the crop (never more of the
+  image, so a neighbour's ink cannot show at an edge). This replaces the earlier 2% image margin.
+- **Coverage note.** "The detail cards do not cover the entire image…" now means the crops leave some of the figure's
+  *ink* out (pixel-exact over the presented rectangles; whole-figure cards cover everything), instead of some *area*.
+  Without decodable pixels both clients fall back to the AI box with the old 2% context and the old area rule.
+- **Off the main thread.** Native: the ink is decoded once per figure view and completion/cutting runs in a detached
+  task; chat parts are completed once per answer and kept in a bounded cache. Nothing shows until the crop is
+  known, so a crop never appears and then changes size. Browser: on the page thread (tens of ms per figure).
+- **Fixtures.** `tests/fixtures/figure-crops/` (`export_crop_fixtures.py`): three DPO figures from the bundled sample
+  and one generated lettered grid; cases for clipped axis labels, stray letters with a shared legend, a partial set,
+  a box that cannot be completed (whole figure), a detail slice (whole figure), halves, filled panels and a known
+  limit (a filled panel background is one figure-wide component, so a box inside it is not checked). Swift and
+  TypeScript reproduce every rectangle exactly (tolerance 1 px), the component digest, ink count and coverage.
+
+Known limits: no semantic check that a crop holds *its* legend or letter; ink components joined through a plot's
+lines can make a small detail box fall back to the whole figure (by design: no clipped slice is shown); dark-background
+figures (everything is ink) are left as the AI drew them.
+
 ## Complete image coverage and card types — 2026-10-18 (TestFlight 73; backend/browser deployed)
 
 Owner feedback ALCJLruWVHFOYNzJoULIvSY asks for every pixel to remain represented in the presentation, usually

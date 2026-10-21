@@ -61,6 +61,7 @@ struct SharedPresentations: ViewModifier {
                 if let diagram = model.diagram(presented.id) {
                     DiagramSheet(diagram: diagram).macSheetKeys()
                         .environment(\.figureImage) { manifest, paths in model.figureImage(manifest: manifest, paths: paths) }
+                        .environment(\.figurePartCrops) { stored in model.figurePartCrops(stored) }
                 }
             }
             .sheet(isPresented: routed($model.showReport), onDismiss: {

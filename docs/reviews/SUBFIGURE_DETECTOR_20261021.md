@@ -305,7 +305,10 @@ images (202 ms median, busy host CPU); R18 r2 80.2 MB, max box error 0.00061. Pa
 `.artifacts/subfigure-detector-20261021/export/`. App memory, cancellation, iPhone and browser timing remain
 unmeasured; physical-device work stays paused.
 
-## Integration proposal (not implemented)
+## Integration proposal (step 1 built 2026-10-21, local source; steps 2–5 not implemented)
+
+Step 1 as built, with its app additions (a tiling gate, a size limit for attached ink, held shared legends, padding of
+background) and shared fixtures: [Complete crops](../architecture/FIGURE_VIEW.md#complete-crops--2026-10-21-local-source-not-released-not-deployed).
 
 1. **Completeness check on every displayed crop, now** — pure geometry on the exact image the request
    carried, in Swift and TypeScript: grow each AI box over the ink it cuts (never into another part), attach

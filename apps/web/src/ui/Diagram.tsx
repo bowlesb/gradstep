@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Dialog } from './common';
 import { CopyButton } from './CopyButton';
 import { decodeStoredFigureParts, type StoredFigureParts } from '../lib/chat-figures';
+import type { PresentedCrop, Rect } from '../lib/figure-crops';
+import { useCompletedCrops, useFigureBlobInk } from './useFigureCrops';
 
 // The document a visual answer is shown in: the server's own function (D8), no copy to drift.
 import { visualDocument } from '../../../../supabase/functions/_shared/visual-document.ts';
@@ -200,46 +202,59 @@ export function useFigureDataURL(image: Blob | null): { url: string | null; size
   return { url, size };
 }
 
-/** One part cropped from the figure, fitted within `width` × `width` and never magnified past 3×. */
-function Crop({ url, size, box, width }: { url: string; size: { w: number; h: number }; box: [number, number, number, number]; width: number }) {
-  const [l, t, r, b] = box, cw = (r - l) * size.w, ch = (b - t) * size.h, scale = Math.min(width / cw, width / ch, 3);
-  return <div className="figure-part-crop" style={{ width: Math.round(cw * scale), height: Math.round(ch * scale) }}>
-    <img src={url} alt="" style={{ width: size.w * scale, height: size.h * scale, transform: `translate(${-l * size.w * scale}px, ${-t * size.h * scale}px)` }} /></div>;
+/** Every part's crop completed on the figure as the question carried it (FIGURE_VIEW.md "Complete crops"): undefined
+ * while that is worked out (no crop shows and then changes size), or without the paper's image on this device. */
+export function usePartCrops(stored: StoredFigureParts | null, image: Blob | null): PresentedCrop[] | undefined {
+  return useCompletedCrops(useFigureBlobInk(image), (stored?.parts ?? []).map(p => p.box as Rect))?.crops;
+}
+
+/** One part cropped from the figure on a margin of background, fitted within `width` × `width` and never magnified past
+ * 3×. A part that couldn't be cropped without cutting it off shows the whole figure. */
+function Crop({ url, size, shown, width }: { url: string; size: { w: number; h: number }; shown: PresentedCrop; width: number }) {
+  const [l, t, r, b] = shown.region, cw = (r - l) * size.w, ch = (b - t) * size.h, pad = Math.max(1, shown.padX * size.w);
+  const scale = Math.min(width / (cw + 2 * pad), width / (ch + 2 * pad), 3);
+  return <div className="figure-part-crop" data-whole={shown.whole || undefined} style={{ padding: pad * scale }}>
+    <div className="figure-part-crop-region" style={{ width: Math.round(cw * scale), height: Math.round(ch * scale) }}>
+      <img src={url} alt="" style={{ width: size.w * scale, height: size.h * scale, transform: `translate(${-l * size.w * scale}px, ${-t * size.h * scale}px)` }} /></div></div>;
 }
 
 /** One part inline in an answer, where the answer discusses it: its number, label and crop (no note: the prose is it).
  * Without the paper on this device, the number and label only. */
-export function FigurePartInline({ number, part, url, size }: { number: number; part: StoredFigureParts['parts'][number]; url: string | null; size: { w: number; h: number } | null }) {
+export function FigurePartInline({ number, part, url, size, shown }: { number: number; part: StoredFigureParts['parts'][number]; url: string | null; size: { w: number; h: number } | null; shown?: PresentedCrop }) {
   return <figure className="figure-part-inline" data-testid="figure-part-inline" aria-label={`Part ${number}: ${part.label}`}>
     <figcaption><span className="figure-part-badge">{number}</span>{part.label}</figcaption>
-    {url && size && <Crop url={url} size={size} box={part.box} width={280} />}
+    {url && size && shown && <Crop url={url} size={size} shown={shown} width={280} />}
   </figure>;
 }
 
 /** The whole figure with its parts outlined and numbered, and every part with its note (the full view). */
-function WholeFigureDialog({ title, stored, url, size, open, onClose }: { title: string; stored: StoredFigureParts; url: string | null; size: { w: number; h: number } | null; open: boolean; onClose: () => void }) {
+function WholeFigureDialog({ title, stored, url, size, open, onClose, crops }: { title: string; stored: StoredFigureParts; url: string | null; size: { w: number; h: number } | null; open: boolean; onClose: () => void; crops?: PresentedCrop[] }) {
   return <Dialog open={open} onClose={onClose} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={onClose}>Done</button></div>
-    {url && size && <OutlinedFigure stored={stored} url={url} size={size} title={title} width={`min(100%, ${Math.max(360, size.w)}px)`} />}
-    <ol className="figure-parts-notes">{stored.parts.map((p, i) => <li key={i}>{url && size && <Crop url={url} size={size} box={p.box} width={220} />}<div><strong>{p.label}</strong><p>{p.note}</p></div></li>)}</ol>
+    {url && size && <OutlinedFigure stored={stored} url={url} size={size} title={title} width={`min(100%, ${Math.max(360, size.w)}px)`} crops={crops} />}
+    <ol className="figure-parts-notes">{stored.parts.map((p, i) => <li key={i}>{url && size && crops?.[i] && <Crop url={url} size={size} shown={crops[i]} width={220} />}<div><strong>{p.label}</strong><p>{p.note}</p></div></li>)}</ol>
   </Dialog>;
 }
-function OutlinedFigure({ stored, url, size, title, width }: { stored: StoredFigureParts; url: string; size: { w: number; h: number }; title: string; width: string }) {
-  return <div className="figure-parts-whole" style={{ width, aspectRatio: `${size.w} / ${size.h}` }}>
+/** The whole figure on a margin of background, each part outlined where its crop is (the AI's box where the crop is the
+ * whole figure, or isn't worked out yet). */
+function OutlinedFigure({ stored, url, size, title, width, crops }: { stored: StoredFigureParts; url: string; size: { w: number; h: number }; title: string; width: string; crops?: PresentedCrop[] }) {
+  return <div className="figure-parts-whole" style={{ width }}><div className="figure-parts-whole-image" style={{ aspectRatio: `${size.w} / ${size.h}` }}>
     <img src={url} alt={title} width={size.w} height={size.h} />
-    {stored.parts.map((p, i) => <span key={i} className="figure-part-outline" style={{ left: `${p.box[0] * 100}%`, top: `${p.box[1] * 100}%`,
-      width: `${(p.box[2] - p.box[0]) * 100}%`, height: `${(p.box[3] - p.box[1]) * 100}%` }}><span>{i + 1}</span></span>)}
-  </div>;
+    {stored.parts.map((p, i) => {
+      const [l, t, r, b] = crops?.[i] && !crops[i].whole ? crops[i].region : p.box;
+      return <span key={i} className="figure-part-outline" style={{ left: `${l * 100}%`, top: `${t * 100}%`, width: `${(r - l) * 100}%`, height: `${(b - t) * 100}%` }}><span>{i + 1}</span></span>;
+    })}
+  </div></div>;
 }
 
 /** Under an answer whose parts are inline: the whole figure, small, its parts outlined; a click opens the full view. */
-export function FigurePartsOverview({ title, stored, url, size }: { title: string; stored: StoredFigureParts; url: string | null; size: { w: number; h: number } | null }) {
+export function FigurePartsOverview({ title, stored, url, size, crops }: { title: string; stored: StoredFigureParts; url: string | null; size: { w: number; h: number } | null; crops?: PresentedCrop[] }) {
   const [open, setOpen] = useState(false);
   return <div className="figure-parts figure-parts-overview" data-testid="figure-parts-overview">
     <button type="button" className="figure-parts-overview-button" onClick={() => setOpen(true)} aria-label={`Whole figure: ${title}, ${stored.parts.length} parts outlined. Open it`}>
-      {url && size && <OutlinedFigure stored={stored} url={url} size={size} title={title} width={`${Math.min(240, size.w)}px`} />}
+      {url && size && <OutlinedFigure stored={stored} url={url} size={size} title={title} width={`${Math.min(240, size.w)}px`} crops={crops} />}
       <span className="fine">{title} · whole figure</span>
     </button>
-    <WholeFigureDialog title={title} stored={stored} url={url} size={size} open={open} onClose={() => setOpen(false)} />
+    <WholeFigureDialog title={title} stored={stored} url={url} size={size} open={open} onClose={() => setOpen(false)} crops={crops} />
   </div>;
 }
 
@@ -249,15 +264,16 @@ export function FigurePartsOverview({ title, stored, url, size }: { title: strin
 export function FigureParts({ title, source, image }: { title: string; source: string; image: Blob | null }) {
   const stored = decodeStoredFigureParts(source);
   const { url, size } = useFigureDataURL(image);
+  const crops = usePartCrops(stored, image);
   const [open, setOpen] = useState(false);
   if (!stored) return null;
   return <div className="figure-parts" data-testid="figure-parts">
     <button type="button" className="figure-parts-strip" onClick={() => setOpen(true)} aria-label={`${title}: ${stored.parts.length} parts. Open the figure`}>
       {stored.parts.map((p, i) => <span key={i} className="figure-part-thumb">
-        {url && size ? <Crop url={url} size={size} box={p.box} width={120} /> : <span className="figure-part-number">{i + 1}</span>}
+        {url && size && crops?.[i] ? <Crop url={url} size={size} shown={crops[i]} width={120} /> : <span className="figure-part-number">{i + 1}</span>}
         <span className="fine">{i + 1}. {p.label}</span></span>)}
     </button>
     <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Open figure</button></div>
-    <WholeFigureDialog title={title} stored={stored} url={url} size={size} open={open} onClose={() => setOpen(false)} />
+    <WholeFigureDialog title={title} stored={stored} url={url} size={size} open={open} onClose={() => setOpen(false)} crops={crops} />
   </div>;
 }

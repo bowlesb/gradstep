@@ -2,7 +2,7 @@
 // (the chat's own, with exactly this figure), the crop arithmetic, and the session's request and cache.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SSEParser, makeRequest, requestBody, type LocalPaperContext, type StreamEvent } from '../src/lib/chat';
-import { cropRect, cropStyle, cropCoverage, cardTypeLabel, displayBox, detailQuote, figureBox, figureKey, figureNoun, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
+import { cropRect, cropStyle, cropCoverage, paddedCropStyle, cardTypeLabel, displayBox, detailQuote, figureBox, figureKey, figureNoun, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
 
 const server = vi.hoisted(() => ({ requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -108,6 +108,13 @@ describe('crops', () => {
     expect(cropStyle({ x: 0.1, y: 0.6, w: 0.2, h: 0.4 }, { width: 1000, height: 500 })).toEqual({ aspect: 1, size: '500% 250%', position: '12.5% 100%' });
     expect(cropRect({ x: 0.5, y: 0, w: 0.5, h: 1 }, { width: 1001, height: 200 })).toEqual({ x: 500, y: 0, width: 501, height: 200 });
     expect(cropRect({ x: 0.9999, y: 0.9999, w: 0.04, h: 0.04 }, { width: 100, height: 100 })).toEqual({ x: 99, y: 99, width: 1, height: 1 });
+  });
+  it('pad a completed crop with background on every side, scaled with it (owner, 2026-10-21: "some margin around them")', () => {
+    // The right half of a 1000 × 200 figure (500 × 200 px) with 8 px of background: 516 × 216, padding 8/516 of the width.
+    const padded = paddedCropStyle({ region: [0.5, 0, 1, 1], padX: 8 / 1000, padY: 8 / 200 }, { width: 1000, height: 200 });
+    expect(padded.aspect).toBeCloseTo(516 / 216, 6);
+    expect(padded.style).toMatchObject({ boxSizing: 'border-box', padding: '1.5504%', backgroundSize: '200% 100%, 100% 100%', backgroundPosition: '100% 0%, 0% 0%',
+      backgroundClip: 'content-box, border-box', backgroundOrigin: 'content-box, border-box' });
   });
 });
 

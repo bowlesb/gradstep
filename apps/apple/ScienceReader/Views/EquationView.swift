@@ -337,6 +337,10 @@ struct EquationView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            // A border with room inside it (owner, 2026-10-21: "Some border basically, when we present them in the
+            // equation view"): the equation never meets the edge of its surface, however wide it is fitted.
+            .padding(.horizontal, 8)
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
             HStack(spacing: 12) {
                 HStack(spacing: 0) {
                     sizeButton("minus", label: "Smaller", id: "equation.smaller", enabled: scale > Self.scales.lowerBound + 0.01) {
@@ -553,7 +557,7 @@ struct EquationWebView: UIViewRepresentable {
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\(link)
         <style>
         :root,html,body{background:transparent!important}
-        body{margin:0;padding:14px 4px;text-align:center}
+        body{margin:0;padding:14px 8px;text-align:center}
         #eq{display:inline-block;width:max-content;text-align:left;vertical-align:top}
         #eq .reader-equation{margin:0;padding:0;background:transparent;max-width:none;overflow:visible}
         #eq .reader-display{display:inline-block}
@@ -572,7 +576,7 @@ struct EquationWebView: UIViewRepresentable {
         const eq = document.getElementById('eq'); if (!eq) return null;
         document.documentElement.style.fontSize = last.size + 'px';
         eq.style.zoom = '1';
-        const available = Math.max(1, document.documentElement.clientWidth - 8);
+        const available = Math.max(1, document.documentElement.clientWidth - 16);
         const natural = eq.scrollWidth;
         // Fit once at the reader's base size, then apply the requested zoom. A wide formula must
         // grow when + is tapped; fitting its already-enlarged width would cancel every zoom step.

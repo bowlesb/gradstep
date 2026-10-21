@@ -183,7 +183,11 @@ turn a discovered bug into a small fast regression where possible.
 `LocalAIJourneyTests` now exercises Settings model management/defaults, dictation into an unsent draft, local
 chat/equation/figure choices, saved explanations after restart, inline billing recovery, and two follow-ups in the
 equation view. The latest answer must actually be visible above the composer, not merely present offscreen.
-`FigureViewJourneyTests` exercises the real UIKit crop pinch and in-place question draft. `UnsentDraftTests` checks
+`FigureViewJourneyTests` exercises the real UIKit crop pinch and in-place question draft; its two-plot cases
+(`--figure-fixture-panels`, a real DPO figure built by `scripts/figure-panels-fixture.py`) check completed crops and
+their margins light and dark, as browser `figure-view.spec.ts` does with `figure_panels`. The completeness step itself
+is pinned by the shared fixtures in `tests/fixtures/figure-crops/` (Core `FigureCropCompletionTests`, browser
+`figure-crops.test.ts`; regenerate with `scripts/subfigure-detector/export_crop_fixtures.py`). `UnsentDraftTests` checks
 context ownership/draft restoration, real equation overflow and actual typesetting of the reported cases/ket LaTeX;
 `LibraryModelTests/testSourceAddedDateClearedKeywordsAndContextualSignOut` covers the authenticated account boundary.
 These are release-optimized Simulator checks, not on-device model-quality or microphone-recognition measurements.

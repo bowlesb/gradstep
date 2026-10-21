@@ -330,7 +330,7 @@ createServer(async (request, response) => {
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     // midstream: the provider fails after the first text; nothing is charged (2026-10-16, CHAT.md "When an answer stops early").
-    if (['answer', 'slow', 'steady', 'scrolling', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
+    if (['answer', 'slow', 'steady', 'scrolling', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram', 'figure_panels'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
@@ -575,6 +575,20 @@ createServer(async (request, response) => {
       const tick = () => { if (response.destroyed) return; if (i < pieces.length) { event('delta', { text: pieces[i++] }); return setTimeout(tick, 10); }
         event('done', { stop_reason: 'end_turn', credits: 3 }); response.end(); };
       return void tick();
+    }
+    // figure_panels: a real two-plot Figure 1 (figure-view.spec.ts routes DPO's Figure 2), with boxes on the plotting areas
+    // that clip titles, tick labels and axis titles, as models write them (completed on the device: figure-crops.ts).
+    if (mode === 'figure_panels' && body.action === 'figure') {
+      event('figure', { format: 'figure-walkthrough-v1', summary: 'Figure 1 sets two results side by side [¶2].', sections: [
+        { label: 'Left plot', title: 'Reward against KL divergence', text: 'Each point is one training run; higher and further left is better [¶2].', paragraphs: [2], box: { x: 0.06, y: 0.07, w: 0.42, h: 0.79 } },
+        { label: 'Right plot', title: 'Win rate against temperature', text: 'Each line is one method; the dashed line is an even match [¶2].', paragraphs: [2], box: { x: 0.55, y: 0.07, w: 0.44, h: 0.79 } },
+        { label: '', title: 'Reading it as a whole', text: 'Together the plots make the figure’s single point.', paragraphs: [] }] });
+      event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
+    }
+    if (mode === 'figure_panels' && body.action === 'figure_detail') {
+      event('figure_detail', { format: 'figure-detail-v1', label: 'Right plot', title: 'Win rate against temperature',
+        text: 'Up close, the right plot compares six methods across five temperatures [¶2].', paragraphs: [2], box: { x: 0.55, y: 0.07, w: 0.44, h: 0.79 } });
+      event('done', { stop_reason: 'end_turn', credits: 3, charged: true }); return response.end();
     }
     if (body.action === 'figure') {
       // As the server relays it (FIGURE_VIEW.md "Server — as built"): one `figure` event, then `done`; one section has a box.

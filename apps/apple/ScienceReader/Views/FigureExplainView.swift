@@ -289,7 +289,7 @@ struct FigureExplainView: View {
                     ChatMessageText(source: walkthrough.summary, fontSize: bodySize, streaming: false, speaker: "Assistant",
                                     identifier: "figureView.summary", assistant: true, onCite: cite)
                 }
-                if let image = session.image, let coverage = walkthrough.cropCoverage(width: image.width, height: image.height), coverage < 1 {
+                if let coverage = session.inkCoverage, coverage < 1 {
                     Text("The detail cards do not cover the entire image. The whole figure above keeps every panel, axis and legend available.")
                         .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("figureView.coverageFallback")
                 }
@@ -326,12 +326,18 @@ struct FigureExplainView: View {
             .accessibilityLabel([section.label, section.title].filter { !$0.isEmpty }.joined(separator: ": "))
             .accessibilityHint("Options for this part")
             .accessibilityIdentifier("figureView.section.\(number).menu")
-            if section.cardKind == .panel, let box = section.box, let image = session.image, let crop = Self.crop(image, box) {
-                expandable(crop, label: "Detail of \(context.label): \(section.name)", identifier: "figureView.section.\(number).crop").aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
+            if section.cardKind == .panel, section.box != nil, let shown = session.crops[index] {
+                let crop = shown.image
+                expandable(crop, label: shown.whole ? "\(context.label), whole, for \(section.name)" : "Detail of \(context.label): \(section.name)",
+                           identifier: "figureView.section.\(number).crop").aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
                     .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(260, max(160, CGFloat(crop.height) * 2)))
                     .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
                     .frame(maxWidth: .infinity)
+                if shown.whole {
+                    Text("Shown whole: a crop would cut part of this panel off.").font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("figureView.section.\(number).cropWhole")
+                }
             }
             if section.cardKind == .relatedWork {
                 Text("As described in this paper").font(.caption).foregroundStyle(.secondary)
@@ -365,12 +371,17 @@ struct FigureExplainView: View {
     @ViewBuilder private func detailBlock(_ detail: FigureExplainSession.Part, number: Int, index: Int, session: FigureExplainSession) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Up close", systemImage: "viewfinder").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-            if let box = detail.detail?.box, let image = session.image, let crop = Self.crop(image, box) {
-                expandable(crop, label: "This part of \(context.label), up close", identifier: "figureView.section.\(number).detailCrop").aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
+            if detail.detail != nil, let shown = session.detailCrops[index] {
+                let crop = shown.image
+                expandable(crop, label: shown.whole ? "\(context.label), whole" : "This part of \(context.label), up close", identifier: "figureView.section.\(number).detailCrop").aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
                     .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(320, max(160, CGFloat(crop.height) * 2)))
                     .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
                     .frame(maxWidth: .infinity)
+                if shown.whole {
+                    Text("Shown whole: a crop would cut part of this part off.").font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("figureView.section.\(number).detailCropWhole")
+                }
             }
             let words = detail.detail?.text ?? detail.text
             if detail.state == .done, !words.isEmpty {
@@ -442,17 +453,14 @@ struct FigureExplainView: View {
         return { marker in rememberReturn(); finish(.paragraph(paperID: paperID, marker: marker)) }
     }
 
-    /// A part of the figure, by its box in fractions of the image the request carried (the same proportions here).
-    static func crop(_ image: CGImage, _ box: FigureWalkthrough.Box) -> CGImage? {
-        guard let rect = box.displayBox.pixels(width: image.width, height: image.height) else { return nil }
-        return image.cropping(to: CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height))
-    }
 }
 
 /// Every figure crop is directly pinchable; at 1× its scroll view has no pan extent, so the enclosing page scrolls.
 struct ZoomableFigureImage: UIViewRepresentable {
     let image: CGImage
-    func makeUIView(context: Context) -> FigureZoomScroll { FigureZoomScroll(image: image) }
+    /// Background kept around the image at 1× (fullscreen: owner, 2026-10-21, "some margin around them").
+    var inset: CGFloat = 0
+    func makeUIView(context: Context) -> FigureZoomScroll { FigureZoomScroll(image: image, inset: inset) }
     func updateUIView(_ view: FigureZoomScroll, context: Context) { view.setImage(image) }
 }
 
@@ -460,8 +468,9 @@ final class FigureZoomScroll: UIScrollView, UIScrollViewDelegate {
     private let picture = UIImageView()
     private var pixels: CGImage
     private var laidOut = CGSize.zero
-    init(image: CGImage) {
-        pixels = image
+    private let inset: CGFloat
+    init(image: CGImage, inset: CGFloat = 0) {
+        pixels = image; self.inset = inset
         super.init(frame: .zero)
         delegate = self; minimumZoomScale = 1; maximumZoomScale = 8
         bounces = false; bouncesZoom = false; contentInsetAdjustmentBehavior = .never
@@ -484,7 +493,7 @@ final class FigureZoomScroll: UIScrollView, UIScrollViewDelegate {
         super.layoutSubviews()
         guard bounds.size != laidOut, bounds.width > 0, bounds.height > 0 else { return }
         laidOut = bounds.size; setZoomScale(1, animated: false)
-        let fit = min(bounds.width / CGFloat(pixels.width), bounds.height / CGFloat(pixels.height))
+        let fit = min(max(1, bounds.width - 2 * inset) / CGFloat(pixels.width), max(1, bounds.height - 2 * inset) / CGFloat(pixels.height))
         picture.frame = CGRect(x: 0, y: 0, width: CGFloat(pixels.width) * fit, height: CGFloat(pixels.height) * fit)
         contentSize = picture.frame.size; centerImage()
     }
@@ -554,7 +563,7 @@ struct FullscreenFigureImage: View {
                     .accessibilityLabel("Close fullscreen image").accessibilityIdentifier("figureView.fullscreen.close")
                     .keyboardShortcut(.escape, modifiers: [])
             }.padding(.horizontal, 16)
-            ZoomableFigureImage(image: whole ? image.whole ?? image.image : image.image)
+            ZoomableFigureImage(image: whole ? image.whole ?? image.image : image.image, inset: 16)
                 .id(whole).accessibilityIdentifier("figureView.fullscreen.image")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Text("Pinch to zoom · Drag to pan · Double tap to reset").font(.footnote).foregroundStyle(.secondary).padding(12)
