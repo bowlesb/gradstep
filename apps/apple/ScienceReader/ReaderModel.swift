@@ -1885,12 +1885,14 @@ final class ReaderModel {
         let guestPaper = wasGuest && selectedPaper?.isSample == true ? selectedPaper : nil
         let guestGeneral = generalChat
         let guestTab = tab, guestMode = wideMode
+        // Settings is a sheet since Notes took its tab (2026-10-21): a sign-in begun from it returns there too.
+        let guestSettings = settingsPresented
         clearAccountView()
         if wasGuest {
             if let guestPaper { papers = [guestPaper]; select(guestPaper) }
             generalChat = guestGeneral || guestPaper == nil
             if let guestDraft { chatInput = String(guestDraft.prefix(20_000)) }
-            tab = guestTab; wideMode = guestMode
+            tab = guestTab; wideMode = guestMode; settingsPresented = guestSettings
         }
     }
 

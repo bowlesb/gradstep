@@ -80,9 +80,15 @@ extension XCUIApplication {
         let options = screenOptions
         XCTAssertTrue(options.waitForExistence(timeout: 5), "The screen has a ⋯ menu", file: file, line: line)
         options.tap()
-        let settings = buttons["menu.settings"].exists ? buttons["menu.settings"] : buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 5), "Settings is in the ⋯ menu", file: file, line: line)
-        settings.tap()
+        // Wait for the menu (the check ran before it appeared), and at accessibility text sizes scroll it: Settings is
+        // its last section and starts below the first screen of a long menu.
+        let settings = buttons["menu.settings"]
+        if !settings.waitForExistence(timeout: 3) || !settings.isHittable {
+            for _ in 0..<5 where !(settings.exists && settings.isHittable) { collectionViews.firstMatch.swipeUp() }
+        }
+        let target = settings.exists ? settings : buttons["Settings"]
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "Settings is in the ⋯ menu", file: file, line: line)
+        target.tap()
     }
 }
 
