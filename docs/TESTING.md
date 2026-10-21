@@ -1,5 +1,14 @@
 # Fast and slow tests
 
+## Figure parts as viewports — October 21
+
+Fast: browser `tests/figure-framing.test.ts` and `tests/figure-framing-record.test.ts` (in `npm test`); Core
+`swift test --filter FigureFramingTests` (same `tests/fixtures/figure-crops/framing.json`). Slow, opt-in: Playwright
+`e2e/figure-view.spec.ts -g "framed by confidence"` (fixture mode `figure_panels_loose`; `FIGURE_FRAMING_STAGE=before`
+only takes screenshots) and native `FigureViewJourneyTests/testPartsAreFramedByConfidenceAndExpandToTheWholeFigure`
+(and `…Dark`; launch arguments `--figure-fixture-panels --figure-fixture-loose`; `TEST_RUNNER_FIGURE_FRAMING_STAGE=before`).
+Screenshots under `.artifacts/figure-framing/`.
+
 ## AI recommendations — October 21 UTC
 
 Fast: `node --test tests/backend/recommend.test.ts` (in `npm test`), browser `tests/recommend.test.ts`. Database:

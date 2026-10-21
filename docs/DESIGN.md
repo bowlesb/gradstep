@@ -97,6 +97,14 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   Explainer asks. An explainer's title is a small
   menu (⌄) listing the paper's other figures or equations, to switch without going back to Contents.
 
+- **Figure parts** (owner, 2026-10-21: "present it as a crop of the whole thing, that they can expand, rather than an
+  actual crop"): a part of a figure is never a cropped-away bitmap but a viewport into the whole figure, always on the
+  figure's white. How tightly it frames the part follows its confidence: tight (looks as a crop with its white margin),
+  looser with the part outlined, or the whole figure with the part outlined — an unobtrusive outline (2 pt, the light
+  accent in both appearances), never a fallback message. Tap expands to the whole figure (the part outlined, starting
+  from its frame); pinch reveals what is around it; double tap returns. A caption that names its panels caps the parts;
+  extras are outlines on the whole figure. Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Parts as viewports".
+
 - **Contents discovery** (owner, 2026-10-18): open at full height. On touch devices, double-tapping article text opens
   Contents; links, equations, figures, reference entries and selections retain their own actions. Long-press selection
   remains available, and Mac double-click still selects text. Above the four tabs, show “Double tap anywhere while

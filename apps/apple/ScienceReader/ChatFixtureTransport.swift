@@ -69,15 +69,20 @@ struct ChatFixtureTransport: ChatTransport {
     /// often write them, on the plotting areas, clipping titles, tick labels and axis titles (the crops are completed on
     /// the device: FigureCropCompletion).
     static var figurePanels: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-panels") }
-    static let panelsWalkthrough = FigureWalkthrough(summary: "Figure 1 sets two results side by side: reward against divergence on the left, win rate against sampling temperature on the right [¶4].", sections: [
+    /// With `--figure-fixture-loose` too: the right box is deliberately imprecise, starting inside the left plot as a model
+    /// sometimes writes it (FIGURE_VIEW.md "Parts as viewports": framed loosely and outlined; extracted alone it cuts the
+    /// left plot, so the whole figure with the part outlined).
+    static var figureLoose: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-loose") }
+    static var rightBox: FigureWalkthrough.Box { figureLoose ? .init(x: 0.45, y: 0.1, w: 0.54, h: 0.8) : .init(x: 0.55, y: 0.07, w: 0.44, h: 0.79) }
+    static var panelsWalkthrough: FigureWalkthrough { FigureWalkthrough(summary: "Figure 1 sets two results side by side: reward against divergence on the left, win rate against sampling temperature on the right [¶4].", sections: [
         .init(label: "Left plot", title: "Reward against KL divergence", text: "Each point is one training run; higher and further left is better [¶4].", paragraphs: [4],
               box: .init(x: 0.06, y: 0.07, w: 0.42, h: 0.79)),
         .init(label: "Right plot", title: "Win rate against temperature", text: "Each line is one method; the dashed line is an even match [¶6].", paragraphs: [6],
-              box: .init(x: 0.55, y: 0.07, w: 0.44, h: 0.79)),
-        .init(label: "", title: "Reading it as a whole", text: "Together the plots make the figure’s single point. This is a synthetic fixture answer; no AI request was made.")])
-    static let panelsDetail = FigureDetail(label: "Right plot", title: "Win rate against temperature",
+              box: rightBox),
+        .init(label: "", title: "Reading it as a whole", text: "Together the plots make the figure’s single point. This is a synthetic fixture answer; no AI request was made.")]) }
+    static var panelsDetail: FigureDetail { FigureDetail(label: "Right plot", title: "Win rate against temperature",
         text: "Up close, the right plot compares six methods across five temperatures [¶6]. The dashed line marks an even match [¶4].\n\nThis is a synthetic fixture answer; no AI request was made.",
-        paragraphs: [6, 4], box: .init(x: 0.55, y: 0.07, w: 0.44, h: 0.79))
+        paragraphs: [6, 4], box: rightBox) }
     /// One part extracted: the right half, boxed; the whole-figure part comes as words without a box (no crop).
     static let figureDetail = FigureDetail(label: "Right half", title: "What it shows",
         text: "Up close, the right half is a single filled block: the result the caption sums up [¶6]. The introduction sets it against the left half [¶4].\n\nThis is a synthetic fixture answer; no AI request was made.",

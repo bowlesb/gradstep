@@ -17,23 +17,33 @@ extension EnvironmentValues {
     }
 }
 
-/// One part as it is shown (FIGURE_VIEW.md "Complete crops"): its crop completed over the ink its box cut, on a margin of
-/// the figure's white background, or the whole figure when no crop could hold it all; `region` is where it is in the
-/// figure (fractions), for the outline.
+/// One part as it is shown (FIGURE_VIEW.md "Parts as viewports"): a view into the whole figure, framed by confidence
+/// (tight: its completed crop on a margin of white; loose: more of the figure around it, the part outlined; low: the
+/// whole figure with the part outlined), drawn at rest; `region` is where the part is in the figure (fractions), for the
+/// whole figure's outline.
 struct FigurePartCrop: @unchecked Sendable {
     let image: CGImage
     let region: CropRect
-    let whole: Bool
+    let framing: FramedPart
+    /// The card shows the whole figure (the part couldn't be completed, or is beyond the caption's panels).
+    var whole: Bool { framing.level == .low }
     /// A figure image handed to the work off the main actor (CGImage is immutable).
     struct Unchecked: @unchecked Sendable { let image: CGImage }
+    /// The outline: the light accent, on the white figure in either appearance (as the browser's).
+    static let outline = CGColor(red: 0x4f / 255, green: 0x52 / 255, blue: 0xcf / 255, alpha: 1)
 
-    /// Every part of `stored`, completed together on the image as the question carried it: the paper's figure prepared
-    /// again exactly as it was sent (`ChatFigureFinder.prepare`, from the asset's own bytes for one image). Pure; run it
-    /// off the main actor.
-    static func all(_ stored: StoredFigureParts, image: CGImage, asset: Data?) -> [FigurePartCrop?] {
+    /// Every part of `stored`, completed and framed together on the image as the question carried it: the paper's figure
+    /// prepared again exactly as it was sent (`ChatFigureFinder.prepare`, from the asset's own bytes for one image); the
+    /// caption's panel letters cap the parts. Pure; run it off the main actor.
+    static func all(_ stored: StoredFigureParts, image: CGImage, asset: Data?, caption: String = "") -> [FigurePartCrop?] {
         let sent = asset.flatMap { ChatFigureFinder.prepare($0) } ?? ChatFigureFinder.prepare(image)
-        let shown = PresentedCrop.all(stored.parts.map(\.fractions), ink: sent.flatMap { PresentedCrop.ink(of: $0.data) }).crops
-        return shown.map { crop in crop.image(from: image).map { FigurePartCrop(image: $0, region: crop.region, whole: crop.whole) } }
+        let framed = FigureFraming.frame(sent.flatMap { PresentedCrop.ink(of: $0.data) }, width: image.width, height: image.height,
+                                         boxes: stored.parts.map(\.fractions), caption: caption, labels: stored.parts.map(\.label)).parts
+        return framed.map { part in
+            // The outline about 2 pt wide where the frame shows (at most 280 pt across).
+            let long = max((part.frame.x1 - part.frame.x0) * Double(image.width), (part.frame.y1 - part.frame.y0) * Double(image.height))
+            return part.renderFrame(image, outline: outline, lineWidth: max(2, long / 140)).map { FigurePartCrop(image: $0, region: part.region, framing: part) }
+        }
     }
 }
 
@@ -51,10 +61,10 @@ struct FigurePartsView: View {
         }
     }
 
-    /// Where part `index` is outlined: its completed crop, or its box when the crop is the whole figure or not ready.
+    /// Where part `index` is outlined: its region (the completed crop, or its box where it couldn't be completed), or its box
+    /// while that isn't worked out.
     static func outline(_ part: ChatFigureParts.Part, _ crop: FigurePartCrop??) -> CropRect {
-        if let crop = crop ?? nil, !crop.whole { return crop.region }
-        return part.fractions
+        (crop ?? nil)?.region ?? part.fractions
     }
 }
 

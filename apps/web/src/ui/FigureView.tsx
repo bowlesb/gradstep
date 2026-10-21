@@ -7,11 +7,14 @@
 import { STANDARD_PROFILE, modelName, modelOption, type ProfileChoice } from '../lib/chat-profiles';
 import { ExplainerModelDialog } from './ChatProfile';
 import type { ContextualHost } from './ContextualChat';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
-import { cropCoverage, paddedCropStyle, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
-import { boxFractions, cropPadding, type PresentedCrop } from '../lib/figure-crops';
-import { completedFor, useCompletedCrops, useSentInk } from './useFigureCrops';
+import { cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
+import { boxFractions } from '../lib/figure-crops';
+import { frameParts, type FramedPart } from '../lib/figure-framing';
+import { framingShown, type ArxivFigure, type FramingSurface } from '../lib/figure-framing-record';
+import { useFramedParts, useSentInk } from './useFigureCrops';
+import { ViewportCard, type FigureSource } from './FigureViewport';
 import { safeLink } from '../lib/markdown';
 import Answer from './Answer';
 import { Dialog, SheetTop, MenuButton } from './common';
@@ -36,7 +39,13 @@ type Props = { label?:string; profile?: ProfileChoice; onExplanation?: (text: st
   onAsk?: (text: string) => Promise<boolean>; busy: boolean;
   /** AI Explainer, pressed in the page's top row (or chosen to open the page): asks for this figure's walkthrough when
    * `id` is this figure and `n` is new. A figure switched to waits for its own press. */
-  request?: { id: string; n: number } | null };
+  request?: { id: string; n: number } | null;
+  /** The figure's caption (its panel letters cap the parts shown: FIGURE_VIEW.md "Parts as viewports"). */
+  caption?: string;
+  /** The figure of an arXiv paper (its public identity), for the local framing record; null for anything else. */
+  arxiv?: Omit<ArxivFigure, 'figure'> | null;
+  /** Save snippet from a part: what its card shows, into the snippet composer. */
+  onSnippet?: (image: Blob, label: string) => void };
 
 const partKey = (s: FigureSection, i: number) => `${i}:${s.label}:${s.title}`;
 const words = (r: FigureResult | null) => !!r && (!!r.walkthrough || !!r.text.trim());
@@ -45,7 +54,7 @@ const endedEarly = (r: FigureResult | null | undefined) => r?.phase === 'done' &
 const loading = (): FigureResult => ({ phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null });
 const issueText = (code: string) => code === 'figure_unavailable' ? 'This figure’s image couldn’t be prepared in this browser.' : failureText(code);
 
-export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile: shownProfile, onExplanation, label = 'Figure' }: Props) {
+export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile: shownProfile, onExplanation, label = 'Figure', caption = '', arxiv = null, onSnippet }: Props) {
   // AI Explainer asks which model first (B7, AIChoiceView): Default or Choose model; that choice answers here.
   const [chosen, setChosen] = useState<ProfileChoice | null>(null), [choosing, setChoosing] = useState(false), [pending, setPending] = useState(false);
   const profile = chosen ?? shownProfile, table = host?.context?.chat.profileTable ?? null;
@@ -137,16 +146,38 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const result = walk, sections = result?.walkthrough?.sections ?? [];
   const note = endedEarly(result);
   const image = result?.image ?? null;
-  // Every crop completed on the image the request carried (FIGURE_VIEW.md "Complete crops"): grown over the ink its box
-  // cuts, or the whole figure when it can't be; the note below says when the crops leave some of the figure's ink out.
+  // Every part a viewport into the whole figure (FIGURE_VIEW.md "Parts as viewports"): completed on the image the request
+  // carried, then framed by confidence (tight, loose and outlined, or the whole figure outlined); a caption naming its
+  // panels caps the parts shown. The note below says when the parts leave some of the figure's ink out.
   const ink = useSentInk(image?.data);
   const boxed = sections.flatMap((s, i) => (!s.kind || s.kind === 'panel') && s.box ? [i] : []);
-  const completed = useCompletedCrops(ink, boxed.map(i => boxFractions(sections[i].box!)));
-  const shownFor = new Map(boxed.map((i, k) => [i, completed?.crops[k]] as const));
-  const coverage = !completed || !image ? null : completed.coverage ?? (ink === null ? cropCoverage(sections, image) : null);
-  const closerFor = useMemo(() => ink === undefined ? new Map<string, PresentedCrop>() : new Map([...details].flatMap(([k, r]) =>
-    r.detail ? [[k, completedFor(ink, [boxFractions(r.detail.box)]).crops[0]] as const] : [])), [ink, details]);
-  const background = useMemo(() => image ? `url("data:image/jpeg;base64,${image.data}")` : null, [image]);
+  const framed = useFramedParts(ink, image, { boxes: boxed.map(i => boxFractions(sections[i].box!)), caption, labels: boxed.map(i => sections[i].label || sections[i].title) });
+  const shownFor = new Map(boxed.map((i, k) => [i, framed?.parts[k]] as const));
+  const coverage = !framed || !image ? null : framed.coverage ?? (ink === null ? cropCoverage(sections, image) : null);
+  // An extracted part is framed alone, by the same rules (it is one of the walkthrough's parts, never a new one).
+  const closerFor = useMemo(() => ink === undefined ? new Map<string, FramedPart>() : new Map([...details].flatMap(([k, r]) => {
+    const sent = r.image ?? image;
+    return r.detail && sent ? [[k, frameParts(ink, sent, { boxes: [boxFractions(r.detail.box)], labels: [r.detail.label || r.detail.title] }).parts[0]] as const] : [];
+  })), [ink, details, image]);
+  const source = useMemo((): FigureSource | null => image ? { src: `data:image/jpeg;base64,${image.data}`, width: image.width, height: image.height } : null, [image]);
+  // What each card shows, for Save snippet, by part and card.
+  const captures = useRef(new Map<string, () => Promise<Blob | null>>());
+  const registerCapture = (key: string) => (capture: (() => Promise<Blob | null>) | null) => { if (capture) captures.current.set(key, capture); else captures.current.delete(key); };
+  const recordKey = (surface: FramingSurface, i: number) => `${manifest}|${figureID}|${surface}|${i}`;
+  // The local framing record (figure-framing-record.ts): arXiv figures only, in memory, never sent.
+  useEffect(() => {
+    if (!arxiv || !image) return;
+    const show = (surface: FramingSurface, i: number, part: FramedPart | undefined, box: { x: number; y: number; w: number; h: number } | undefined, parts: number, index: number) => {
+      if (part && box) framingShown(recordKey(surface, i), { figure: { ...arxiv, figure: label }, surface, part: index, parts, level: part.level, box: boxFractions(box), region: part.region, frame: part.frame });
+    };
+    boxed.forEach((i, k) => show('walkthrough', i, framed?.parts[k], sections[i].box, boxed.length, k));
+    sections.forEach((s, i) => { const r = details.get(partKey(s, i)); show('detail', i, closerFor.get(partKey(s, i)), r?.detail?.box, 1, 0); });
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  const snippet = async (key: string, heading: string) => {
+    const capture = captures.current.get(`card:${key}`) ?? captures.current.get(`detail:${key}`);
+    const blob = capture ? await capture() : null;
+    if (blob && onSnippet) onSnippet(blob, `${label} · ${heading}`);
+  };
 
   return <div className="figure-explain" ref={panel}>
     {!host ? null : asking && !consented ? <section className="equation-consent" data-testid="figure-consent">
@@ -163,8 +194,10 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       {sections.length > 0 && <section className="equation-section" aria-labelledby="figure-parts">
         <h3 id="figure-parts">Part by part</h3>
         <ol className="figure-sections">{sections.map((s, i) => {
-          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), shown = shownFor.get(i), style = shown && image ? paddedCropStyle(shown, image) : null;
-          const closer = details.get(key), closerImage = closer?.image ?? image, closerShown = closer?.detail ? closerFor.get(key) : undefined, closerStyle = closerShown && closerImage ? paddedCropStyle(closerShown, closerImage) : null;
+          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), shown = shownFor.get(i);
+          const closer = details.get(key), closerImage = closer?.image ?? image, closerShown = closer?.detail ? closerFor.get(key) : undefined;
+          const closerSource = closerImage && closerImage !== image ? { src: `data:image/jpeg;base64,${closerImage.data}`, width: closerImage.width, height: closerImage.height } : source;
+          const aspect = (p: FramedPart, im: { width: number; height: number }) => ((p.frame[2] - p.frame[0]) * im.width) / ((p.frame[3] - p.frame[1]) * im.height);
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
               <h4><span className="figure-section-label">{[cardTypeLabel(s), s.label].filter(Boolean).join(' · ')}</span><span>{s.title}</span></h4>
@@ -175,14 +208,14 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
                   onClick={() => { close(false); run('figure_detail', s, i); }}><Icon name="search" size={14} /> Extract the subfigure and more context</button>}
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-show-item"
                   onClick={() => { close(false); if (s.paragraphs[0]) onCite(s.paragraphs[0]); else onShowFigure(); }}><Icon name="book" size={14} /> Show in the paper</button>
+                {onSnippet && (shown || closerShown) && <button type="button" role="menuitem" className="menu-item" data-testid="figure-snippet-item"
+                  onClick={() => { close(false); void snippet(key, heading); }}><Icon name="image" size={14} /> Save snippet</button>}
                 {onAsk && <button type="button" role="menuitem" className="menu-item" data-testid="figure-ask-item" disabled={busy}
                   onClick={() => { close(false); void onAsk(s.text); }}><Icon name="chat" size={14} /> Ask in chat about this</button>}
               </>}</MenuButton>
             </div>
-            {style && background && <ZoomableCrop label={`${heading}, the part of the figure it describes`} testID="figure-crop" whole={image ?? undefined}
-              style={{ aspectRatio: String(style.aspect), width: `min(100%, ${Math.round(Math.min(560, 320 * style.aspect))}px)`, backgroundImage: `${background}, linear-gradient(#fff, #fff)`,
-                ...style.style }} />}
-            {shown?.whole && <p className="fine" data-testid="figure-crop-whole">Shown whole: a crop would cut part of this panel off.</p>}
+            {shown && source && <ViewportCard key={shown.frame.join()} image={source} part={shown} label={`${heading}, the part of the figure it describes`} testID="figure-crop"
+              width={`min(100%, ${Math.round(Math.min(560, 320 * aspect(shown, source)))}px)`} recordKey={arxiv ? recordKey('walkthrough', i) : undefined} register={registerCapture(`card:${key}`)} />}
             {s.kind === 'related_work' && <p className="fine">As described in this paper</p>}
             <Answer text={s.text} />
             {more && <div className="figure-simpler" data-testid="figure-simpler">
@@ -197,10 +230,8 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
               {closer.phase === 'failed' && !closer.text ? <div className="equation-issue" role="alert"><p>{issueText(closer.issue ?? 'provider_unavailable')}</p>
                 {closer.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_detail', s, i)}>Try again</button>}</div>
                 : closer.phase === 'loading' ? <p className="fine" role="status">Extracting this part…</p> : <>
-                  {closerStyle && closerImage && <ZoomableCrop label={`${heading}, up close`} testID="figure-detail-crop" whole={closerImage ?? undefined}
-                    style={{ aspectRatio: String(closerStyle.aspect), width: `min(100%, ${Math.round(Math.min(560, 360 * closerStyle.aspect))}px)`,
-                      backgroundImage: `url("data:image/jpeg;base64,${closerImage.data}"), linear-gradient(#fff, #fff)`, ...closerStyle.style }} />}
-                  {closerShown?.whole && <p className="fine" data-testid="figure-detail-whole">Shown whole: a crop would cut part of this part off.</p>}
+                  {closerShown && closerSource && <ViewportCard key={closerShown.frame.join()} image={closerSource} part={closerShown} label={`${heading}, up close`} testID="figure-detail-crop"
+                    width={`min(100%, ${Math.round(Math.min(560, 360 * aspect(closerShown, closerSource)))}px)`} recordKey={arxiv ? recordKey('detail', i) : undefined} register={registerCapture(`detail:${key}`)} />}
                   <Answer text={closer.detail?.text ?? closer.text} />
                   {!closer.detail && <p className="fine" data-testid="figure-detail-no-crop">Couldn’t crop this part; here is the closer reading.</p>}
                 </>}
@@ -222,38 +253,4 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       onRetry={() => host.context?.chat.reloadProfiles() ?? Promise.resolve()}
       onUse={choice => { setChoosing(false); setChosen({ ...choice }); setPending(true); }} />}
   </div>;
-}
-
-/** The whole figure on the same margin of white background as every crop (owner, 2026-10-21). */
-function wholeStyle(whole: { data: string; width: number; height: number }): CSSProperties {
-  const p = cropPadding(whole.width, whole.height), padded = paddedCropStyle({ region: [0, 0, 1, 1], padX: p / whole.width, padY: p / whole.height }, whole);
-  return { width: '100%', aspectRatio: String(padded.aspect), backgroundImage: `url("data:image/jpeg;base64,${whole.data}"), linear-gradient(#fff, #fff)`, ...padded.style };
-}
-
-/** Zoom the extracted region, preserving its crop; no larger image or AI request is needed. */
-function ZoomableCrop({ label, testID, style, whole, canExpand=true }: { label: string; testID: string; style: CSSProperties; whole?:{data:string;width:number;height:number}; canExpand?:boolean }) {
-  const [expanded,setExpanded]=useState(false),[showWhole,setShowWhole]=useState(false);
-  const [scale, setScale] = useState(1), [pan, setPan] = useState({x:0,y:0});
-  const points = useRef(new Map<number,{x:number;y:number}>()), previous = useRef<{x:number;y:number;distance:number}|null>(null);
-  const box = useRef<HTMLDivElement>(null), held = useRef({scale,pan}); held.current={scale,pan};
-  const change = (zoom: number, x=held.current.pan.x, y=held.current.pan.y) => {
-    const s=Math.min(8,Math.max(1,zoom)), r=box.current?.getBoundingClientRect();
-    setScale(s); setPan({x:Math.min((r?.width??0)*(s-1)/2,Math.max(-(r?.width??0)*(s-1)/2,x)),y:Math.min((r?.height??0)*(s-1)/2,Math.max(-(r?.height??0)*(s-1)/2,y))});
-  };
-  const center = () => { const p=[...points.current.values()]; return p.length ? {x:p.reduce((s,p)=>s+p.x,0)/p.length,y:p.reduce((s,p)=>s+p.y,0)/p.length,distance:p.length===2?Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y):0}:null; };
-  return <><div className="zoom-crop" style={{width:style.width,maxWidth:'100%'}}>
-    <div ref={box} role="img" aria-label={label} data-testid={testID} data-scale={scale} style={{aspectRatio:style.aspectRatio,overflow:'hidden',touchAction:'none',position:'relative'}}
-      onDoubleClick={()=>change(scale>1?1:2,0,0)} onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});previous.current=center();}}
-      onPointerMove={e=>{if(!points.current.has(e.pointerId))return;points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});const c=center(),p=previous.current;if(c&&p)change(c.distance&&p.distance?held.current.scale*c.distance/p.distance:held.current.scale,held.current.pan.x+c.x-p.x,held.current.pan.y+c.y-p.y);previous.current=c;}}
-      onPointerUp={e=>{points.current.delete(e.pointerId);previous.current=center();}} onPointerCancel={e=>{points.current.delete(e.pointerId);previous.current=center();}}>
-      <div className="figure-crop" style={{...style,width:'100%',height:'100%',transform:`translate(${pan.x}px,${pan.y}px) scale(${scale})`,transformOrigin:'center'}} />
-    </div>
-    <div className="crop-zoom-controls"><button type="button" className="icon-button" aria-label="Zoom out of crop" disabled={scale<=1} onClick={()=>change(scale-.5)}>−</button>
-      <button type="button" className="icon-button" aria-label="Zoom into crop" disabled={scale>=8} onClick={()=>change(scale+.5)}>+</button>
-      <output aria-live="polite">{Math.round(scale*100)}%</output>
-      {canExpand && <button type="button" className="secondary small" onClick={()=>setExpanded(true)}>Open fullscreen</button>}</div>
-  </div>{expanded && <Dialog open onClose={()=>setExpanded(false)} title={label} wide className="fullscreen-figure">
-    <SheetTop onClose={()=>setExpanded(false)}><h2>{label}</h2>{whole && <button className="secondary small" onClick={()=>setShowWhole(v=>!v)}>{showWhole?'Show detail':'Whole figure'}</button>}</SheetTop>
-    <ZoomableCrop label={label} testID="fullscreen-crop" canExpand={false} style={showWhole && whole ? wholeStyle(whole) : {...style,width:'100%'}} />
-  </Dialog>}</>;
 }

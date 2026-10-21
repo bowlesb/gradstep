@@ -2,6 +2,7 @@
 // configured origin only, no redirects, bounded bodies, one refresh at a time (across
 // tabs), finite error codes and no provider/server bodies in messages or logs.
 import { cancellation } from './cancellation';
+import { clearFramingRecords } from './figure-framing-record';
 import { isUUID } from './bytes';
 
 export interface BackendConfig { url: string; authUrl: string; anonKey: string; environment: string }
@@ -370,6 +371,7 @@ export const auth = {
     if (expectedGeneration !== generation) return;
     const token = current?.accessToken;
     publish(null);
+    clearFramingRecords(); // the figure framing record (in memory only) leaves with the account
     if (token) { try { await send('auth/v1/logout?scope=local', { body: '{}', token, maximum: 65_536, timeout: 10_000 }); } catch { /* best effort */ } }
   },
 };

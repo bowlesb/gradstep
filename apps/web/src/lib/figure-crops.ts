@@ -83,7 +83,7 @@ const gap = (a: Rect, b: Rect) => Math.hypot(Math.max(0, Math.max(a[0], b[0]) - 
 const same = (a: Rect, b: Rect) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 
 /** Each component's crop: the original box holding the largest share of it (first on ties), and that share. */
-function owners(comps: InkComponent[], orig: Rect[]): { k: number | null; frac: number }[] {
+export function owners(comps: InkComponent[], orig: Rect[]): { k: number | null; frac: number }[] {
   return comps.map(c => {
     const a = area(c.box);
     let best: number | null = null, frac = 0;

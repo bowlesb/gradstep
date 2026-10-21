@@ -1,5 +1,28 @@
 # Implementation status
 
+## Figure parts as viewports, framed by confidence — 2026-10-21 (local source; not released, not deployed)
+
+Owner-approved design: part cards are viewports into the whole figure, framed by confidence (tight as the crop looked;
+looser with the part outlined; the whole figure with the part outlined), expandable to the whole figure, never a
+misleading crop; "Shown whole…" is gone. Extract/simpler/chat parts stay under the same rules; parts beyond a caption's
+named panels become outlines on the whole figure. Save snippet from a part captures what its card shows. A local-only,
+geometry-only framing record (arXiv figures only, in memory, cleared on sign-out) is the one place a future opt-in upload
+would attach; nothing is collected (DECISIONS.md proposal). Design and thresholds: [Parts as viewports](architecture/FIGURE_VIEW.md).
+iPhone/iPad/Mac (one SwiftUI/UIKit path) and browser; no server, prompt, schema, storage or spend change.
+
+Evidence: shared fixture `tests/fixtures/figure-crops/framing.json` (12 cases on the real figures plus letter cases):
+browser `figure-framing.test.ts` and Swift `FigureFramingTests` agree on every level, reason, score, frame and region;
+record tests on both. `npm test` passes (browser units 600). Core suite 398 pass. iPhone 17 Pro Max Simulator (iOS 26.4),
+run alone: the new `testPartsAreFramedByConfidenceAndExpandToTheWholeFigure` light and dark, the other five
+`FigureViewJourneyTests` (the walkthrough journey failed once at launch on "The paper is ready" and passed alone),
+`ChatVisualTests`, `FigurePartsRenderingTests`; iPad Pro 11 Simulator: the new journey (light). Playwright desktop + phone:
+`figure-view.spec.ts` (incl. the new framing journey), `arxiv-html.spec.ts` (chat parts) pass. `equation-view.spec.ts`
+"equation explanation … encrypted history" fails on both projects expecting the selection toolbar's old "Add to note"
+(now "Save snippet" from the snippets rename): a stale expectation not touched here. Before/after screenshots on DPO's
+two-plot figure with a deliberately imprecise right box (light/dark; browser desktop/phone, native iPhone, iPad after):
+`.artifacts/figure-framing/`. Not verified: Mac Catalyst run, a physical device (paused), Save snippet's composer on
+native (menu item and capture path built; not driven by a journey), framing quality on live AI boxes at scale.
+
 ## TestFlight 79 and browser release — 2026-10-21 UTC
 
 iOS and Mac build 79 uploaded ~17:32 UTC (iOS VALID at the time of writing); browser redeployed to https://app.gradstep.ai.

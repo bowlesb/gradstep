@@ -100,10 +100,12 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer.getByTestId('figure-summary')).toBeVisible();
  const crop=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
  await expect(crop).toBeVisible();
- // The authored bitmap is 12 pixels wide and one block of ink: the completed crop is exactly the right half (6 whole
- // pixels), on 8 pixels of white background (FIGURE_VIEW.md "Complete crops"; padding percentages are of the width).
- expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,'),s.backgroundClip,
-  Math.round(parseFloat(s.paddingLeft)/e.getBoundingClientRect().width*1000)/1000];})).toEqual(['200% 100%, 100% 100%','100%, 0%','0%, 0%',true,'content-box, border-box',Math.round(8/22*1000)/1000]);
+ // The authored bitmap is 12 × 8 pixels and one block of ink: the completed part is exactly the right half (6 whole
+ // pixels), framed tightly with 8 pixels of white margin (frame [−2, −8, 20, 16]); the card is a viewport into the whole
+ // figure (its canvas, the image on its 8-pixel margin, starts 6 pixels left of the frame: FIGURE_VIEW.md "Parts as viewports").
+ await expect(crop).toHaveAttribute('data-level','high');
+ expect(await crop.locator('.viewport-canvas').evaluate(e=>[e.style.left,e.style.top,e.style.width,e.style.height,(e.querySelector('img') as HTMLImageElement).src.startsWith('data:image/jpeg;base64,')]))
+  .toEqual(['-27.2727%','0%','127.273%','100%',true]);
  // Math is typeset, [¶N] is a link; AI Explainer has gone, Explain in Chat stays; no credit counts (owner, build 59).
  await expect(viewer.getByTestId('figure-section-1').locator('math')).toBeVisible();
  await expect(viewer.getByTestId('figure-section-0').locator('.cite')).toHaveText('¶2');
@@ -160,7 +162,9 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(closer).toContainText('three boxes joined by arrows');
  const closerCrop=closer.getByTestId('figure-detail-crop');
  await expect(closerCrop).toBeVisible();
- expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['200% 100%, 100% 100%','0%, 0%','0%, 0%']);
+ // The left half, framed tightly by the same rules: the canvas starts 6 pixels left of the frame [−8, −8, 14, 16].
+ await expect(closerCrop).toHaveAttribute('data-level','high');
+ expect(await closerCrop.locator('.viewport-canvas').evaluate(e=>[e.style.left,e.style.top,e.style.width])).toEqual(['0%','0%','127.273%']);
  await expect(closer.getByTestId('figure-detail-no-crop')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
  sent=await chats();
@@ -424,4 +428,84 @@ test('crops of a real two-plot figure are completed over the ink they cut and sh
  await closer.scrollIntoViewIfNeeded();
  await page.screenshot({path:shot('detail-dark')});
  await page.emulateMedia({colorScheme:'light'});
+});
+
+// Owner, 2026-10-21: "we present it as a crop of the whole thing, that they can expand, rather than an actual crop".
+// Parts are viewports into the whole figure (FIGURE_VIEW.md "Parts as viewports"), framed by confidence: a precise box
+// tight (as a crop looked), a deliberately imprecise one (it starts inside the neighbouring plot) loosely with the part
+// outlined, and that box alone (the part extracted), which cuts the neighbour, as the whole figure with the part outlined.
+// A tap expands a card to the whole figure; zooming out of a card reveals what is around the part.
+test('parts are framed by confidence: an imprecise box is looser and outlined, and a card expands to the whole figure',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ // FIGURE_FRAMING_STAGE=before names the screenshots of a build without viewports (only the screenshots are taken then).
+ const stage=process.env.FIGURE_FRAMING_STAGE??'after',after=stage==='after',shot=(name:string)=>`../../.artifacts/figure-framing/${stage}-browser-${name}-${test.info().project.name}.png`;
+ await openFixture(page,request,html,twoPlots);
+ await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{mode:'figure_panels_loose'}});
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
+ const viewer=await openFigure(page);
+ await viewer.getByTestId('figure-explain').click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ const left=viewer.getByTestId('figure-section-0').getByTestId('figure-crop'),right=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
+ await expect(left).toBeVisible();await expect(right).toBeVisible();
+ await left.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('walkthrough-left-light')});
+ await right.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('walkthrough-right-light')});
+ if(after){
+  // The precise box: tight, its completed crop and margin (as the crop looked), no outline; the imprecise one: loose, outlined.
+  await expect(left).toHaveAttribute('data-level','high');await expect(right).toHaveAttribute('data-level','medium');
+  await expect(left.getByTestId('part-outline')).toBeHidden();await expect(right.getByTestId('part-outline')).toBeVisible();
+  const aspect=async(l:typeof left)=>{const b=(await l.boundingBox())!;return b.width/b.height;};
+  expect(await aspect(left)).toBeCloseTo(684/504,1);
+  // Accessibility labels keep their meaning.
+  await expect(left).toHaveAccessibleName('Left plot · Reward against KL divergence, the part of the figure it describes');
+  // Zooming out of the tight card reveals the figure around the part, the part outlined.
+  await left.locator('..').getByRole('button',{name:'Zoom out of crop'}).click();
+  await expect(left.getByTestId('part-outline')).toBeVisible();
+  await left.scrollIntoViewIfNeeded();
+  await page.screenshot({path:shot('walkthrough-left-zoomed-out-light')});
+  await left.dblclick();await expect(left).toHaveAttribute('data-scale','1');await expect(left.getByTestId('part-outline')).toBeHidden();
+  // A tap expands the imprecise part to the whole figure, the part outlined (and framed first).
+  await right.click();
+  const full=page.locator('.fullscreen-figure');
+  await expect(full).toBeVisible();
+  const whole=full.getByTestId('fullscreen-crop');
+  await expect(whole).toHaveAttribute('data-view','whole');
+  await expect(whole.getByTestId('part-outline')).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.screenshot({path:shot('expanded-whole-light')});
+  await full.getByRole('button',{name:'Show part'}).click();await expect(whole).toHaveAttribute('data-view','part');
+  await page.waitForTimeout(700);
+  await page.screenshot({path:shot('expanded-part-light')});
+  await full.getByRole('button',{name:'Close',exact:true}).click();
+ }else{
+  await right.locator('..').getByRole('button',{name:'Open fullscreen'}).click();
+  await page.waitForTimeout(500);
+  await page.screenshot({path:shot('expanded-light')});
+  await page.locator('.fullscreen-figure').getByRole('button',{name:'Close',exact:true}).click();
+ }
+ // The part extracted alone cuts the left plot: the whole figure with the part outlined (no "Shown whole" message).
+ await viewer.getByTestId('figure-section-menu-1').click();
+ await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
+ const closer=viewer.getByTestId('figure-section-1').getByTestId('figure-detail-crop');
+ await expect(closer).toBeVisible();
+ await closer.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('detail-light')});
+ if(after){
+  await expect(closer).toHaveAttribute('data-level','low');await expect(closer.getByTestId('part-outline')).toBeVisible();
+  await expect(viewer.getByTestId('figure-detail-whole')).toHaveCount(0);await expect(viewer.getByTestId('figure-crop-whole')).toHaveCount(0);
+  expect(await (async()=>{const b=(await closer.boundingBox())!;return b.width/b.height;})()).toBeCloseTo((1360+20)/(501+20),1);
+ }
+ await page.emulateMedia({colorScheme:'dark'});
+ await right.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('walkthrough-right-dark')});
+ await closer.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('detail-dark')});
+ await page.emulateMedia({colorScheme:'light'});
+ if(after){
+  // Save snippet from a part: what the reader sees in the frame, into the snippet composer.
+  await viewer.getByTestId('figure-section-menu-1').click();
+  await expect(page.getByRole('menu').getByRole('menuitem',{name:'Save snippet'})).toBeVisible();
+  await page.keyboard.press('Escape');
+ }
 });

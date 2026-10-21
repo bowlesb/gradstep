@@ -1,5 +1,65 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Parts as viewports — 2026-10-21 (local source; not released, not deployed)
+
+Owner: "in different panels, when we present it, we present it in such a way that if it's inaccurate, the user can just
+click and see the whole figure, so we present it as a crop of the whole thing, that they can expand, rather than an
+actual crop" — with the parts shown selectively by confidence, the "extract the subfigure / more parts" requests kept, and
+never anything misleading. Builds on "Complete crops" below; no server, prompt, schema, storage or spend change.
+
+- **A card is a viewport, not a cropped bitmap.** Walkthrough panel cards and "Extract the subfigure" details render the
+  whole figure (on its white margin) scaled and placed so the part's *frame* fills the card; the card's aspect is the
+  frame's. Native `FigureViewport` / `FigureViewportScroll` (FigureExplainView.swift); browser `ViewportCard`
+  (`ui/FigureViewport.tsx`). Pinch (and the browser's − / + and drag) move the view over the whole figure: out to all
+  of it, in to 8× the frame. At the frame a native card doesn't pan, so the page scrolls; once pinched it pans. A double
+  tap/click returns to the frame. A tap (or Full screen / Open fullscreen; VoiceOver activate) expands to the existing
+  fullscreen viewer, which opens on the part's frame and widens to the whole figure (at once with Reduce Motion) with the
+  part outlined; **Show part** / **Whole figure** switch between them. Labels keep their meaning ("Detail of Figure 1:
+  Left plot"; "…, whole, for …" when the card shows the whole figure).
+- **Framing by confidence** (`ScienceReaderCore/FigureFraming.swift`, `apps/web/src/lib/figure-framing.ts`; every
+  threshold in one `Parameters` / `FRAMING`). A score from 1 loses: completion growth beyond 50% of the AI box's area
+  (0.6 per unit, at most 0.5); the caption naming L ≥ 2 panels while more were boxed, or a part lettered outside the
+  caption (0.3); a neighbour's ink inside the part — the largest share of an ink component another part owns that lies in
+  this part's region — above 2% (0.26 + the share, at most 0.4); a sliver (under 8% of a side or 1.5% of the area: 0.3);
+  the detector's disagreement (hook, not wired: up to 0.4 below IoU 0.7). A part completion couldn't hold (it still cuts
+  ink) or a part beyond the caption's panels scores 0; without decodable pixels, 0.6. **High (≥ 0.75)**: the completed
+  crop plus the background margin, the rest of the figure under an opaque white veil — it looks as the crop did.
+  **Medium (≥ 0.45)**: each side 18% of the part's size looser (at least the margin), a soft veil (40% white), the part
+  outlined. **Low**: the whole figure, no veil, the part outlined (the AI's box where completion couldn't hold it). Once
+  the reader zooms or pans, a tight card's veil turns soft and its outline shows. The outline is the light accent in both
+  appearances (it sits on the white figure). This replaces "Shown whole: a crop would cut part of this panel off": no
+  message, only the outline.
+- **Extract / more parts.** "Extract the subfigure and more context", Explain more simply and chat's parts stay; an
+  extracted part is framed alone by the same rules. When the caption names its panels, parts beyond them (the lettered
+  ones first, then unlettered in order) are never new crops: they show the whole figure with the part outlined
+  (`keptParts`; extras are left out of completion so they can't reshape the others). Chat's parts (inline, strip,
+  overview, full view) use the same framing at rest (native: rendered by `FramedPart.renderFrame`; browser:
+  `FramedFigure`), with the caption looked up from the paper on the device; they are not pinchable in the transcript
+  (as before), and the overview and full view outline each part's region.
+- **Save snippet** (new item in a part's menu, both clients): what the card shows — the view as the reader left it, with
+  its veil and outline — at the figure's resolution or the card's on-screen pixels, whichever is larger, into the
+  snippet composer (source: the paper, "Figure 1 · Left plot"; anchor: the figure's block).
+- **Coverage note** unchanged in meaning: a part that shows the whole figure covers everything.
+- **Fixtures.** `tests/fixtures/figure-crops/framing.json`: the parameters and 12 cases on the real figures of
+  `cases.json` (precise plots, a box reaching into its neighbour, a cut panel, a detail slice, a caption that agrees, more
+  parts than the caption, a caption naming two of four, a letter outside the caption, a sliver, halves, the detector hook,
+  unchecked), plus caption/label letter cases. TypeScript (`tests/figure-framing.test.ts`) and Swift
+  (`FigureFramingTests`) reproduce every level, reason, score (±1e-4), frame and region (±1 px). `UPDATE_FRAMING_FIXTURE=1`
+  rewrites the expectations from the browser implementation (review the levels in the diff).
+
+### Future opt-in training signal; not collected
+
+Owner, same day: "It can be a good UX compensating and working together with limits of ML, while still pushing ML as far
+as possible. Ideally, we could even log the data (later) from zoom behavior and build a training dataset." **Nothing is
+collected or sent.** When a part card is shown, zoomed, panned or expanded, both clients keep one geometry-only record per
+card in memory — `FigureFramingRecorder` (`ScienceReaderCore/FigureFramingRecord.swift`) and `figure-framing-record.ts`:
+the figure's public identity (arXiv id, revision, "Figure N"; nothing for local PDFs or snippets), surface
+(walkthrough/detail), the part's place in its set, confidence tier, the AI box, completed region and first frame, the
+reader's final view (all normalized to the figure) and whether they zoomed, panned or expanded. At most 200 records;
+cleared on sign-out (`clearAccountView` / `auth.signOut`); never persisted, logged or uploaded. It is the one place a
+future, consented upload would attach to; the conditions are the proposal in DECISIONS.md (opt-in only, geometry only,
+public arXiv figures only, no account linkage, data layout designed before any collection).
+
 ## Complete crops — 2026-10-21 (local source; not released, not deployed)
 
 Owner, TestFlight feedback: "ALWAYS include all pixels of the figure when it breaks it up into subplots", "The crop
@@ -22,7 +82,7 @@ them; completion is recomputed wherever a crop is shown).
   that box), with ink inside a held shared legend staying with it. App additions over the research policy, needed
   because AI boxes include single detail boxes and partial sets: that tiling gate, the size limit and the held
   legend. A box that still cuts a component it may own (not a figure-wide frame/background, not mostly another box's)
-  shows **the whole figure** for that card, with "Shown whole: a crop would cut part of this panel off."
+  shows **the whole figure** for that card (since "Parts as viewports" above: with the part outlined and no message).
 - **Margin.** Every presented crop, and a whole-figure card, is cut exactly and drawn on padding of the figure's white
   background: `max(8, round(2% of the shorter side))` pixels of the sent image, scaled with the crop (never more of the
   image, so a neighbour's ink cannot show at an edge). This replaces the earlier 2% image margin.

@@ -2,6 +2,27 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Figure parts as viewports, framed by confidence (owner, 2026-10-21; implemented locally, not released)
+
+Owner: "in different panels, when we present it, we present it in such a way that if it's inaccurate, the user can just
+click and see the whole figure, so we present it as a crop of the whole thing, that they can expand, rather than an
+actual crop", with framing chosen by confidence, the extract/more-parts requests kept, and nothing misleading shown.
+Design and thresholds: [Parts as viewports](architecture/FIGURE_VIEW.md#parts-as-viewports--2026-10-21-local-source-not-released-not-deployed).
+Agent choices (reversible): the confidence signals and their weights; a white veil (opaque on a tight frame so it looks as
+the crop did, soft on a loose one, none on the whole figure); extras beyond the caption's panels shown as the whole figure
+with the part outlined; chat's parts framed by the same rules but not pinchable in the transcript (as before).
+
+**Proposal, not decided — a future opt-in training signal from framing interactions.** Owner, same day: "It can be a
+good UX compensating and working together with limits of ML, while still pushing ML as far as possible. Ideally, we could
+even log the data (later) from zoom behavior and build a training dataset." Nothing is collected or uploaded now: the apps
+keep one geometry-only record per part card in memory (cleared on sign-out) behind one type
+(`FigureFramingRecorder` / `figure-framing-record.ts`) so a later upload has one place to attach. Any collection would be:
+**opt-in only** (its own consent, off by default, separate from chat consent); **geometry only** (the figure's identity,
+the AI box, the completed region, the frame, the reader's final view, expanded or not — no text, no reading history, no
+timestamps beyond what the layout needs); **public arXiv figures only** (never local PDFs, snippets or notes);
+**no account linkage in the dataset** (no account, device or membership identifiers in what is stored); and the **data
+layout, retention and deletion designed and reviewed before any collection**.
+
 ## AI recommendations (owner, 2026-10-21; decisions delegated; implemented on a branch, not deployed)
 
 Owner, TestFlight 78: "I want two more features: an AI recommendations, it uses AI with our server to search for the

@@ -117,7 +117,9 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  const answerWithParts=page.getByTestId('chat-assistant').last();
  const inline=answerWithParts.getByTestId('figure-part-inline');
  await expect(inline).toHaveCount(2);
- await expect(inline.locator('.figure-part-crop img')).toHaveCount(2);
+ // Each a view into the whole figure framed by confidence (FIGURE_VIEW.md "Parts as viewports"): the halves are complete.
+ await expect(inline.locator('.figure-viewport img')).toHaveCount(2);
+ await expect(inline.locator('.figure-viewport').first()).toHaveAttribute('data-level',/^(high|medium|low)$/);
  await expect(answerWithParts).not.toContainText('[[part');
  const order=await answerWithParts.evaluate(el=>[...el.querySelectorAll('.answer-markdown p, [data-testid=figure-part-inline]')].map(n=>n.matches('[data-testid=figure-part-inline]')?'part':(n.textContent??'').slice(0,12)));
  expect(order).toEqual(['Figure 1 has','part','The left hal','part','The right ha']);

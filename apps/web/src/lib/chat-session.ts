@@ -849,6 +849,18 @@ export class ChatSession {
       return composed && 'convertToBlob' in composed ? await composed.convertToBlob({ type: 'image/png' }) : null;
     } catch { return null; }
   }
+  /** The caption of a figure (by its block) in this chat's paper on this device, when its bundle is the one the parts were
+   * cut from (its panel letters cap the parts shown: FIGURE_VIEW.md "Parts as viewports"). */
+  async figureCaption(documentID: string | null, manifestSHA256: string, blockID: string): Promise<string | null> {
+    const local = documentID ? this.sourcePapers.get(documentID) ?? this.legacyPapers.get(documentID) : undefined;
+    if (!local) return null;
+    try {
+      const bundle = await local.load();
+      if (bundle.manifestSHA256 !== manifestSHA256) return null;
+      const figure = bundle.index.figures.find(f => f.block_id === blockID || f.id === blockID);
+      return figure ? figure.caption || null : null;
+    } catch { return null; }
+  }
   /** Starts (or restarts) a study in this chat: an empty map and the opening turn, sent as the reader's message. */
   startStudy(c: Composer, selection: string | null = null, anchor?: TextAnchor): Promise<void> {
     this.allowed();

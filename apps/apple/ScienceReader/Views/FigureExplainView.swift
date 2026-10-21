@@ -236,11 +236,53 @@ struct FigureExplainView: View {
         VStack(alignment: .trailing, spacing: 4) {
             ZoomableFigureImage(image: image).aspectRatio(CGFloat(image.width) / CGFloat(image.height), contentMode: .fit)
                 .accessibilityLabel(label).accessibilityIdentifier(identifier)
-            Button { expandedImage = FigureImagePresentation(image: image, whole: session?.image, label: label) } label: {
+            Button { expandedImage = FigureImagePresentation(image: image, label: label) } label: {
                 Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right").font(.footnote.weight(.medium))
                     .frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.borderless).accessibilityLabel("View \(label) fullscreen").accessibilityIdentifier("figureView.fullscreen")
         }
+    }
+
+    /// A part's card: a viewport into the whole figure framed by confidence (FIGURE_VIEW.md "Parts as viewports"), its
+    /// aspect the frame's; a tap or Full screen expands it to the whole figure with the part outlined.
+    private func partCard(_ part: FramedPart, image: CGImage, label: String, identifier: String, maxHeight: CGFloat, recordKey: String?) -> some View {
+        let W = Double(image.width), H = Double(image.height)
+        let frameWidth = (part.frame.x1 - part.frame.x0) * W, frameHeight = (part.frame.y1 - part.frame.y0) * H
+        let expand = { expandedImage = FigureImagePresentation(image: image, part: part, label: label, recordKey: recordKey) }
+        return VStack(alignment: .trailing, spacing: 4) {
+            FigureViewport(image: image, part: part, recordKey: recordKey, snippetKey: identifier, onTap: expand)
+                .id(identifier + "\(part.frame)")
+                .aspectRatio(frameWidth / frameHeight, contentMode: .fit)
+                .accessibilityLabel(label).accessibilityIdentifier(identifier)
+            Button(action: expand) {
+                Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right").font(.footnote.weight(.medium))
+                    .frame(minHeight: 44).contentShape(Rectangle())
+            }.buttonStyle(.borderless).accessibilityLabel("View \(label) fullscreen").accessibilityIdentifier("figureView.fullscreen")
+        }
+        .frame(maxWidth: max(160, frameWidth * 2), maxHeight: min(maxHeight, max(160, frameHeight * 2)))
+        .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Save snippet from a part: what its card shows (the view as the reader left it), into the snippet composer.
+    private func saveSnippet(_ section: FigureWalkthrough.Section, number: Int, session: FigureExplainSession) {
+        guard model.notesAvailability == .ready else {
+            model.error = model.isSignedIn ? "Unlock Notes on this device to save snippets." : "Sign in to save snippets to your encrypted notes."
+            return
+        }
+        guard let paper = model.papers.first(where: { $0.id == context.paperID }) ?? model.selectedPaper, let whole = session.image else { return }
+        let index = number - 1, keys = ["figureView.section.\(number).crop", "figureView.section.\(number).detailCrop"]
+        let shown = keys.lazy.compactMap { FigureViewportScroll.shown.object(forKey: $0 as NSString) }.first
+        let line = max(2, Double(max(whole.width, whole.height)) / 280)
+        guard let image = shown?.visibleImage() ?? (session.framed[index] ?? session.detailFramed[index])?.renderFrame(whole, outline: FigurePartCrop.outline, lineWidth: line) else { return }
+        let block = context.bundle.index.figures.first { $0.id == context.figureID }?.blockID ?? context.figureID
+        let anchor = NoteAnchor(manifestSHA256: context.bundle.manifestSHA256, rendererRevision: ReaderVersions.revision(of: context.bundle) ?? 0,
+                                blockIDs: NoteAnchor.isBlockID(block) ? [block] : [], rects: [], viewport: nil, quote: nil)
+        let snippet = CapturedSnippet(kind: .region, image: image, quote: nil, source: SnippetCapturer.source(for: paper, label: "\(context.label) · \(section.name)"),
+                                      anchor: anchor, capturedAt: Date(), origin: .figure, paperID: paper.id)
+        model.notes.notice = nil
+        model.notes.composer = NoteComposerRequest(snippet: snippet)
     }
 
     // MARK: The figure
@@ -324,18 +366,9 @@ struct FigureExplainView: View {
             .accessibilityLabel([section.label, section.title].filter { !$0.isEmpty }.joined(separator: ": "))
             .accessibilityHint("Options for this part")
             .accessibilityIdentifier("figureView.section.\(number).menu")
-            if section.cardKind == .panel, section.box != nil, let shown = session.crops[index] {
-                let crop = shown.image
-                expandable(crop, label: shown.whole ? "\(context.label), whole, for \(section.name)" : "Detail of \(context.label): \(section.name)",
-                           identifier: "figureView.section.\(number).crop")
-                    .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(260, max(160, CGFloat(crop.height) * 2)))
-                    .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
-                    .frame(maxWidth: .infinity)
-                if shown.whole {
-                    Text("Shown whole: a crop would cut part of this panel off.").font(.footnote).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("figureView.section.\(number).cropWhole")
-                }
+            if section.cardKind == .panel, section.box != nil, let part = session.framed[index], let image = session.image {
+                partCard(part, image: image, label: part.level == .low ? "\(context.label), whole, for \(section.name)" : "Detail of \(context.label): \(section.name)",
+                         identifier: "figureView.section.\(number).crop", maxHeight: 260, recordKey: session.recordKey(.walkthrough, index))
             }
             if section.cardKind == .relatedWork {
                 Text("As described in this paper").font(.caption).foregroundStyle(.secondary)
@@ -369,17 +402,9 @@ struct FigureExplainView: View {
     @ViewBuilder private func detailBlock(_ detail: FigureExplainSession.Part, number: Int, index: Int, session: FigureExplainSession) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Up close", systemImage: "viewfinder").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-            if detail.detail != nil, let shown = session.detailCrops[index] {
-                let crop = shown.image
-                expandable(crop, label: shown.whole ? "\(context.label), whole" : "This part of \(context.label), up close", identifier: "figureView.section.\(number).detailCrop")
-                    .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(320, max(160, CGFloat(crop.height) * 2)))
-                    .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
-                    .frame(maxWidth: .infinity)
-                if shown.whole {
-                    Text("Shown whole: a crop would cut part of this part off.").font(.footnote).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("figureView.section.\(number).detailCropWhole")
-                }
+            if detail.detail != nil, let part = session.detailFramed[index], let image = session.image {
+                partCard(part, image: image, label: part.level == .low ? "\(context.label), whole" : "This part of \(context.label), up close",
+                         identifier: "figureView.section.\(number).detailCrop", maxHeight: 320, recordKey: session.recordKey(.detail, index))
             }
             let words = detail.detail?.text ?? detail.text
             if detail.state == .done, !words.isEmpty {
@@ -405,6 +430,10 @@ struct FigureExplainView: View {
             Button { session.extract(index) } label: { Label("Extract the subfigure and more context", systemImage: "viewfinder") }
                 .disabled(extracted == .loading || extracted == .done)
                 .accessibilityIdentifier("figureView.extract")
+        }
+        if session.framed[index] != nil || session.detailFramed[index] != nil {
+            Button { saveSnippet(section, number: index + 1, session: session) } label: { Label("Save snippet", systemImage: "note.text.badge.plus") }
+                .accessibilityIdentifier("figureView.saveSnippet")
         }
         Button {
             rememberReturn()
@@ -507,11 +536,197 @@ final class FigureZoomScroll: UIScrollView, UIScrollViewDelegate {
     override func accessibilityDecrement() { setZoomScale(max(1, zoomScale - 0.5), animated: false) }
 }
 
+/// A part card as a viewport into the whole figure (owner, 2026-10-21: "present it as a crop of the whole thing, that they
+/// can expand, rather than an actual crop"; FIGURE_VIEW.md "Parts as viewports"). The whole figure, on its white margin,
+/// is zoomed and placed so the part's frame (FigureFraming) fills the card: a tight frame looks as a crop did, a loose one
+/// shows some of the figure around the part (softly veiled, the part outlined), a low one the whole figure with the part
+/// outlined. Pinching moves the view over the whole figure (out to all of it, in to 8×); once pinched, it pans; a double
+/// tap returns to the frame; a tap expands to the whole figure. At the frame the card doesn't pan, so the page scrolls.
+struct FigureViewport: UIViewRepresentable {
+    let image: CGImage
+    let part: FramedPart
+    /// Fullscreen: the view starts on the part's frame and widens to the whole figure (`showPart` frames the part again).
+    var fullscreen = false
+    var showPart = false
+    /// The card's framing record (FigureFramingRecorder), and its key for Save snippet.
+    var recordKey: String?
+    var snippetKey: String?
+    var onTap: (() -> Void)?
+    func makeUIView(context: Context) -> FigureViewportScroll {
+        FigureViewportScroll(image: image, part: part, fullscreen: fullscreen, recordKey: recordKey, snippetKey: snippetKey, onTap: onTap)
+    }
+    func updateUIView(_ view: FigureViewportScroll, context: Context) {
+        view.onTap = onTap
+        if fullscreen { view.show(part: showPart) }
+    }
+}
+
+final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
+    /// The cards on screen by their snippet key (Save snippet draws what one shows).
+    static let shown = NSMapTable<NSString, FigureViewportScroll>.strongToWeakObjects()
+    private let canvas = UIView(), picture = UIImageView(), veil = CAShapeLayer(), outline = CAShapeLayer()
+    private let pixels: CGImage, part: FramedPart, fullscreen: Bool, recordKey: String?
+    var onTap: (() -> Void)?
+    private var laidOut = CGSize.zero, restZoom: CGFloat = 1, interacted = false, wantsPart = false, widened = false
+    private let pad: CGSize
+    private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
+
+    init(image: CGImage, part: FramedPart, fullscreen: Bool, recordKey: String?, snippetKey: String?, onTap: (() -> Void)?) {
+        pixels = image; self.part = part; self.fullscreen = fullscreen; self.recordKey = recordKey; self.onTap = onTap
+        pad = CGSize(width: part.padX * Double(image.width), height: part.padY * Double(image.height))
+        super.init(frame: .zero)
+        delegate = self; bounces = false; bouncesZoom = false; contentInsetAdjustmentBehavior = .never
+        showsVerticalScrollIndicator = false; showsHorizontalScrollIndicator = false; backgroundColor = .white
+        canvas.backgroundColor = .white
+        canvas.frame = CGRect(x: 0, y: 0, width: CGFloat(image.width) + 2 * pad.width, height: CGFloat(image.height) + 2 * pad.height)
+        picture.image = UIImage(cgImage: image)
+        picture.frame = CGRect(x: pad.width, y: pad.height, width: CGFloat(image.width), height: CGFloat(image.height))
+        canvas.addSubview(picture)
+        veil.fillRule = .evenOdd; veil.fillColor = UIColor.white.cgColor
+        outline.fillColor = nil; outline.strokeColor = FigurePartCrop.outline
+        canvas.layer.addSublayer(veil); canvas.layer.addSublayer(outline)
+        let region = regionRect
+        veil.path = { let p = UIBezierPath(rect: canvas.bounds.insetBy(dx: -4000, dy: -4000)); p.append(UIBezierPath(rect: region)); return p.cgPath }()
+        addSubview(canvas)
+        panGestureRecognizer.isEnabled = fullscreen
+        isAccessibilityElement = true; accessibilityTraits = [.image, .adjustable]
+        accessibilityHint = fullscreen ? "Pinch to zoom, drag to pan." : "Shows the whole figure with this part outlined. Pinch to zoom; double tap to return."
+        accessibilityValue = "100%"
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:))); doubleTap.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTap)
+        if !fullscreen {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped)); tap.require(toFail: doubleTap)
+            addGestureRecognizer(tap)
+        }
+        if let snippetKey { Self.shown.setObject(self, forKey: snippetKey as NSString) }
+        applyLook()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// The part's region and the rest frame, in canvas points (1 point = 1 pixel of the figure at zoom 1).
+    private var regionRect: CGRect { rect(part.region) }
+    private func rect(_ r: CropRect) -> CGRect {
+        let W = Double(pixels.width), H = Double(pixels.height)
+        return CGRect(x: r.x0 * W + pad.width, y: r.y0 * H + pad.height, width: (r.x1 - r.x0) * W, height: (r.y1 - r.y0) * H)
+    }
+    /// The frame grown to the view's shape about its centre (fullscreen's box is the whole figure's shape).
+    private func fitted(_ r: CGRect) -> CGRect {
+        guard bounds.width > 0, bounds.height > 0 else { return r }
+        let aspect = bounds.width / bounds.height, w = r.width / r.height > aspect ? r.width : r.height * aspect
+        return CGRect(x: r.midX - w / 2, y: r.midY - w / aspect / 2, width: w, height: w / aspect)
+    }
+    private var restRect: CGRect { fitted(rect(part.frame)) }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != laidOut, bounds.width > 0, bounds.height > 0 else { return }
+        laidOut = bounds.size
+        let rest = restRect, whole = canvas.frame.size == .zero ? CGSize(width: 1, height: 1) : CGSize(width: canvas.bounds.width, height: canvas.bounds.height)
+        restZoom = bounds.width / rest.width
+        let fit = min(bounds.width / whole.width, bounds.height / whole.height)
+        minimumZoomScale = min(fit, restZoom); maximumZoomScale = restZoom * 8
+        if fullscreen && widened && !wantsPart { showWhole(animated: false) } else if !interacted || fullscreen { goTo(rest, animated: false) }
+        if fullscreen && !widened {
+            widened = true
+            // Opens on the part's frame, then widens to the whole figure (at once with Reduce Motion).
+            if reduceMotion { showWhole(animated: false) } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in if self?.wantsPart == false { self?.showWhole(animated: true) } } }
+        }
+    }
+
+    private func goTo(_ r: CGRect, animated: Bool) {
+        let zoom = min(maximumZoomScale, max(minimumZoomScale, bounds.width / r.width))
+        let apply = { [self] in
+            setZoomScale(zoom, animated: false)
+            centre()
+            setContentOffset(CGPoint(x: r.minX * zoom - contentInset.left, y: r.minY * zoom - contentInset.top), animated: false)
+            clampOffset()
+        }
+        if animated { UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseInOut], animations: apply) } else { apply() }
+        updateValue()
+    }
+    private func showWhole(animated: Bool) { goTo(fitted(canvas.bounds), animated: animated) }
+    /// Fullscreen's Show part / Whole figure.
+    func show(part showing: Bool) {
+        guard showing != wantsPart else { return }
+        wantsPart = showing
+        guard laidOut != .zero else { return }
+        if showing { goTo(restRect, animated: !reduceMotion) } else { showWhole(animated: !reduceMotion) }
+        if !showing, let recordKey { FigureFramingRecorder.shared.changed(recordKey, expanded: true) }
+    }
+
+    private func clampOffset() {
+        let maxX = max(-contentInset.left, contentSize.width - bounds.width), maxY = max(-contentInset.top, contentSize.height - bounds.height)
+        contentOffset = CGPoint(x: min(maxX, max(-contentInset.left, contentOffset.x)), y: min(maxY, max(-contentInset.top, contentOffset.y)))
+    }
+    private func centre() {
+        contentInset = UIEdgeInsets(top: max(0, (bounds.height - contentSize.height) / 2), left: max(0, (bounds.width - contentSize.width) / 2), bottom: 0, right: 0)
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
+    func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { reveal() }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) { centre(); applyLook(); updateValue() }
+    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { record(zoomed: true) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { record(panned: true) } }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { record(panned: true) }
+
+    private func reveal() {
+        guard !interacted else { return }
+        interacted = true; panGestureRecognizer.isEnabled = true; applyLook()
+    }
+    private func applyLook() {
+        let look = part.look(revealed: interacted || fullscreen)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        veil.fillColor = UIColor.white.withAlphaComponent(look.veil).cgColor; veil.isHidden = look.veil <= 0
+        outline.isHidden = !look.outlined
+        let line = 2 / max(zoomScale, 0.01)
+        outline.lineWidth = line; outline.path = UIBezierPath(rect: regionRect.insetBy(dx: -line, dy: -line)).cgPath
+        CATransaction.commit()
+    }
+    private func updateValue() { accessibilityValue = "\(Int((zoomScale / max(restZoom, 0.0001) * 100).rounded()))%" }
+
+    /// What the view shows, in pixels of the figure (it may reach into the white margin).
+    private var visible: CropRect {
+        let z = max(zoomScale, 0.0001), x = (contentOffset.x) / z - pad.width, y = (contentOffset.y) / z - pad.height
+        return CropRect(Double(x), Double(y), Double(x + bounds.width / z), Double(y + bounds.height / z))
+    }
+    private func record(zoomed: Bool = false, panned: Bool = false) {
+        guard let recordKey else { return }
+        let v = visible, W = Double(pixels.width), H = Double(pixels.height)
+        FigureFramingRecorder.shared.changed(recordKey, view: CropRect(v.x0 / W, v.y0 / H, v.x1 / W, v.y1 / H), zoomed: zoomed, panned: panned)
+    }
+
+    /// What the card shows (Save snippet): the figure at its own resolution or the card's on-screen pixels, whichever is
+    /// larger, with the veil and outline as shown.
+    func visibleImage() -> CGImage? {
+        let v = visible, screen = window?.screen.scale ?? 2, z = max(zoomScale, 0.0001)
+        let scale = max(1, Double(bounds.width * screen) / max(1, v.x1 - v.x0))
+        return part.render(pixels, view: v, scale: scale, revealed: interacted || fullscreen, outline: FigurePartCrop.outline, lineWidth: 2 * scale / Double(z))
+    }
+
+    @objc private func tapped() { onTap?(); if let recordKey { FigureFramingRecorder.shared.changed(recordKey, expanded: true) } }
+    @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
+        if interacted && !fullscreen {
+            interacted = false; panGestureRecognizer.isEnabled = false
+            goTo(restRect, animated: !reduceMotion); applyLook(); record()
+        } else {
+            reveal()
+            let at = gesture.location(in: canvas), size = CGSize(width: bounds.width / (zoomScale * 2), height: bounds.height / (zoomScale * 2))
+            zoom(to: CGRect(x: at.x - size.width / 2, y: at.y - size.height / 2, width: size.width, height: size.height), animated: !reduceMotion)
+        }
+    }
+    override func accessibilityActivate() -> Bool { guard let onTap else { return false }; onTap(); return true }
+    override func accessibilityIncrement() { reveal(); setZoomScale(min(maximumZoomScale, zoomScale * 1.5), animated: false); record(zoomed: true) }
+    override func accessibilityDecrement() { reveal(); setZoomScale(max(minimumZoomScale, zoomScale / 1.5), animated: false); record(zoomed: true) }
+}
+
 struct FigureImagePresentation: Identifiable {
     let id = UUID()
+    /// The whole figure.
     let image: CGImage
-    let whole: CGImage?
+    /// A part card's framing: fullscreen opens on it and widens to the whole figure, the part outlined.
+    var part: FramedPart?
     let label: String
+    var recordKey: String?
 }
 
 private struct FigureViewerWindowSizeKey: EnvironmentKey { static let defaultValue = CGSize.zero }
@@ -548,22 +763,33 @@ private struct FigureImageCover: ViewModifier {
 struct FullscreenFigureImage: View {
     let image: FigureImagePresentation
     let close: () -> Void
-    @State private var whole = false
+    /// A part's fullscreen opens on its frame and widens to the whole figure; Show part frames it again.
+    @State private var showPart = false
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(image.label).font(.headline)
                 Spacer()
-                if let original = image.whole, original !== image.image {
-                    Button(whole ? "Show detail" : "Whole figure") { whole.toggle() }
+                if image.part != nil {
+                    Button(showPart ? "Whole figure" : "Show part") { showPart.toggle() }
                 }
                 Button(action: close) { Image(systemName: "xmark").frame(width: 44, height: 44) }
                     .accessibilityLabel("Close fullscreen image").accessibilityIdentifier("figureView.fullscreen.close")
                     .keyboardShortcut(.escape, modifiers: [])
             }.padding(.horizontal, 16)
-            ZoomableFigureImage(image: whole ? image.whole ?? image.image : image.image, inset: 16)
-                .id(whole).accessibilityIdentifier("figureView.fullscreen.image")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if let part = image.part {
+                    // The whole figure's shape, inside 16 pt of the screen's edges, the part outlined.
+                    FigureViewport(image: image.image, part: part, fullscreen: true, showPart: showPart, recordKey: image.recordKey)
+                        .aspectRatio((Double(image.image.width) * (1 + 2 * part.padX)) / (Double(image.image.height) * (1 + 2 * part.padY)), contentMode: .fit)
+                        .padding(16)
+                        .accessibilityLabel(image.label)
+                } else {
+                    ZoomableFigureImage(image: image.image, inset: 16)
+                }
+            }
+            .accessibilityIdentifier("figureView.fullscreen.image")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             Text("Pinch to zoom · Drag to pan · Double tap to reset").font(.footnote).foregroundStyle(.secondary).padding(12)
         }.background(Color(uiColor: .systemBackground)).macSheetKeys()
     }

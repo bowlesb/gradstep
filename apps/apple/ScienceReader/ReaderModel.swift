@@ -2228,7 +2228,8 @@ final class ReaderModel {
         readerUpdates = [:]; failedHTMLOpens = []; legacyBundleFallback = []; finishedImportSources = []
         cancelDeviceModelReading(); deviceModelIssue = nil; deviceModelSummaries = [:]; deviceModelHTMLBundles = [:]
         chatProfileFetch = nil; chatProfilesRefreshing = false; chatProfileTable = nil; chatProfileTableFailed = false
-        pendingChatProfiles = [:]; chatStudyMaps = [:]; chatFollowUps = [:]; figureImageCache.removeAllObjects()
+        pendingChatProfiles = [:]; chatStudyMaps = [:]; chatFollowUps = [:]; figureImageCache.removeAllObjects(); figurePartCropCache = [:]
+        FigureFramingRecorder.shared.clear() // the figure framing record (in memory only) leaves with the account
         let oldLibrary = libraryService; libraryService = nil; libraryContextAuthenticated = false
         Task { await oldLibrary?.invalidate() }
         libraryImports = []; libraryCreationSequences = [:]; presentedImportIDs = []; libraryPublicationGeneration = 0
@@ -3213,8 +3214,10 @@ final class ReaderModel {
               let bundle = papers.first(where: { $0.readerBundle?.manifestSHA256 == stored.manifestSHA256 })?.readerBundle else { return nil }
         figurePartCropWork.insert(key)
         let asset = stored.paths.count == 1 ? bundle.data(for: stored.paths[0]) : nil, figure = FigurePartCrop.Unchecked(image: image)
+        // The figure's caption: its panel letters cap the parts shown (FIGURE_VIEW.md "Parts as viewports").
+        let caption = bundle.index.figures.first { $0.blockID == stored.blockID || $0.id == stored.blockID }?.caption ?? ""
         Task { [weak self] in
-            let crops = await Task.detached(priority: .userInitiated) { FigurePartCrop.all(stored, image: figure.image, asset: asset) }.value
+            let crops = await Task.detached(priority: .userInitiated) { FigurePartCrop.all(stored, image: figure.image, asset: asset, caption: caption) }.value
             guard let self else { return }
             if figurePartCropCache.count >= 24 { figurePartCropCache.removeAll() }
             figurePartCropCache[key] = crops; figurePartCropWork.remove(key)

@@ -1,0 +1,1189 @@
+{
+ "format": "figure-framing-fixtures-v1",
+ "reference": "apps/web/src/lib/figure-framing.ts and ScienceReaderCore/FigureFraming.swift (FIGURE_VIEW.md \"Parts as viewports\"); completion as cases.json",
+ "parameters": {
+  "high": 0.75,
+  "medium": 0.45,
+  "growthFree": 0.5,
+  "growthPerUnit": 0.6,
+  "growthMaxPenalty": 0.5,
+  "countPenalty": 0.3,
+  "intrusionFree": 0.02,
+  "intrusionBase": 0.26,
+  "intrusionMaxPenalty": 0.4,
+  "sliverSide": 0.08,
+  "sliverArea": 0.015,
+  "sliverPenalty": 0.3,
+  "detectorAgree": 0.7,
+  "detectorMaxPenalty": 0.4,
+  "uncheckedScore": 0.6,
+  "looseFraction": 0.18,
+  "veilHigh": 1,
+  "veilMedium": 0.4,
+  "veilLow": 0,
+  "veilRevealed": 0.4
+ },
+ "tolerancePixels": 1,
+ "toleranceScore": 0.0001,
+ "cases": [
+  {
+   "name": "complete-plots",
+   "about": "Boxes on two plotting areas that completion grows over their labels: both tight (as the crops looked).",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.06,
+     0.07,
+     0.48,
+     0.86
+    ],
+    [
+     0.55,
+     0.07,
+     0.99,
+     0.86
+    ]
+   ],
+   "labels": [
+    "Left plot",
+    "Right plot"
+   ],
+   "caption": "Figure 2: Two results side by side.",
+   "detector": null,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -2,
+       -2,
+       682,
+       502
+      ],
+      "regionPixels": [
+       8,
+       8,
+       672,
+       492
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       694,
+       6,
+       1362,
+       506
+      ],
+      "regionPixels": [
+       704,
+       16,
+       1352,
+       496
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "imprecise-box-reaches-neighbour",
+   "about": "The right box starts inside the left plot: its completed region holds some of the left plot's ink, so it is framed loosely and outlined; the left stays tight.",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.06,
+     0.07,
+     0.48,
+     0.86
+    ],
+    [
+     0.45,
+     0.1,
+     0.99,
+     0.9
+    ]
+   ],
+   "labels": [
+    "Left plot",
+    "Right plot"
+   ],
+   "caption": "",
+   "detector": null,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -2,
+       -2,
+       682,
+       502
+      ],
+      "regionPixels": [
+       8,
+       8,
+       672,
+       492
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.6,
+      "reasons": [
+       "overlap"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       478.8,
+       -10,
+       1370,
+       511
+      ],
+      "regionPixels": [
+       612,
+       16,
+       1352,
+       496
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "cut-shows-whole",
+   "about": "The first box cuts its own panel and cannot be completed: the whole figure with that box outlined.",
+   "image": "dpo-figure-4.png",
+   "width": 1345,
+   "height": 492,
+   "unchecked": false,
+   "boxes": [
+    [
+     0,
+     0,
+     0.42,
+     1
+    ],
+    [
+     0.42,
+     0,
+     1,
+     1
+    ]
+   ],
+   "labels": [
+    "(a)",
+    "(b)"
+   ],
+   "caption": "",
+   "detector": null,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "low",
+      "score": 0,
+      "reasons": [
+       "cut"
+      ],
+      "extra": false,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -10,
+       -10,
+       1355,
+       502
+      ],
+      "regionPixels": [
+       0,
+       0,
+       564.9,
+       492
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.6,
+      "reasons": [
+       "overlap"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       423.42,
+       -10,
+       1355,
+       502
+      ],
+      "regionPixels": [
+       564,
+       0,
+       1345,
+       492
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "detail-slice",
+   "about": "One detail box over part of a legend inside a plot: cut, so the whole figure, outlined.",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.7,
+     0.09,
+     0.93,
+     0.18
+    ]
+   ],
+   "labels": [
+    "Legend"
+   ],
+   "caption": "",
+   "detector": null,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "low",
+      "score": 0,
+      "reasons": [
+       "cut"
+      ],
+      "extra": false,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -10,
+       -10,
+       1370,
+       511
+      ],
+      "regionPixels": [
+       952,
+       45.09,
+       1264.8,
+       90.18
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "caption-agrees",
+   "about": "Four lettered panels and a caption naming (a)–(d): completion grows each a little; all tight.",
+   "image": "letters-shared-legend.png",
+   "width": 990,
+   "height": 726,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.1,
+     0.07,
+     0.475,
+     0.38
+    ],
+    [
+     0.59,
+     0.07,
+     0.97,
+     0.38
+    ],
+    [
+     0.1,
+     0.52,
+     0.475,
+     0.83
+    ],
+    [
+     0.59,
+     0.52,
+     0.97,
+     0.83
+    ]
+   ],
+   "labels": [
+    "(a)",
+    "(b)",
+    "(c)",
+    "(d)"
+   ],
+   "caption": "Figure 3: (a) First. (b) Second. (c) Third. (d) Fourth.",
+   "detector": null,
+   "expect": {
+    "coverage": 0.939541,
+    "parts": [
+     {
+      "level": "high",
+      "score": 0.906182,
+      "reasons": [
+       "grew"
+      ],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       12,
+       -6,
+       487,
+       335
+      ],
+      "regionPixels": [
+       27,
+       9,
+       472,
+       320
+      ]
+     },
+     {
+      "level": "high",
+      "score": 0.919259,
+      "reasons": [
+       "grew"
+      ],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       502,
+       -6,
+       977,
+       335
+      ],
+      "regionPixels": [
+       517,
+       9,
+       962,
+       320
+      ]
+     },
+     {
+      "level": "high",
+      "score": 0.906182,
+      "reasons": [
+       "grew"
+      ],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       12,
+       324,
+       487,
+       665
+      ],
+      "regionPixels": [
+       27,
+       339,
+       472,
+       650
+      ]
+     },
+     {
+      "level": "high",
+      "score": 0.931873,
+      "reasons": [
+       "grew"
+      ],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       502,
+       324,
+       977,
+       661
+      ],
+      "regionPixels": [
+       517,
+       339,
+       962,
+       646
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "more-parts-than-caption",
+   "about": "A fifth, unlettered box beyond the caption's four panels: an outline on the whole figure; the four are framed loosely.",
+   "image": "letters-shared-legend.png",
+   "width": 990,
+   "height": 726,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.1,
+     0.07,
+     0.475,
+     0.38
+    ],
+    [
+     0.59,
+     0.07,
+     0.97,
+     0.38
+    ],
+    [
+     0.1,
+     0.52,
+     0.475,
+     0.83
+    ],
+    [
+     0.59,
+     0.52,
+     0.97,
+     0.83
+    ],
+    [
+     0.3,
+     0.4,
+     0.7,
+     0.5
+    ]
+   ],
+   "labels": [
+    "(a)",
+    "(b)",
+    "(c)",
+    "(d)",
+    "Legend"
+   ],
+   "caption": "Figure 3: (a) First. (b) Second. (c) Third. (d) Fourth.",
+   "detector": null,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "medium",
+      "score": 0.606182,
+      "reasons": [
+       "grew",
+       "count"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       -15,
+       -15,
+       552.1,
+       375.98
+      ],
+      "regionPixels": [
+       27,
+       9,
+       472,
+       320
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.619259,
+      "reasons": [
+       "grew",
+       "count"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       436.9,
+       -15,
+       1005,
+       375.98
+      ],
+      "regionPixels": [
+       517,
+       9,
+       962,
+       320
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.606182,
+      "reasons": [
+       "grew",
+       "count"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       -15,
+       283.02,
+       552.1,
+       705.98
+      ],
+      "regionPixels": [
+       27,
+       339,
+       472,
+       650
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.631873,
+      "reasons": [
+       "grew",
+       "count"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       436.9,
+       283.74,
+       1005,
+       701.26
+      ],
+      "regionPixels": [
+       517,
+       339,
+       962,
+       646
+      ]
+     },
+     {
+      "level": "low",
+      "score": 0,
+      "reasons": [
+       "extra"
+      ],
+      "extra": true,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -15,
+       -15,
+       1005,
+       741
+      ],
+      "regionPixels": [
+       297,
+       290.4,
+       693,
+       363
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "caption-names-two",
+   "about": "The caption names (a) and (b) only: the parts labelled (c) and (d) become outlines, not crops.",
+   "image": "letters-shared-legend.png",
+   "width": 990,
+   "height": 726,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.1,
+     0.07,
+     0.475,
+     0.38
+    ],
+    [
+     0.59,
+     0.07,
+     0.97,
+     0.38
+    ],
+    [
+     0.1,
+     0.52,
+     0.475,
+     0.83
+    ],
+    [
+     0.59,
+     0.52,
+     0.97,
+     0.83
+    ]
+   ],
+   "labels": [
+    "(a)",
+    "(b)",
+    "(c)",
+    "(d)"
+   ],
+   "caption": "Figure 3: (a) Top row. (b) Bottom row.",
+   "detector": null,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "medium",
+      "score": 0.7,
+      "reasons": [
+       "count"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       -15,
+       -15,
+       547.42,
+       344.24
+      ],
+      "regionPixels": [
+       53,
+       28,
+       472,
+       296
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.7,
+      "reasons": [
+       "count"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       467.58,
+       -15,
+       1005,
+       344.24
+      ],
+      "regionPixels": [
+       543,
+       28,
+       962,
+       296
+      ]
+     },
+     {
+      "level": "low",
+      "score": 0,
+      "reasons": [
+       "extra"
+      ],
+      "extra": true,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -15,
+       -15,
+       1005,
+       741
+      ],
+      "regionPixels": [
+       99,
+       377.52,
+       470.25,
+       602.58
+      ]
+     },
+     {
+      "level": "low",
+      "score": 0,
+      "reasons": [
+       "extra"
+      ],
+      "extra": true,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -15,
+       -15,
+       1005,
+       741
+      ],
+      "regionPixels": [
+       584.1,
+       377.52,
+       960.3,
+       602.58
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "letter-not-in-caption",
+   "about": "A part labelled (e) under a caption naming (a)–(d): framed loosely.",
+   "image": "letters-shared-legend.png",
+   "width": 990,
+   "height": 726,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.1,
+     0.07,
+     0.475,
+     0.38
+    ],
+    [
+     0.59,
+     0.07,
+     0.97,
+     0.38
+    ]
+   ],
+   "labels": [
+    "(a)",
+    "(e)"
+   ],
+   "caption": "Figure 3: (a) First. (b) Second. (c) Third. (d) Fourth.",
+   "detector": null,
+   "expect": {
+    "coverage": 0.426733,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       38,
+       13,
+       487,
+       311
+      ],
+      "regionPixels": [
+       53,
+       28,
+       472,
+       296
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.7,
+      "reasons": [
+       "letter"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       467.58,
+       -15,
+       1005,
+       344.24
+      ],
+      "regionPixels": [
+       543,
+       28,
+       962,
+       296
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "sliver",
+   "about": "A box on a plot's title: complete, but a sliver of the figure, so framed loosely.",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.1,
+     0,
+     0.4,
+     0.06
+    ]
+   ],
+   "labels": [
+    "Title"
+   ],
+   "caption": "",
+   "detector": null,
+   "expect": {
+    "coverage": 0.049398,
+    "parts": [
+     {
+      "level": "medium",
+      "score": 0.7,
+      "reasons": [
+       "sliver"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       58.24,
+       -10,
+       645.76,
+       42
+      ],
+      "regionPixels": [
+       136,
+       0,
+       568,
+       32
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "halves",
+   "about": "Left and right halves of a two-plot figure: both complete, tight.",
+   "image": "dpo-figure-4.png",
+   "width": 1345,
+   "height": 492,
+   "unchecked": false,
+   "boxes": [
+    [
+     0,
+     0,
+     0.5,
+     1
+    ],
+    [
+     0.5,
+     0,
+     1,
+     1
+    ]
+   ],
+   "labels": [
+    "Left half",
+    "Right half"
+   ],
+   "caption": "",
+   "detector": null,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -10,
+       -10,
+       683,
+       502
+      ],
+      "regionPixels": [
+       0,
+       0,
+       673,
+       492
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       662,
+       -10,
+       1355,
+       502
+      ],
+      "regionPixels": [
+       672,
+       0,
+       1345,
+       492
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "detector-disagrees",
+   "about": "The detector hook: a part the detector does not find (agreement 0) is framed loosely; one it agrees with is unchanged.",
+   "image": "dpo-figure-4.png",
+   "width": 1345,
+   "height": 492,
+   "unchecked": false,
+   "boxes": [
+    [
+     0,
+     0,
+     0.5,
+     1
+    ],
+    [
+     0.5,
+     0,
+     1,
+     1
+    ]
+   ],
+   "labels": [
+    "Left half",
+    "Right half"
+   ],
+   "caption": "",
+   "detector": [
+    0.92,
+    0
+   ],
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -10,
+       -10,
+       683,
+       502
+      ],
+      "regionPixels": [
+       0,
+       0,
+       673,
+       492
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.6,
+      "reasons": [
+       "detector"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       550.86,
+       -10,
+       1355,
+       502
+      ],
+      "regionPixels": [
+       672,
+       0,
+       1345,
+       492
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "unchecked",
+   "about": "Without decodable pixels: the AI's boxes as they are, framed loosely and outlined.",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "unchecked": true,
+   "boxes": [
+    [
+     0.06,
+     0.07,
+     0.48,
+     0.86
+    ],
+    [
+     0.55,
+     0.07,
+     0.99,
+     0.86
+    ]
+   ],
+   "labels": [
+    "Left plot",
+    "Right plot"
+   ],
+   "caption": "",
+   "detector": null,
+   "expect": {
+    "coverage": null,
+    "parts": [
+     {
+      "level": "medium",
+      "score": 0.6,
+      "reasons": [
+       "unchecked"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       -10,
+       -10,
+       755.62,
+       502.1
+      ],
+      "regionPixels": [
+       81.6,
+       35.07,
+       652.8,
+       430.86
+      ]
+     },
+     {
+      "level": "medium",
+      "score": 0.6,
+      "reasons": [
+       "unchecked"
+      ],
+      "extra": false,
+      "veil": 0.4,
+      "outlined": true,
+      "framePixels": [
+       640.29,
+       -10,
+       1370,
+       502.1
+      ],
+      "regionPixels": [
+       748,
+       35.07,
+       1346.4,
+       430.86
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "captionLetters": [
+  {
+   "caption": "Figure 3: (a) one (b) two",
+   "letters": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "caption": "a) left b) right",
+   "letters": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "caption": "Shown in \\textbf{(c)}: …",
+   "letters": [
+    "c"
+   ]
+  },
+  {
+   "caption": "Figure 1: A test figure.",
+   "letters": []
+  },
+  {
+   "caption": "(A) and (B)",
+   "letters": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "caption": "see Eq. (3) and f(x)",
+   "letters": []
+  },
+  {
+   "caption": "from (a)–(c)",
+   "letters": [
+    "a",
+    "c"
+   ]
+  },
+  {
+   "caption": "panels a) and h) ok",
+   "letters": [
+    "a",
+    "h"
+   ]
+  }
+ ],
+ "labelLetters": [
+  {
+   "label": "(b)",
+   "letter": "b"
+  },
+  {
+   "label": "(b) Win rate",
+   "letter": "b"
+  },
+  {
+   "label": "b) Win rate",
+   "letter": "b"
+  },
+  {
+   "label": "b. Win rate",
+   "letter": "b"
+  },
+  {
+   "label": "b",
+   "letter": "b"
+  },
+  {
+   "label": "B",
+   "letter": "b"
+  },
+  {
+   "label": "Panel b",
+   "letter": "b"
+  },
+  {
+   "label": "Left plot",
+   "letter": null
+  },
+  {
+   "label": "A closer look",
+   "letter": null
+  },
+  {
+   "label": "Bar chart",
+   "letter": null
+  },
+  {
+   "label": "",
+   "letter": null
+  }
+ ]
+}

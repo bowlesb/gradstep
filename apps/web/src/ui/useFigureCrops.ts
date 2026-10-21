@@ -1,9 +1,11 @@
-// The completeness step where crops are shown (figure-crops.ts; FIGURE_VIEW.md "Complete crops"): the ink of the image
-// a request carried, found once per image and kept for a few images, and each card's completed crop. Until the ink is
+// The completeness step and framing where parts are shown (figure-crops.ts, figure-framing.ts; FIGURE_VIEW.md "Complete
+// crops", "Parts as viewports"): the ink of the image a request carried, found once per image and kept for a few images,
+// and each card's framing. Until the ink is
 // known a card shows no crop (no crop that then changes size); when it can't be found, the AI's own box is shown.
 import { useEffect, useMemo, useState } from 'react';
 import { prepareFigure } from '../lib/chat-figures';
-import { base64Blob, completeCrops, inkOf, presented, type FigureInk, type PresentedCrop, type Rect } from '../lib/figure-crops';
+import { base64Blob, inkOf, type FigureInk } from '../lib/figure-crops';
+import { frameParts, type FramedPart, type FramingInput } from '../lib/figure-framing';
 
 const kept = new Map<string, Promise<FigureInk | null>>();
 function remember(key: string, make: () => Promise<FigureInk | null>): Promise<FigureInk | null> {
@@ -48,19 +50,11 @@ export function useFigureBlobInk(image: Blob | null): FigureInk | null | undefin
   return !image ? null : ink?.image === image ? ink.ink : undefined;
 }
 
-/** Each box's completed crop (boxes that belong together in one call, so they are completed against each other), with
- * the share of the figure's ink the crops show. Without the ink (it couldn't be found), the AI's own boxes with the
- * earlier 2 % of context, padded as any crop, and no coverage. */
-export function completedFor(ink: FigureInk | null, boxes: Rect[]): { crops: PresentedCrop[]; coverage: number | null } {
-  if (!boxes.length) return { crops: [], coverage: null };
-  if (!ink) return { crops: boxes.map(b => ({ region: [Math.max(0, b[0] - 0.02), Math.max(0, b[1] - 0.02), Math.min(1, b[2] + 0.02), Math.min(1, b[3] + 0.02)] as Rect,
-    whole: false, padX: 0.01, padY: 0.01 })), coverage: null };
-  const done = completeCrops(ink, boxes);
-  return { crops: done.crops.map(c => presented(ink, c)), coverage: done.coverage };
-}
-
-/** `completedFor` once the ink is known (undefined until then, so no crop shows and then changes size). */
-export function useCompletedCrops(ink: FigureInk | null | undefined, boxes: Rect[]): { crops: PresentedCrop[]; coverage: number | null } | undefined {
-  const key = JSON.stringify(boxes);
-  return useMemo(() => ink === undefined ? undefined : completedFor(ink, boxes), [ink, key]); // eslint-disable-line react-hooks/exhaustive-deps
+/** Every part of one set framed (figure-framing.ts: completion, then confidence and its frame) once the ink is known
+ * (undefined until then, so no card shows and then changes size). Without the ink (it couldn't be found), the AI's boxes
+ * unchecked: framed loosely and outlined. */
+export function useFramedParts(ink: FigureInk | null | undefined, image: { width: number; height: number } | null, input: FramingInput):
+  { parts: FramedPart[]; coverage: number | null } | undefined {
+  const key = JSON.stringify([input.boxes, input.caption ?? '', input.labels ?? [], input.detector ?? null, image?.width, image?.height]);
+  return useMemo(() => ink === undefined || (!ink && !image) ? undefined : frameParts(ink, ink ?? image!, input), [ink, key]); // eslint-disable-line react-hooks/exhaustive-deps
 }

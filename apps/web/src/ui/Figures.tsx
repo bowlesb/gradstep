@@ -17,7 +17,7 @@ import { Icon } from './icons';
 // Loaded with its first figure page: it brings the Markdown and math typesetter of the walkthrough with it.
 const FigureExplain = lazy(() => import('./FigureView').then(m => ({ default: m.FigureExplain })));
 
-export function FigureViewer({ bundle, theme, initial, explain = false, onClose, onShowInPaper, onDiscuss, figureView, onCite, onAddToNote }: {
+export function FigureViewer({ bundle, theme, initial, explain = false, onClose, onShowInPaper, onDiscuss, figureView, onCite, onAddToNote, onAddPartToNote, arxiv = null }: {
   bundle: VerifiedBundle; theme: 'light' | 'dark'; initial: string | null; onClose: () => void; onShowInPaper: (id: string) => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>;
   /** AI Explainer was chosen to open this page (a figure in the paper, a kept explanation): the walkthrough is asked for at once. */
   explain?: boolean;
@@ -27,6 +27,10 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
   onCite?: (paragraph: number, figureID:string) => void;
   /** Notes: the figure's own image into the composer (NOTES_AND_SNIPPETS.md "Capture entry points"). */
   onAddToNote?: (figureID: string) => void;
+  /** Notes: Save snippet from a walkthrough's part (what its card shows: FIGURE_VIEW.md "Parts as viewports"). */
+  onAddPartToNote?: (figureID: string, image: Blob, label: string) => void;
+  /** The paper's arXiv identity (the local framing record keeps arXiv figures only); null for anything else. */
+  arxiv?: { sourceID: string; revision: number } | null;
 }) {
   const [discussing, setDiscussing] = useState(false), [issue, setIssue] = useState<string | null>(null);
   // While a walkthrough is asked for or shown, the figure gets smaller so its words are in view.
@@ -125,7 +129,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
             <button key={f.id} type="button" role="menuitemradio" aria-checked={i === index} className="menu-item"
               onClick={() => { close(false); if (i !== index) show(i); }}>{names[i]}</button>)}</MenuButton>
           : names[index!]}</h2>}
-        {current && figureView && <Suspense fallback={null}><FigureExplain key={current.id} manifest={bundle.manifestSHA256} figureID={current.id} label={names[index!]} host={figureView} profile={context?.profile} onExplanation={setExplanation} busy={discussing}
+        {current && figureView && <Suspense fallback={null}><FigureExplain key={current.id} manifest={bundle.manifestSHA256} figureID={current.id} label={names[index!]} caption={current.caption} arxiv={arxiv} onSnippet={onAddPartToNote ? (image, label) => onAddPartToNote(current.id, image, label) : undefined} host={figureView} profile={context?.profile} onExplanation={setExplanation} busy={discussing}
           request={request} onActive={setExplaining} onAsk={onDiscuss ? discuss : undefined} onShowFigure={() => onShowInPaper(current.id)}
           onCite={marker => { if (onCite) onCite(marker,current.id); else onShowInPaper(current.id); }} /></Suspense>}
         {current && <ContextualChat context={context} explanation={explanation} onCite={anchor => { const n = citedMarker(anchor); if (n && onCite) onCite(n,current.id); }} />}

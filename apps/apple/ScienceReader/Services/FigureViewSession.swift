@@ -70,13 +70,16 @@ enum FigureViewOutcome {
     private(set) var details: [Int: Part] = [:]
     /// The figure as the request sends it (its panels composed, or the table drawn here), which crops are cut from.
     private(set) var image: CGImage?
-    /// One card's crop as shown (FIGURE_VIEW.md "Complete crops"): completed on the image the request carried over the ink
-    /// its box cut, cut from `image` on a margin of background, or the whole figure when no crop could hold all of it.
-    struct Crop { let image: CGImage; let whole: Bool }
-    /// The walkthrough's crops by section index, and each extracted part's by its index; empty until worked out (off the
-    /// main actor), so no crop shows and then changes size.
-    private(set) var crops: [Int: Crop] = [:]
-    private(set) var detailCrops: [Int: Crop] = [:]
+    /// Each card's framing (FIGURE_VIEW.md "Parts as viewports"): completed on the image the request carried, then framed
+    /// by confidence as a viewport into `image` (tight, loose and outlined, or the whole figure outlined); the caption's
+    /// panel letters cap the parts. The walkthrough's by section index, each extracted part's (framed alone) by its index;
+    /// empty until worked out (off the main actor), so no card shows and then changes size.
+    private(set) var framed: [Int: FramedPart] = [:]
+    private(set) var detailFramed: [Int: FramedPart] = [:]
+    /// The card's key in the local framing record (FigureFramingRecorder); nil when the paper isn't an arXiv paper here.
+    func recordKey(_ surface: FigureFramingRecord.Surface, _ index: Int) -> String? {
+        context.localContext == nil ? nil : "\(context.bundle.manifestSHA256)|\(context.figureID)|\(surface.rawValue)|\(index)"
+    }
     /// The share of the figure's ink the walkthrough's crops show (nil without crops, or until worked out).
     private(set) var inkCoverage: Double?
     @ObservationIgnored private var ink: FigureInk?
@@ -189,28 +192,45 @@ enum FigureViewOutcome {
         refreshCrops()
     }
 
-    /// Completes every crop shown (the walkthrough's together, each extracted part alone) and cuts them, off the main actor.
+    /// Frames every card shown (the walkthrough's together, each extracted part alone), off the main actor.
     private func refreshCrops() {
         guard inkReady, let image else { return }
         let sections = walkthrough.walkthrough?.sections ?? []
         let boxed = sections.indices.filter { sections[$0].cardKind == .panel && sections[$0].box != nil }
-        let boxes = boxed.map { sections[$0].box!.fractions }
-        let extracted = details.compactMap { index, part in part.detail.map { (index, $0.box.fractions) } }
-        let ink = self.ink, figure = FigurePartCrop.Unchecked(image: image), fallback = ink == nil ? walkthrough.walkthrough?.cropCoverage(width: image.width, height: image.height) : nil
+        let boxes = boxed.map { sections[$0].box!.fractions }, labels = boxed.map { sections[$0].label.isEmpty ? sections[$0].title : sections[$0].label }
+        let extracted = details.compactMap { index, part in part.detail.map { (index, $0.box.fractions, $0.label.isEmpty ? $0.title : $0.label) } }
+        let ink = self.ink, caption = context.caption, width = image.width, height = image.height
+        let fallback = ink == nil ? walkthrough.walkthrough?.cropCoverage(width: image.width, height: image.height) : nil
         cropGeneration += 1
         let generation = cropGeneration
         Task { [weak self] in
-            struct Made: @unchecked Sendable { let crops: [Int: Crop]; let details: [Int: Crop]; let coverage: Double? }
+            struct Made: Sendable { let framed: [Int: FramedPart]; let details: [Int: FramedPart]; let coverage: Double? }
             let made = await Task.detached(priority: .userInitiated) { () -> Made in
-                func cut(_ shown: PresentedCrop) -> Crop? { shown.image(from: figure.image).map { Crop(image: $0, whole: shown.whole) } }
-                let all = PresentedCrop.all(boxes, ink: ink)
-                var crops: [Int: Crop] = [:], details: [Int: Crop] = [:]
-                for (k, index) in boxed.enumerated() { crops[index] = cut(all.crops[k]) }
-                for (index, box) in extracted { details[index] = PresentedCrop.all([box], ink: ink).crops.first.flatMap(cut) }
-                return Made(crops: crops, details: details, coverage: all.coverage)
+                let all = FigureFraming.frame(ink, width: width, height: height, boxes: boxes, caption: caption, labels: labels)
+                var framed: [Int: FramedPart] = [:], details: [Int: FramedPart] = [:]
+                for (k, index) in boxed.enumerated() where k < all.parts.count { framed[index] = all.parts[k] }
+                for (index, box, label) in extracted { details[index] = FigureFraming.frame(ink, width: width, height: height, boxes: [box], labels: [label]).parts.first }
+                return Made(framed: framed, details: details, coverage: all.coverage)
             }.value
             guard let self, generation == cropGeneration else { return }
-            crops = made.crops; detailCrops = made.details; inkCoverage = made.coverage ?? fallback
+            framed = made.framed; detailFramed = made.details; inkCoverage = made.coverage ?? fallback
+            record(boxed: boxed, sections: sections)
+        }
+    }
+
+    /// The local framing record (FigureFramingRecorder): arXiv figures only, geometry only, in memory, never sent.
+    private func record(boxed: [Int], sections: [FigureWalkthrough.Section]) {
+        guard let local = context.localContext else { return }
+        let figure = ArxivFigure(sourceID: local.sourceID, revision: local.revision, figure: context.label)
+        for (k, index) in boxed.enumerated() {
+            guard let part = framed[index], let box = sections[index].box, let key = recordKey(.walkthrough, index) else { continue }
+            FigureFramingRecorder.shared.shown(key, FigureFramingRecord(figure: figure, surface: .walkthrough, part: k, parts: boxed.count, level: part.level,
+                                                                        box: box.fractions, region: part.region, frame: part.frame))
+        }
+        for (index, part) in detailFramed {
+            guard let box = details[index]?.detail?.box, let key = recordKey(.detail, index) else { continue }
+            FigureFramingRecorder.shared.shown(key, FigureFramingRecord(figure: figure, surface: .detail, part: 0, parts: 1, level: part.level,
+                                                                        box: box.fractions, region: part.region, frame: part.frame))
         }
     }
 

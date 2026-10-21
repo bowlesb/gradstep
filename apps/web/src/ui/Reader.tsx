@@ -32,6 +32,7 @@ import type { ComposerDraft } from './Notes';
 import { SnippetOverlay, type Box } from './SnippetOverlay';
 import { prepareSnippetImage, SnippetImageError } from '../lib/note-images';
 import { paperSource, snippetAnchor } from '../lib/snippet-source';
+import { arxivFigure } from '../lib/figure-framing-record';
 
 // The equation view brings the math typesetter: loaded only when an equation is opened (EQUATION_VIEW.md).
 const EquationView = lazy(() => import('./EquationView'));
@@ -405,6 +406,17 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
       noteCapture!.add({ kind: 'region', image, capturedAt: Date.now(), source: paperSource(item, bundle.index, blockID, label), anchor: snippetAnchor(bundle, blockID ? [blockID] : []) });
     } catch (error) { setNotice(noteFailure(error)); }
   };
+  /** A part of a figure as its card shows it (Save snippet from a walkthrough's part), into the snippet composer. */
+  const addImage = async (blob: Blob, blockID: string | undefined, label: string, close?: () => void) => {
+    const blocked = imageNotes();
+    if (blocked) { setNotice(blocked); return; }
+    if (!bundle) return;
+    try {
+      const image = await prepareSnippetImage(blob);
+      close?.();
+      noteCapture!.add({ kind: 'region', image, capturedAt: Date.now(), source: paperSource(item, bundle.index, blockID, label), anchor: snippetAnchor(bundle, blockID ? [blockID] : []) });
+    } catch (error) { setNotice(noteFailure(error)); }
+  };
   // "Equation (7)" as printed (read from the paper's page once, when first needed).
   const printed = useRef<{ manifest: string; numbers: Map<string, string> } | null>(null);
   const equationLabel = (id: string) => {
@@ -702,6 +714,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
       {bundle && figure.open && (
         <FigureViewer bundle={bundle} theme={theme} initial={figure.id} explain={figure.explain} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
           onAddToNote={noteCapture ? id => { const f = bundle.index.figures.find(x => x.id === id); void addElement(id, f?.block_id, figureName(bundle, id), () => setFigure({ id: null, open: false })); } : undefined}
+          onAddPartToNote={noteCapture ? (id, image, label) => { const f = bundle.index.figures.find(x => x.id === id); void addImage(image, f?.block_id, label, () => setFigure({ id: null, open: false })); } : undefined}
+          arxiv={arxivFigure(item, '')}
           onCite={(marker,id) => { setExplainerReturn(figureReturn(id)); setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
           onShowInPaper={id => { setExplainerReturn(figureReturn(id)); setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}

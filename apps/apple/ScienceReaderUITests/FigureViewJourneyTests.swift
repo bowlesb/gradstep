@@ -273,6 +273,85 @@ final class FigureViewJourneyTests: XCTestCase {
         capture(app, "Two-plot walkthrough: right plot up close (\(appearance))")
     }
 
+    /// Owner, 2026-10-21: "we present it as a crop of the whole thing, that they can expand, rather than an actual crop".
+    /// Parts are viewports into the whole figure, framed by confidence (FIGURE_VIEW.md "Parts as viewports"): the precise
+    /// left box tight (as a crop looked), the deliberately imprecise right box (it starts inside the left plot) loosely with
+    /// the part outlined, and that box extracted alone (it cuts the left plot) as the whole figure with the part outlined.
+    /// A tap expands a card to the whole figure; pinching out of a card reveals what is around the part.
+    /// `TEST_RUNNER_FIGURE_FRAMING_STAGE=before` takes only the screenshots (a build without viewports).
+    func testPartsAreFramedByConfidenceAndExpandToTheWholeFigure() throws { framedParts(appearance: "light") }
+    func testPartsAreFramedByConfidenceAndExpandToTheWholeFigureDark() throws { framedParts(appearance: "dark") }
+
+    private func framedParts(appearance: String) {
+        let after = ProcessInfo.processInfo.environment["FIGURE_FRAMING_STAGE"] != "before"
+        let app = launch(appearance: appearance, extra: ["--figure-fixture-panels", "--figure-fixture-loose"])
+        openFigureOne(app)
+        app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        let left = app.descendants(matching: .any)["figureView.section.1.crop"], right = app.descendants(matching: .any)["figureView.section.2.crop"]
+        XCTAssertTrue(left.waitForExistence(timeout: 10), "the left plot"); XCTAssertTrue(right.waitForExistence(timeout: 5), "the right plot")
+        let composer = app.descendants(matching: .any)["contextChat.composer"].firstMatch
+        let inView = { (card: XCUIElement) in card.isHittable && card.frame.minY > 120 && card.frame.maxY < composer.frame.minY - 8 }
+        func reveal(_ card: XCUIElement) {
+            #if targetEnvironment(macCatalyst)
+            let page = app.scrollViews["figureView.walkthrough"]
+            for _ in 0..<8 where !inView(card) { page.scroll(byDeltaX: 0, deltaY: card.frame.maxY >= composer.frame.minY ? -120 : 120) }
+            #else
+            for _ in 0..<8 where !inView(card) { card.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
+            #endif
+        }
+        reveal(left)
+        capture(app, "Framing: precise left box (\(appearance))")
+        reveal(right)
+        capture(app, "Framing: imprecise right box (\(appearance))")
+        if after {
+            // Tight: the completed crop and its margin, 684 × 504; loose: [478.8, −10, 1370, 511] of the 1360 × 501 image.
+            XCTAssertEqual(left.frame.width / left.frame.height, 684.0 / 504.0, accuracy: 0.04, "left card \(left.frame)")
+            XCTAssertEqual(right.frame.width / right.frame.height, (1370 - 478.8) / 521.0, accuracy: 0.05, "right card \(right.frame)")
+            XCTAssertEqual(left.label, "Detail of Figure 1: Left plot", "the label keeps its meaning")
+            // Pinching out of the tight card shows what is around the part (the part outlined); a double tap returns.
+            reveal(left)
+            let before = left.value as? String
+            left.pinch(withScale: 0.5, velocity: -1)
+            XCTAssertTrue(wait { (left.value as? String) != before }, "pinching out reveals the figure around the part")
+            capture(app, "Framing: pinched out of the left card (\(appearance))")
+            left.doubleTap()
+            XCTAssertTrue(wait { (left.value as? String) == "100%" }, "a double tap returns to the frame")
+            // A tap expands the imprecise part to the whole figure with the part outlined; Show part frames it again.
+            reveal(right)
+            right.tap()
+            let full = app.descendants(matching: .any)["figureView.fullscreen.image"]
+            XCTAssertTrue(full.waitForExistence(timeout: 5), "the whole figure, fullscreen")
+            sleep(1)
+            capture(app, "Framing: expanded to the whole figure (\(appearance))")
+            let showPart = app.buttons["Show part"]
+            XCTAssertTrue(showPart.waitForExistence(timeout: 3)); showPart.tap()
+            sleep(1)
+            capture(app, "Framing: expanded, the part framed (\(appearance))")
+            app.buttons["figureView.fullscreen.close"].tap()
+            XCTAssertTrue(right.waitForExistence(timeout: 5))
+        } else {
+            reveal(right)
+            app.buttons.matching(identifier: "figureView.fullscreen").element(boundBy: 2).tap()
+            sleep(1)
+            capture(app, "Framing: fullscreen (\(appearance))")
+            app.buttons["figureView.fullscreen.close"].tap()
+        }
+        reveal(right)
+        partMenu(app, 2).tap()
+        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
+        let closer = app.descendants(matching: .any)["figureView.section.2.detailCrop"]
+        XCTAssertTrue(closer.waitForExistence(timeout: 10), "the right plot, extracted")
+        reveal(closer)
+        capture(app, "Framing: extracted part (\(appearance))")
+        if after {
+            // Alone, the box cuts the left plot: the whole figure (with its margin) and the part outlined, no message.
+            XCTAssertEqual(closer.frame.width / closer.frame.height, 1380.0 / 521.0, accuracy: 0.05, "detail card \(closer.frame)")
+            XCTAssertFalse(app.staticTexts["figureView.section.2.detailCropWhole"].exists)
+        }
+    }
+
     /// Report this screen on the sheets that had no "…" (where the builds 66–76 feedback was given), with the app's own
     /// snapshot, returning to the same sheet; the two explain actions are peers and a table's says "Chat about Table".
     func testReportThisScreenFromContentsAndAFigurePage() throws {
