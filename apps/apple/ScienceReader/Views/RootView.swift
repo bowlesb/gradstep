@@ -1055,10 +1055,10 @@ struct ChatView: View {
         }
     }
 
-    /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
-    /// trailing edge. While the keyboard is up on iPhone a way to put it away sits inside at the leading
-    /// edge, where Gemini has its +. Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly
-    /// to the right side"); Answer options are in the chat's ⋯ menu.
+    /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and under it the model control, then
+    /// (while the keyboard is up on iPhone) a way to put it away, dictation and Send (or Stop) at the trailing edge.
+    /// Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly to the right side"); Answer
+    /// options are in the chat's ⋯ menu.
     @ViewBuilder private func composer(compact: Bool) -> some View {
         let keyboardUp = composerFocused && UIDevice.current.userInterfaceIdiom == .phone
         let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"

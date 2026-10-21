@@ -50,8 +50,9 @@ final class LibraryCatalogTests: XCTestCase {
         XCTAssertTrue(share.waitForExistence(timeout: 8), "the share sheet offers the CSV")
         let exportShot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot()); exportShot.name = "Catalog CSV share sheet"
         exportShot.lifetime = .keepAlways; add(exportShot)
-        if app.buttons["Close"].exists { app.buttons["Close"].tap() } else { share.swipeDown(velocity: .fast) }
-        XCTAssertTrue(share.waitForNonExistence(timeout: 5))
+        // Outside the share sheet, above it, dismisses it (its own close button varies by system version).
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        XCTAssertTrue(share.waitForNonExistence(timeout: 10))
         #endif
         app.buttons["Close catalogs"].tap()
         XCTAssertTrue(menu("library.catalog").waitForExistence(timeout: 5))
