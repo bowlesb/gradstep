@@ -13,6 +13,9 @@ struct LibraryCatalogsView: View {
     @State private var name = ""
     @State private var deleting: LibraryCatalog?
     @State private var issue: String?
+    /// "Saving…" only for a write that takes a while: a fast local rename showed it, disabled every row and the X, and
+    /// put it all back within a moment (build 75: "an apparent flash of change of UI which was awkward").
+    @State private var slowSave = false
 
     var body: some View {
         NavigationStack {
@@ -48,23 +51,28 @@ struct LibraryCatalogsView: View {
                                 Button("Delete catalog…", systemImage: "trash", role: .destructive) { deleting = catalog }
                             } label: { Image(systemName: "ellipsis").padding(10).contentShape(Rectangle()) }
                                 .accessibilityLabel("Options for \(catalog.name)")
-                                .disabled(!model.canManageCatalogs || model.catalogBusy)
-                        }.disabled(model.catalogBusy)
+                                .disabled(!model.canManageCatalogs)
+                        }
                     }
                 } footer: {
                     Text("Each paper belongs to one catalog. Your default opens when you start the app; new papers go into the catalog you’re viewing.")
                 }
                 Section {
                     Button("New catalog", systemImage: "plus") { renameID = nil; name = ""; showName = true }
-                        .disabled(!model.canManageCatalogs || model.catalogBusy).accessibilityIdentifier("catalog.create")
+                        .disabled(!model.canManageCatalogs).accessibilityIdentifier("catalog.create")
                 }
-                if model.catalogBusy { ProgressView("Saving…") }
+            }
+            .overlay(alignment: .bottom) {
+                if slowSave {
+                    ProgressView("Saving…").padding(.horizontal, 16).padding(.vertical, 10)
+                        .chromeSurface(Capsule()).padding(.bottom, 16).accessibilityIdentifier("catalog.saving")
+                }
             }
             .navigationTitle("Catalogs").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close catalogs").disabled(model.catalogBusy)
+                        .accessibilityLabel("Close catalogs")
                 }
             }
             .alert(renameID == nil ? "New catalog" : "Rename catalog", isPresented: $showName) {
@@ -82,10 +90,16 @@ struct LibraryCatalogsView: View {
             .interactiveDismissDisabled(model.catalogBusy)
         }
     }
+    /// One change at a time; the list stays as it is while a change saves (a local write is usually instant).
     private func perform(_ action: @escaping @MainActor () async throws -> Void) {
+        guard !model.catalogBusy else { return }
         let scope = model.catalogScope; issue = nil; model.catalogBusy = true
+        let indicator = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            if !Task.isCancelled, model.catalogBusy, model.catalogScope == scope { slowSave = true }
+        }
         Task {
-            defer { if model.catalogScope == scope { model.catalogBusy = false } }
+            defer { indicator.cancel(); slowSave = false; if model.catalogScope == scope { model.catalogBusy = false } }
             do { try await action() }
             catch { if model.catalogScope == scope { issue = (error as? LibraryCatalogError)?.errorDescription ?? "Couldn’t save this catalog change. Try again." } }
         }
