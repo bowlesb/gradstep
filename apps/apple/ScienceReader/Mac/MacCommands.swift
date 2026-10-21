@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// What the open paper offers the menu bar (published by PaperView). nil members are unavailable now.
 struct PaperMenuActions {
@@ -32,18 +31,6 @@ extension View {
     /// Offers the paper's actions to the commands: the Mac menu bar's Paper menu and an iPad keyboard's.
     func macPaperMenu(_ actions: PaperMenuActions) -> some View { focusedSceneValue(\.paperMenuActions, actions) }
 }
-
-#if !targetEnvironment(macCatalyst)
-/// iPad keyboard: the system's text Find menu (⌘F, ⌘G) would take the shortcuts GradstepCommands gives Find in Paper
-/// and Search Library (found by the iPad journey: ⌘F did nothing). It is removed, as on the Mac (`MacAppDelegate`).
-final class KeyboardMenuDelegate: UIResponder, UIApplicationDelegate {
-    override func buildMenu(with builder: any UIMenuBuilder) {
-        super.buildMenu(with: builder)
-        guard builder.system == .main else { return }
-        builder.remove(menu: .find)
-    }
-}
-#endif
 
 /// The Mac menu bar, and the same commands for an iPad's hardware keyboard (shown when ⌘ is held, and in the iPadOS
 /// menu bar). It mirrors each screen's "…" options menu (docs/DESIGN.md) and the header buttons, so every action has
