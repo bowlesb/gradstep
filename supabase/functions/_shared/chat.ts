@@ -4,7 +4,7 @@ import { clientClaudeModel, isRouterClaude, routedClaudeModel, ROUTER_CLAUDE_TAR
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
 import {
-  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION,
+  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION, readerPriceAttempts,
   SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
   webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF, DEEPSEEK_TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
@@ -842,7 +842,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // What reached the reader: the answer's own rounds and, with a completed answer, the title, suggestions and map that
   // were relayed. A side request that failed, came back unusable or too late is Gradstep's cost.
   const sides = ending === 'completed' ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
-  const delivered = priceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? priceAttempts(part.attempts) : 0), 0);
+  const delivered = readerPriceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? readerPriceAttempts(part.attempts) : 0), 0);
   const priced = Math.ceil(delivered + stats.credits * TAVILY_CREDIT_MICROUSD);
   // Ingest: at most one add per request, only of a strictly matched arXiv paper, only when the turn ended in the tool
   // call (not cut off). It runs before the settlement (import takes no hold) so an add that doesn't happen costs the
@@ -852,8 +852,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     ? await runIngest(deps, request, outcome, signal, status) : null;
   const notAdded = ingest !== null && INGEST_NOT_ADDED.includes(ingest.result);
   // The customer is never charged above the hold, but the platform budget records the true provider cost (an overrun
-  // is recorded and alerted, migration 079). A request the provider never started (no message_start) charges the
-  // reader nothing even when they stopped it; the attempt keeps the platform's liability until it is resolved.
+  // is recorded and alerted, migration 079). A stopped answer charges only what was written (`readerMicrousd`: from
+  // OpenRouter's generation record when it could be read, else the streamed output), nothing when no text or tool call
+  // arrived; the conservative estimate stays the platform's liability until it is resolved (A1, 2026-10-21).
   const credits = charged && !notAdded && (answer.status === 'complete' || answer.messageID) ? Math.min(creditsFor(priced), hold.credits) : 0;
   // Gradstep pays the rest: everything for an uncharged ending, the undelivered side requests otherwise.
   const absorbed = credits > 0 ? Math.max(0, actual - Math.ceil(delivered)) : actual;

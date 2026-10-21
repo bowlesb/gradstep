@@ -74,6 +74,40 @@ Pause/drain old worker work during cutover. No historical charge is rewritten an
 Official API references checked: [attribution](https://openrouter.ai/docs/guides/features/broadcast/overview),
 [speech](https://openrouter.ai/docs/guides/overview/multimodal/tts).
 
+## Review fixes — 2026-10-21 (design and local evidence; not deployed)
+
+Findings from [the 2026-10-21 review](../reviews/WEB_SERVER_REVIEW_20261021.md). Nothing here raises the $100/month
+operating budget, a platform limit or a per-account limit; every change keeps the ledger authoritative and additive.
+
+### Stopped answers and unresolved attempts (A1, A6)
+
+OpenRouter reports usage only in the final stream chunk, so a stream the reader stops (or that breaks) ends without a
+bill. Before the switch, the direct Anthropic adapter charged a Stop from `message_start`'s exact input plus the output
+seen so far (max(visible characters / 3, 100 tokens per second since the start), capped at `max_tokens`). The OpenRouter
+adapter replaced that with a whole-ceiling estimate (every input byte as a token plus the whole output allowance),
+which chat then charged to the reader: a Stop a few sentences into a 150 KB paper cost ≈89 credits for 1–3 credits of
+work.
+
+- **Platform liability and the reader's bill are separate numbers.** An attempt cut short carries `readerMicrousd`:
+  the part that was written. Chat charges only that (`readerPriceAttempts`), never an estimate. An estimate with no
+  observation of what was written charges the reader nothing; it is the platform's liability only.
+- **OpenRouter's generation record is the bill.** After a stream is cut short, the adapter reads
+  `GET /api/v1/generation?id=` (the same record speech already uses; a GET cannot buy another generation), at most six
+  reads within 7 s, while the reader is already gone. The record must name the same generation, account (`user`) and
+  operation (`session_id`), and the requested model (a dated suffix allowed). With it, the attempt settles **exact**
+  (`succeeded`, actual = the record's `total_cost`), the receipt is recorded, and nothing is left to reconcile.
+- **The reader's part of a recorded bill:** its input cost (at the route's card, at most the whole bill) plus its
+  output cost in proportion to the output observed before the Stop (characters of text, tool arguments and reasoning
+  / 3, or 100 tokens per second since the first chunk — the pre-switch rule). OpenRouter stops billing on cancel only
+  for some upstreams; Google Vertex keeps generating, so the record may bill the whole answer. That remainder is
+  Gradstep's and is recorded as absorbed, never hidden.
+- **Without a record** (not written in time, unreadable, or failing a check): the reader pays the observed output at
+  the route's output rate and no input; the attempt stays `unknown` with its whole ceiling reserved, for the
+  reconciler below.
+- **Nothing reached us:** a Stop before any text or tool call costs the reader nothing, with or without a record.
+
+Automatic reconciliation (A6) is described with its migration below.
+
 ## Service RPC contract
 
 `worker_provider_attempt_begin` takes `p_account_id`, `p_operation_id`, `p_attempt_id` (UUIDs),

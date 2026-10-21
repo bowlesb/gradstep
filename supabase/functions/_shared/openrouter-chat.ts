@@ -4,7 +4,8 @@ import { isRouterClaude, routerClaudeRates, ROUTER_CLAUDE_ENDPOINT, ROUTER_CLAUD
 // Gemini Flash on the same pinned OpenRouter -> Google route as the comparison. No SDK retries or alternate routes.
 // Chat orchestration still owns tools, consent, admission and settlement. Content/signatures live only in memory.
 import type Anthropic from '@anthropic-ai/sdk';
-import { emptyUsage, holdForParams, type ProviderAttempt, type ProviderOutcome, type StreamOptions } from './anthropic.ts';
+import { emptyUsage, ESTIMATED_OUTPUT_TOKENS_PER_SECOND, holdForParams, type ProviderAttempt, type ProviderOutcome, type StreamOptions } from './anthropic.ts';
+import { lookupGeneration, type GenerationLookupOptions, type GenerationRecord } from './openrouter-generation.ts';
 import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL, GEMINI_ENDPOINT, GEMINI_PRICE_EXPIRES, GEMINI_RATES } from './gemini-pricing.ts';
 
 type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
@@ -121,22 +122,80 @@ export function openRouterAttempt(value: unknown, model = GEMINI_MODEL, hourCach
     usage: { input: prompt - cached - (claude ? written : 0), cacheRead: cached, cacheWrite5m: claude && !hourCache ? written : 0, cacheWrite1h: claude && hourCache ? written : 0, output } };
 }
 
-export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; now?: () => number }) {
+/** Reads for a generation's record after a stream was cut short (a Stop, a dropped connection, our deadline): OpenRouter
+ * writes it a few seconds after the generation ends. Bounded so settlement still finishes inside the function's time. */
+export const STOPPED_RECEIPT_WAIT_MS = 7_000;
+const STOPPED_RECEIPT_TRIES = 6;
+
+function routeRates(model: string, promptTokens: number) {
+  return isRouterDeepSeek(model) ? routerDeepSeekRates(model) : isRouterClaude(model) ? routerClaudeRates(model, promptTokens) : GEMINI_RATES;
+}
+
+/** What the reader pays for an answer cut short (PROVIDER_SPENDING.md "Stopped answers and unresolved attempts"): the
+ * part that was written, never the whole hold. With OpenRouter's record: its input cost (at most the whole bill) plus
+ * its output cost in proportion to the output observed before the stop (a route that keeps generating after a cancel
+ * bills the rest; that remainder is Gradstep's). Without the record: the observed output at the route's output rate.
+ * Nothing when no text or tool call reached us. Micro-USD, not rounded. */
+export function stoppedReaderMicrousd(model: string, observedOutputTokens: number, delivered: boolean, record: GenerationRecord | null): number {
+  if (!delivered) return 0;
+  if (!record) return observedOutputTokens * routeRates(model, 0).output;
+  const rates = routeRates(model, record.promptTokens);
+  const cached = Math.min(record.cachedTokens, record.promptTokens);
+  const input = Math.min(record.totalMicrousd, (record.promptTokens - cached) * rates.input + cached * rates.cacheRead);
+  const share = record.completionTokens > 0 ? Math.min(1, observedOutputTokens / record.completionTokens) : 1;
+  return Math.min(record.totalMicrousd, input + (record.totalMicrousd - input) * share);
+}
+
+/** The transport model a request is sent as (a generation record names it, possibly with a dated suffix). */
+function transportModel(model: string): string {
+  return isRouterDeepSeek(model) || isRouterClaude(model) ? model : GEMINI_OPENROUTER_MODEL;
+}
+
+export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; now?: () => number;
+  /** Waits between generation-record reads (tests replace it). */
+  sleep?: GenerationLookupOptions['sleep']; receiptWaitMs?: number }) {
   return async (params: Params, stream: StreamOptions): Promise<ProviderOutcome> => {
-    let id: string | null = null, attempt: ProviderAttempt | null = null;
+    const clock = options.now ?? Date.now;
+    let id: string | null = null, attempt: ProviderAttempt | null = null, dispatched = false;
+    // What this stream produced before it ended: characters of text, tool arguments and reasoning, when the first chunk
+    // came, and whether any text or tool call reached us (a stopped answer with none costs the reader nothing). As the
+    // direct adapter estimated output before 2026-10-18: a token per 3 characters or 100 per second, whichever is more.
+    let observedChars = 0, firstChunkAt: number | null = null, delivered = false;
+    const observedOutput = () => Math.min(params.max_tokens, Math.max(Math.ceil(observedChars / 3),
+      firstChunkAt === null ? 0 : Math.ceil(Math.max(0, clock() - firstChunkAt) / 1000 * ESTIMATED_OUTPUT_TOKENS_PER_SECOND)));
     const failed = (exact = false, failure: ProviderOutcome['failure'] = 'provider_error'): ProviderOutcome => ({
       status: 'failed', failure, messageID: id, requestID: id, model: params.model, stopReason: null, refusalCategory: null,
+      // The conservative estimate (every input byte, the whole output allowance) is the platform's liability only.
       attempts: attempt ? [attempt] : exact ? [] : [{ model: params.model, estimated: true,
-        usage: { ...emptyUsage(), input: stream.inputEstimateTokens, output: params.max_tokens } }], exact: exact || attempt !== null });
+        usage: { ...emptyUsage(), input: stream.inputEstimateTokens, output: params.max_tokens },
+        readerMicrousd: stoppedReaderMicrousd(params.model, observedOutput(), delivered, null) }], exact: exact || attempt !== null });
+    // A dispatched stream that was cut short: OpenRouter's record of the generation is the exact bill (the attempt
+    // settles as succeeded, nothing left to reconcile); without it the estimate keeps the whole ceiling unresolved.
+    const cutShort = async (failure: ProviderOutcome['failure']): Promise<ProviderOutcome> => {
+      if (attempt || !dispatched || !id || !stream.attribution) return failed(false, failure);
+      const record = await lookupGeneration({ apiKey: options.apiKey, fetch: options.fetch, sleep: options.sleep }, id, stream.attribution,
+        AbortSignal.timeout(options.receiptWaitMs ?? STOPPED_RECEIPT_WAIT_MS), STOPPED_RECEIPT_TRIES);
+      const expected = transportModel(params.model);
+      if (!record || !(record.model === expected || record.model.startsWith(`${expected}-`))) return failed(false, failure);
+      const recorded = stream.attribution.receipt ? await stream.attribution.receipt({ generation_id: id, provider: record.provider, model: expected,
+        ...(record.model !== expected ? { resolved_model: record.model } : {}), total_cost_microusd: record.totalMicrousd }) : true;
+      if (!recorded) return failed(false, failure);
+      const cached = Math.min(record.cachedTokens, record.promptTokens);
+      attempt = { model: params.model, estimated: false, billedMicrousd: record.totalMicrousd,
+        usage: { ...emptyUsage(), input: record.promptTokens - cached, cacheRead: cached, output: record.completionTokens },
+        readerMicrousd: stoppedReaderMicrousd(params.model, observedOutput(), delivered, record) };
+      return failed(true, failure);
+    };
     if (stream.signal.aborted) return failed(true, 'aborted');
     // Reject locally before any network call. Price caps independently reject provider price increases.
-    if ((options.now?.() ?? Date.now()) >= (isRouterClaude(params.model) ? ROUTER_CLAUDE_PRICE_EXPIRES : GEMINI_PRICE_EXPIRES)) return { ...failed(true), cause: 'server' };
+    if (clock() >= (isRouterClaude(params.model) ? ROUTER_CLAUDE_PRICE_EXPIRES : GEMINI_PRICE_EXPIRES)) return { ...failed(true), cause: 'server' };
     let body: ObjectValue;
     try { body = openRouterChatParams(params); } catch { return { ...failed(true), cause: 'server' }; }
     let response: Response;
     try {
       response = await openRouterPost(options, 'chat/completions', body, stream.signal, stream.attribution);
     } catch (error) { return failed(error instanceof OpenRouterNotDispatched, stream.signal.aborted ? 'aborted' : 'provider_error'); }
+    dispatched = true;
     id = response.headers.get('x-generation-id');
     if (!response.ok) {
       const reason = await rejectionReason(response);
@@ -174,12 +233,18 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
           if (event.model !== undefined && event.model !== body.model) throw new Error('model_changed');
           if (typeof event.provider === 'string' && /^[a-zA-Z0-9 ./_-]{1,80}$/.test(event.provider)) provider = event.provider;
           const choice = object(array(event.choices)[0]), delta = object(choice.delta);
-          if (typeof delta.content === 'string') { text += delta.content; if (!forced) stream.onText(delta.content); }
+          firstChunkAt ??= clock();
+          if (typeof delta.content === 'string') {
+            text += delta.content; observedChars += delta.content.length;
+            if (delta.content.trim()) delivered = true;
+            if (!forced) stream.onText(delta.content);
+          }
           for (const raw of array(delta.tool_calls)) {
             const call = object(raw), index = count(call.index), fn = object(call.function);
             if (index === null || index > 31) throw new Error('tool_index');
             const previous = calls.get(index) ?? { id: '', name: '', arguments: '' };
             previous.id += string(call.id); previous.name += string(fn.name); previous.arguments += string(fn.arguments);
+            observedChars += string(fn.arguments).length; delivered = true;
             calls.set(index, previous);
           }
           for (const raw of array(delta.reasoning_details)) {
@@ -187,6 +252,7 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
             if (index > 127) throw new Error('reasoning_index');
             const next = { ...previous, ...detail };
             for (const key of ['text', 'data', 'signature', 'summary']) if (typeof detail[key] === 'string') next[key] = string(previous?.[key]) + detail[key];
+            observedChars += string(detail.text).length + string(detail.summary).length;
             reasoning.set(index, next);
           }
           if (typeof choice.finish_reason === 'string') finish = choice.finish_reason;
@@ -194,8 +260,14 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
           if (finish && event.usage) attempt = openRouterAttempt(event.usage, params.model, Array.isArray(params.system) && params.system.some(b => b.cache_control?.ttl === '1h'));
         }
       }
-      if (!done || !attempt || !id || !['stop', 'tool_calls', 'length', 'content_filter'].includes(finish)) return failed();
-      const toolCalls = [...calls.values()].map(c => {
+    } catch { /* a broken or stopped stream: below */ }
+    finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    if (!done || !attempt || !id || !['stop', 'tool_calls', 'length', 'content_filter'].includes(finish)) {
+      return await cutShort(stream.signal.aborted ? 'aborted' : 'provider_error');
+    }
+    let toolCalls: { id: string; name: string; input: unknown }[];
+    try {
+      toolCalls = [...calls.values()].map(c => {
         if (!c.id || !c.name || !(params.tools ?? []).some(t => 'name' in t && t.name === c.name)) throw new Error('tool_invalid');
         return { id: c.id, name: c.name, input: JSON.parse(c.arguments) as unknown };
       });
@@ -203,14 +275,13 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
         toolCalls.push({ id: `structured-${id}`, name: forced, input: JSON.parse(text) as unknown });
         text = ''; finish = 'tool_calls';
       }
-      if (finish === 'tool_calls' && !toolCalls.length) return failed();
-      if (provider && stream.attribution?.receipt) await stream.attribution.receipt({ generation_id: id, provider, model: String(body.model), total_cost_microusd: Math.ceil(attempt.billedMicrousd!) });
-      return { status: 'complete', failure: null, messageID: id, requestID: id, model: params.model,
-        stopReason: finish === 'stop' ? 'end_turn' : finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'refusal',
-        refusalCategory: finish === 'content_filter' ? 'provider' : null, attempts: [attempt], exact: true, toolCalls,
-        content: [...(reasoning.size ? [{ type: 'openrouter_reasoning', details: [...reasoning.values()] }] : []),
-          ...(text ? [{ type: 'text', text }] : []), ...toolCalls.map(c => ({ type: 'tool_use', ...c }))] };
-    } catch { return failed(false, stream.signal.aborted ? 'aborted' : 'provider_error'); }
-    finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    } catch { return failed(); }
+    if (finish === 'tool_calls' && !toolCalls.length) return failed();
+    if (provider && stream.attribution?.receipt) await stream.attribution.receipt({ generation_id: id, provider, model: String(body.model), total_cost_microusd: Math.ceil(attempt.billedMicrousd!) });
+    return { status: 'complete', failure: null, messageID: id, requestID: id, model: params.model,
+      stopReason: finish === 'stop' ? 'end_turn' : finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'refusal',
+      refusalCategory: finish === 'content_filter' ? 'provider' : null, attempts: [attempt], exact: true, toolCalls,
+      content: [...(reasoning.size ? [{ type: 'openrouter_reasoning', details: [...reasoning.values()] }] : []),
+        ...(text ? [{ type: 'text', text }] : []), ...toolCalls.map(c => ({ type: 'tool_use', ...c }))] };
   };
 }

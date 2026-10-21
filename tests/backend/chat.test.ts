@@ -658,7 +658,7 @@ test('a build without stop_signal closing the stream aborts the provider and is 
     assert.ok(stream.signal.aborted, 'provider signal follows the client');
     stream.onText('late text');
     return { status: 'failed', failure: 'aborted', messageID: 'msg_02', model: 'claude-sonnet-5-5', stopReason: null, refusalCategory: null,
-      attempts: [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 1000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 100 } }], exact: false };
+      attempts: [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 1000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 100 }, readerMicrousd: 3_000 }], exact: false };
   } });
   await runChat(h.deps, paperBody(), h.emit, client.signal);
   assert.deepEqual(h.events, [{ event: 'delta', data: { text: 'partial ' } }]);
@@ -2672,7 +2672,9 @@ test('DeepSeek searches only through our Tavily tool, and never fails over to An
 const settledWith = (h: ReturnType<typeof harness>) => h.calls.find(c => c.name === 'worker_settle_chat')!.params;
 const aborted = (usage: { input: number; output: number }, messageID: string | null = 'msg_stop'): ProviderOutcome => ({ status: 'failed', failure: 'aborted',
   messageID, model: messageID ? 'claude-sonnet-5-5' : null, stopReason: null, refusalCategory: null,
-  attempts: [{ model: messageID ? 'claude-sonnet-5-5' : null, estimated: true, usage: { cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, ...usage } }], exact: false });
+  attempts: [{ model: messageID ? 'claude-sonnet-5-5' : null, estimated: true, usage: { cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, ...usage },
+    // The adapter's observation of what was written (here priced like the usage: 1,000 input at $2 + 100 output at $10).
+    readerMicrousd: messageID ? usage.input * 2 + usage.output * 10 : 0 }], exact: false });
 
 test('stop_signal is a known capability; builds that send it are told apart from those that do not', () => {
   assert.deepEqual(validateChatRequest(paperBody({ capabilities: ['stop_signal', 'visual_answers'] })).capabilities, ['stop_signal', 'visual_answers']);
@@ -2811,4 +2813,16 @@ test('figure card kinds are additive; concept and related-work cards cannot masq
   assert.equal(figureDetail({sections:[{...row,kind:'concept'}]},3),null);
   const many = figureWalkthrough({sections:Array.from({length:15},()=>row)},3)!;
   assert.equal(many.sections.length,12); assert.equal(many.sections.filter(s=>s.box).length,12);
+});
+
+test('A1: an estimate without an observation of what was written is never billed to the reader (platform liability only)', async () => {
+  const client = new AbortController();
+  const h = harness({ script: { worker_chat_stop_requested: () => true },
+    generate: async (_params, stream) => { stream.onText('partial '); client.abort();
+      return { ...aborted({ input: 150_000, output: 8_000 }), attempts: [{ model: 'claude-sonnet-5-5', estimated: true,
+        usage: { input: 150_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8_000 } }] }; } });
+  await runChat(h.deps, paperBody({ capabilities: ['stop_signal'] }), h.emit, client.signal);
+  const settle = settledWith(h);
+  assert.equal(settle.p_ending, 'stopped'); assert.equal(settle.p_actual_credits, 0);
+  assert.equal(settle.p_absorbed_microusd, settle.p_actual_microusd);
 });

@@ -260,3 +260,81 @@ test('Vertex Claude forced auxiliaries use a structured schema, never an unsuppo
     if (result.status === 'complete') assert.deepEqual(result.toolCalls?.[0].input, { questions: ['Why units?', 'What scale?'] });
   }
 });
+
+// A1 (review 2026-10-21): Stop on an OpenRouter answer charges what was written, never the hold. The real adapter, a
+// stream the reader stops after its first words, and OpenRouter's generation record (or its absence).
+import { stoppedReaderMicrousd, STOPPED_RECEIPT_WAIT_MS } from '../../supabase/functions/_shared/openrouter-chat.ts';
+import { creditsFor } from '../../supabase/functions/_shared/anthropic.ts';
+const SONNET = routedClaudeModel('claude-sonnet-5-5');
+function stoppable(first: unknown[], signal: AbortSignal | null | undefined, id = 'gen-stop') {
+  const bytes = new TextEncoder().encode(first.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
+  return new Response(new ReadableStream({ start(c) {
+    if (bytes.length) c.enqueue(bytes);
+    signal?.addEventListener('abort', () => c.error(new DOMException('stopped', 'AbortError')), { once: true });
+  } }), { headers: { 'x-generation-id': id } });
+}
+async function stoppedAnswer(options: { record: 'found' | 'missing'; first: unknown[]; stopAtStart?: boolean }) {
+  const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000003';
+  const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], gets: string[] = [];
+  const client = new AbortController();
+  const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
+    return name === 'worker_openrouter_dispatch' || name === 'worker_openrouter_receipt' ? true : name === 'worker_reserve_chat' ? { replayed: false }
+      : name === 'worker_provider_attempt_begin' ? { granted: true } : name === 'worker_local_chat_context' ? { title: 'A long paper' }
+      : name === 'worker_chat_stop_requested' ? true : null; };
+  const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+  const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', now: () => 1_000, sleep: async () => {},
+    fetch: async (url, init) => {
+      if (String(url).includes('/generation?id=')) {
+        gets.push(String(url));
+        if (options.record === 'missing' || gets.length === 1) return new Response(null, { status: 404 });
+        // Google Vertex keeps generating after a cancel: 900 output tokens billed, the reader saw a handful.
+        return Response.json({ data: { id: 'gen-stop', model: SONNET, provider_name: 'Google', external_user: accountID, session_id: operationID,
+          cancelled: true, finish_reason: null, native_tokens_prompt: 40_000, native_tokens_cached: 0, native_tokens_completion: 900, total_cost: 0.12 } });
+      }
+      // The reader presses Stop after the first words arrive, or (stopAtStart) while the model is still thinking.
+      if (options.stopAtStart) setTimeout(() => client.abort(), 5);
+      return stoppable(options.first, init?.signal);
+    } }));
+  const text = 'word '.repeat(30_000); // ~150 KB of paper: the case the review measured (≈89 credits for a Stop)
+  const local = { format: 'reader-local-context-v2', membership_id: 'cccccccc-0000-4000-8000-000000000003', source: 'arxiv', source_id: '2305.18290',
+    revision: 3, manifest_sha256: 'a'.repeat(64), source_sha256: 'b'.repeat(64), text };
+  await runChat({ accountID, rpc, sha256Hex, generate, claudeOpenRouter: true, loadPaper: async () => null, log: () => {}, sleep: async () => {} },
+    { operation_id: operationID, consent_version: 'cloud-ai-v6', mode: 'paper', local_context: local, capabilities: ['stop_signal'],
+      messages: [{ role: 'user', text: 'Summarize the method.' }], profile: { model: 'sonnet', effort: 'low', length: 'standard' } },
+    e => { events.push(e); if (e.event === 'delta') client.abort(); }, client.signal);
+  const reserve = calls.find(c => c.name === 'worker_reserve_chat')!.p, settle = calls.find(c => c.name === 'worker_settle_chat')!.p;
+  const finish = calls.find(c => c.name === 'worker_provider_attempt_finish')!.p;
+  return { reserve, settle, finish, events, gets, calls };
+}
+
+test('a Stop is charged at OpenRouter\'s record of the part written, not the hold; the rest is Gradstep\'s', async () => {
+  const { reserve, settle, finish, gets, calls } = await stoppedAnswer({ record: 'found', first: [{ id: 'gen-stop', model: SONNET, choices: [{ delta: { content: 'The method fits' }, finish_reason: null }] }] });
+  assert.ok(reserve.p_credits > 100, `the hold is large (${reserve.p_credits} credits)`);
+  assert.equal(settle.p_ending, 'stopped');
+  // Input 40,000 × $2.20/M = 88,000 µ$; the 900 billed output tokens cost the other 32,000 µ$, of which the reader saw
+  // ⌈15 chars / 3⌉ = 5 tokens: 32,000 × 5/900 ≈ 178 µ$. 88,178 µ$ → 18 credits.
+  assert.equal(Math.round(stoppedReaderMicrousd(SONNET, 5, true, { id: 'gen-stop', model: SONNET, provider: 'Google', totalMicrousd: 120_000,
+    promptTokens: 40_000, completionTokens: 900, cachedTokens: 0, cancelled: true, finishReason: null })), 88_178);
+  assert.equal(settle.p_actual_credits, creditsFor(88_178)); assert.equal(settle.p_actual_credits, 18);
+  assert.equal(settle.p_absorbed_microusd, 120_000 - 88_178);
+  // The attempt is exact (no liability left to reconcile) and its receipt is recorded.
+  assert.equal(finish.p_state, 'succeeded'); assert.equal(finish.p_actual_microusd, 120_000);
+  assert.equal(gets.length, 2, 'one 404 while OpenRouter writes the record, then the record');
+  assert.deepEqual(calls.find(c => c.name === 'worker_openrouter_receipt')!.p.p_metadata,
+    { generation_id: 'gen-stop', provider: 'Google', model: SONNET, total_cost_microusd: 120_000 });
+});
+
+test('without OpenRouter\'s record a Stop is charged for the streamed output only; the ceiling stays unresolved', async () => {
+  const { settle, finish, gets } = await stoppedAnswer({ record: 'missing', first: [{ id: 'gen-stop', model: SONNET, choices: [{ delta: { content: 'The method fits' }, finish_reason: null }] }] });
+  assert.equal(settle.p_ending, 'stopped');
+  // 5 observed output tokens × $11/M = 55 µ$ → 1 credit, never the input estimate.
+  assert.equal(settle.p_actual_credits, 1);
+  assert.equal(finish.p_state, 'unknown'); assert.equal(finish.p_actual_microusd, null);
+  assert.equal(gets.length, 6, 'bounded reads, then the attempt is left for the reconciler');
+  assert.ok(STOPPED_RECEIPT_WAIT_MS <= 8_000);
+});
+
+test('a Stop before any text or tool call arrived costs the reader nothing, even with a record', async () => {
+  const { settle } = await stoppedAnswer({ record: 'found', first: [{ id: 'gen-stop', model: SONNET, choices: [{ delta: { reasoning_details: [{ index: 0, type: 'reasoning.text', text: 'Thinking' }] }, finish_reason: null }] }], stopAtStart: true });
+  assert.equal(settle.p_ending, 'stopped'); assert.equal(settle.p_actual_credits, 0); assert.equal(settle.p_absorbed_microusd, 120_000);
+});
