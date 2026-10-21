@@ -27,7 +27,8 @@ export async function prepareScreenshot(source: Blob): Promise<ScreenshotAttachm
       }
     }
     if (output.size > MAX_BYTES) throw new BackendError('payload_too_large');
-    // A data: URL: the page's image policy allows data: images and refuses blob: (the preview and the editor show it).
+    // A data: URL (the preview and the editor show it): the image policy has always allowed data: images, while blob:
+    // images came only with browser Notes, and there is no object URL to revoke.
     return { blob: output, url: await dataURL(output), mediaType, width, height };
   } finally { bitmap.close(); }
 }
