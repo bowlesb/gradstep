@@ -252,10 +252,12 @@ final class PaperToolsTests: XCTestCase {
         doubleTapOpensContents("after scrolling")
         web.swipeUp(velocity: .fast)
         doubleTapOpensContents("right after a fling")
-        // A word selected elsewhere: a double tap on other text still opens Contents.
+        // A word selected, then dismissed with a tap as a reader does: the next double tap opens Contents. (A tap while
+        // the system's selection is up goes to the selection; the bridge's own rule is covered by PaperWebViewTests.)
         web.swipeDown(velocity: .slow)
         paragraph()?.press(forDuration: 1.0)
-        doubleTapOpensContents("with a selection elsewhere", last: true)
+        paragraph()?.tap()
+        doubleTapOpensContents("after a selection was dismissed")
         #endif
     }
 
@@ -417,8 +419,8 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "Figure gallery")
 
         second.tap()
-        // The figure's page, named by its caption (no title in its top row).
-        XCTAssertTrue(app.buttons["sheet.close"].waitForExistence(timeout: 5))
+        // The figure's page, named by its caption (no title in its top row; build 78: Snippet, Chat, AI Explainer).
+        XCTAssertTrue(app.figurePageSnippet.waitForExistence(timeout: 5))
         let detail = app.webViews.allElementsBoundByIndex.last!
         let caption = { (number: String) in detail.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", number)).firstMatch }
         XCTAssertTrue(caption("Figure 2").waitForExistence(timeout: 5))

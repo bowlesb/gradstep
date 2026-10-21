@@ -331,7 +331,7 @@ struct PaperView: View {
                     // Reading mode's quiet bar over the top of the paper (the toolbar steps aside).
                     .overlay(alignment: .top) {
                         if readingActive {
-                            ReadingTopBar(model: model, title: paper.title, forced: citationBack, contents: { showContents = true },
+                            ReadingTopBar(model: model, title: paper.title, forced: citationBack, contents: { openContents() },
                                           figures: bundle.index.figures.isEmpty || readerFailed || loadingPaper ? nil : { showFigures = true })
                         }
                     }
@@ -403,7 +403,7 @@ struct PaperView: View {
             .toolbar {
                 // Drawing a snippet: Cancel and what to do take the bar's place; the page itself doesn't move.
                 if model.notes.capturing == .paper { SnippetCaptureToolbar(model: model) } else {
-                ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(GradstepSymbol.contents) }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
+                ToolbarItem(placement: .topBarLeading) { Button { openContents() } label: { Image(GradstepSymbol.contents) }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
                 ToolbarItem(placement: .principal) { titleView }
                 // Reading mode (READING_MODE.md): the paper alone, full screen on the Mac (its View menu has ⇧⌘R).
                 if wideReader && !readingActive && model.canEnterReadingMode {
@@ -621,6 +621,16 @@ struct PaperView: View {
         return FigureViewHost(model: model, paperID: paperID, finish: { outcome in model.pendingFigureOutcome = outcome; close() }, close: close)
     }
 
+    /// Contents, from its button or a double tap on the page. Either can only be reached while Contents isn't showing (it
+    /// opens at full height over the page), so a flag still set means a presentation SwiftUI never made — asked for while
+    /// another sheet was closing — which would otherwise ignore every later request until the paper changed (owner,
+    /// build 78: "the double tap doesn't bring up table of contents anymore"). It is reset and asked again.
+    private func openContents() {
+        guard showContents else { showContents = true; return }
+        showContents = false
+        Task { @MainActor in showContents = true }
+    }
+
     /// A jump chosen in a sheet, sent at once rather than after the sheet's dismiss animation (owner, build 78).
     private func jumpNow(_ target: PaperJumpRequest.Target, _ id: String) {
         if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
@@ -816,9 +826,9 @@ struct PaperView: View {
         }
         hooked.onCrash = handleCrash
         hooked.onContentsGesture = {
-            guard model.readerDocumentScope == scope, !showContents else { return }
+            guard model.readerDocumentScope == scope else { return }
             contentsDoubleTapDiscovered = true
-            showContents = true
+            openContents()
         }
         hooked.onReferenceAction = { value, action in handleReferenceAction(value, action, scope: scope) }
         hooked.onAddToNote = { chosen, quote in addToNote(chosen, quote: quote, scope: scope) }
