@@ -712,8 +712,8 @@ struct ImportStatusText: View {
 }
 
 /// The List layout's row (and the only layout at accessibility text sizes). It says what the table's title cell says
-/// (audit 2026-10-15): what this device holds (the check, or the cloud to tap to download), the "new" dot, and a
-/// download or problem in words.
+/// (audit 2026-10-15): what this device holds (the check, or the cloud to tap to download), "New" for a recent paper not
+/// opened yet (build 75: words, not a dot), and a download or problem in words.
 struct PaperRow: View {
     let paper: Paper
     var selected = false
@@ -729,7 +729,6 @@ struct PaperRow: View {
         #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                if isNew { Circle().fill(Color.accentColor).frame(width: 8, height: 8).padding(.top, 7).accessibilityLabel("New") }
                 Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 // The cloud's tap target is the list's overlay beside this row's button (a button inside a button's
@@ -748,7 +747,7 @@ struct PaperRow: View {
             }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
-            let metadata = (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
+            let metadata = (isNew ? ["New"] : []) + (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
             // Its tags when it has any (docs/architecture/TAGS.md), else its arXiv topics.
             let topics = showTopics ? (paper.tags.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: 3) : Array(paper.tags.prefix(3))) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }

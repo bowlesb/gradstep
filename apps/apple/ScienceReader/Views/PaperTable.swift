@@ -235,8 +235,6 @@ struct PaperTableTitle {
     var deviceCopy: PaperDeviceCopy? = nil
     /// Tapping the cloud symbol downloads the paper to this device (Library rows).
     var download: (() -> Void)? = nil
-    /// Added recently and not opened yet: a small dot before the second line.
-    var isNew = false
     /// A paper still being added: the row keeps the height it will have once its title and authors arrive (two title
     /// lines and the authors' line), so it doesn't grow midway (owner, build 58).
     var reservesSpace = false
@@ -590,7 +588,6 @@ struct PaperTableTitleCell: View {
                             symbol.accessibilityLabel(copy.label).help(copy.label)
                         }
                     }
-                    if title.isNew { Circle().fill(Color.accentColor).frame(width: 7, height: 7).accessibilityLabel("New") }
                     if let subtitle = title.subtitle {
                         Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(title.subtitleLines).truncationMode(.tail)
                     }
