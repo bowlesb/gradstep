@@ -195,7 +195,7 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["figureView.loading"].exists)
 
         // The ordinary figure page also reopens its saved explainer directly (owner feedback, build 71).
-        app.closeInfoSheet(from: app.buttons["figureView.explain"])
+        app.closeInfoSheet(from: app.buttons["figureView.openInChat"])
         openFigureOne(app)
         app.buttons["figureView.explain"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 5), "the existing explanation opens directly")
