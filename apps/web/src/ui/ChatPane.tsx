@@ -145,7 +145,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const last = messages.at(-1);
   const retired = chat.storageRetired; // another tab updated storage: nothing new is sent from this page
   const canAnswer = !retired && !chat.hasUnresolvedTurn(c) && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
-  const disabled = retired || chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
+  const disabled = retired || chat.history.blocksSending || deleted || (mode === 'paper' && !paper?.available);
   const send = () => {
     if (disabled) return;
     if (context) {

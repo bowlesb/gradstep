@@ -752,7 +752,7 @@ export class ChatSession {
     if (!action && c.study) action = 'study';
     if (this.retiredStorage) return Promise.resolve(); // refused: nothing is saved or requested from this page
     if (busy(c) || c.answer || this.turnOwners.has(c.id) || !c.draft.trim()) return Promise.resolve();
-    if (this.history.status !== 'ready' || this.history.issue) { c.issue = 'question_unsaved'; this.publish(); return Promise.resolve(); }
+    if (this.history.blocksSending) { c.issue = 'question_unsaved'; this.publish(); return Promise.resolve(); }
     if (c.conversationID && this.history.state.isDeleted(c.conversationID)) { c.issue = 'conversation_deleted'; this.publish(); return Promise.resolve(); }
     const branch = this.branch(c);
     if (c.conversationID && (!branch || !branch.complete)) { c.issue = 'branch_required'; this.publish(); return Promise.resolve(); }
@@ -888,7 +888,7 @@ export class ChatSession {
     // A question saved while storage retired stays saved; no paid request starts from this page.
     if (this.retiredStorage) { c.phase = 'idle'; c.issue = 'storage_retired'; this.publish(); return; }
     const questionID = c.question ? this.history.resolve(c.question.id) : null;
-    if (this.history.status !== 'ready' || this.history.issue || !c.question || !questionID || this.history.isPending(questionID) || this.history.state.isDeleted(c.conversationID!)) { c.phase = 'idle'; c.issue = 'question_unsaved'; this.publish(); return; }
+    if (this.history.blocksSending || !c.question || !questionID || this.history.isPending(questionID) || this.history.state.isDeleted(c.conversationID!)) { c.phase = 'idle'; c.issue = 'question_unsaved'; this.publish(); return; }
     if (!this.deps.readConsent()) { c.phase = 'consent'; this.publish(); return; }
     const branch = this.history.state.conversationBranch(c.conversationID!, questionID);
     if (!branch?.complete) { c.phase = 'idle'; c.issue = 'branch_required'; this.publish(); return; }
