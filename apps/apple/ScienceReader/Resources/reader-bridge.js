@@ -593,21 +593,58 @@
     }
   };
 
+  // BEGIN NAMED REFERENCES
+  // arXiv often links only the number: “Figure <a>1</a>”, “Sec.&nbsp;<a>2.2</a>”, “Appendix <a>A</a>”, “§<a>3</a>”.
+  // The name before the link (owner, build 71: “the entire Figure 1 should be a link (similar for Tables, Equations
+  // etc)”), as words a paper uses for its own numbered parts.
+  const NamedReferences = (() => {
+    const NAME = String.raw`(?:Figures?|Figs?\.?|Tables?|Tabs?\.?|Equations?|Eqs?\.?|Algorithms?|Algs?\.?|Sections?|Secs?\.?|§§?`
+      + String.raw`|Appendix|Appendices|Apps?\.|Lemmas?|Theorems?|Thms?\.|Corollary|Corollaries|Propositions?|Props?\.`
+      + String.raw`|Definitions?|Defs?\.|Remarks?|Examples?|Assumptions?)`;
+    // The name at the very end of the text before the link (then spaces, no-break spaces, an opening parenthesis).
+    const PREFIX = new RegExp(String.raw`(?<![\p{L}\p{N}])(${NAME}[\s(]*)$`, 'iu');
+    // The link's own text: a number (“1”, “2.2”, “A1”), an appendix letter (“A”, “A.1”) or a Roman numeral.
+    const TARGET = /^[\s(]*(?:[A-Z]?\d|[A-Z](?:\.\d+)*[\s)]*$|[IVX]+[\s)]*$)/;
+    return {
+      /** Where the reference's name starts in `before` (the text just before a link reading `link`), or -1. */
+      start(before, link) {
+        if (!TARGET.test(link)) return -1;
+        const match = PREFIX.exec(before);
+        return match ? match.index : -1;
+      },
+    };
+  })();
+  // END NAMED REFERENCES
+
   // In-text citations are found in each block's text as a whole, so one may
   // span inline elements or a line break; each piece of it is wrapped in place.
-  // arXiv often links only the number in “Figure <a>1</a>”. Extend that existing internal
-  // link over the adjacent name without changing text, target, block identity or navigation.
+  // Extend the paper's existing internal link over the adjacent name without changing text, target, block identity or
+  // navigation. The name may be its own inline element (“<span>Sec.</span>&nbsp;<a>2.2</a>”, build 71).
   const expandNamedReferences = () => {
     for (const anchor of document.querySelectorAll('a[href^="#"]')) {
       const before = anchor.previousSibling;
-      if (before?.nodeType !== Node.TEXT_NODE || !/^[\s(]*[A-Z]?\d|^[\s(]*[IVX]+[\s)]*$/.test(anchor.textContent)) continue;
-      const match = /\b((?:Figures?|Figs?\.|Tables?|Tabs?\.|Equations?|Eqs?\.|Algorithms?)\s*\(?\s*)$/i.exec(before.data);
-      if (!match) continue;
-      const prefix = before.splitText(match.index);
-      anchor.prepend(prefix);
+      let moved = '';
+      if (before?.nodeType === Node.TEXT_NODE && before.data.trim().replace(/\(/g, '')) {
+        const at = NamedReferences.start(before.data, anchor.textContent);
+        if (at < 0) continue;
+        const prefix = before.splitText(at);
+        moved = prefix.data;
+        anchor.prepend(prefix);
+      } else {
+        // Only spaces (or nothing) between the link and an inline element holding just the name.
+        const spacer = before?.nodeType === Node.TEXT_NODE ? before : null;
+        const element = spacer ? spacer.previousSibling : before;
+        if (element?.nodeType !== Node.ELEMENT_NODE || !element.matches('span,em,i,b,strong,small')
+          || element.querySelector('a,math,img,svg,[data-reader-block],[data-reader-equation]')) continue;
+        const text = element.textContent + (spacer?.data ?? '');
+        if (NamedReferences.start(text, anchor.textContent) !== 0) continue;
+        moved = text;
+        if (spacer) anchor.prepend(spacer);
+        anchor.prepend(element);
+      }
       // If the opening parenthesis moved into the anchor, include its matching close.
       const after = anchor.nextSibling;
-      if (match[1].includes('(') && after?.nodeType === Node.TEXT_NODE && after.data.startsWith(')')) {
+      if (moved.includes('(') && after?.nodeType === Node.TEXT_NODE && after.data.startsWith(')')) {
         anchor.append(document.createTextNode(')')); after.data = after.data.slice(1);
       }
     }
@@ -1110,9 +1147,9 @@
       // Tags: small quiet chips under the paper line; the whole row is one tap target (padding) that opens Edit tags.
       '.sr-paper-tags{display:block;margin:1.5em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
       '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',
-      '.sr-paper-tags h2{margin:0 0 .5em}.sr-paper-tags .sr-tag{display:inline-block;margin:0 .4em .4em 0}.sr-keyword-source{display:block;font-size:.8em;color:var(--sr-muted,#777);margin-bottom:.5em}[data-sr-abstract-list]{padding-left:0;list-style:none;margin-left:0}',
-      '.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.22)}.sr-paper-tags:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px;border-radius:8px}',
-      '@media(prefers-color-scheme:dark){.sr-tag{color:#a1a1a8;background:rgba(120,120,128,.24)}.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.36)}}',
+      '.sr-paper-tags h2{margin:0 0 .5em}.sr-paper-tags .sr-tag{display:inline-block;margin:0 .4em .4em 0}.sr-keyword-source{display:block;font-size:.8em;color:var(--sr-muted,#777);margin-bottom:.5em}[data-sr-abstract-list]{padding-left:0;list-style:none;margin-left:0}[data-sr-abstract-list]>li{margin-left:0;padding-left:0}',
+      '.sr-paper-tags .sr-tag:active{background:rgba(120,120,128,.22)}.sr-paper-tags:focus-visible,.sr-paper-tags .sr-tag:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px;border-radius:8px}',
+      '@media(prefers-color-scheme:dark){.sr-tag{color:#a1a1a8;background:rgba(120,120,128,.24)}.sr-paper-tags .sr-tag:active{background:rgba(120,120,128,.36)}}',
       // A paper's own contents: one entry per line, indented by depth, the page muted on the right.
       ':root{--sr-muted:#6b6b70}@media(prefers-color-scheme:dark){:root{--sr-muted:#9d9da3}}',
       '.sr-toc{font-size:.94rem;line-height:1.4}.sr-toc-caption{display:block;font-weight:650;margin-bottom:.35em}',
@@ -1138,7 +1175,9 @@
     while (anchor?.nextElementSibling?.classList.contains('reader-authors')) anchor = anchor.nextElementSibling;
     if (anchor) anchor.after(line); else document.body.prepend(line);
   };
-  // The paper's tags as chips under the paper line (or the title and authors). A tap opens Edit tags.
+  // The paper's tags as chips under the paper line (or the title and authors). A chip offers a search for its keyword
+  // (owner, builds 73 and 75: "an option right at the top to search ML papers based on this keyword"); anywhere else on
+  // the row opens Edit keywords, without an "Edit" word (build 72).
   const installPaperTags = tags => {
     document.querySelector('[data-sr-paper-tags]')?.remove();
     const source = !Array.isArray(tags) && typeof tags?.source === 'string' ? tags.source.slice(0,80) : 'Gradstep';
@@ -1147,25 +1186,35 @@
     const names = values.filter(tag => typeof tag === 'string' && tag.trim()).slice(0, 24).map(tag => tag.trim().slice(0, 60));
     const row = document.createElement('div');
     row.className = 'sr-paper-tags'; row.setAttribute(CHROME, ''); row.setAttribute('data-sr-paper-tags', '');
-    row.setAttribute('role', 'button'); row.tabIndex = 0;
-    row.setAttribute('aria-label', names.length ? 'Keywords: ' + names.join(', ') + '. Edit keywords' : 'Add keywords');
+    if (names.length) { row.setAttribute('role', 'group'); row.setAttribute('aria-label', 'Keywords'); }
+    else { row.setAttribute('role', 'button'); row.tabIndex = 0; row.setAttribute('aria-label', 'Add keywords'); }
     const label = document.createElement('h2'); label.textContent = 'Gradstep Keywords'; row.append(label);
     if (source !== 'Gradstep') { const origin = document.createElement('span'); origin.className = 'sr-keyword-source'; origin.textContent = source; row.append(origin); }
-    // arXiv sometimes wraps the abstract in a one-item list; use the same reading width as the body.
-    for (const heading of document.querySelectorAll('h2,h3,p')) {
-      if (heading.textContent.trim().toLowerCase() === 'abstract' && heading.nextElementSibling?.matches('ul,ol') && heading.nextElementSibling.children.length === 1) heading.nextElementSibling.setAttribute('data-sr-abstract-list','');
-    }
     for (const name of names) {
       const chip = document.createElement('span');
-      chip.className = 'sr-tag'; chip.setAttribute('aria-hidden', 'true'); chip.textContent = name;
+      chip.className = 'sr-tag'; chip.textContent = name; chip.setAttribute('data-sr-tag', name);
+      chip.setAttribute('role', 'button'); chip.tabIndex = 0; chip.setAttribute('aria-label', name);
+      chip.setAttribute('aria-description', 'Search papers for this keyword, or edit keywords');
       row.append(chip);
     }
     row.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); post({type:'tags'}); }
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const chip = event.target instanceof Element ? event.target.closest('[data-sr-tag]') : null;
+      event.preventDefault();
+      post(chip ? {type:'tag', name: chip.getAttribute('data-sr-tag')} : {type:'tags'});
     });
     const heading = [...document.querySelectorAll('h2,h3,h4,h5,h6')].find(h => !/^(abstract|contents|table of contents)$/i.test(h.textContent.trim()));
     if (heading) heading.before(row);
     else document.body.append(row);
+  };
+  // arXiv sometimes wraps the abstract in a one-item list (FDE-Gym: "<p><strong>Abstract</strong></p><ul><li>…"), and the
+  // compiler names a recovered abstract with an h6: read it at the body's full width (build 70: "the text needs to extend
+  // just a bit more"), whether or not the paper has keywords.
+  const markAbstractList = () => {
+    for (const heading of document.querySelectorAll('h1,h2,h3,h4,h5,h6,p')) {
+      const list = heading.nextElementSibling;
+      if (/^abstract[.:]?$/i.test(heading.textContent.trim()) && list?.matches('ul,ol') && list.children.length === 1) list.setAttribute('data-sr-abstract-list', '');
+    }
   };
   // Author names supplied by verified library metadata; only these exact names can leave the frame.
   const installAuthors = authors => {
@@ -1209,6 +1258,7 @@
     if (!config?.figure_id) {
       installCitationStyle(); collectReferences(); formatContents(); expandNamedReferences(); linkCitations(); linkFigureReferences();
       installPaperLine(window.__readerPaperLine);
+      markAbstractList();
       installPaperTags(window.__readerPaperTags);
       installAuthors(window.__readerAuthors);
     }
@@ -1532,12 +1582,14 @@
       if (gesture?.id === event.pointerId && Math.hypot(event.clientX-gesture.x,event.clientY-gesture.y)>8) gesture.moved = true;
     },{passive:true});
     document.addEventListener('pointercancel',() => {if (gesture) gesture.moved = true;},{passive:true});
-    // The tag chips open Edit tags (capture: nothing else handles a tap on them).
+    // A keyword chip offers its search; the rest of the keyword row opens Edit keywords (capture: nothing else handles a
+    // tap on them).
     document.addEventListener('click',event => {
       const element = event.target instanceof Element ? event.target : event.target.parentElement;
       if (!element?.closest('[data-sr-paper-tags]') || gesture?.moved) return;
       gesture = null; event.preventDefault(); event.stopPropagation();
-      post({type:'tags'});
+      const chip = element.closest('[data-sr-tag]');
+      post(chip ? {type:'tag', name: chip.getAttribute('data-sr-tag')} : {type:'tags'});
     },true);
     // Citations first (capture), so one inside a figure caption doesn't also open the figure.
     document.addEventListener('click',event => {

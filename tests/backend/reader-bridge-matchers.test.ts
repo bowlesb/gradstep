@@ -106,3 +106,33 @@ test('references in the text: each number its own link, lists and ranges, subfig
   assert.deepEqual(found('In 2019 Table 2019 shows'), [], 'no four-digit numbers');
   assert.deepEqual(found('Figure 3-right'), ['Figure 3>figure 3']);
 });
+
+const Named = new Function(`${section('NAMED REFERENCES')}\nreturn NamedReferences;`)() as { start: (before: string, link: string) => number };
+
+test('a link over only the number takes its name too (build 71: "the entire Figure 1 should be a link")', () => {
+  const named = (before: string, link: string) => { const at = Named.start(before, link); return at < 0 ? null : before.slice(at) + link; };
+  assert.equal(named('as shown in Figure ', '1'), 'Figure 1');
+  assert.equal(named('see Fig. ', '3'), 'Fig. 3');
+  assert.equal(named('see Fig ', '3'), 'Fig 3', 'no dot');
+  assert.equal(named('results in Tab.', '4'), 'Tab.4');
+  assert.equal(named('from Eq. (', '2'), 'Eq. (2');
+  assert.equal(named('as discussed in Sec. ', '2.2'), 'Sec. 2.2', 'the build-71 "Sec.2.2"');
+  assert.equal(named('as discussed in Sec.', '2.2'), 'Sec.2.2');
+  assert.equal(named('Section ', '4'), 'Section 4');
+  assert.equal(named('Sections ', '3'), 'Sections 3');
+  assert.equal(named('details in §', '5'), '§5');
+  assert.equal(named('details in Appendix ', 'A'), 'Appendix A', 'an appendix letter');
+  assert.equal(named('details in Appendix ', 'B.2'), 'Appendix B.2');
+  assert.equal(named('by Lemma ', '3'), 'Lemma 3');
+  assert.equal(named('by Theorem ', 'II'), 'Theorem II');
+  assert.equal(named('by Thm. ', '1'), 'Thm. 1');
+  assert.equal(named('see Alg. ', '1'), 'Alg. 1');
+  assert.equal(named('Prop. ', '2'), 'Prop. 2');
+  // Not names: other words, a word ending in a name, or a link that already says more than a number.
+  assert.equal(named('reference ', '5'), null);
+  assert.equal(named('Subtables ', '2'), null, 'a word ending in "tables"');
+  assert.equal(named('see the ', 'A'), null);
+  assert.equal(named('Section ', 'Section 4'), null);
+  assert.equal(named('in Appendix ', 'Additional results'), null);
+  assert.equal(named('as app ', '3'), null, 'App needs its dot');
+});
