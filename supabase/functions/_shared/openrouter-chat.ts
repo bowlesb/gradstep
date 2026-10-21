@@ -151,6 +151,18 @@ function transportModel(model: string): string {
   return isRouterDeepSeek(model) || isRouterClaude(model) ? model : GEMINI_OPENROUTER_MODEL;
 }
 
+/** The tool calls of a finished turn (A23). A call that names no offered tool, has no id or whose arguments don't parse
+ * (for example a `length` stop inside a large create_visual call) is dropped and the streamed text is kept: a provider
+ * quirk never turns an answer already on the reader's screen into a failure. */
+function finishedCalls(calls: Iterable<{ id: string; name: string; arguments: string }>, params: Params): { id: string; name: string; input: unknown }[] {
+  const out: { id: string; name: string; input: unknown }[] = [];
+  for (const c of calls) {
+    if (!c.id || !c.name || !(params.tools ?? []).some(t => 'name' in t && t.name === c.name)) continue;
+    try { out.push({ id: c.id, name: c.name, input: JSON.parse(c.arguments) as unknown }); } catch { /* dropped */ }
+  }
+  return out;
+}
+
 export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; now?: () => number;
   /** Waits between generation-record reads (tests replace it). */
   sleep?: GenerationLookupOptions['sleep']; receiptWaitMs?: number }) {
@@ -265,18 +277,14 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
     if (!done || !attempt || !id || !['stop', 'tool_calls', 'length', 'content_filter'].includes(finish)) {
       return await cutShort(stream.signal.aborted ? 'aborted' : 'provider_error');
     }
-    let toolCalls: { id: string; name: string; input: unknown }[];
-    try {
-      toolCalls = [...calls.values()].map(c => {
-        if (!c.id || !c.name || !(params.tools ?? []).some(t => 'name' in t && t.name === c.name)) throw new Error('tool_invalid');
-        return { id: c.id, name: c.name, input: JSON.parse(c.arguments) as unknown };
-      });
-      if (forced && finish === 'stop') {
-        toolCalls.push({ id: `structured-${id}`, name: forced, input: JSON.parse(text) as unknown });
-        text = ''; finish = 'tool_calls';
-      }
-    } catch { return failed(); }
-    if (finish === 'tool_calls' && !toolCalls.length) return failed();
+    const toolCalls = finishedCalls(calls.values(), params);
+    if (forced && finish === 'stop') {
+      // The forced auxiliary's object; unparsable leaves the turn with nothing usable (its caller decides, unpaid).
+      try { toolCalls.push({ id: `structured-${id}`, name: forced, input: JSON.parse(text) as unknown }); } catch { /* dropped */ }
+      text = ''; finish = 'tool_calls';
+    }
+    // A turn that asked only for calls we drop ends as written (its text, if any); a cut-off call stays a length stop.
+    if (finish === 'tool_calls' && !toolCalls.length) finish = 'stop';
     if (provider && stream.attribution?.receipt) await stream.attribution.receipt({ generation_id: id, provider, model: String(body.model), total_cost_microusd: Math.ceil(attempt.billedMicrousd!) });
     return { status: 'complete', failure: null, messageID: id, requestID: id, model: params.model,
       stopReason: finish === 'stop' ? 'end_turn' : finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'refusal',

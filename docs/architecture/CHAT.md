@@ -663,6 +663,11 @@ connection that then failed is charged as finished.
 - The chat function logs `ending`, `charged` and `credits` in `chat_answer`. Our own causes reach it as `cause` on the
   provider outcome (`server`: an admission refused or unrecorded, a throw in our code; `limit`: `operation_ceiling`,
   the round or search bound); a failure without one is the provider's.
+- **What `done` reports (2026-10-21, review A23).** `credits`/`charged` are what the settlement recorded. A settlement
+  the database refused, or one never acknowledged, is read back (`worker_operation_outcome`); an operation still open
+  is reported `charged: false, reason: "server", credits: 0` (the stale sweep settles it that way) and the log line
+  carries `settlement: rejected|unknown`. Ingest's ledger row keeps the number of keys the model sent (`key_count`),
+  never the model-chosen names.
 - **Stop.** An app that sends `capabilities: ["stop_signal"]` calls `v1_chat_stop(p_operation_id)` (authenticated, its
   own chat operation only; `{recorded, settled}`) and waits for it, at most about 3 s, before it cancels the stream.
   When the stream closes the function asks `worker_chat_stop_requested`, once more after 1.5 s if not found; found

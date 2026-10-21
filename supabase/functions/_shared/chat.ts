@@ -457,7 +457,8 @@ async function runIngest(deps: ChatDependencies, request: ChatRequest, outcome: 
     // Never end silently: say why nothing was added, and record it.
     const result = call ? 'invalid_input' as const : 'no_call' as const;
     deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
-    await record({ result, stop_reason: outcome.stopReason, keys: call && call.input && typeof call.input === 'object' ? Object.keys(call.input).slice(0, 8).join(',') : null });
+    // Counts only (A23): the model chose these key names, so the immutable ledger keeps how many there were, not the names.
+    await record({ result, stop_reason: outcome.stopReason, key_count: call && call.input && typeof call.input === 'object' ? Math.min(Object.keys(call.input).length, 64) : null });
     return { result, report: call ? '\n\nI couldn’t read the paper’s details, so it wasn’t added. Try Add paper again. Not charged.' : '\n\nNot charged.' };
   }
   if (!deps.findPaper || !deps.importPaper || signal.aborted) return { result: 'stopped', report: null };
@@ -865,13 +866,17 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const absorbed = credits > 0 ? Math.max(0, actual - Math.ceil(delivered)) : actual;
   if (credits > 0 && priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
   else if (credits > 0 && creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
-  await settle(deps, request.operationID, { credits, microusd: actual, action: request.action ?? 'answer', ending, absorbed });
+  const settledAs = await settle(deps, request.operationID, { credits, microusd: actual, action: request.action ?? 'answer', ending, absorbed });
+  // A23: the reader is told what was recorded. A settlement the database refused, or one that could not be confirmed and
+  // reads back unsettled, is settled later by the stale sweep as our server's ending, charging nothing.
+  const reported = settledAs === 'settled' ? { credits, charged } : await settlementReadback(deps, request.operationID);
   await recordUsage(deps, request.operationID, outcome, actual, providerForModel(params.model));
   if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
   if (outcome.rejectionReason) deps.log({ event: 'chat_provider_rejected', operation_id: request.operationID,
     provider: profile.provider, status: outcome.httpStatus ?? null, reason: outcome.rejectionReason });
-  deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending, charged, credits,
+  deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending,
+    charged: reported.charged, credits: reported.credits, ...(settledAs === 'settled' ? {} : { settlement: settledAs }),
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
     failover: stats.failover, sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
@@ -887,7 +892,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
 
   if (signal.aborted) return;
   // Every event after the hold says whether the reader paid; when not, why (a machine-readable reason for the clients).
-  const billing = charged ? { charged: true } : { charged: false, reason: ending as UnchargedReason };
+  const billing = reported.charged ? { charged: true }
+    : { charged: false, reason: (charged ? 'server' : ending) as UnchargedReason };
+  const reportedCredits = reported.credits;
   if (outcome.status === 'complete') {
     if (outcome.stopReason === 'refusal') { emit({ event: 'error', data: { code: 'refused', credits: 0, charged: false, reason: 'refusal' } }); return; }
     // Ingest's report, after the settlement it decided (run before it, below).
@@ -985,19 +992,19 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // Which model answered (the serving model of the last attempt, a fallback when one ran) and with which profile.
     const served = answeringModel(outcome);
     // `profile` is the resolved profile; `effort` (2026-10-16) names the effort the server picked when the request said `auto`.
-    emit({ event: 'done', data: { stop_reason: stopReason, credits, usage, ...(served ? { model: served } : {}),
+    emit({ event: 'done', data: { stop_reason: stopReason, credits: reportedCredits, usage, ...(served ? { model: served } : {}),
       profile: repair ? 'diagram_fix' : profile.id, ...(request.choice?.effort === 'auto' ? { effort: profile.effort } : {}), ...billing } });
     return;
   }
   // An unfunded provider cannot recover by retrying the same request. Keep the operator's billing detail private,
   // but let the reader choose another model instead of repeatedly suggesting a retry. Settlement above is unchanged.
   if (ending === 'provider' && outcome.failure === 'provider_billing') {
-    emit({ event: 'error', data: { code: 'model_unavailable', credits, ...billing } });
+    emit({ event: 'error', data: { code: 'model_unavailable', credits: reportedCredits, ...billing } });
     return;
   }
   const code: ChatErrorCode = ending === 'server' ? 'service_unavailable' : 'provider_unavailable';
   const retryAfter = ending === 'provider' && outcome.retryAfterMs != null ? Math.min(3600, Math.max(1, Math.ceil(outcome.retryAfterMs / 1000))) : RETRY_AFTER_SECONDS[code]!;
-  emit({ event: 'error', data: { code, credits, ...billing, retry_after: retryAfter } });
+  emit({ event: 'error', data: { code, credits: reportedCredits, ...billing, retry_after: retryAfter } });
 }
 
 /** How a held answer ended (see ChatEnding). A refusal stays a refusal; a finished turn with something to show is
@@ -1249,7 +1256,9 @@ function marked(extra: MessageParam[]): MessageParam[] {
 /** One settlement: the credits the reader pays, the provider spend for the budget, and how the answer ended with the
  * provider cost Gradstep absorbs (migration 079, worker_settle_chat: settled and recorded in one transaction). */
 interface Settlement { credits: number; microusd: number; action: ChatAction | 'answer'; ending: ChatEnding; absorbed: number }
-async function settle(deps: ChatDependencies, operationID: string, settlement: Settlement) {
+/** `settled`: acknowledged. `rejected`: the database refused it (nothing recorded). `unknown`: no acknowledgement after
+ * the retries (it may have committed). */
+async function settle(deps: ChatDependencies, operationID: string, settlement: Settlement): Promise<'settled' | 'rejected' | 'unknown'> {
   const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
   // Settlement is idempotent for identical amounts, so a lost acknowledgement
   // may be retried. It is never repeated with different amounts.
@@ -1257,16 +1266,30 @@ async function settle(deps: ChatDependencies, operationID: string, settlement: S
     try {
       await deps.rpc('worker_settle_chat', { p_account_id: deps.accountID, p_id: operationID, p_actual_credits: settlement.credits,
         p_actual_microusd: settlement.microusd, p_action: settlement.action, p_ending: settlement.ending, p_absorbed_microusd: settlement.absorbed });
-      return;
+      return 'settled';
     } catch (error) {
       const failure = reason(error);
       if (failure !== 'transport' || attempt === 3) {
         deps.log({ event: 'chat_settle_failed', operation_id: operationID, reason: failure === 'transport' ? 'transport' : 'rejected' });
-        return;
+        return failure === 'transport' ? 'unknown' : 'rejected';
       }
       await sleep(250 * attempt);
     }
   }
+  return 'unknown';
+}
+
+/** What an unconfirmed settlement recorded (worker_operation_outcome): its credits and whether the reader paid; an
+ * operation still open (or unreadable) charges nothing, as the stale sweep will settle it. */
+async function settlementReadback(deps: ChatDependencies, operationID: string): Promise<{ credits: number; charged: boolean }> {
+  try {
+    const outcome = await deps.rpc('worker_operation_outcome', { p_account_id: deps.accountID, p_operation_id: operationID }) as
+      { state?: unknown; actual_credits?: unknown; charged?: unknown } | null;
+    if (outcome?.state === 'settled' && Number.isSafeInteger(outcome.actual_credits)) {
+      return { credits: outcome.actual_credits as number, charged: outcome.charged === true };
+    }
+  } catch { /* unreadable: as unsettled */ }
+  return { credits: 0, charged: false };
 }
 
 /** Tavily searches for this answer: counts only. No provider spend while they are within

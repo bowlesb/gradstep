@@ -256,8 +256,31 @@ test('Vertex Claude forced auxiliaries use a structured schema, never an unsuppo
     const result = await generate(forced, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { streamed += s; } });
     assert.equal(streamed, '', 'auxiliary JSON never leaks into the reader answer');
     assert.equal(result.exact, true); assert.equal(priceAttempts(result.attempts), 1000);
-    assert.equal(result.status, content === 'invalid JSON' ? 'failed' : 'complete');
-    if (result.status === 'complete') assert.deepEqual(result.toolCalls?.[0].input, { questions: ['Why units?', 'What scale?'] });
+    // A23: an unparsable forced object is dropped (the turn completes with nothing usable; its caller treats it as
+    // unusable and the reader is not charged for it), not turned into a provider failure.
+    assert.equal(result.status, 'complete');
+    if (content === 'invalid JSON') { assert.deepEqual(result.toolCalls, []); assert.equal(result.stopReason, 'end_turn'); }
+    else assert.deepEqual(result.toolCalls?.[0].input, { questions: ['Why units?', 'What scale?'] });
+  }
+});
+
+test('A23: an invalid or cut-off tool call is dropped and the streamed answer is kept', async () => {
+  const visualParams = { ...params, tools: [...(params.tools ?? []), { name: 'create_visual', input_schema: { type: 'object' as const, properties: {} } }] };
+  const cases: [string, unknown[], string, number][] = [
+    // A `length` stop inside a large create_visual call: the text stays, the call is dropped, it is a length stop.
+    ['cut off', [event({ content: 'Here is the answer.' }), event({ tool_calls: [{ index: 0, id: 'v1', function: { name: 'create_visual', arguments: '{"html":"<div' } }] }), final('length')], 'max_tokens', 0],
+    ['unknown tool', [event({ content: 'Answer text.' }), event({ tool_calls: [{ index: 0, id: 'x1', function: { name: 'delete_everything', arguments: '{}' } }] }), final('tool_calls')], 'end_turn', 0],
+    ['missing id', [event({ content: 'Answer text.' }), event({ tool_calls: [{ index: 0, function: { name: 'create_visual', arguments: '{}' } }] }), final('tool_calls')], 'end_turn', 0],
+    ['one good, one bad', [event({ content: 'Answer.' }), event({ tool_calls: [{ index: 0, id: 'v1', function: { name: 'create_visual', arguments: '{}' } },
+      { index: 1, id: 'v2', function: { name: 'create_visual', arguments: '{' } }] }), final('tool_calls')], 'tool_use', 1],
+  ];
+  for (const [label, events, stopReason, kept] of cases) {
+    let text = '';
+    const generate = openRouterChat({ apiKey: 'test-key', now: () => GEMINI_PRICE_EXPIRES - 1, fetch: async () => response(events) });
+    const outcome = await generate(visualParams, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { text += s; } });
+    assert.equal(outcome.status, 'complete', label); assert.equal(outcome.stopReason, stopReason, label);
+    assert.equal(outcome.toolCalls?.length, kept, label); assert.equal(outcome.exact, true, label);
+    assert.ok(text.length > 0, label); assert.ok((outcome.content as any[]).some(b => b.type === 'text'), label);
   }
 });
 

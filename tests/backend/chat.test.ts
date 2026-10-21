@@ -324,6 +324,9 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   assert.deepEqual(invalid.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'invalid_input' }]);
   const recorded = invalid.calls.find(c => c.name === 'worker_record_provider_usage' && c.params.p_provider === 'ingest')!;
   assert.equal((recorded.params.p_units as { result: string }).result, 'invalid_input');
+  // A23: the immutable ledger keeps how many keys the model sent, never the model-chosen names.
+  assert.equal((recorded.params.p_units as { key_count: number }).key_count, 1);
+  assert.ok(!('keys' in (recorded.params.p_units as object)));
 
   // A tool call on an ordinary question (no tools were offered) is ignored.
   const ordinary = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
@@ -793,6 +796,27 @@ test('settlement retries only ambiguous transport failures with identical amount
   await runChat(rejected.deps, generalBody(), rejected.emit, new AbortController().signal);
   assert.equal(rejected.calls.filter(c => c.name === 'worker_settle_chat').length, 1);
   assert.deepEqual(rejected.logs, [{ event: 'chat_settle_failed', operation_id: operation, reason: 'rejected' }]);
+});
+
+test('A23: done reports what the settlement recorded, not what it tried', async () => {
+  const doneOf = (h: ReturnType<typeof harness>) => h.events.at(-1)!.data as { credits: number; charged: boolean; reason?: string };
+  // Refused by the database (here unreadable afterwards): the stale sweep settles it as our server's ending, charging nothing.
+  const rejected = harness({ script: { worker_settle_chat: () => { throw new RpcFailure('invalid_settlement'); } } });
+  await runChat(rejected.deps, generalBody(), rejected.emit, new AbortController().signal);
+  assert.deepEqual([doneOf(rejected).credits, doneOf(rejected).charged, doneOf(rejected).reason], [0, false, 'server']);
+  assert.ok(names(rejected.calls).includes('worker_operation_outcome'), 'a conflict may mean another settlement exists: read it');
+  // No acknowledgement after the retries: the recorded outcome is read back.
+  for (const [state, credits, charged] of [['settled', 1, true], ['reserved', 0, false]] as const) {
+    const unknown = harness({ script: { worker_settle_chat: () => { throw new Error('transport'); },
+      worker_operation_outcome: () => ({ state, actual_credits: state === 'settled' ? 1 : null, charged: state === 'settled' ? true : null }) } });
+    await runChat(unknown.deps, generalBody(), unknown.emit, new AbortController().signal);
+    assert.equal(doneOf(unknown).credits, credits, state); assert.equal(doneOf(unknown).charged, charged, state);
+    assert.equal(unknown.answers[0].settlement, 'unknown');
+  }
+  // A settled answer is unchanged (and its log line has no settlement field).
+  const ok = harness();
+  await runChat(ok.deps, generalBody(), ok.emit, new AbortController().signal);
+  assert.equal(doneOf(ok).charged, true); assert.ok(!('settlement' in ok.answers[0]));
 });
 
 test('the server deadline aborts generation, charges nothing (our limit) and reports provider_unavailable', async () => {
