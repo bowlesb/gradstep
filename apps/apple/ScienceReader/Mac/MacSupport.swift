@@ -66,6 +66,9 @@ extension ReaderModel {
     static let shared = MacCommandRequests()
     /// Focus the Library's search field (⌘F), or its arXiv search (⌥⌘F).
     var librarySearch: UUID?
+    /// Edit › Find in Paper: the open paper's view shows its find bar (with its own checks: a readable paper, the
+    /// selection cleared).
+    var findInPaper: UUID?
 }
 
 // MARK: - Rows and sheets

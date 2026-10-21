@@ -397,31 +397,6 @@ final class PaperToolsTests: XCTestCase {
                       "Back returns to the place left")
     }
 
-    // MARK: - iPad: the Mac's commands with a hardware keyboard (NATIVE_REVIEW_20261021 B1)
-
-    func testTabletKeyboardCommandsSwitchViewsAndReadingMode() throws {
-        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad layout")
-        defer { XCUIDevice.shared.orientation = .portrait }
-        let app = openSample()
-        XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape")
-        let modes = app.segmentedControls["wide.mode"]
-        XCTAssertTrue(modes.buttons["Reader"].waitForExistence(timeout: 5))
-        // View › Library (⌘2) and back to the Reader (⌘3), as in the Mac's View menu.
-        app.typeKey("2", modifierFlags: .command)
-        XCTAssertTrue(wait { modes.buttons["Library"].isSelected }, "⌘2 shows the Library")
-        app.typeKey("3", modifierFlags: .command)
-        XCTAssertTrue(wait { modes.buttons["Reader"].isSelected }, "⌘3 shows the Reader")
-        // View › Enter Reading Mode (⇧⌘R) from the shared commands; Escape leaves it.
-        app.typeKey("r", modifierFlags: [.command, .shift])
-        XCTAssertTrue(app.buttons["reading.chat.toggle"].waitForExistence(timeout: 5), "⇧⌘R enters reading mode")
-        capture(app, "iPad keyboard: reading mode from ⇧⌘R")
-        app.typeKey(.escape, modifierFlags: [])
-        XCTAssertTrue(app.buttons["reading.chat.toggle"].waitForNonExistence(timeout: 5), "Escape leaves reading mode")
-        XCTAssertTrue(modes.buttons["Reader"].waitForExistence(timeout: 5))
-        capture(app, "iPad keyboard: back from reading mode")
-    }
-
     // MARK: - iPad: full-width paper, resizable chat (gap 5)
 
     func testTabletReaderHidesAndResizesTheChatColumn() throws {

@@ -290,6 +290,12 @@ struct PaperView: View {
                             .background(Color(uiColor: .systemBackground))
                     } }
                     .overlay { if loadingPaper { ProgressView("Preparing…").allowsHitTesting(false) } }
+                    .background { findShortcut }
+                    // Edit › Find in Paper from the Mac menu bar, with the on-screen Find's checks.
+                    .onChange(of: MacCommandRequests.shared.findInPaper) { _, request in
+                        guard request != nil else { return }
+                        MacCommandRequests.shared.findInPaper = nil; showFind()
+                    }
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
@@ -335,8 +341,6 @@ struct PaperView: View {
                         selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) },
                         // Paper › Figures (audit 2026-10-15: never wired since the menu was added, so always greyed out).
                         figures: model.selectedPaper?.readerBundle?.index.figures.isEmpty == false && !readerFailed && !loadingPaper ? { showFigures = true } : nil,
-                        // Edit › Find in Paper (⌘F) on the Mac and an iPad keyboard, with the on-screen Find's checks.
-                        find: canFind ? { showFind() } : nil,
                         readerVersion: model.selectedPaper?.readerBundle?.manifest.source.kind == "arxiv-html" ? { showReaderVersion = true } : nil))
                 } else if let selected = model.selectedPaper {
                     if let run = model.deviceModelRun, run.paperID == selected.id {
@@ -409,6 +413,7 @@ struct PaperView: View {
                         Button { model.enterReadingMode() } label: { Image(systemName: "book") }
                             .accessibilityLabel("Reading mode").accessibilityIdentifier("paper.readingMode")
                             .help("Reading mode (⇧⌘R)")
+                            .modifier(ReadingModeShortcut())
                     }
                 }
                 if besideChat && model.readerChatHidden {
@@ -644,6 +649,14 @@ struct PaperView: View {
         guard canFind else { return }
         selection = nil; selectionClearID = UUID()
         findRequestID = UUID()
+    }
+
+    /// ⌘F with a hardware keyboard on iPad (the Mac's Edit menu has its own Find in Paper).
+    @ViewBuilder private var findShortcut: some View {
+        if !Platform.isMac {
+            Button("Find in paper") { showFind() }.keyboardShortcut("f").disabled(!canFind)
+                .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false)
+        }
     }
 
     /// A− / A+ shows unless the paper failed or is loading, or a reference's outcome spans the bottom.

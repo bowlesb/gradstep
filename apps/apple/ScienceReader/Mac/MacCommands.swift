@@ -12,8 +12,6 @@ struct PaperMenuActions {
     var selection: ((SelectionAction) -> Void)?
     /// The open paper's figure gallery; unavailable for a paper without figures.
     var figures: (() -> Void)? = nil
-    /// Find in the paper (clears a selection first, as the on-screen Find does); nil while it can't be searched.
-    var find: (() -> Void)? = nil
     /// The paper's "…" › Reader version details (an arXiv HTML reading only).
     var readerVersion: (() -> Void)? = nil
 }
@@ -28,13 +26,20 @@ extension FocusedValues {
 }
 
 extension View {
-    /// Offers the paper's actions to the commands: the Mac menu bar's Paper menu and an iPad keyboard's.
-    func macPaperMenu(_ actions: PaperMenuActions) -> some View { focusedSceneValue(\.paperMenuActions, actions) }
+    /// Mac: offers the paper's actions to the menu bar (Paper menu). No effect on iPhone and iPad.
+    @ViewBuilder func macPaperMenu(_ actions: PaperMenuActions) -> some View {
+        #if targetEnvironment(macCatalyst)
+        focusedSceneValue(\.paperMenuActions, actions)
+        #else
+        self
+        #endif
+    }
 }
 
-/// The Mac menu bar, and the same commands for an iPad's hardware keyboard (shown when ⌘ is held, and in the iPadOS
-/// menu bar). It mirrors each screen's "…" options menu (docs/DESIGN.md) and the header buttons, so every action has
-/// one place on screen and one in the menus; only Settings… and Help are Mac-only.
+#if targetEnvironment(macCatalyst)
+/// The Mac menu bar. It mirrors each screen's "…" options menu (docs/DESIGN.md) and the header buttons,
+/// so every action has one place on screen and one in the menus; nothing here is Mac-only behavior.
+/// (Not attached on iPad: with these commands an iPad keyboard's ⌘F no longer reached the paper; see ScienceReaderApp.)
 struct GradstepCommands: Commands {
     @Bindable var model: ReaderModel
     @FocusedValue(\.paperMenuActions) private var paper
@@ -42,11 +47,9 @@ struct GradstepCommands: Commands {
     static let privacyURL = URL(string: "https://gradstep.ai/privacy/")!
 
     var body: some Commands {
-        #if targetEnvironment(macCatalyst)
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { model.tab = .settings }.keyboardShortcut(",")
         }
-        #endif
 
         // File
         // After, not replacing: the replaced New group never reached the Mac's File menu (⌘N did nothing, found 2026-10-16).
@@ -62,7 +65,8 @@ struct GradstepCommands: Commands {
         CommandGroup(after: .pasteboard) {
             Section {
                 if findsInPaper {
-                    Button("Find in Paper…") { paper?.find?() }.keyboardShortcut("f").disabled(paper?.find == nil)
+                    // The paper view opens it, with its own checks (a readable paper, the selection cleared).
+                    Button("Find in Paper…") { MacCommandRequests.shared.findInPaper = UUID() }.keyboardShortcut("f")
                     Button("Find Next") { ReaderWebView.paper?.findNext(backwards: false) }.keyboardShortcut("g")
                     Button("Find Previous") { ReaderWebView.paper?.findNext(backwards: true) }.keyboardShortcut("g", modifiers: [.command, .shift])
                     Button("Search Library") { search(arXiv: false) }.keyboardShortcut("f", modifiers: [.command, .option])
@@ -200,18 +204,18 @@ struct GradstepCommands: Commands {
             }
         }
 
-        #if targetEnvironment(macCatalyst)
         CommandGroup(replacing: .help) {
             Button("Report This Screen…") { model.beginReport(afterMenu: true) }
             Button("My Reports") { model.showReports = true }.disabled(model.support == nil)
             Divider()
             Button("Privacy & Data") { UIApplication.shared.open(Self.privacyURL) }
         }
-        #endif
     }
 
     /// Both Reader and Browse show the paper; option-command-F always targets the library.
-    private var findsInPaper: Bool { paper != nil && (model.wideMode == .reader || model.wideMode == .browse) && model.tab != .settings }
+    private var findsInPaper: Bool {
+        model.selectedPaper?.readerBundle != nil && (model.wideMode == .reader || model.wideMode == .browse) && model.tab != .settings
+    }
 
     // The same rules as the Library's + button and the Chat's compose button.
     private func addPaper() {
@@ -238,3 +242,4 @@ struct GradstepCommands: Commands {
         else { Task { await model.refreshLibrary() } }
     }
 }
+#endif

@@ -177,9 +177,10 @@ Mac verification. The iOS build settings are unchanged; Mac settings are `[sdk=m
 | Unit-test host | `ScienceReaderTests` alone sets `TEST_HOST[sdk=macosx*]` to `$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep`, matching the Mac product name |
 
 Mac-only code lives in `ScienceReader/Mac/`: `MacSupport.swift` (window, toolbar, platform checks, row hover,
-sheet keys, the reader's web view) and `MacCommands.swift` (menu bar). Since October 21 (code review B1) the same
-`GradstepCommands` also serve an iPad's hardware keyboard (the ⌘-hold overlay and the iPadOS menu bar): only
-Settings… and Help stay Mac-only; ⌘Return sends and Escape closes the fullscreen figure on both. Shared views ask `Platform.isMac` /
+sheet keys, the reader's web view) and `MacCommands.swift` (menu bar). The menu bar's commands are not attached on
+iPad: tried on October 21 (code review B1), an iPad keyboard's ⌘F then no longer reached the paper's find while the
+paper's web view had focus, also with the system Find menu removed and with no menu item claiming ⌘F, so an iPad
+keeps its own view shortcuts (⌘F, ⇧⌘R) and gains ⌘Return to send and Escape to close the fullscreen figure. Shared views ask `Platform.isMac` /
 `Platform.isLargeScreen`; the Mac uses the browser's wide-workspace structure (persistent Library/Feed, Reader
 and Chat panes) while reusing the iPad SwiftUI surfaces and shared model for behavioral parity. Mac-only controls
 and conventions live in the Mac target.

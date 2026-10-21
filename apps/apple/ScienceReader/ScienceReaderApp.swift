@@ -26,9 +26,11 @@ struct ScienceReaderApp: App {
                     PaperWebView.prewarm()
                 }
         }
-        // One command list for the Mac menu bar and an iPad's hardware keyboard (the ⌘-hold overlay and the iPadOS
-        // menu bar); Settings and Help stay Mac-only.
+        // The Mac menu bar. Not on iPad: with these commands attached, an iPad keyboard's ⌘F no longer reached the
+        // paper's find (iPad journey, 2026-10-21; NATIVE_REVIEW_20261021 B1), so the iPad keeps its own shortcuts.
+        #if targetEnvironment(macCatalyst)
         .commands { GradstepCommands(model: model) }
+        #endif
     }
 }
 
