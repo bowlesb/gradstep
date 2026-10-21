@@ -37,9 +37,9 @@ released browser is still Pages `27c45ca0`. iPhone sources were read for wording
   three model/length groups, Find similar papers first, the saved-draft hint going away). The app was wrong for
   owner-58: Privacy &amp; data still mentioned a backup search provider; it now uses the apps' wording. One app
   regression of this work was caught by arxiv-html (the lazy reader asked arXiv twice) and fixed in 114df10.
-- **Evidence** (after merging main at 5ef1bce): `apps/web` unit tests 552 passing; root `npm test` (fast tier) passes
-  every step, compiler freshness included: backend 700, browser units 552, operations, egress scan, Edge and admin
-  type checks. Playwright on desktop and phone for 22 affected specs (account-assets, account-delete, arxiv-html,
+- **Evidence** (after merging main at 5a38d04): `apps/web` unit tests 552 passing; root `npm test` (fast tier) passes
+  every step, compiler freshness included: backend 686, browser units 552, operations, egress scan, Edge and admin
+  type checks. Playwright (after the 5ef1bce merge; main changed no browser code after it) on desktop and phone for 22 affected specs (account-assets, account-delete, arxiv-html,
   build-62, catalogs, chat, chat-controls, chat-redesign, equation-view, figure-view, journal, layout, library,
   library-actions, library-columns, library-commands, notes, owner-58, parity, podcast-workspace, reader,
   support-reports): 207 passed, 25 skipped by their engine or width gates, none failing. Stale tests found on the way
