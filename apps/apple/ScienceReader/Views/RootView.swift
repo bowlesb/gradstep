@@ -1757,6 +1757,7 @@ struct DiscoveryRow: View {
                 adding = true; issue = nil
                 Task {
                     do { try await model.addDiscovered(result) }
+                    catch ReaderModel.LibraryAddError.alreadyInLibrary { issue = "“\(result.title)” is already in your library." }
                     catch { issue = "Couldn’t add “\(result.title)”. Try again." }
                     adding = false
                 }

@@ -474,7 +474,12 @@ final class LibraryModelTests: XCTestCase {
         model.selectCatalog(LibraryCatalogBatch.initialCatalogID)
         try await observe("Import catches up") { !model.libraryCommands.contains(where: \.isUnfinished) }
         XCTAssertEqual(model.libraryCatalogs.catalogID(for: "arxiv:1706.03762"), catalog)
-        try await model.importPaper("1706.03762v7")
+        // Build 75 (two "TreeCut" rows): the same paper is never queued again; it isn't moved either.
+        let commands = server.commands().count
+        do { try await model.importPaper("1706.03762v7"); XCTFail("An existing paper is not added twice") }
+        catch { XCTAssertEqual(error as? ReaderModel.LibraryAddError, .alreadyInLibrary) }
+        XCTAssertEqual(server.commands().count, commands, "no second import request")
+        XCTAssertTrue(model.librarySourceIDs.contains("1706.03762"))
         XCTAssertEqual(model.libraryCatalogs.catalogID(for: "arxiv:1706.03762"), catalog, "Adding an existing paper never moves it")
     }
 

@@ -2441,10 +2441,16 @@ final class ReaderModel {
         feedLoadedAt = Date(); feedStaleNote = nil
     }
 
-    /// arXiv identifiers already in the library or being added.
+    /// arXiv identifiers already in the library or being added (an Add still waiting to sync included).
     var librarySourceIDs: Set<String> {
-        Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.compactMap(\.sourceID))
+        var ids = Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.compactMap(\.sourceID))
+        for command in libraryCommands where command.isUnfinished {
+            if case .beginImport(let source, _, _) = command.mutation { ids.insert(source) }
+        }
+        return ids
     }
+    /// Build 75 (two "TreeCut" rows): an arXiv paper already in the library, or being added, is not added again.
+    enum LibraryAddError: Error, Equatable { case alreadyInLibrary }
 
     func addDiscovered(_ result: DiscoveryResult) async throws {
         try await importPaper(result.sourceID, stayInSearch: true)
@@ -2460,6 +2466,13 @@ final class ReaderModel {
                 guard command.isUnfinished, case .beginImport(let source, _, _) = command.mutation else { return false }
                 return LibraryCatalogBatch.arxivKey(source) == key
             }
+        let inLibrary = papers.contains { !$0.isSample && catalogKey($0) == key }
+            || libraryImports.contains { $0.visible && catalogKey($0) == key && ![.failed, .cancelled].contains($0.phase) }
+            || libraryCommands.contains { command in
+                guard command.isUnfinished, case .beginImport(let source, _, _) = command.mutation else { return false }
+                return LibraryCatalogBatch.arxivKey(source) == key
+            }
+        if inLibrary { throw LibraryAddError.alreadyInLibrary }
         if !alreadyPresent && libraryCatalogs.catalogID(for: key) != currentCatalog.id {
             try await writeCatalog([.init(.assign, catalogID: currentCatalog.id, paperKey: key)])
         }
