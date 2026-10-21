@@ -2045,15 +2045,20 @@ final class ReaderModel {
         }
     }
 
-    func beginReport(afterMenu: Bool = false) {
+    func beginReport(afterMenu: Bool = false, sheet: String? = nil) {
         let scope = sessionID
         Task {
             if afterMenu { try? await Task.sleep(for: .milliseconds(350)) }
             guard sessionID == scope else { return }
-            reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)"
-            reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
+            captureReport(sheet: sheet)
             showReport = true
         }
+    }
+    /// The screen's name and the app's own snapshot for a report (no snapshot over the recovery code or sign-in; any
+    /// other secret on screen is covered: `hiddenFromReports`).
+    func captureReport(sheet: String?) {
+        reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)" + (sheet.map { " / \($0)" } ?? "")
+        reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
     }
 
     func signOut() async {

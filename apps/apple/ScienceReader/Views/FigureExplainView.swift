@@ -67,6 +67,7 @@ private struct FigurePageActions: ViewModifier {
                     }
                     : nil,
                 noun: context?.label.hasPrefix("Table") == true ? "Table" : "Figure",
+                report: host.map { host in { ReportPresenter.present(host.model, sheet: context?.label ?? "Figure", afterMenu: true) } },
                 close: close)
             .navigationDestination(isPresented: $explaining) {
                 if let host, let context { FigureExplainView(model: host.model, context: context, requesting: explainOnOpen, finish: host.finish, close: host.close) }
@@ -123,7 +124,7 @@ struct FigureExplainView: View {
             openChat: ExplainAction(identifier: "figureView.openInChat", hint: "Continue this conversation in Chat.") {
                 guard let chatToken else { return }
                 model.promoteContextualChat(chatToken, explanation: figureExplanation, image: session?.image); finish(.continueChat)
-            }, close: close)
+            }, report: { ReportPresenter.present(model, sheet: "\(context.label) explainer", afterMenu: true) }, close: close)
         .background(Color(uiColor: .systemGroupedBackground))
         .task(id: context.figureID) {
             session?.stop()

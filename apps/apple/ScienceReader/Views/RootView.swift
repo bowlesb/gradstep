@@ -116,6 +116,10 @@ struct RootView: View {
         #if INTERNAL
         .modifier(SessionCaptureHooks(model: model))
         #endif
+        #if !targetEnvironment(macCatalyst)
+        // A screenshot taken in Gradstep offers "Report this screen" (Settings can turn the offer off).
+        .task { ScreenshotReportPrompt.shared.start(model) }
+        #endif
         // Scheduled sync (ReaderModel.updateSyncSchedule) follows the scene; the first sync on return is below.
         .onChange(of: scenePhase, initial: true) { _, phase in model.sceneActive = phase == .active }
         .onChange(of: scenePhase) { _, phase in
@@ -1318,6 +1322,7 @@ struct SettingsView: View {
     var dismissSettings: (() -> Void)? = nil
     @State private var showDeleteAccount = false
     @State private var width: CGFloat = 0
+    @AppStorage(ScreenshotReportPrompt.enabledKey) private var screenshotPrompt = true
     /// A count in Your assets: "None" when empty, as Downloaded papers.
     static func count(_ value: Int) -> String { value > 0 ? value.formatted() : "None" }
 
@@ -1455,6 +1460,9 @@ struct SettingsView: View {
                 Section {
                     Button("Report a problem") { model.beginReport() }.accessibilityIdentifier("settings.report")
                     openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
+                    #if !targetEnvironment(macCatalyst)
+                    Toggle("Offer to report after a screenshot", isOn: $screenshotPrompt).accessibilityIdentifier("settings.screenshotPrompt")
+                    #endif
                     NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
                 }
                 // Owner, build 57: "Testing and Admin should go in a special section for Admins with Grey background".
@@ -1619,7 +1627,7 @@ struct RecoveryView: View {
                 if model.needsRecovery {
                     Section("Recovery code") {
                         TextField("Paste your recovery code", text: $input, axis: .vertical).font(.system(.body, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
-                            .textContentType(.password).accessibilityIdentifier("recovery.input")
+                            .hiddenFromReports().textContentType(.password).accessibilityIdentifier("recovery.input")
                         Button { fillFromPasswords() } label: { Label("Use code saved in Passwords", systemImage: "key.fill") }
                             .disabled(anchor == nil || passwords == .working || model.isBusy).accessibilityIdentifier("recovery.fromPasswords")
                         if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
@@ -1632,8 +1640,9 @@ struct RecoveryView: View {
                     #endif
                 } else if let code = model.recoveryCode {
                     Section {
+                        // `.privacySensitive()` doesn't redact screenshots: in-app reports cover the code (build 75).
                         Text(code).font(.system(.body, design: .monospaced)).textSelection(.enabled).privacySensitive()
-                            .accessibilityIdentifier("recovery.code")
+                            .hiddenFromReports().accessibilityIdentifier("recovery.code")
                         if passwords == .saved {
                             Label("Saved in Passwords under gradstep.ai", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                                 .accessibilityIdentifier("recovery.savedToPasswords")

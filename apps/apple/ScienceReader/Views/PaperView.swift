@@ -507,7 +507,8 @@ struct PaperView: View {
                 contentsJump = nil
                 applyFigureOutcome()
             }) {
-                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize) { target, id in
+                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize,
+                                   report: { ReportPresenter.present(model, sheet: "Contents") }) { target, id in
                     contentsJump = (target, id)
                     showContents = false
                 }

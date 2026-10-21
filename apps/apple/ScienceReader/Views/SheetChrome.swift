@@ -30,9 +30,11 @@ extension View {
     /// The sheet's top row: **Chat about Figure** (or Table) and **AI Explainer** (each when offered) on the left, the X on
     /// the right (nil for a page whose sheet closes elsewhere). The bar shows no title. `noun` names what is shown
     /// (build 76: a table's sheet said "Chat about Figure").
+    /// `report`: the sheet's ⋯ with Report this screen (build 77 hardening: the recent feedback was given on these sheets,
+    /// which had no ⋯).
     func sheetTopRow(chat: ExplainAction? = nil, explainer: ExplainAction? = nil, openChat: ExplainAction? = nil, noun: String = "Figure",
-                     close: (() -> Void)?) -> some View {
-        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, noun: noun, close: close))
+                     report: (() -> Void)? = nil, close: (() -> Void)?) -> some View {
+        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, noun: noun, report: report, close: close))
     }
 }
 
@@ -41,6 +43,7 @@ private struct SheetTopRowModifier: ViewModifier {
     let explainer: ExplainAction?
     let openChat: ExplainAction?
     let noun: String
+    let report: (() -> Void)?
     let close: (() -> Void)?
 
     func body(content: Content) -> some View {
@@ -62,6 +65,7 @@ private struct SheetTopRowModifier: ViewModifier {
                             Button(action: openChat.action) { Image(systemName: "bubble.left.and.text.bubble.right") }
                                 .accessibilityLabel("Open in Chat").accessibilityHint(openChat.hint).accessibilityIdentifier(openChat.identifier)
                         }
+                        if let report { SheetOptionsMenu(report: report) }
                         if let close { SheetCloseButton(action: close) }
                     }
                 }
@@ -95,6 +99,17 @@ private struct SheetTopRowModifier: ViewModifier {
         }
         .font(font)
         .fixedSize()
+    }
+}
+
+/// A sheet's ⋯ (DESIGN.md "Screen options"): Report this screen, the last item as everywhere else.
+struct SheetOptionsMenu: View {
+    let report: () -> Void
+    var body: some View {
+        Menu {
+            Section { MenuRow("Report this screen", systemImage: "ladybug", action: report) }
+        } label: { Image(systemName: "ellipsis") }
+            .accessibilityLabel("Options").accessibilityIdentifier("sheet.options")
     }
 }
 

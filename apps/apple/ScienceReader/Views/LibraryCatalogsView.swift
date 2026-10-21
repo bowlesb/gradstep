@@ -77,8 +77,11 @@ struct LibraryCatalogsView: View {
             .navigationTitle("Catalogs").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close catalogs")
+                    HStack(spacing: 16) {
+                        SheetOptionsMenu { ReportPresenter.present(model, sheet: "Catalogs", afterMenu: true) }
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close catalogs")
+                    }
                 }
             }
             .alert(renameID == nil ? "New catalog" : "Rename catalog", isPresented: $showName) {

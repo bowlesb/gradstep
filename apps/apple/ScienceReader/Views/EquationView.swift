@@ -224,7 +224,8 @@ struct EquationView: View {
                 openChat: ExplainAction(identifier: "equation.openInChat", hint: "Continue this conversation in Chat.") {
                     guard let chatToken, let session else { return }
                     model.promoteContextualChat(chatToken, explanation: equationExplanation(session)); finish(.continueChat)
-                }, close: { finish(nil) })
+                }, report: { ReportPresenter.present(model, sheet: "\(session?.context.label ?? "Equation") explainer", afterMenu: true) },
+                close: { finish(nil) })
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .frame(minWidth: Platform.isMac ? 560 : nil, minHeight: Platform.isMac ? 640 : nil)

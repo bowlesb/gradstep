@@ -223,6 +223,42 @@ final class FigureViewJourneyTests: XCTestCase {
         capture(app, "Continue the same figure conversation in Chat")
     }
 
+    /// Report this screen on the sheets that had no "…" (where the builds 66–76 feedback was given), with the app's own
+    /// snapshot, returning to the same sheet; the two explain actions are peers and a table's says "Chat about Table".
+    func testReportThisScreenFromContentsAndAFigurePage() throws {
+        let app = launch()
+        app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        let report = app.buttons["contents.report"]
+        XCTAssertTrue(report.waitForExistence(timeout: 5))
+        for _ in 0..<6 where !report.isHittable { app.descendants(matching: .any)["contents.list.contents"].swipeUp() }
+        report.tap()
+        let composer = app.navigationBars["Report an issue"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 8), "the report opens over Contents")
+        XCTAssertTrue(app.images["Screenshot preview"].waitForExistence(timeout: 5), "with the app's own snapshot")
+        capture(app, "Report this screen from Contents")
+        composer.buttons["Cancel"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5), "Contents is still open")
+        app.contentsTab("Tables").tap()
+        if app.buttons["contents.table.0"].waitForExistence(timeout: 3) {
+            app.buttons["contents.table.0"].tap()
+            XCTAssertTrue(app.buttons["figureView.askInChat"].waitForExistence(timeout: 5))
+            XCTAssertEqual(app.buttons["figureView.askInChat"].label, "Chat about Table", "build 76: a table's sheet names the table")
+            app.navigationBars.buttons["BackButton"].firstMatch.tap()
+        }
+        app.contentsTab("Figures").tap()
+        let row = app.buttons["contents.figure.0"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+        XCTAssertTrue(app.buttons["figureView.askInChat"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["figureView.askInChat"].label, "Chat about Figure")
+        capture(app, "Figure page: both explain actions alike, and its options")
+        app.buttons["sheet.options"].tap()
+        menuItem(app, "Report this screen", "Report this screen").tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 8), "the report opens over the figure page")
+        composer.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["figureView.askInChat"].waitForExistence(timeout: 5), "the figure page is still open")
+    }
+
     /// The figure page's own Ask in chat: the figure's caption is the passage (in dark mode, with the walkthrough seen first).
     func testAskInChatFromTheFigurePage() throws {
         let app = launch(appearance: "dark")

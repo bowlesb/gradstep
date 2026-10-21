@@ -21,6 +21,8 @@ struct PaperContentsSheet: View {
     let headings: [PaperHeading]
     let bundle: VerifiedReaderBundle?
     var baseFontSize: Double = 17
+    /// Report this screen, as the last row of each list (the tabs fill the top row on a phone; there is no ⋯ there).
+    var report: (() -> Void)? = nil
     let go: (PaperJumpRequest.Target, String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab = .contents
@@ -99,10 +101,13 @@ struct PaperContentsSheet: View {
         switch tab {
         case .contents:
             let nested = headings.contains { $0.depth > 0 }
-            List(headings) { heading in
-                Button { go(.heading, heading.id) } label: { ContentsEntry(title: heading.title, detail: nil, strong: nested && heading.depth == 0) }
-                    .accessibilityValue(nested ? "Level \(heading.depth + 1)" : "")
-                    .padding(.leading, CGFloat(heading.depth) * indent)
+            List {
+                ForEach(headings) { heading in
+                    Button { go(.heading, heading.id) } label: { ContentsEntry(title: heading.title, detail: nil, strong: nested && heading.depth == 0) }
+                        .accessibilityValue(nested ? "Level \(heading.depth + 1)" : "")
+                        .padding(.leading, CGFloat(heading.depth) * indent)
+                }
+                reportRow
             }
             .listStyle(.plain)
             .overlay { if headings.isEmpty { ContentUnavailableView("No sections", systemImage: "list.bullet.indent") } }
@@ -124,6 +129,7 @@ struct PaperContentsSheet: View {
                     }
                     .accessibilityIdentifier("contents.\(tab == .tables ? "table" : "figure").\(index)")
                 }
+                reportRow
             }
             .listStyle(.plain)
             .overlay { if wanted.isEmpty { ContentUnavailableView(tab == .tables ? "No tables" : "No figures", systemImage: tab == .tables ? "tablecells" : "photo") } }
@@ -139,6 +145,7 @@ struct PaperContentsSheet: View {
                         Button { go(.equation, equation.id) } label: { ContentsEntry(title: equation.label, detail: nil, strong: true) }
                             .accessibilityIdentifier("contents.equation.\(index)")
                     }
+                    reportRow
                 }
                 .listStyle(.plain)
                 .overlay { if equations.isEmpty { ContentUnavailableView("No equations", systemImage: "function") } }
@@ -146,6 +153,14 @@ struct PaperContentsSheet: View {
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityIdentifier("contents.equations.loading")
             }
+        }
+    }
+
+    @ViewBuilder private var reportRow: some View {
+        if let report {
+            Button(action: report) { Label("Report this screen", systemImage: "ladybug").font(.footnote) }
+                .foregroundStyle(.secondary).listRowSeparator(.hidden, edges: .bottom).padding(.top, 12)
+                .accessibilityIdentifier("contents.report")
         }
     }
 
