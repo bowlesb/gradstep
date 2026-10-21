@@ -424,6 +424,18 @@ Since migration 076 (2026-10-16) the paper text a device sends for a private epi
 made, fails or is canceled ("The paper text is deleted once the episode is made" below); only the episode's own
 transcript and audio stay, private to the account.
 
+**Device-source records leave with the account (review A16, 2026-10-21; migration 125).** Each device episode keeps a
+`podcast_device_sources` row: the owner, the paper's membership id, its arXiv id and revision, the title and authors the
+device sent, and the digests of its text. The row is immutable and no deletion step removed it, so a deleted account
+kept a record of which papers it made episodes of. It is personal library data, not a financial record: the job, its
+metered operation, provider attempts and ledger rows stay under the account's random UUID exactly as before (the
+de-identified billing record), while the device-source rows are deleted. Migration 125 replaces the row's immutability
+trigger with one that permits a DELETE only inside the same account's deletion transaction (the existing
+`app_private.deleting_account` setting that `worker_delete_account_begin` sets; any other update or delete is still
+refused), wraps `worker_delete_account_begin` to delete the account's rows after the earlier steps, counts them in
+`worker_account_deletion_status.personal_rows`, and removes the rows already left by accounts closed before the
+migration. Deletion refuses while a podcast operation is unsettled (unchanged), so no running job loses its source.
+
 ## Acceptance and operator visibility
 
 Read-only admin views add provider costs/reservations/unknowns by route and release, customer charged versus
