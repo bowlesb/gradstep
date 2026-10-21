@@ -1,5 +1,47 @@
 # Implementation status
 
+## Native code review fixes — October 21 UTC (local source; not released)
+
+The [native code review](reviews/NATIVE_REVIEW_20261021.md)'s findings were each re-read against `82c8656` before
+changing them; its status table lists what is fixed (commits `1d0ed71`…`1525782`), what is partly done and what was
+left, with reasons. No server, database, deployment, paid model call, release or physical-phone access was involved.
+The browser part of A5/A6 is source only (not deployed). Builds 77/browser `27c45ca0` remain the released clients.
+
+Fixed: a refused token refreshes once and replays once before the session ends, with skew-tolerant expiry (A1); a
+selection action and a paid answer survive a local save failure, and Try again re-saves instead of re-asking (A2, A3);
+sign-out cancels and clears per-account and per-paper work (A4), which also exposed and fixed sign-out starting a
+download of the old account's paper; adds report the server's outcome and web papers join the selected catalog under a
+stable `source:` key, in the app and the browser (A5, A6; [catalogs](architecture/LIBRARY_CATALOGS.md)); opening joins a
+running download (A7); a question waiting for its paper is in flight and Stop withdraws it (A8); closing an explainer
+sheet is no longer a paid Stop (A9, [CHAT.md](architecture/CHAT.md)); the fullscreen figure no longer restarts the
+explanation (A10); model-reading runs have identities (A11); archiving a source paper applies at once and keeps its
+keywords derived (A12, A13); retired Mac local models fall back to cloud (A14). Performance: an unchanged store
+generation re-renders nothing (C1); keyword derivation 15.2–46.7 → 0.37 ms/paper uncached and ~0.002 ms repeated with
+identical output (C2; `-O`, 500 synthetic papers, machine under heavy load); typing re-renders the message box only
+(C6); no per-token observation writes (C7); a bounded cache of composed figure images (C8); the figure view decodes once,
+off the main actor (C9). Parity: the Mac's commands on an iPad keyboard (B1, [Mac app](architecture/MAC_APP.md));
+equation/figure threads use Chat's message row and ⌘Return (B2/B3, partly); author search shows the Library on every
+layout and the chat beside the paper knows it (B4); more menu-bar items (B5, partly). Hygiene: dead code, the resource
+probe's SwiftMath dependency, the two Core concurrency warnings (D7, D10, partly).
+
+Evidence (dedicated Simulators, derived data under the worktree's `.artifacts/`; the machine ran at load averages of
+600–970 from parallel agents, so WebKit-backed checks were slow): ScienceReaderCore `swift test` 359 tests in 47
+suites pass. App unit tests: the affected suites (chat generation/transport, authentication, library model/transport,
+drafts/workspace, workflow safety, branches, figure view, reading mode) pass, with four WebKit-timing failures under
+load that pass when rerun alone (two import compiles, the Mermaid check, an equation-overflow page). An earlier full
+`ScienceReaderTests` run (before the B/C6/D commits) had seven failing tests outside the changed code: five
+`PaperWebViewTests` (the "Gradstep Keywords" heading added in de722cf; a load timeout) and two podcast-limit tests
+(writer maxima changed in de722cf); they were not re-run at `82c8656`. `npm test`: its first step, arXiv compiler
+freshness, fails here at `82c8656` too (a fresh build of an unchanged input graph differs from the committed bundle);
+the other fast steps pass (device-PDF compiler freshness, backend 671 pass/1 skip, operations 18, arXiv egress scan,
+browser units 496 in 53 files); browser `tsc` is clean. Mac Catalyst `build-for-testing` succeeds and
+`MacKeyboardTests` pass 5/5. iPhone journeys pass for Add (6), catalogs, Find in paper, figure walkthrough, figure
+Ask in chat (rerun) and chat default options; two `ChatControlsTests` fail on stale assertions about unchanged code
+(the keyboard-dismiss button's position, and a helper that looks for a removed model segmented control). Mac
+`LocalAIJourneyTests` local-model cases could not run: the fixture model was disabled by the memory-admission check
+("1 GB free app memory required") on the saturated machine. Screenshots of the iPhone and Mac message box were
+reviewed (unchanged appearance). Results: `.artifacts/results/`.
+
 ## Notes and snippets — October 20 local / October 21 UTC (design/prototype only)
 
 The owner-requested Notes/capture experience has a source-grounded [architecture and UX proposal](architecture/NOTES_AND_SNIPPETS.md)
