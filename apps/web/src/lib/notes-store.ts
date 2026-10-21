@@ -23,12 +23,14 @@ export const backendTransport = (account: string): BlobTransport => ({
 });
 
 /** Why an upload waits. Every case keeps the entry and its image on this device. */
-export type UploadIssue = 'offline' | 'quota' | 'session' | 'conflict' | 'missing' | 'failed';
+export type UploadIssue = 'offline' | 'quota' | 'busy' | 'session' | 'conflict' | 'missing' | 'failed';
+/** The note-assets function's answers (NOTES_AND_SNIPPETS.md "Server status"): 429 `quota` (stored, or the monthly
+ * read-back allowance) or `rate_limited`; 503 `not_ready`/`service_unavailable` is repeated with the same PUT. */
 export function uploadIssue(error: unknown): UploadIssue {
   if (error instanceof NotesError && error.code === 'blob_missing') return 'missing';
   if (error instanceof BackendError) {
     if (error.code === 'connection') return 'offline';
-    if (error.status === 429) return 'quota';
+    if (error.status === 429) return error.code === 'rate_limited' ? 'busy' : 'quota';
     if (error.status === 401 || error.status === 403 || error.code === 'sign_in_required') return 'session';
     if (error.status === 409) return 'conflict';
   }
@@ -37,6 +39,7 @@ export function uploadIssue(error: unknown): UploadIssue {
 export const UPLOAD_ISSUE_TEXT: Record<UploadIssue, string> = {
   offline: 'Saved on this device · Waiting to sync',
   quota: 'Saved on this device · Snippet storage is full, so uploads are paused',
+  busy: 'Saved on this device · Uploads are limited for a moment and will resume',
   session: 'Saved on this device · Sign in again to sync',
   conflict: 'Saved on this device · This image couldn’t be uploaded',
   missing: 'This image isn’t stored in this browser any more',
@@ -247,6 +250,17 @@ export class NotesStore {
     for (const url of this.urls.values()) void url.then(URL.revokeObjectURL, () => {});
     this.urls.clear();
   }
+}
+
+/** Why a snippet image isn't shown (never another image in its place). */
+export function imageIssue(error: unknown): string {
+  if (error instanceof BlobError) return 'This image didn’t pass its checks, so it isn’t shown';
+  if (error instanceof BackendError) {
+    if (error.code === 'connection') return 'Image not downloaded · You’re offline';
+    if (error.status === 404) return 'Image not available yet';
+    if (error.status === 429) return error.code !== 'rate_limited' && (error.retryAfter ?? 0) > 3600 ? 'Image downloads are paused until next month' : 'Image downloads are limited for a moment';
+  }
+  return 'Image not downloaded';
 }
 
 /** Finite, reader-facing text for a failed note write (no private detail). */
