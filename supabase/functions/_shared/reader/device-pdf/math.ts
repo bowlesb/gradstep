@@ -13,6 +13,15 @@ export function confidence(probs: readonly number[], display: boolean): number {
   return display && s.length > 1 ? s[1] : s[0];
 }
 
+/** The recogniser's LaTeX in a form Temml takes (2026-10-21, docs/reviews/DEVICE_PDF_ROUTE_20261021.md): it learnt its
+ * targets from LaTeXML, which writes an aligned group's rows with `&` and `\\` and no environment (Temml refuses a bare
+ * `&`), and package commands Temml does not know (`\mathbbm{1}`, `\scalebox{s}{x}`). The meaning is unchanged. */
+export function tidyLatex(latex: string): string {
+  let t = latex.replace(/\\mathbbm\s*\{/g, '\\mathbb{').replace(/\\scalebox\s*\{[^{}]*\}\s*/g, '');
+  if (/&|\\\\/.test(t) && !/\\begin\s*\{/.test(t)) t = `\\begin{aligned}${t}\\end{aligned}`;
+  return t;
+}
+
 type Child = OutNode | string;
 class Refused extends Error {}
 

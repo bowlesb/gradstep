@@ -2,6 +2,30 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## PDFs without arXiv HTML: keep developing the on-device model; no Mathpix (owner, 2026-10-21)
+
+Owner, verbatim: "Ok, well maybe we can just continue to develop the on device version then? The current version
+feels too slow, and not accurate enough, but maybe we can improve it?" This follows the same day's "the local model
+for entire PDFs is too ambitious" and the Mathpix research
+([MATHPIX_FALLBACK_20261021](research/MATHPIX_FALLBACK_20261021.md)). Decided:
+
+- **Mathpix is not built.** The research stays as a record; the device-only rule for PDFs (no server PDF
+  acquisition, upload or processing, no Mathpix fallback) stands as written in the user constraints.
+- **The on-device PDF route stays the PDF path** and remains experimental, behind Settings › Experimental, beside
+  the arXiv HTML reader, which stays first-class. Work on it is now development of the app's own route (speed first,
+  then accuracy), measured against the arXiv HTML of the same papers where it exists, with before/after numbers for
+  every change ([DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md),
+  [review 2026-10-21](reviews/DEVICE_PDF_ROUTE_20261021.md)).
+- The desktop's port kit (converter 0.1.0) stops being a frozen reference the app must match: the app may diverge
+  from it where measurement shows a gain. Agent decisions taken under this direction (reversible, each measured):
+  the recogniser ships as one batched multifunction Core ML package (same weights; same tokens on its samples); the host overlaps
+  the stages and shows a reading before its formulas are read; seven converter rules are on in the app (simple inline
+  formulas from the text layer, font-found math, tidied LaTeX, title page by metadata, no duplicate headings, reference
+  entries split, line ownership) and one tried rule is off (`extendSpans`); the display-formula gate is unchanged (a
+  lower threshold would typeset more displays at lower precision: an owner choice, not taken). The desktop project (`/home/ben/mathpix`) stays read-only; new training or
+  export work runs in `/home/ben/science-reader-device-pdf` on the desktop, and any new model reaches the app only
+  through `scripts/device-models.mjs` and a lock update.
+
 
 ## Subfigures: rough zoom is the goal (owner, 2026-10-21)
 

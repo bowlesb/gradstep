@@ -5,7 +5,7 @@ import { validateHTML } from '../html-validate.ts';
 import { THIRD_PARTY_NOTICES } from '../notice.ts';
 import { BUNDLE_FORMAT, LIMITS, READER_CSS } from '../profile.ts';
 import { canonicalBytes, check, sha256Hex, utf8 } from '../util.ts';
-import { gate, read } from './convert.ts';
+import { gate, read, settle, type Reading } from './convert.ts';
 import { emit } from './emit.ts';
 import { pyRound } from './geometry.ts';
 import { DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_PORT_REVISION, DEVICE_PDF_PROVENANCE_FORMAT, DEVICE_PDF_RENDERER_ID,
@@ -66,7 +66,9 @@ export interface DevicePDFBundle {
 
 const isHex64 = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 
-export function composeDevicePDFReader(input: DevicePDFInput, host: DevicePDFHost): DevicePDFBundle {
+/** `onPreview`: with a host that recognises in the background, a complete bundle made before the formulas are read (each
+ * one its image) is handed over first, so the reader can show the paper while the recogniser finishes. */
+export function composeDevicePDFReader(input: DevicePDFInput, host: DevicePDFHost, onPreview?: (bundle: DevicePDFBundle) => void): DevicePDFBundle {
   check(input && typeof input === 'object' && input.pdf && isHex64(input.pdf.sha256) && Number.isSafeInteger(input.pdf.bytes) && input.pdf.bytes > 0, 'device_pdf_input');
   check(input.tagger && typeof input.tagger.threshold === 'number' && Number.isSafeInteger(input.tagger.max_len) && input.tagger.font_vocab && input.tagger.char_vocab && input.tagger.font_prior, 'device_pdf_tagger');
   const models = (Array.isArray(input.models) ? input.models : []).slice(0, 8).map(m => ({ role: String(m.role).slice(0, 64), id: String(m.id).slice(0, 128), sha256: String(m.sha256).slice(0, 64) }));
@@ -74,7 +76,14 @@ export function composeDevicePDFReader(input: DevicePDFInput, host: DevicePDFHos
     ? { source_id: input.paper.source_id.slice(0, 64), revision: input.paper.revision } : undefined;
   const started = Date.now();
   const reading = read(input, host);
+  if (onPreview && reading.submissions.length) onPreview(assemble(input, host, reading, models, paper, started));
+  settle(reading, host);
   gate(reading);
+  return assemble(input, host, reading, models, paper, started);
+}
+
+function assemble(input: DevicePDFInput, host: DevicePDFHost, reading: Reading, models: { role: string; id: string; sha256: string }[],
+  paper: { source_id: string; revision: number } | undefined, started: number): DevicePDFBundle {
   const fallbackTitle = (typeof input.title === 'string' && input.title.trim()) || reading.trace.title;
   const emitted = emit(reading, host, fallbackTitle);
   const { index } = emitted;
@@ -94,7 +103,7 @@ export function composeDevicePDFReader(input: DevicePDFInput, host: DevicePDFHos
   }
   const rendered = reading.committed.filter(id => formulas.get(id)!.rendered).length;
   const summary = {
-    pages: input.pages, blocks: index.blocks.length, headings: index.headings.length, equations: reading.committed.length, rendered,
+    pages: input.pages, blocks: index.blocks.length, headings: index.headings.length, equations: reading.committed.length, rendered, transcribed: reading.committed.filter(id => formulas.get(id)!.transcribed).length,
     figures: index.figures.length, images: emitted.images.size, unowned: reading.unowned,
     recognition_failures: reading.recognitionFailures, degraded: emitted.degraded, seconds: pyRound((Date.now() - started) / 1000, 1),
     warnings: reading.warnings.slice(0, 20),

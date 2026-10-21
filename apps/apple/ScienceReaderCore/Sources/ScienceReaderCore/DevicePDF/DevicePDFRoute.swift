@@ -6,6 +6,11 @@ import JavaScriptCore
 /// One PDF to one reader bundle on the device (docs/architecture/DEVICE_PDF_ROUTE.md): the converter
 /// (`device-pdf-reader.js`, the rules) runs in JavaScriptCore and calls back into this host for pages, glyphs,
 /// layout detections, tagger logits, recognitions and image crops. Synchronous; run it off the main thread.
+///
+/// Since 2026-10-21 (docs/reviews/DEVICE_PDF_ROUTE_20261021.md) the host overlaps the stages: the pages' layout and
+/// text are read ahead on other threads, the tagger's lines run on several threads, and the recogniser reads formulas
+/// in the background in batches (port revision 5's `submit`/`collect`) while the converter reads on; a reading with
+/// every formula as its image can be handed over before the formulas are read (`onPreview`).
 @available(iOS 18.0, macOS 15.0, *)
 public final class DevicePDFRoute {
     public struct Options: Sendable {
@@ -13,9 +18,27 @@ public final class DevicePDFRoute {
         public var sourceID: String?
         public var revision: Int?
         public var trace: Bool
+        /// Evaluation: the host's answers written down (`Output.record`) for the Node replay of the converter.
+        public var record = false
+        /// Converter rules beyond the port kit, by their input names (device-pdf/types.ts): `transcribe` (simple inline
+        /// formulas from the text layer), `frontMatter` (the title page's title and author lines found by the library's
+        /// metadata), `tidy` (confident recognitions Temml refuses, tidied).
+        public var rules: Set<String> = []
+        /// The library's authors (the `frontMatter` rule finds the author lines by them).
+        public var authors: [String] = []
         public var maxPages: Int
-        /// Crops recognised at once (2 by default; 1 is the reference's one-at-a-time order, same results).
+        /// Recogniser calls in flight at once: crops (one-crop export) or batches (a batched export). Same results.
         public var recogniserConcurrency = 2
+        /// The recogniser runs in the background while the converter reads on (port revision 5); off: page by page.
+        public var background = true
+        /// Pages whose layout and text are read ahead at once (0: on demand, as the converter asks).
+        public var prefetchPages = 2
+        /// Threads the inline tagger's lines are spread over. 1: concurrent predictions of the flexible-shape tagger gave
+        /// different logits under load even on separate instances (2026-10-21), so the default keeps one.
+        public var taggerThreads = 1
+        /// A complete reading before the formulas are read (each shown as its image), handed over while the recogniser
+        /// finishes (background mode only).
+        public var onPreview: (@Sendable (Output) -> Void)?
         /// Evaluation only: each page's layout detections and canvas scale as the converter receives them.
         public var observeDetections: (@Sendable (Int, [DevicePDFModels.Detection], Double) -> Void)?
         public init(title: String? = nil, sourceID: String? = nil, revision: Int? = nil, trace: Bool = false, maxPages: Int = 0,
@@ -24,8 +47,8 @@ public final class DevicePDFRoute {
             self.observeDetections = observeDetections
         }
     }
-    /// The converter reads every page's layout and text first, then reads the pages in order, recognising each
-    /// page's formulas as it goes.
+    /// The converter reads every page's layout and text first, then reads the pages in order; formulas are read as
+    /// their pages are (`formulas` counts all the formulas submitted so far in background mode, the page's otherwise).
     public enum Stage: Sendable, Equatable { case layout(page: Int, of: Int), reading(pagesDone: Int, of: Int), formulas(done: Int, of: Int) }
     public struct Output: Sendable {
         public let manifest: Data
@@ -35,6 +58,8 @@ public final class DevicePDFRoute {
         public let summary: Data
         /// The Python route's `index.json` shape, for `bundle_conformance.py` (only with `Options.trace`).
         public let trace: Data?
+        /// With `Options.record`: the host's answers (device-pdf/record.ts), JSON.
+        public var record: Data? = nil
     }
     public enum Failure: Error, Sendable, Equatable {
         case unreadablePDF
@@ -58,12 +83,8 @@ public final class DevicePDFRoute {
         guard pageCount > 0 else { throw Failure.unreadablePDF }
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 
-        var timings: [String: Double] = ["render": 0, "layout": 0, "text": 0, "tag": 0, "equations": 0, "images": 0]
-        func timed<T>(_ key: String, _ body: () throws -> T) rethrows -> T {
-            let start = DispatchTime.now().uptimeNanoseconds
-            defer { timings[key, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9 }
-            return try body()
-        }
+        let timings = DevicePDFTimings()
+        func timed<T>(_ key: String, _ body: () throws -> T) rethrows -> T { try timings.timed(key, body) }
         // Page images at 150 dpi stay for the recogniser crops of the page being read; other resolutions are kept
         // for the last page asked only.
         var pages150: [Int: DevicePDFRaster.RGB] = [:]
@@ -76,6 +97,13 @@ public final class DevicePDFRoute {
             pages150[index] = rgb
             return rgb
         }
+        // An encrypted document is read by this thread only (the read-ahead opens its own copies of an unlocked PDF).
+        let prefetch = options.prefetchPages > 0 && !document.isEncrypted
+            ? DevicePDFPagePrefetch(data: data, count: pageCount, workers: options.prefetchPages, models: models, timings: timings) : nil
+        let recogniser = options.background && models.recogniserIssue == nil
+            ? DevicePDFBackgroundRecogniser(models: models, workers: options.recogniserConcurrency, timings: timings) { done, total in progress(.formulas(done: done, of: total)) }
+            : nil
+        defer { prefetch?.stop(); recogniser?.stop() }
 
         let context = JSContext()!
         var failure: Failure?
@@ -90,8 +118,27 @@ public final class DevicePDFRoute {
         }
         let host = JSValue(newObjectIn: context)!
         var formulasDone = 0
+        func pageObject(width: Double, height: Double, imageWidth: Int, imageHeight: Int, scale: Double, glyphs: [DevicePDFGlyph],
+                        detections: [DevicePDFModels.Detection]) -> [String: Any] {
+            [
+                "width": width, "height": height, "image_width": imageWidth, "image_height": imageHeight, "scale": scale,
+                "glyphs": [
+                    "text": glyphs.map(\.text), "x0": glyphs.map(\.x0), "top": glyphs.map(\.top), "x1": glyphs.map(\.x1),
+                    "bottom": glyphs.map(\.bottom), "size": glyphs.map(\.size), "font": glyphs.map(\.font), "upright": glyphs.map(\.upright),
+                ],
+                "detections": detections.map { ["cls": $0.cls, "score": $0.score, "box": $0.box] },
+            ]
+        }
         let pageBlock: @convention(block) (Int) -> Any = { index in
-            guard index >= 0, index < pageCount, let page = document.page(at: index + 1) else { return NSNull() }
+            guard index >= 0, index < pageCount else { return NSNull() }
+            if let prefetch {
+                guard let read = prefetch.page(index) else { return NSNull() }
+                if let problem = read.failure { context.exception = JSValue(newErrorFromMessage: problem, in: context); return NSNull() }
+                options.observeDetections?(index, read.detections, read.scale)
+                return pageObject(width: read.width, height: read.height, imageWidth: read.imageWidth, imageHeight: read.imageHeight, scale: read.scale,
+                                  glyphs: read.glyphs, detections: read.detections)
+            }
+            guard let page = document.page(at: index + 1) else { return NSNull() }
             guard let rgb = page150(index), let image = DevicePDFRaster.cgImage(rgb) else { return NSNull() }
             let detected: (detections: [DevicePDFModels.Detection], scale: Double)
             do { detected = try timed("layout") { try self.models.detect(page: image) } }
@@ -99,62 +146,88 @@ public final class DevicePDFRoute {
             options.observeDetections?(index, detected.detections, detected.scale)
             let glyphs = timed("text") { DevicePDFTextLayer.glyphs(page: page) }
             let size = DevicePDFTextLayer.pageSize(page: page)
-            return [
-                "width": size.width, "height": size.height, "image_width": rgb.width, "image_height": rgb.height, "scale": detected.scale,
-                "glyphs": [
-                    "text": glyphs.map(\.text), "x0": glyphs.map(\.x0), "top": glyphs.map(\.top), "x1": glyphs.map(\.x1),
-                    "bottom": glyphs.map(\.bottom), "size": glyphs.map(\.size), "font": glyphs.map(\.font), "upright": glyphs.map(\.upright),
-                ],
-                "detections": detected.detections.map { ["cls": $0.cls, "score": $0.score, "box": $0.box] },
-            ] as [String: Any]
+            return pageObject(width: size.width, height: size.height, imageWidth: rgb.width, imageHeight: rgb.height, scale: detected.scale,
+                              glyphs: glyphs, detections: detected.detections)
         }
         let tagBlock: @convention(block) (JSValue) -> Any = { lines in
-            var out: [[Double]] = []
+            // The lines' features first (JavaScript values belong to this thread), then the model over several threads.
             let count = Int(lines.objectForKeyedSubscript("length")?.toInt32() ?? 0)
+            var inputs: [(x: [Float], font: [Int32], cls: [Int32], char: [Int32])?] = []
             for i in 0..<count {
-                guard let line = lines.objectAtIndexedSubscript(i) else { out.append([]); continue }
+                guard let line = lines.objectAtIndexedSubscript(i) else { inputs.append(nil); continue }
                 func numbers(_ key: String) -> [Double] { (line.objectForKeyedSubscript(key)?.toArray() as? [NSNumber])?.map(\.doubleValue) ?? [] }
-                let x = numbers("x").map(Float.init), font = numbers("font").map { Int32($0) }, cls = numbers("cls").map { Int32($0) }, char = numbers("char").map { Int32($0) }
-                do { out.append(try timed("tag") { try self.models.tag(x: x, font: font, cls: cls, char: char) }.map(Double.init)) }
-                catch { context.exception = JSValue(newErrorFromMessage: "tagger: \(error)", in: context); return NSNull() }
+                inputs.append((numbers("x").map(Float.init), numbers("font").map { Int32($0) }, numbers("cls").map { Int32($0) }, numbers("char").map { Int32($0) }))
             }
-            return out
+            var out = [[Double]?](repeating: nil, count: count)
+            // One tagger instance per thread (DevicePDFModels.taggers): never more threads than instances.
+            let models = self.models, threads = max(1, min(options.taggerThreads, count, DevicePDFModels.taggerInstances))
+            let start = DispatchTime.now().uptimeNanoseconds
+            // The page's lines while no recogniser call runs (DevicePDFModels.exclusive).
+            models.exclusive.lock(); defer { models.exclusive.unlock() }
+            out.withUnsafeMutableBufferPointer { results in
+                let results = results
+                DispatchQueue.concurrentPerform(iterations: threads) { worker in
+                    for i in stride(from: worker, to: count, by: threads) {
+                        guard let input = inputs[i] else { results[i] = []; continue }
+                        results[i] = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker))?.map(Double.init)
+                        if ProcessInfo.processInfo.environment["DEVICE_PDF_TAG_CHECK"] != nil {
+                            let again = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker))?.map(Double.init)
+                            if again != results[i] { FileHandle.standardError.write(Data("TAG MISMATCH line \(i) of \(count), \(input.font.count) glyphs\n".utf8)) }
+                        }
+                    }
+                }
+            }
+            timings.add("tag", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9)
+            if out.contains(where: { $0 == nil }) { context.exception = JSValue(newErrorFromMessage: "tagger: a line could not be read", in: context); return NSNull() }
+            return out.map { $0 ?? [] }
+        }
+        /// A crop request's piece of its page image with the recogniser's 8 px margin (nil when it cannot be cut).
+        func cut(_ crop: JSValue?) -> (DevicePDFRaster.RGB?, Bool) {
+            let display = crop?.objectForKeyedSubscript("display")?.toBool() ?? false
+            guard let crop, let page = crop.objectForKeyedSubscript("page")?.toNumber()?.intValue, page >= 0, page < pageCount,
+                  let rect = (crop.objectForKeyedSubscript("rect")?.toArray() as? [NSNumber])?.map(\.intValue), rect.count == 4,
+                  let image = page150(page) else { return (nil, display) }
+            return (DevicePDFRaster.crop(image, rect, margin: 8), display)
         }
         let recogniseBlock: @convention(block) (JSValue) -> Any = { crops in
             let count = Int(crops.objectForKeyedSubscript("length")?.toInt32() ?? 0)
             // Without a recogniser every formula stays unread: the converter shows each as its image.
             if self.models.recogniserIssue != nil { return [Any](repeating: NSNull(), count: count) }
-            // The crops first (the page images are this thread's), then the recognitions `recogniserConcurrency` at a
-            // time: a decoder step is mostly fixed overhead, so two crops in flight nearly halve the wall time.
-            var images: [CGImage?] = []
-            for i in 0..<count {
-                guard let crop = crops.objectAtIndexedSubscript(i), let page = crop.objectForKeyedSubscript("page")?.toNumber()?.intValue,
-                      let rect = (crop.objectForKeyedSubscript("rect")?.toArray() as? [NSNumber])?.map(\.intValue), rect.count == 4,
-                      let image = page150(page) else { images.append(nil); continue }
-                images.append(DevicePDFRaster.cgImage(DevicePDFRaster.crop(image, rect, margin: 8)))
-            }
-            // The progress callback is the caller's (not Sendable): workers call it one at a time, under the lock, so
-            // the counts arrive in order and the caller never sees two calls at once.
+            let pieces = (0..<count).map { cut(crops.objectAtIndexedSubscript($0)).0 }
+            let start = DispatchTime.now().uptimeNanoseconds
+            // One page's crops, `recogniserConcurrency` calls in flight, in batches of the export's size.
+            let b = max(1, self.models.recogniserBatch)
+            let groups = stride(from: 0, to: count, by: b).map { Array($0..<min(count, $0 + b)) }
             final class Results: @unchecked Sendable {
                 let lock = NSLock(); var rows: [Any]; var done = 0
                 let report: (Stage) -> Void
                 init(_ n: Int, report: @escaping (Stage) -> Void) { rows = [Any](repeating: NSNull(), count: n); self.report = report }
             }
-            let results = Results(count, report: progress), models = self.models, crops = images
-            let start = DispatchTime.now().uptimeNanoseconds
-            DispatchQueue.concurrentPerform(iterations: max(1, min(options.recogniserConcurrency, count))) { worker in
-                var i = worker
-                while i < count {
-                    if let cg = crops[i], let r = try? models.recognise(crop: cg) {
-                        results.lock.lock(); results.rows[i] = ["latex": r.latex, "probs": r.probabilities] as [String: Any]; results.lock.unlock()
-                    }
-                    results.lock.lock(); results.done += 1; results.report(.formulas(done: results.done, of: count)); results.lock.unlock()
-                    i += max(1, min(options.recogniserConcurrency, count))
+            let results = Results(count, report: progress), models = self.models, c = models.configuration.recogniser
+            let workers = max(1, min(options.recogniserConcurrency, groups.count))
+            DispatchQueue.concurrentPerform(iterations: workers) { worker in
+                for g in stride(from: worker, to: groups.count, by: workers) {
+                    let present = groups[g].filter { pieces[$0] != nil }
+                    let inputs = present.map { DevicePDFRaster.recogniserPixels(pieces[$0]!, size: c.imageSize, mean: c.mean, std: c.std) }
+                    let read = present.isEmpty ? [] : ((try? models.recognise(batch: inputs)) ?? [])
+                    results.lock.lock()
+                    for (i, r) in zip(present, read) { results.rows[i] = ["latex": r.latex, "probs": r.probabilities] as [String: Any] }
+                    results.done += groups[g].count; results.report(.formulas(done: results.done, of: count))
+                    results.lock.unlock()
                 }
             }
-            timings["equations", default: 0] += Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
+            timings.add("equations", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9)
             formulasDone += results.rows.filter { !($0 is NSNull) }.count
             return results.rows
+        }
+        let submitBlock: @convention(block) (JSValue) -> Int = { crops in
+            let count = Int(crops.objectForKeyedSubscript("length")?.toInt32() ?? 0)
+            return recogniser?.submit((0..<count).map { cut(crops.objectAtIndexedSubscript($0)) }) ?? -1
+        }
+        let collectBlock: @convention(block) (Int) -> Any = { ticket in
+            let rows = recogniser?.collect(ticket) ?? []
+            formulasDone += rows.filter { !($0 is NSNull) }.count
+            return rows
         }
         let imageBlock: @convention(block) (JSValue) -> Any = { request in
             // Any resolution: figures past the image budget are asked for at 150 × f dpi.
@@ -184,22 +257,36 @@ public final class DevicePDFRoute {
             let png = timed("images") { DevicePDFRaster.png(DevicePDFRaster.crop(source, rect)) }
             return ["png": png.base64EncodedString(), "width": rect[2] - rect[0], "height": rect[3] - rect[1]] as [String: Any]
         }
+        let previewBlock: @convention(block) (JSValue) -> Void = { value in
+            guard let onPreview = options.onPreview, let output = try? Self.output(value, trace: nil) else { return }
+            onPreview(output)
+        }
         let progressBlock: @convention(block) (String, Int, Int) -> Void = { stage, done, total in
             if stage == "layout" { progress(.layout(page: done, of: total)) }
             else if stage == "pages" { progress(.reading(pagesDone: done, of: total)) }
         }
-        let cancelledBlock: @convention(block) () -> Bool = { cancelled() }
+        let cancelledBlock: @convention(block) () -> Bool = {
+            if cancelled() { recogniser?.stop(); prefetch?.stop(); return true }
+            return false
+        }
         host.setObject(pageBlock, forKeyedSubscript: "page" as NSString)
         host.setObject(tagBlock, forKeyedSubscript: "tag" as NSString)
         host.setObject(recogniseBlock, forKeyedSubscript: "recognise" as NSString)
+        if recogniser != nil {
+            host.setObject(submitBlock, forKeyedSubscript: "submit" as NSString)
+            host.setObject(collectBlock, forKeyedSubscript: "collect" as NSString)
+            if options.onPreview != nil { host.setObject(previewBlock, forKeyedSubscript: "preview" as NSString) }
+        }
         host.setObject(imageBlock, forKeyedSubscript: "image" as NSString)
         host.setObject(progressBlock, forKeyedSubscript: "progress" as NSString)
         host.setObject(cancelledBlock, forKeyedSubscript: "cancelled" as NSString)
 
         var input: [String: Any] = [
             "pdf": ["sha256": digest, "bytes": data.count, "name": name], "pages": pageCount,
-            "models": models.provenance, "tagger": models.taggerVocabulary, "trace": options.trace,
+            "models": models.provenance, "tagger": models.taggerVocabulary, "trace": options.trace, "record": options.record,
         ]
+        for rule in options.rules where ["transcribe", "frontMatter", "tidy", "fontMath", "extendSpans", "lineOwners", "headingDupes", "splitReferences"].contains(rule) { input[rule] = true }
+        if !options.authors.isEmpty { input["authors"] = Array(options.authors.prefix(200)) }
         if let title = options.title { input["title"] = title }
         if let sourceID = options.sourceID, let revision = options.revision { input["paper"] = ["source_id": sourceID, "revision": revision] }
         let start = DispatchTime.now().uptimeNanoseconds
@@ -207,9 +294,36 @@ public final class DevicePDFRoute {
         let total = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
         if cancelled() { throw Failure.cancelled }
         if let failure { throw failure }
-        guard let result, result.isObject, let manifest64 = result.objectForKeyedSubscript("manifest")?.toString(),
-              let manifest = Data(base64Encoded: manifest64), let sha = result.objectForKeyedSubscript("manifest_sha256")?.toString(),
-              let members64 = result.objectForKeyedSubscript("members")?.toDictionary() as? [String: String] else {
+        guard let result, result.isObject else { throw Failure.converter(code: "result_shape", message: "the converter returned no bundle") }
+        var trace: Data?
+        if options.trace, let value = result.objectForKeyedSubscript("trace") {
+            if value.isString, let text = value.toString() { trace = Data(text.utf8) }
+            else if value.isObject, let object = value.toDictionary() { trace = try? JSONSerialization.data(withJSONObject: object, options: []) }
+        }
+        let bundle = try Self.output(result, trace: trace)
+        var summary = (result.objectForKeyedSubscript("summary")?.toDictionary() as? [String: Any]) ?? [:]
+        // Busy seconds per stage (they overlap when pages are read ahead and the recogniser runs in the background) and
+        // the wall time.
+        var seconds = timings.snapshot
+        seconds["total"] = total
+        summary["host_seconds"] = seconds.mapValues { ($0 * 100).rounded() / 100 }
+        summary["pipeline"] = ["background": recogniser != nil, "prefetch_pages": prefetch == nil ? 0 : options.prefetchPages,
+                               "recogniser_batch": models.recogniserBatch, "recogniser_in_flight": options.recogniserConcurrency,
+                               "tagger_threads": options.taggerThreads] as [String: Any]
+        summary["model_load_seconds"] = models.loadSeconds.mapValues { ($0 * 100).rounded() / 100 }
+        summary["formulas_recognised"] = formulasDone
+        if let issue = models.recogniserIssue { summary["recogniser_unavailable"] = String(issue.prefix(300)) }
+        let summaryData = (try? JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys])) ?? Data("{}".utf8)
+        var output = Output(manifest: bundle.manifest, manifestSHA256: bundle.manifestSHA256, members: bundle.members, summary: summaryData, trace: trace)
+        if options.record, let value = result.objectForKeyedSubscript("record"), value.isString, let text = value.toString() { output.record = Data(text.utf8) }
+        return output
+    }
+
+    /// A converter result (`{manifest, manifest_sha256, members, summary}`, base64) as bytes.
+    static func output(_ value: JSValue, trace: Data?) throws -> Output {
+        guard value.isObject, let manifest64 = value.objectForKeyedSubscript("manifest")?.toString(),
+              let manifest = Data(base64Encoded: manifest64), let sha = value.objectForKeyedSubscript("manifest_sha256")?.toString(),
+              let members64 = value.objectForKeyedSubscript("members")?.toDictionary() as? [String: String] else {
             throw Failure.converter(code: "result_shape", message: "the converter returned no bundle")
         }
         var members: [String: Data] = [:]
@@ -217,19 +331,7 @@ public final class DevicePDFRoute {
             guard let bytes = Data(base64Encoded: value) else { throw Failure.converter(code: "result_shape", message: path) }
             members[path] = bytes
         }
-        var summary = (result.objectForKeyedSubscript("summary")?.toDictionary() as? [String: Any]) ?? [:]
-        timings["converter"] = max(0, total - timings.values.reduce(0, +))
-        timings["total"] = total
-        summary["host_seconds"] = timings.mapValues { ($0 * 100).rounded() / 100 }
-        summary["model_load_seconds"] = models.loadSeconds.mapValues { ($0 * 100).rounded() / 100 }
-        summary["formulas_recognised"] = formulasDone
-        if let issue = models.recogniserIssue { summary["recogniser_unavailable"] = String(issue.prefix(300)) }
-        let summaryData = (try? JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys])) ?? Data("{}".utf8)
-        var trace: Data?
-        if options.trace, let value = result.objectForKeyedSubscript("trace") {
-            if value.isString, let text = value.toString() { trace = Data(text.utf8) }
-            else if value.isObject, let object = value.toDictionary() { trace = try? JSONSerialization.data(withJSONObject: object, options: []) }
-        }
-        return Output(manifest: manifest, manifestSHA256: sha, members: members, summary: summaryData, trace: trace)
+        let summary = (value.objectForKeyedSubscript("summary")?.toDictionary()).flatMap { try? JSONSerialization.data(withJSONObject: $0) } ?? Data("{}".utf8)
+        return Output(manifest: manifest, manifestSHA256: sha, members: members, summary: summary, trace: trace)
     }
 }

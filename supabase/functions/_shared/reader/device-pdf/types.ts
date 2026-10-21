@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 4;
+export const DEVICE_PDF_PORT_REVISION = 5;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -42,7 +42,8 @@ export interface PageInput {
   detections: { cls: string; score: number; box: number[] }[];
 }
 export interface TagLine { x: number[]; font: number[]; cls: number[]; char: number[] }
-export interface RecogniseRequest { page: number; rect: [number, number, number, number] }
+/** `display`: the formula is a display (the host groups crops of like length into its batches). */
+export interface RecogniseRequest { page: number; rect: [number, number, number, number]; display?: boolean }
 /** `clean` (formula crops only): the formula's font size and the margin kept around its ink, in pixels at `dpi`; the host
  * drops the cut tails of neighbouring lines, trims to the ink and adds the margin (DevicePDFRaster.cleanFormula). */
 export interface ImageRequest { page: number; dpi: number; rect: [number, number, number, number]; clean?: { em: number; margin: number } }
@@ -54,6 +55,13 @@ export interface DevicePDFHost {
   page(index: number): PageInput;
   tag(lines: TagLine[]): number[][];
   recognise(crops: RecogniseRequest[]): ({ latex: string; probs: number[] } | null)[];
+  /** Optional, together with `collect` (port revision 5): the host cuts the page's crops now and recognises them in the
+   * background while the converter reads on; `collect` waits for that submission's results (same shape as `recognise`). */
+  submit?(crops: RecogniseRequest[]): number;
+  collect?(ticket: number): ({ latex: string; probs: number[] } | null)[];
+  /** Optional: a complete bundle made before the formulas are read (each shown as its image), so the reader can show the
+   * paper while the recogniser finishes; the same shape as `convert`'s result. */
+  preview?(bundle: { manifest: string; manifest_sha256: string; members: Record<string, string>; summary: Record<string, unknown> }): void;
   image(request: ImageRequest): ImageResult;
   progress?(stage: string, done: number, total: number): void;
   cancelled?(): boolean;
@@ -74,6 +82,26 @@ export interface DevicePDFInput {
   tagger: TaggerVocabulary;
   /** Evaluation: also return the reference's own index.json shape for `bundle_conformance.py`. */
   trace?: boolean;
+  /** Evaluation: also return what the host answered (device-pdf/record.ts), for the Node replay. */
+  record?: boolean;
+  /** Simple inline formulas written from the text layer instead of recognised (transcribe.ts). */
+  transcribe?: boolean;
+  /** The library's authors (names as listed): the first page's author lines are found by them (convert.frontMatterRoles). */
+  authors?: string[];
+  /** The first page's title and author lines found when the layout called them headings (convert.frontMatterRoles). */
+  frontMatter?: boolean;
+  /** A confident recognition Temml refuses is tidied and tried again (math.tidyLatex). */
+  tidy?: boolean;
+  /** Math the tagger missed (paragraph lines and table cells), found by its fonts (transcribe.mathRuns); with `transcribe`. */
+  fontMath?: boolean;
+  /** Tagged formulas grown over the digits, operators and operator names the tagger cut off (convert.extendSpans). */
+  extendSpans?: boolean;
+  /** A text line's run belongs to the region holding most of it (convert.lineOwners). */
+  lineOwners?: boolean;
+  /** No heading twice: the library's title, "ABSTRACT", a printed contents list (convert.contentsAsText). */
+  headingDupes?: boolean;
+  /** A references region holding several entries read as its entries (convert.referenceEntries). */
+  splitReferences?: boolean;
 }
 
 export interface Formula {
@@ -83,5 +111,7 @@ export interface Formula {
   /** The formula's own characters, kept for the equation limit's plain-text fallback. */
   glyphText: string;
   latex: string; confidence: number; probs?: number[]; recognised: boolean;
+  /** Written from the text layer (transcribe.ts), not read by the recogniser. */
+  transcribed?: boolean;
   rendered: boolean; mathml?: unknown; image?: { path: string; width: number; height: number };
 }

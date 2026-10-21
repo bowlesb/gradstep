@@ -11,20 +11,27 @@ struct DeviceModelRun: Equatable {
     let paperID: UUID
     let started: Date
     var pages = 0, layoutPages = 0, pagesRead = 0
+    /// Formulas read so far of those found so far: the recogniser reads them in the background while the pages are
+    /// read (docs/reviews/DEVICE_PDF_ROUTE_20261021.md), so the total grows until the last page is read.
     var formulasDone = 0, formulasTotal = 0
-    /// 0…1: the layout pass is the first 15 %, the reading the rest (a page's formulas inside its share).
+    /// The paper is on screen already, every formula as its image, while the formulas are read.
+    var previewShown = false
+    /// 0…1: the layout pass is the first 15 %, reading the pages the next 25 %, the formulas the rest.
     var fraction: Double {
         guard pages > 0 else { return 0 }
         if layoutPages < pages { return 0.15 * Double(layoutPages) / Double(pages) }
-        let within = formulasTotal > 0 ? Double(formulasDone) / Double(formulasTotal) : 0
-        return 0.15 + 0.85 * min(1, (Double(pagesRead) + within) / Double(pages))
+        let read = min(1, Double(pagesRead) / Double(pages))
+        let formulas = formulasTotal > 0 ? Double(formulasDone) / Double(formulasTotal) * (read < 1 ? read : 1) : (read < 1 ? 0 : 1)
+        return min(1, 0.15 + 0.25 * read + 0.6 * formulas)
     }
     var stageText: String {
         if pages == 0 { return "Loading the models…" }
         if layoutPages < pages { return "Finding the layout · page \(layoutPages) of \(pages)" }
-        let current = min(pages, pagesRead + 1)
-        if formulasTotal > 0, formulasDone < formulasTotal { return "Page \(current) of \(pages) · formulas \(formulasDone) of \(formulasTotal)" }
-        return "Reading page \(current) of \(pages)"
+        if pagesRead < pages { return "Reading page \(min(pages, pagesRead + 1)) of \(pages)" }
+        if formulasTotal > 0, formulasDone < formulasTotal {
+            return previewShown ? "Typesetting formulas · \(formulasDone) of \(formulasTotal)" : "Formulas \(formulasDone) of \(formulasTotal)"
+        }
+        return "Finishing"
     }
 }
 
@@ -66,6 +73,13 @@ enum DeviceModelEngine {
         return url
     }
     static var compilerURL: URL? { Bundle.main.url(forResource: "device-pdf-reader", withExtension: "js") }
+    /// The converter rules beyond the port kit, each turned on after it was measured against the arXiv HTML of real
+    /// papers (docs/reviews/DEVICE_PDF_ROUTE_20261021.md; DevicePDFRoute.Options.rules).
+    /// On (2026-10-21): simple inline formulas from the text layer (`transcribe`) and math the tagger missed found by its
+    /// fonts (`fontMath`); LaTeXML-style rows tidied for Temml (`tidy`); the title page by the library's metadata
+    /// (`frontMatter`); no heading twice (`headingDupes`); reference entries split (`splitReferences`); a line's run read
+    /// by one region (`lineOwners`). Off, because they measured worse: `extendSpans`.
+    static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners"]
     /// The models and the converter are in this build and the system can run the stateful recogniser.
     static var available: Bool {
         guard #available(iOS 18.0, *) else { return false }
@@ -73,16 +87,26 @@ enum DeviceModelEngine {
     }
 
     @available(iOS 18.0, *)
-    static func read(pdf: Data, name: String, title: String, source: DevicePDFPaper,
-                     progress: @escaping @Sendable (DevicePDFRoute.Stage) -> Void) async throws -> (VerifiedReaderBundle, DeviceModelSummary) {
+    /// `preview`: the reading before its formulas are read (each one its page image), verified like the final one; it
+    /// arrives once, from a background thread, while the recogniser finishes.
+    static func read(pdf: Data, name: String, title: String, authors: [String] = [], source: DevicePDFPaper,
+                     progress: @escaping @Sendable (DevicePDFRoute.Stage) -> Void,
+                     preview: @escaping @Sendable (VerifiedReaderBundle) -> Void = { _ in }) async throws -> (VerifiedReaderBundle, DeviceModelSummary) {
         guard let directory = modelsDirectory, let compilerURL else { throw DevicePDFModelError.missing("DeviceModels") }
         let start = Date()
         let task = Task.detached(priority: .userInitiated) { () throws -> (VerifiedReaderBundle, DeviceModelSummary) in
             let models = try DevicePDFModels(directory: directory)
             let route = DevicePDFRoute(models: models, compilerSource: try String(contentsOf: compilerURL, encoding: .utf8))
-            let output = try route.convert(pdf: pdf, name: name,
-                                           options: .init(title: title, sourceID: source.sourceID, revision: source.revision),
-                                           progress: progress, cancelled: { Task.isCancelled })
+            var options = DevicePDFRoute.Options(title: title, sourceID: source.sourceID, revision: source.revision)
+            options.authors = authors; options.rules = rules
+            // Each recogniser batch in flight holds its own state (about 0.4 GB for a batch of 8): two only where memory is ample.
+            options.recogniserConcurrency = ProcessInfo.processInfo.physicalMemory >= 7_500_000_000 ? 2 : 1
+            options.onPreview = { output in
+                guard let verified = try? VerifiedReaderBundle.verify(manifest: output.manifest, expectedSHA256: output.manifestSHA256, members: output.members),
+                      let bundle = try? ReaderBundleLoader.admitImages(in: verified) else { return }
+                preview(bundle)
+            }
+            let output = try route.convert(pdf: pdf, name: name, options: options, progress: progress, cancelled: { Task.isCancelled })
             let verified = try VerifiedReaderBundle.verify(manifest: output.manifest, expectedSHA256: output.manifestSHA256, members: output.members)
             let bundle = try ReaderBundleLoader.admitImages(in: verified)
             return (bundle, summary(output.summary, bundle: bundle, seconds: Date().timeIntervalSince(start), models: models))
@@ -233,15 +257,22 @@ extension ReaderModel {
                     return
                 }
                 let pdf = try await load()
-                let (bundle, summary) = try await DeviceModelEngine.read(pdf: pdf, name: "\(source.sourceID)v\(source.revision).pdf", title: paper.title, source: source) { stage in
+                let (bundle, summary) = try await DeviceModelEngine.read(pdf: pdf, name: "\(source.sourceID)v\(source.revision).pdf", title: paper.title, authors: paper.authorNames, source: source) { stage in
                     Task { @MainActor [weak self] in
                         guard let self, self.sessionID == scope, var run = self.deviceModelRun, run.id == runID else { return }
                         switch stage {
                         case .layout(let page, let of): run.layoutPages = page; run.pages = of
-                        case .reading(let done, let of): run.pagesRead = done; run.pages = of; run.layoutPages = of; run.formulasDone = 0; run.formulasTotal = 0
+                        case .reading(let done, let of): run.pagesRead = done; run.pages = of; run.layoutPages = of
                         case .formulas(let done, let of): run.formulasDone = done; run.formulasTotal = of
                         }
                         self.deviceModelRun = run
+                    }
+                } preview: { preview in
+                    // The paper while its formulas are read: shown, not kept (the finished reading replaces it).
+                    Task { @MainActor [weak self] in
+                        guard let self, self.sessionID == scope, var run = self.deviceModelRun, run.id == runID else { return }
+                        self.showModelReading(preview, for: paper)
+                        run.previewShown = true; self.deviceModelRun = run
                     }
                 }
                 try Task.checkCancellation()
@@ -280,6 +311,9 @@ extension ReaderModel {
         guard let current = selectedPaper, current.id == paper.id else { return }
         if let html = current.readerBundle, html.manifest.source.kind != "device-pdf" { deviceModelHTMLBundles[paper.id] = html }
         let shown = current.displaying(bundle)
+        // From the preview to the finished reading of the same PDF: the same blocks, so the reading place carries over.
+        if let previous = current.readerBundle, previous.manifest.source.kind == "device-pdf", previous.manifest.source.sha256 == bundle.manifest.source.sha256,
+           let oldKey = readingKey(for: current), let place = paperLocations[oldKey], let newKey = readingKey(for: shown) { paperLocations[newKey] = place }
         papers = papers.map { $0.id == paper.id ? shown : $0 }
         selectedPaper = shown
     }

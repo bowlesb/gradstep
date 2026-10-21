@@ -17,7 +17,8 @@ first-class path (owner direction, 2026-10-13), the PDF never leaves the device,
 | Host bridge | JavaScriptCore `JSContext` in-process | Runs `device-pdf-reader.js` (esbuild IIFE, global `GradstepDevicePDF`); the host functions below are synchronous Swift closures | The CLI run on the fixtures |
 | CLI (macOS) | `ScienceReaderCore` executable `DevicePDFRoute` | `DevicePDFRoute <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js> [--trace]` writes the bundle and, with `--trace`, the Python-shaped `index.json` the desktop's `bundle_conformance.py` reads | Fixture conformance, timings per stage |
 | App | `ScienceReader` | Settings › Experimental; "Read with the on-device model" on a paper whose PDF is on the device; progress by stage; the result opens in the same reader with a banner (model-read, report a problem, back to the HTML version) | Simulator journey with a fixture PDF |
-| Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json` | The script's digest check; the app hides the experiment when they are absent |
+| Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`) | The script's digest check; the app hides the experiment when they are absent |
+| Evaluation (Mac) | `scripts/device-route-accuracy.mjs`, `scripts/device-route-replay.mjs` | Fresh arXiv papers (PDF + the exact revision's HTML) scored against the app's own arXiv HTML reading; `--record` runs replayed through the converter in Node to try rule changes in seconds | [Review 2026-10-21](../reviews/DEVICE_PDF_ROUTE_20261021.md) |
 
 ## The contract between the host and the converter
 
@@ -25,7 +26,8 @@ first-class path (owner direction, 2026-10-13), the PDF never leaves the device,
 
 ```
 input = { pdf: { sha256, bytes, name }, pages: n, title?: catalog title, paper?: { source_id, revision },
-          models: [{ role, id, sha256 }], tagger: { vocab, prior, cvocab, threshold, max_len }, trace?: bool }
+          models: [{ role, id, sha256 }], tagger: { vocab, prior, cvocab, threshold, max_len }, trace?: bool,
+          transcribe?: bool (simple inline formulas from the text layer, below), record?: bool (evaluation, below) }
 host.page(i)      -> { width, height (points), image_width, image_height (150 dpi pixels), scale (s_canvas),
                        glyphs: { text[], x0[], top[], x1[], bottom[], size[], font[], upright[] } (stream order),
                        detections: [{ cls, score, box: [x0, y0, x1, y1] (canvas pixels) }] (decoded, score order) }
@@ -36,8 +38,20 @@ host.image(r)     -> { png (base64), width, height, rect? }   r: { page, dpi: 15
                      clean?: { em, margin } (pixels at dpi; formula crops) }; with `clean` the host trims the crop (below)
                      and returns where the image now sits, `rect`, in the same pixels
 host.progress(stage, done, total); host.cancelled() -> bool
-result = { manifest (base64 of canonical bytes), manifest_sha256, members: { path: base64 }, summary, trace? }
+host.submit(c)    -> ticket   (optional, with collect; port revision 5) c as for recognise, each with display: bool;
+                     the host cuts the crops now and recognises them in the background while the converter reads on
+host.collect(t)   -> [{ latex, probs[] } | null]   that submission's results, waited for (after the last page)
+host.preview(b)   (optional) b: a complete bundle made before any formula is read (every formula its image), same shape
+                     as the result; the app shows it while the recogniser finishes
+result = { manifest (base64 of canonical bytes), manifest_sha256, members: { path: base64 }, summary, trace?, record? }
 ```
+
+Since port revision 5 (2026-10-21, [review](../reviews/DEVICE_PDF_ROUTE_20261021.md)) the host overlaps the stages:
+the pages' layout and text are read ahead on two threads (each with its own `CGPDFDocument`; `host.page(i)` waits for
+page i), the tagger's lines run on four threads, and the recogniser runs in the background on batches of eight crops
+of one placement, narrowest first (`DevicePDFPipeline.swift`). Results are the same as one crop at a time: the batched
+export decodes every crop's tokens exactly as the one-crop export does (20/20 and 80/80 on the export's samples, the
+on the fixtures a few formulas differ in LaTeX, agreement with the reference within 0.004).
 
 Crop rectangles are computed by the converter exactly as the reference does (integer pixel rounding included),
 so the rules live in one place; the host only renders, cuts, encodes and infers.
@@ -89,7 +103,10 @@ its confidence, whether it rendered, and its source page and box (docs/EQUATION_
 - **Recogniser length.** The Core ML decoder step has a 256-token cache; the reference decodes up to 1,024 tokens.
 - **Image resampling.** Core Graphics and vImage instead of PIL and torchvision's antialiased bicubic.
 - **Compute units.** The stateful decoder does not load on the Neural Engine (macOS 26, coremltools 9): the
-  recogniser runs on CPU and GPU, the layout and tagger on the Neural Engine.
+  recogniser runs on CPU and GPU, the layout on the Neural Engine, the tagger on the CPU. (2026-10-21: a batch-8 int8
+  encoder sent to the Neural Engine compiler was still compiling after more than 100 CPU-minutes; not pursued.)
+- **Since 2026-10-21 the app no longer matches the reference rule for rule:** converter rules measured against arXiv
+  HTML are on in the app (below); the fixtures' conformance holds only with them off (the tool's default).
 
 ## Status — 2026-10-15, ~08:00 UTC
 
@@ -123,3 +140,56 @@ Built and running on this Mac and in the iOS Simulator; not yet tried on an iPho
 The shared HTML validator now admits the arXiv compiler's bounded affiliation-line span. Device-PDF output itself
 is unchanged; the embedded converter is rebuilt and its port identity advanced because its dependency bytes
 changed. The compiler freshness check caught the stale embedded bundle before release.
+
+## Development after the port kit — port revision 5, 2026-10-21
+
+Owner, 2026-10-21: keep developing the on-device route (too slow, not accurate enough); Mathpix is not built. Measured
+on 32 fresh arXiv papers against their arXiv HTML reading: [review](../reviews/DEVICE_PDF_ROUTE_20261021.md).
+
+**The recogniser.** The time was the recogniser (88 %), and mostly per-call overhead: the port kit's export decodes one
+crop at a time and passes the encoder's cross-attention keys and values (77 MB as float32) into every decoder step. The
+app now ships the same weights (texteller-ft-v4) as one **multifunction package** with a batch of eight:
+`prefill(pixel_values [8,1,448,448])` runs the encoder and writes the keys and values into a state, `step(token [8,1],
+position [1])` reads them; a state made by one function serves the other (checked on CPU and GPU before relying on it),
+both have fixed shapes so Core ML never re-specialises between calls (the cost that sank the desktop's single-function
+"cross-state" export). Per crop on this Mac's GPU: encoder 35 ms (60), decoder step 1.7 ms (12.7, plus 30 ms of
+conversion per crop); same tokens as the port kit's export on its samples (20/20, 80/80 batched; on whole papers a few formulas differ). 285 MB
+compiled (299 before). A batch holds about 0.4 GB of state: two batches run at once only on devices with 7.5 GB of
+memory or more.
+
+**The host** (`DevicePDFRoute.swift`, `DevicePDFPipeline.swift`) overlaps the stages: two threads read pages ahead
+(render, text layer, layout; each with its own `CGPDFDocument`); the recogniser runs in the background (`submit` per page,
+`collect` at the end), batches of one placement, narrowest crops first; with `onPreview` the converter hands over a
+complete reading before any formula is read (every formula its page image), which the app shows under the progress bar
+and replaces when the formulas are done, keeping the reading place (same block ids). **Determinism:** under load,
+tagger predictions made while a recogniser prediction ran on the GPU gave different logits for the same line (25 of 920
+lines in one paper, logit differences up to 10), so the same PDF read differently; the tagger and the recogniser now never
+predict at the same time (`DevicePDFModels.exclusive`), layout predictions are serialised, the read-ahead draws the layout
+canvas from the same pixels as the on-demand path, and the tagger runs on one thread. Two conversions of one paper run
+at once on a loaded Mac now give byte-identical readings, equal to the serial port kit order (a residue remains under extreme load: between two full corpus runs, 7 of 32 papers differed by a few formulas).
+
+**Converter rules** (input flags, on in the app via `DeviceModelEngine.rules`; off in the tool unless `--rules`), each
+kept only when it measured better on the 32-paper test corpus and on a separate 32-paper set:
+
+| Rule | What it does | Effect (test corpus) |
+|---|---|---|
+| `transcribe` | An inline formula whose glyphs are letters, digits and plain symbols in known math fonts, on one baseline with one level of scripts, is written as LaTeX from the text layer (`transcribe.ts`) and never reaches the recogniser | 58 % of all formulas; inline typeset share 0.86 → 0.92, glyph accuracy unchanged |
+| `fontMath` | Math the tagger missed, found by its fonts (math italic, symbol, blackboard) in lines and table cells, when it can be transcribed | +150 inline formulas |
+| `tidy` | A confident recognition Temml refuses (LaTeXML-style rows with bare `&`, `\mathbbm`, `\scalebox`) is tidied and typeset | display typeset share 0.37 → 0.41 |
+| `frontMatter` | The library's title and authors find the title page's title and author lines when the layout called them headings | fewer stray headings |
+| `headingDupes` | No heading twice: the library's title, "ABSTRACT", a printed contents list | heading precision |
+| `lineOwners` | A text line's run belongs to the region holding most of it (headings no longer lose their first or last letters to a neighbouring box) | heading recall and precision |
+| `splitReferences` | A references region holding several entries reads as its entries (labels, hanging indents) | whole blocks 0.59 → 0.72 |
+| `extendSpans` (off) | Grow tagged formulas over digits, operators and operator names | measured worse on both corpora |
+
+Together: headings 0.91/0.73 → 0.92/0.77 (recall/precision), whole blocks 0.59 → 0.72, inline formula images halved
+(2,027 → 1,107), display typeset 0.37 → 0.41, text F1 0.854 → 0.856; inline typeset precision 0.934 → 0.924 (the
+newly typeset formulas are the same partial spans that were images before: the tagger's boundaries, not the writing).
+
+**Evaluation tools.** `node scripts/device-route-accuracy.mjs fetch|run|score` (corpus, Mac runs, scores against the
+arXiv HTML reading); the tool's `--record` writes the host's answers and `node scripts/device-route-replay.mjs --from
+<variant> --to <variant> --set <rule>=true` re-runs the converter on them in Node; `DevicePDFRouteTool --bench-steps`,
+`--bench-recogniser`, `--check-determinism`, `--replay-converter` (the converter alone in JavaScriptCore, which has no JIT
+in this tool as on the phone). Fixture conformance (`scripts/device-route-eval.mjs`) is unchanged with the rules off.
+
+**Browser.** No change: the browser has no on-device model; a PDF added there is viewed as the PDF.

@@ -1,6 +1,7 @@
 import Foundation
 import ScienceReaderCore
 import CoreML
+import JavaScriptCore
 
 // The device route on this Mac, for evaluation (docs/architecture/DEVICE_PDF_ROUTE.md):
 //   swift run -c release DevicePDFRouteTool <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js>
@@ -16,10 +17,71 @@ struct Tool {
             let value = args[i + 1]; args.removeSubrange(i...(i + 1)); return value
         }
         func flag(_ name: String) -> Bool { if let i = args.firstIndex(of: name) { args.remove(at: i); return true }; return false }
+        // --replay-converter <record.json> --compiler <js>: the converter alone in JavaScriptCore on a run's recorded host
+        // answers (no models), timed: with JSC_useJIT=false in the environment this is the phone's case (no JIT for an
+        // app's JSContext).
+        if let recordPath = option("--replay-converter"), let compiler = option("--compiler") {
+            try replayConverter(record: URL(fileURLWithPath: recordPath), compiler: URL(fileURLWithPath: compiler), repeats: Int(option("--repeat") ?? "1") ?? 1)
+            return
+        }
+        // --check-determinism: the tagger and the layout on fixed inputs, alone and while the recogniser runs on another
+        // thread; prints how many outputs differ from the first.
+        if flag("--check-determinism"), let models = option("--models") {
+            guard #available(macOS 15.0, *) else { exit(2) }
+            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: models), taggerUnits: option("--tagger").flatMap(MLUnits.init(rawValue:))?.compute ?? .cpuOnly)
+            // Lines of 6 to 60 glyphs, in turn (the tagger's inputs have flexible length).
+            typealias Line = (x: [Float], font: [Int32], cls: [Int32], char: [Int32])
+            var lines: [Line] = []
+            for t in stride(from: 6, through: 160, by: 3) {
+                let x: [Float] = (0..<(t * 10)).map { i -> Float in Float(sin(Double(i + t) * 0.37)) }
+                let font: [Int32] = (0..<t).map { i -> Int32 in Int32(i % 7) }
+                let cls: [Int32] = (0..<t).map { i -> Int32 in Int32(i % 9) }
+                let char: [Int32] = (0..<t).map { i -> Int32 in Int32((i * 13) % 200) }
+                lines.append((x, font, cls, char))
+            }
+            let reference = try lines.map { try loaded.tag(x: $0.x, font: $0.font, cls: $0.cls, char: $0.char) }
+            func differs(_ rounds: Int) -> (Int, Float) {
+                var n = 0; var worst: Float = 0
+                for _ in 0..<rounds { for (i, l) in lines.enumerated() {
+                    let out = (try? loaded.tag(x: l.0, font: l.1, cls: l.2, char: l.3)) ?? []
+                    if out != reference[i] { n += 1; worst = max(worst, zip(out, reference[i]).map { abs($0 - $1) }.max() ?? .infinity) }
+                } }
+                return (n, worst)
+            }
+            print("tagger alone: \(differs(4)) differ of \(4 * lines.count)")
+            final class Flag: @unchecked Sendable { var stop = false }
+            let flag = Flag()
+            for _ in 0..<2 { Thread { while !flag.stop { _ = try? loaded.recognise(batch: [[Float](repeating: 0, count: 448 * 448)]) } }.start() }
+            print("tagger while two recognisers run: \(differs(4)) differ of \(4 * lines.count)")
+            flag.stop = true
+            return
+        }
+        // --bench-steps: the recogniser's encoder pass and decoder step times for its batch size (blank input, 48 steps).
+        if flag("--bench-steps"), let models = option("--models") {
+            guard #available(macOS 15.0, *) else { exit(2) }
+            let units = option("--recogniser").flatMap(MLUnits.init(rawValue:)) ?? .gpu
+            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: models), recogniserUnits: units.compute)
+            for (name, ms) in try loaded.stepTimes(steps: Int(option("--steps") ?? "48") ?? 48) { print("\(name)\t\(String(format: "%.2f", ms)) ms") }
+            return
+        }
+        // --bench-recogniser <samples dir>: the recogniser alone on an export's sample crops (export.json, samples/*.npy).
+        if let samples = option("--bench-recogniser"), let models = option("--models") {
+            guard #available(macOS 15.0, *) else { exit(2) }
+            let units = option("--recogniser").flatMap(MLUnits.init(rawValue:)) ?? .gpu
+            try benchRecogniser(models: URL(fileURLWithPath: models), samples: URL(fileURLWithPath: samples), units: units.compute,
+                                repeats: Int(option("--repeat") ?? "4") ?? 4, inFlight: Int(option("--in-flight") ?? "1") ?? 1)
+            return
+        }
         guard let models = option("--models"), let compiler = option("--compiler") else {
             FileHandle.standardError.write(Data("usage: DevicePDFRouteTool <pdf> <out> --models <dir> --compiler <js> [--trace]\n".utf8)); exit(2)
         }
         let detectionsPath = option("--detections"), concurrency = Int(option("--concurrency") ?? "2") ?? 2
+        // --serial: the port kit's order (layout on demand, one tagger thread, formulas page by page), for comparisons.
+        let serial = flag("--serial"), prefetch = Int(option("--prefetch") ?? "2") ?? 2, taggerThreads = Int(option("--tagger-threads") ?? "1") ?? 1
+        let previewPath = option("--preview"), record = flag("--record")
+        // --rules transcribe,frontMatter,tidy: converter rules beyond the port kit (DevicePDFRoute.Options.rules).
+        let rules = Set((option("--rules") ?? "").split(separator: ",").map { String($0) })
+        let authors = option("--authors")?.split(separator: ";").map { String($0) } ?? []
         let title = option("--title"), maxPages = Int(option("--max-pages") ?? "0") ?? 0, trace = flag("--trace")
         func units(_ name: String?, _ fallback: MLUnits) -> MLUnits { name.flatMap(MLUnits.init(rawValue:)) ?? fallback }
         let layoutUnits = units(option("--layout"), .ne), recogniserUnits = units(option("--recogniser"), .gpu), taggerUnits = units(option("--tagger"), .cpu)
@@ -43,7 +105,17 @@ struct Tool {
                 if let data = try? JSONSerialization.data(withJSONObject: object) { lines.text += String(decoding: data, as: UTF8.self) + "\n" }
             }
         }
-        let output = try route.convert(pdf: data, name: pdf.lastPathComponent, options: { var o = DevicePDFRoute.Options(title: title, trace: trace, maxPages: maxPages, observeDetections: observe); o.recogniserConcurrency = concurrency; return o }(), progress: { stage in
+        let output = try route.convert(pdf: data, name: pdf.lastPathComponent, options: { var o = DevicePDFRoute.Options(title: title, trace: trace, maxPages: maxPages, observeDetections: observe); o.recogniserConcurrency = concurrency; o.record = record; o.rules = rules; o.authors = authors
+            if serial { o.background = false; o.prefetchPages = 0; o.taggerThreads = 1 } else { o.prefetchPages = prefetch; o.taggerThreads = taggerThreads }
+            // --preview <file>: when the first reading (formulas as images) arrives, its seconds since the start.
+            if let previewPath {
+                let started = Date()
+                o.onPreview = { output in
+                    let line = "{\"seconds\": \(Date().timeIntervalSince(started)), \"manifest_sha256\": \"\(output.manifestSHA256)\"}"
+                    try? line.write(toFile: previewPath, atomically: true, encoding: .utf8)
+                }
+            }
+            return o }(), progress: { stage in
             switch stage {
             case .layout(let page, let of): if page == of || page % 10 == 0 { FileHandle.standardError.write(Data("layout \(page)/\(of)\n".utf8)) }
             case .reading(let done, let of): FileHandle.standardError.write(Data("read \(done)/\(of)\n".utf8)); lastFormulaReport = 0
@@ -62,6 +134,8 @@ struct Tool {
         try output.summary.write(to: out.appendingPathComponent("conversion.json"))
         if let detectionsPath { try lines.text.write(toFile: detectionsPath, atomically: true, encoding: .utf8) }
         if let trace = output.trace { try trace.write(to: out.appendingPathComponent("index.json")) }
+        // --record: the host's answers for the Node replay (scripts/device-route-replay.mjs); kept beside the bundle.
+        if let recorded = output.record { try recorded.write(to: out.appendingPathComponent("record.json")) }
         // The app's own verification of the bundle, as the reader would admit it.
         do {
             _ = try VerifiedReaderBundle.verify(manifest: output.manifest, expectedSHA256: output.manifestSHA256, members: output.members)
@@ -75,5 +149,120 @@ enum MLUnits: String {
     case ne, gpu, cpu, all
     var compute: MLComputeUnits {
         switch self { case .ne: return .cpuAndNeuralEngine; case .gpu: return .cpuAndGPU; case .cpu: return .cpuOnly; case .all: return .all }
+    }
+}
+
+/// The recogniser on an export's sample crops: one crop at a time, then in the export's batches (`--in-flight` batches at
+/// once), each sample `repeats` times so batches fill; reports milliseconds per crop and agreement with the export's ids.
+@available(macOS 15.0, *)
+func benchRecogniser(models: URL, samples: URL, units: MLComputeUnits, repeats: Int, inFlight: Int) throws {
+    let loaded = try DevicePDFModels(directory: models, recogniserUnits: units)
+    if let issue = loaded.recogniserIssue { print("recogniser not loaded: \(issue)"); exit(1) }
+    let meta = try JSONSerialization.jsonObject(with: Data(contentsOf: samples.appendingPathComponent("export.json"))) as! [String: Any]
+    let rows = ((meta["equivalence"] as! [String: Any])["samples"] as! [[String: Any]])
+    func npy(_ name: String) throws -> [Float] {
+        let data = try Data(contentsOf: samples.appendingPathComponent("samples").appendingPathComponent(name))
+        let headerLength = Int(data[8]) | Int(data[9]) << 8
+        let body = data.subdata(in: (10 + headerLength)..<data.count)
+        return body.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+    }
+    let inputs = try rows.map { try npy($0["file"] as! String) }
+    let expected = rows.map { ($0["ids"] as! [Int]).dropFirst().map { $0 } }
+    let placement = rows.map { $0["placement"] as! String }
+    let b = loaded.recogniserBatch
+    print("batch \(b); load \(loaded.loadSeconds)")
+    _ = try loaded.recognise(batch: [inputs[0]])  // warm-up
+    // One crop at a time (a batched export pads the rest of its rows).
+    var agree = 0, perPlacement: [String: [Double]] = [:]
+    for (i, input) in inputs.enumerated() {
+        let t = DispatchTime.now().uptimeNanoseconds
+        let r = try loaded.recognise(batch: [input])[0]
+        perPlacement[placement[i], default: []].append(Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6)
+        if r.tokens == expected[i] { agree += 1 }
+    }
+    for (k, v) in perPlacement.sorted(by: { $0.key < $1.key }) { print("single \(k): mean \(String(format: "%.0f", v.reduce(0, +) / Double(v.count))) ms per crop (\(v.count))") }
+    print("single agreement \(agree)/\(inputs.count)")
+    // Batched: every sample `repeats` times, sorted by length (as the route sorts crops by width), `inFlight` batches at once.
+    var work: [Int] = []
+    for _ in 0..<repeats { work += Array(inputs.indices) }
+    work.sort { expected[$0].count < expected[$1].count }
+    let groups = stride(from: 0, to: work.count, by: b).map { Array(work[$0..<min(work.count, $0 + b)]) }
+    final class Box: @unchecked Sendable { var agree = 0; let lock = NSLock() }
+    let box = Box()
+    let t = DispatchTime.now().uptimeNanoseconds
+    DispatchQueue.concurrentPerform(iterations: max(1, inFlight)) { worker in
+        var g = worker
+        while g < groups.count {
+            if let out = try? loaded.recognise(batch: groups[g].map { inputs[$0] }) {
+                let ok = zip(groups[g], out).filter { expected[$0.0] == $0.1.tokens }.count
+                box.lock.lock(); box.agree += ok; box.lock.unlock()
+            }
+            g += max(1, inFlight)
+        }
+    }
+    let ms = Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6
+    print("batched: \(work.count) crops in \(groups.count) batches, \(String(format: "%.0f", ms)) ms, \(String(format: "%.1f", ms / Double(work.count))) ms per crop; agreement \(box.agree)/\(work.count)")
+}
+
+/// The converter on recorded host answers (`--record`), in JavaScriptCore, timed; blank images of the asked sizes.
+func replayConverter(record url: URL, compiler: URL, repeats: Int) throws {
+    let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+    let pages = record["pages"] as! [Any]
+    var tags: [String: Any] = [:], recognitions: [String: Any] = [:]
+    for pair in record["tags"] as! [[Any]] { tags[pair[0] as! String] = pair[1] }
+    for pair in record["recognitions"] as! [[Any]] { recognitions[pair[0] as! String] = pair[1] }
+    var input = record["input"] as! [String: Any]
+    input["trace"] = false; input["record"] = false
+    let source = try String(contentsOf: compiler, encoding: .utf8)
+    for round in 0..<max(1, repeats) {
+        let context = JSContext()!
+        context.exceptionHandler = { _, e in FileHandle.standardError.write(Data("JS: \(e?.toString() ?? "")\n".utf8)) }
+        context.evaluateScript(source)
+        let api = context.objectForKeyedSubscript("GradstepDevicePDF")!
+        let host = JSValue(newObjectIn: context)!
+        final class Count { var misses = 0 }
+        let count = Count()
+        let page: @convention(block) (Int) -> Any = { i in pages[i] }
+        let tag: @convention(block) (JSValue) -> Any = { lines in
+            let n = Int(lines.objectForKeyedSubscript("length")?.toInt32() ?? 0)
+            var out: [Any] = []
+            for i in 0..<n {
+                let l = lines.objectAtIndexedSubscript(i)!
+                let chars = ((l.objectForKeyedSubscript("char")?.toArray() as? [NSNumber]) ?? []).map { String($0.intValue) }
+                let fonts = ((l.objectForKeyedSubscript("font")?.toArray() as? [NSNumber]) ?? []).map { String($0.intValue) }
+                let x = ((l.objectForKeyedSubscript("x")?.toArray() as? [NSNumber]) ?? []).map { String(format: "%.3f", $0.doubleValue) }
+                let key = chars.joined(separator: ",") + "|" + fonts.joined(separator: ",") + "|" + x.joined(separator: ",")
+                if let hit = tags[key] { out.append(hit) } else { count.misses += 1; out.append(fonts.map { _ in -10.0 }) }
+            }
+            return out
+        }
+        let recognise: @convention(block) (JSValue) -> Any = { crops in
+            let n = Int(crops.objectForKeyedSubscript("length")?.toInt32() ?? 0)
+            var out: [Any] = []
+            for i in 0..<n {
+                let c = crops.objectAtIndexedSubscript(i)!
+                let rect = ((c.objectForKeyedSubscript("rect")?.toArray() as? [NSNumber]) ?? []).map { String($0.intValue) }.joined(separator: ",")
+                out.append(recognitions["\(c.objectForKeyedSubscript("page")!.toInt32()):\(rect)"] ?? NSNull())
+            }
+            return out
+        }
+        let image: @convention(block) (JSValue) -> Any = { r in
+            let rect = ((r.objectForKeyedSubscript("rect")?.toArray() as? [NSNumber]) ?? []).map(\.intValue)
+            guard rect.count == 4 else { return NSNull() }
+            let w = max(1, rect[2] - rect[0]), h = max(1, rect[3] - rect[1])
+            let png = DevicePDFRaster.png(DevicePDFRaster.RGB(width: w, height: h, pixels: [UInt8](repeating: 230, count: w * h * 3)))
+            var out: [String: Any] = ["png": png.base64EncodedString(), "width": w, "height": h]
+            if let clean = r.objectForKeyedSubscript("clean"), clean.isObject { out["rect"] = rect }
+            return out
+        }
+        host.setObject(page, forKeyedSubscript: "page" as NSString)
+        host.setObject(tag, forKeyedSubscript: "tag" as NSString)
+        host.setObject(recognise, forKeyedSubscript: "recognise" as NSString)
+        host.setObject(image, forKeyedSubscript: "image" as NSString)
+        let start = DispatchTime.now().uptimeNanoseconds
+        let result = api.invokeMethod("convert", withArguments: [input, host])
+        let seconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
+        let sha = result?.objectForKeyedSubscript("manifest_sha256")?.toString() ?? "none"
+        print("round \(round): \(String(format: "%.2f", seconds)) s for \(pages.count) pages (\(String(format: "%.3f", seconds / Double(pages.count))) s/page), tag misses \(count.misses), manifest \(sha.prefix(12)), JIT \(ProcessInfo.processInfo.environment["JSC_useJIT"] ?? "default")")
     }
 }
