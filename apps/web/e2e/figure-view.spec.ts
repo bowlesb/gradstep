@@ -222,6 +222,7 @@ test('a promoted explainer chat keeps its figure’s name; Back to chat returns 
  await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
  let viewer=await openFigure(page);
  await viewer.getByTestId('figure-explain').click();
+ await page.getByTestId('explainer-default').click(); // AI Explainer asks which model first (B7)
  await viewer.getByRole('button',{name:'Allow and explain'}).click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await viewer.getByRole('button',{name:'Open in Chat',exact:true}).click();

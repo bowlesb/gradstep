@@ -69,14 +69,17 @@ test('paper menus support keyboard and pointer; dirty Escape keeps the tag draft
 
 test('saving every catalog tag hidden stays empty; suggestions and custom tags use the native normalization', async ({ page, request }) => {
   await signIn(page); await tags(page);
-  for (const name of ['Large language models', 'Alignment']) await editor(page).getByRole('button', { name: `Remove tag ${name}`, exact: true }).click();
+  // "Large language models" is too generic to show (main 9446667, GENERIC_KEYWORDS): Alignment is the catalog tag left.
+  await expect(editor(page).getByRole('button', { name: 'Remove tag Large language models', exact: true })).toHaveCount(0);
+  await editor(page).getByRole('button', { name: 'Remove tag Alignment', exact: true }).click();
   await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(editor(page)).toHaveCount(0); await expect(page.getByRole('status')).toContainText('Tags saved.');
   await expect(paper(page).locator('.tag')).toHaveCount(0);
   let evidence = await (await request.get(`${FIXTURE}/__library-action-evidence`)).json();
+  // Every catalog tag not kept is recorded hidden, the generic one the editor didn't show included.
   expect(evidence.entries.find((entry: any) => entry.id === ITEM)).toMatchObject({ membership_revision: 2, hidden_tags: ['Large language models', 'Alignment'] });
   await tags(page);
-  await expect(editor(page).getByRole('button', { name: 'Add Large language models', exact: true })).toBeVisible();
+  await expect(editor(page).getByRole('button', { name: 'Add Alignment', exact: true })).toBeVisible();
   await addTag(page, 'machine learning');
   await expect(editor(page).getByText('Choose a specific method, dataset or topic instead of AI or machine learning.')).toBeVisible();
   await editor(page).getByRole('textbox', { name: 'Add a tag' }).fill('');
