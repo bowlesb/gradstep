@@ -1,0 +1,16 @@
+{
+ "name": "step-2 parts: detector + completion + two-view agreement (no caption decoding; the explainer groups parts), t=.5",
+ "policy": {
+  "threshold": 0.5,
+  "panel_class": 0,
+  "complete": true,
+  "caption_count": true,
+  "caption_decode": true,
+  "caption_fallback": "plain",
+  "decode_agree": true,
+  "decode_min_score": 0.15,
+  "decode_min_cover": 0.7,
+  "parts_only": true
+ },
+ "agree_iou": 0.7
+}
