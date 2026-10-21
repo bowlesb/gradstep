@@ -103,6 +103,7 @@ parser.add_argument('--testing-allowance-only', action='store_true', help='Run t
 parser.add_argument('--note-assets-only', action='store_true', help='Run the encrypted note image inventory, quota and deletion checks (migration 095).')
 parser.add_argument('--spending-fixes-only', action='store_true', help='Run the 2026-10-21 spending review fixtures (migrations 0100 and later).')
 parser.add_argument('--server-add-only', action='store_true', help='Run the server add-once fixture (migration 120) only.')
+parser.add_argument('--recommendations-only', action='store_true', help='Run the AI recommendations fixture (migration 0143) only.')
 args = parser.parse_args()
 # Review 2026-10-21 (docs/reviews/WEB_SERVER_REVIEW_20261021.md): spending, budget and reconciliation fixes, in
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
@@ -127,6 +128,9 @@ if args.note_assets_only:
     raise SystemExit(0)
 if args.server_add_only:
     phase([*all_migrations, ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql'], [])
+    raise SystemExit(0)
+if args.recommendations_only:
+    phase([*all_migrations, ROOT / 'tests/database/recommendations.sql'], [])
     raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/beta_admission_revocation.sql'], [])
@@ -161,7 +165,7 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 
 # Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
 # function's anon/authenticated reach. First in its phase, before any fixture creates objects.
-phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES], ['testing_allowance_concurrency', 'note_assets_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency'])
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.
