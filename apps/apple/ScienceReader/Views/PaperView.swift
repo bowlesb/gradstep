@@ -159,10 +159,6 @@ struct PaperView: View {
     @State private var selectionClearID = UUID()
     @State private var figure: String?
     @State private var showFigures = false
-    /// "Show in paper" from the gallery, applied once the gallery has closed.
-    /// Where Contents goes once its sheet has closed.
-    @State private var contentsJump: (PaperJumpRequest.Target, String)?
-    @State private var figureToShow: String?
     @State private var loadingPaper = true
     /// After following a citation: offer "Back" to the place left.
     @State private var citationBack = false
@@ -175,11 +171,10 @@ struct PaperView: View {
     @State private var crashReloads = 0
     @State private var reference: ReaderReference?
     @State private var authorToSearch: String?
-    /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
+    /// A figure reference tapped in the text, shown in a sheet; "Go to figure" jumps as the sheet closes.
     @State private var figureReference: ReaderFigureReference?
     /// The figure reference's sheet: half height, the full height for a walkthrough.
     @State private var figureReferenceDetent: PresentationDetent = .medium
-    @State private var figureReferenceToShow: String?
     /// The equation view (docs/architecture/EQUATION_VIEW.md) and what it asked for as it closed (a paragraph, the chat).
     @State private var equation: EquationViewRequest?
     @State private var equationFollowUp: EquationViewOutcome?
@@ -498,15 +493,13 @@ struct PaperView: View {
                 }
             }
         }
-        .sheet(isPresented: $showContents, onDismiss: {
-                // After the sheet has gone, as the gallery does, so the jump is seen.
-                if case let (target, id)? = contentsJump, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
-                contentsJump = nil
-                applyFigureOutcome()
-            }) {
+        .sheet(isPresented: $showContents, onDismiss: applyFigureOutcome) {
                 PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize,
                                    report: { ReportPresenter.present(model, sheet: "Contents") }) { target, id in
-                    contentsJump = (target, id)
+                    // The jump goes at the tap, while the sheet slides away (owner, build 78: "it gives me a delay before
+                    // navigating"; waiting for onDismiss cost the whole dismiss animation). The page under the sheet keeps
+                    // its size, so the position lands where it would after the sheet; a figure's highlight outlasts the slide.
+                    jumpNow(target, id)
                     showContents = false
                 }
                 .environment(\.figureViewHost, figureHost { showContents = false })
@@ -532,29 +525,19 @@ struct PaperView: View {
             .sheet(isPresented: $showReaderVersion) {
                 if let paper = model.selectedPaper { ReaderVersionSheet(model: model, paper: paper).macSheetKeys() }
             }
-            .sheet(isPresented: $showFigures, onDismiss: {
-                // After the gallery has gone, so the jump and its highlight are seen.
-                if let id = figureToShow, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .figure) }
-                figureToShow = nil
-                applyFigureOutcome()
-            }) {
+            .sheet(isPresented: $showFigures, onDismiss: applyFigureOutcome) {
                 if let bundle = model.selectedPaper?.readerBundle {
+                    // At the tap, as Contents (build 78); the highlight is still showing once the gallery has gone.
                     FigureGalleryView(bundle: bundle, baseFontSize: model.paperFontSize) { id in
-                        figureToShow = id; showFigures = false
+                        jumpNow(.figure, id); showFigures = false
                     }
                     .environment(\.figureViewHost, figureHost { showFigures = false })
                     .macSheetKeys()
                 }
             }
             // A figure reference ("Fig. 1"): the figure, table or algorithm with its caption, half height so the paper
-            // stays in view; "Go to figure" goes there with Back once the sheet has gone.
-            .sheet(item: $figureReference, onDismiss: {
-                if let id = figureReferenceToShow, let readingKey {
-                    model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .referencedFigure)
-                }
-                figureReferenceToShow = nil
-                applyFigureOutcome()
-            }) { value in
+            // stays in view; "Go to figure" goes there with Back as the sheet closes.
+            .sheet(item: $figureReference, onDismiss: applyFigureOutcome) { value in
                 NavigationStack {
                     Group {
                         if let bundle = model.selectedPaper?.readerBundle {
@@ -567,7 +550,7 @@ struct PaperView: View {
                     .toolbar {
                         // Words, not a symbol (a bottom-bar Label shows only its icon on iOS 26).
                         ToolbarItem(placement: .bottomBar) {
-                            Button(value.goTitle) { figureReferenceToShow = value.targetID; figureReference = nil }
+                            Button(value.goTitle) { jumpNow(.referencedFigure, value.targetID); figureReference = nil }
                                 .accessibilityIdentifier("figureReference.go")
                         }
                     }
@@ -606,8 +589,8 @@ struct PaperView: View {
             }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
-            selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; figureToShow = nil
-            citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil; figureReferenceToShow = nil
+            selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false
+            citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
             if model.notes.capturing == .paper { model.notes.capturing = nil }
         }
@@ -635,6 +618,11 @@ struct PaperView: View {
         guard let paperID = model.selectedPaper?.id else { return nil }
         let model = model
         return FigureViewHost(model: model, paperID: paperID, finish: { outcome in model.pendingFigureOutcome = outcome; close() }, close: close)
+    }
+
+    /// A jump chosen in a sheet, sent at once rather than after the sheet's dismiss animation (owner, build 78).
+    private func jumpNow(_ target: PaperJumpRequest.Target, _ id: String) {
+        if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
     }
 
     /// What a figure page chose, once its sheet has gone (so the jump, the chat or the sign-in is seen).
