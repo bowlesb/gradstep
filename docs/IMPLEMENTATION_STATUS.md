@@ -590,6 +590,22 @@ Both platform states were read back at **06:07:35 UTC**. Evidence and exact coun
 `catalog-release-verification.json`; archive hashes and acceptance identity are in `release-75-provenance.json`.
 No physical iPhone or paid model call was used.
 
+## Subfigure detector from the PDF corpus — 2026-10-21 (research; not released)
+
+A new app-level evaluation scores crops as displayed: complete panels, no false splits, correct counts.
+On a new held-out arXiv final test (235 figures, 201 papers in unseen author families), the previous best
+detector is fully right on **59.1%** of figures and shows wrong crops on 24.7%. The 17K-paper corpus was turned
+into a data engine (exact labels from 35,779 figure PDFs' drawing operations, caption-verified whitespace and
+LaTeX sub-figure labels, synthetic compounds, agreement-filtered pseudo-labels). The frozen system
+(RT-DETRv2-M + completeness post-processor + caption-constrained decoding + two-view agreement), scored once:
+**80.4% (95% CI 75.3–85.3) fully right, 8.9% harmful**; on the old SCI-3000 test 91.9% vs 88.1%. It does
+**not** meet the acceptance gates (panel recall 80%), so it is a candidate-part provider, not an automatic
+cropper. The model-free completeness step alone fixes many clipped crops (test 59.1% → 64.7%; simulated AI boxes
+with 6% error: perfect splits 43% → 90%) and is the recommended first integration. A rights-clean model
+(no SCI-3000) is equally good. FP32 Core ML (identical delivered crops) and ONNX exports verified on the Mac/host.
+$0 model spend; no app code changed. Details, integration plan and failure galleries:
+[Subfigure detector](reviews/SUBFIGURE_DETECTOR_20261021.md).
+
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 
 Fine-tuning experiments ran in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real
