@@ -17,7 +17,7 @@ import { Icon } from './icons';
 // Loaded with its first figure page: it brings the Markdown and math typesetter of the walkthrough with it.
 const FigureExplain = lazy(() => import('./FigureView').then(m => ({ default: m.FigureExplain })));
 
-export function FigureViewer({ bundle, theme, initial, explain = false, onClose, onShowInPaper, onDiscuss, figureView, onCite }: {
+export function FigureViewer({ bundle, theme, initial, explain = false, onClose, onShowInPaper, onDiscuss, figureView, onCite, onAddToNote }: {
   bundle: VerifiedBundle; theme: 'light' | 'dark'; initial: string | null; onClose: () => void; onShowInPaper: (id: string) => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>;
   /** AI Explainer was chosen to open this page (a figure in the paper, a kept explanation): the walkthrough is asked for at once. */
   explain?: boolean;
@@ -25,6 +25,8 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
   figureView?: FigureHost;
   /** A paragraph a walkthrough cites: the page closes and the paper lands there with Back. */
   onCite?: (paragraph: number, figureID:string) => void;
+  /** Notes: the figure's own image into the composer (NOTES_AND_SNIPPETS.md "Capture entry points"). */
+  onAddToNote?: (figureID: string) => void;
 }) {
   const [discussing, setDiscussing] = useState(false), [issue, setIssue] = useState<string | null>(null);
   // While a walkthrough is asked for or shown, the figure gets smaller so its words are in view.
@@ -88,6 +90,8 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
             {figureView && !explaining && <button className="sheet-action prominent" disabled={discussing} data-testid="figure-explain"
               onClick={() => setRequest(r => ({ id: current.id, n: (r?.n ?? 0) + 1 }))}
               title="Walks through the figure part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
+            {onAddToNote && <button className="sheet-action" disabled={discussing} onClick={() => onAddToNote(current.id)} data-testid="figure-add-to-note"
+              title="Save this figure in a note"><Icon name="notes" size={15} />Add to note</button>}
           </> : <h2>Figures · {figures.length}</h2>}
         </SheetTop>
         {current && doc ? <>

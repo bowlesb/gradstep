@@ -135,6 +135,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.
   const readerCommands = useRef<ReaderCommands | null>(null);
   const readerActions = useLibraryActions(library, undefined, useMemo(() => [
+    // Notes: Paper ⋯ › Draw snippet (the always-available entry; NOTES_AND_SNIPPETS.md "Capture entry points").
+    { label: 'Draw snippet', testID: 'draw-snippet', applies: (paper: LibraryPaper) => isReaderPaper(paper), run: () => readerCommands.current?.drawSnippet?.() },
     { label: 'Reader version details', testID: 'reader-version-details',
       applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() }], []),similar);
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
@@ -622,7 +624,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
         onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => { setSearchExternal(true); paperSearch.setQuery('author:' + name); navigate('/'); paperSearch.run(); }}
         onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
-        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
+        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading}
+        noteCapture={notes ? { writable: notes.writable, images: notes.canSaveImages, add: (draft, adjust) => setComposer({ draft, adjust }) } : undefined} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'notes') {

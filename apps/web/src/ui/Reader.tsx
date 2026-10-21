@@ -26,13 +26,21 @@ import { useWorkspaceControls } from './Shell';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
 import { LINE_WIDTH_KEY, LineWidthControl, readLineWidth, type ReadingMode } from './ReadingMode';
+import type { ComposerDraft } from './Notes';
+import { SnippetOverlay, type Box } from './SnippetOverlay';
+import { prepareSnippetImage, SnippetImageError } from '../lib/note-images';
+import { paperSource, snippetAnchor } from '../lib/snippet-source';
+import { figureName } from '../lib/figure-view';
 
 // The equation view brings the math typesetter: loaded only when an equation is opened (EQUATION_VIEW.md).
 const EquationView = lazy(() => import('./EquationView'));
 
 export type ReaderCache = Map<string, VerifiedBundle>; // owned by one signed-in session, memory only
 export interface ReaderCommands { find: () => void; escape: () => boolean; /** The next (1) or previous (-1) section. */ section?: (delta: number) => void;
-  /** The paper's ⋯ › Reader version details (READER_VERSIONS.md). */ versionDetails?: () => void }
+  /** The paper's ⋯ › Reader version details (READER_VERSIONS.md). */ versionDetails?: () => void;
+  /** The paper's ⋯ › Draw snippet (NOTES_AND_SNIPPETS.md). */ drawSnippet?: () => void }
+/** Notes from this paper: whether notes can be written (and hold images) here, and the composer to open. */
+export interface NoteCapture { writable: boolean; images: boolean; add: (draft: ComposerDraft, adjust?: () => void) => void }
 const FONT_KEY = 'gradstep.reader.fontSize';
 const readFont = () => readStored(FONT_KEY, 18, v => typeof v === 'number' && v >= 13 && v <= 28);
 
@@ -88,6 +96,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onBackToChat?: () => void;
   /** Reading mode (READING_MODE.md): the toolbar becomes a quiet bar over the paper. */
   reading?: ReadingMode;
+  /** Notes: Add to note from a selection, a figure, table or equation, and Draw snippet. */
+  noteCapture?: NoteCapture;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
 
 export function Reader(props: ReaderProps) {
@@ -98,7 +108,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, reading, noteCapture }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -140,6 +150,11 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   useEffect(() => () => updateRequest.current?.abort(), []);
   // The updated copy reopens near the place read in the one it replaced (a different manifest, so the place is approximate).
   const restoreAcross = useRef(false);
+  // Notes: Draw snippet's box (frame viewport px), whether this engine can make the image, and pending frame replies.
+  const [snippet, setSnippet] = useState<{ box: Box | null; busy: boolean; issue: string | null } | null>(null);
+  const [captureSupport, setCaptureSupport] = useState<boolean | null>(null);
+  const captureReplies = useRef(new Map<string, (message: Extract<FrameMessage, { type: 'capture' | 'captureProbe' }>) => void>());
+  const drawSnippet = useRef(() => {});
   const [finding, setFinding] = useState(false);
   const [findText, setFindText] = useState('');
   const [found, setFound] = useState<{ count: number; index: number; matches: {index:number; text:string}[] } | null>(null);
@@ -229,6 +244,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       escape: () => { if (finding) { closeFind(); return true; } return false; },
       section: delta => sectionStep.current(delta),
       versionDetails: () => setVersionOpen(true),
+      drawSnippet: () => drawSnippet.current(),
     };
     return () => { commands.current = null; };
   }, [commands, openFind, closeFind, finding]);
@@ -285,6 +301,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         case 'invalid': setError('This paper couldn’t be shown.'); break;
         case 'find': setFound({ count: message.count, index: message.index, matches: message.matches }); break;
         case 'key': onKey(message.key); break;
+        case 'capture': case 'captureProbe': { const reply = captureReplies.current.get(message.nonce); captureReplies.current.delete(message.nonce); reply?.(message); break; }
       }
     };
     window.addEventListener('message', receive);
@@ -292,6 +309,79 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled, onContents, workspace?.left.open]);
 
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
+
+  // ---------- Notes: Add to note and Draw snippet (NOTES_AND_SNIPPETS.md) ----------
+  const ask = useCallback(<T extends 'capture' | 'captureProbe'>(name: T, args: unknown[], wait: number) => new Promise<Extract<FrameMessage, { type: T }>>(resolve => {
+    const nonce = crypto.randomUUID();
+    const timer = setTimeout(() => { captureReplies.current.delete(nonce); resolve({ type: name, nonce, ok: false, reason: 'timeout' } as Extract<FrameMessage, { type: T }>); }, wait);
+    captureReplies.current.set(nonce, message => { clearTimeout(timer); resolve(message as Extract<FrameMessage, { type: T }>); });
+    command(name, nonce, ...args);
+  }), [command]);
+  // Whether this browser can make an image of the page here (a canvas it may read back), asked once per paper.
+  useEffect(() => { if (bridgeReady && captureSupport === null) void ask('captureProbe', [], 8000).then(r => setCaptureSupport(r.ok)); }, [bridgeReady, captureSupport, ask]);
+  const noteFailure = (error: unknown) => error instanceof SnippetImageError && error.code === 'image_too_large'
+    ? 'This snippet is too large to keep as an image. Draw a smaller box.' : 'Couldn’t make an image of this here. Try again.';
+  const imageNotes = (): string | null => !noteCapture ? 'Your notes are still opening.' : !noteCapture.writable ? 'Notes can’t be changed in this tab.'
+    : !noteCapture.images ? 'Snippets with images need this browser’s encrypted storage, which isn’t active in this tab. Select text and choose Add to note instead.' : null;
+  drawSnippet.current = () => {
+    const blocked = imageNotes();
+    if (blocked) { setNotice(blocked); return; }
+    if (captureSupport === false) { setNotice('Draw snippet isn’t available in this browser: it can’t make an image of the page here. Select text and choose Add to note, or add a whole figure from its page.'); return; }
+    if (!bundle || !bridgeReady) return;
+    if (finding) closeFind();
+    setSelection(null); command('clearSelection');
+    setSnippet({ box: null, busy: false, issue: null });
+  };
+  const useSnippet = async (box: Box) => {
+    if (!bundle || !noteCapture) return;
+    setSnippet({ box, busy: true, issue: null });
+    const reply = await ask('capture', [box], 30_000);
+    if (!reply.ok) { setSnippet({ box, busy: false, issue: reply.reason === 'tainted' ? 'This browser can’t make an image of the page here.' : 'Couldn’t make the image. Try again.' }); return; }
+    try {
+      const image = await prepareSnippetImage(new Blob([reply.png], { type: 'image/png' }));
+      const [vw, vh] = reply.viewport, [x, y, w, h] = reply.box;
+      const draft: ComposerDraft = { kind: 'region', image, capturedAt: Date.now(), source: paperSource(item, bundle.index, reply.blocks[0]),
+        anchor: snippetAnchor(bundle, reply.blocks, { rect: [x / vw, y / vh, w / vw, h / vh], viewport: reply.viewport }) };
+      setSnippet(null);
+      noteCapture.add(draft, () => setSnippet({ box, busy: false, issue: null }));
+    } catch (error) { setSnippet({ box, busy: false, issue: noteFailure(error) }); }
+  };
+  // A figure's own verified image (one asset), else the element rendered here like a drawn region; equations and HTML
+  // tables are rendered from the paper as shown. The open figure or equation page closes when the composer opens.
+  const addElement = async (elementID: string, blockID: string | undefined, label: string | null, close?: () => void) => {
+    const blocked = imageNotes();
+    if (blocked) { setNotice(blocked); return; }
+    if (!bundle) return;
+    try {
+      const figure = bundle.index.figures.find(f => f.id === elementID);
+      const member = figure?.asset_paths.length === 1 ? bundle.manifest.members.find(m => m.path === figure.asset_paths[0] && m.role === 'image') : undefined;
+      let image;
+      if (member) image = await prepareSnippetImage(new Blob([bundle.contents.get(member.path)!], { type: member.media_type }));
+      else {
+        if (captureSupport === false) { setNotice('This browser can’t make an image of the page here.'); return; }
+        const reply = await ask('capture', [{ element: elementID }], 30_000);
+        if (!reply.ok) { setNotice('Couldn’t make an image of this here. Try again.'); return; }
+        image = await prepareSnippetImage(new Blob([reply.png], { type: 'image/png' }));
+      }
+      close?.();
+      noteCapture!.add({ kind: 'region', image, capturedAt: Date.now(), source: paperSource(item, bundle.index, blockID, label), anchor: snippetAnchor(bundle, blockID ? [blockID] : []) });
+    } catch (error) { setNotice(noteFailure(error)); }
+  };
+  // "Equation (7)" as printed (read from the paper's page once, when first needed).
+  const printed = useRef<{ manifest: string; numbers: Map<string, string> } | null>(null);
+  const equationLabel = (id: string) => {
+    if (!bundle) return 'Equation';
+    if (printed.current?.manifest !== bundle.manifestSHA256) printed.current = { manifest: bundle.manifestSHA256, numbers: equationNumbers(bundle) };
+    const n = printed.current.numbers.get(id);
+    return n ? `Equation ${n}` : 'Equation';
+  };
+  const addSelection = (current: Selection, text: string) => {
+    if (!bundle) return;
+    if (!noteCapture?.writable) { setNotice(noteCapture ? 'Notes can’t be changed in this tab.' : 'Your notes are still opening.'); return; }
+    const blocks = current.parts.map(p => p.blockID);
+    noteCapture.add({ kind: 'quote', quote: text, capturedAt: Date.now(), source: paperSource(item, bundle.index, blocks[0]), anchor: snippetAnchor(bundle, blocks, { quote: text }) });
+    setSelection(null); command('clearSelection');
+  };
 
   const marksJSON = useMemo(() => JSON.stringify(marks.slice(0, 500).map(m => bridgeAnchor(m.id, m.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256))), [marks, item.artifact_id, bundle?.manifestSHA256]);
   useEffect(() => { if (bridgeReady) command('setMarks', JSON.parse(marksJSON)); }, [bridgeReady, command, marksJSON]);
@@ -301,7 +391,11 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     if (Date.now() - passage.at > 60_000) { onPassageHandled(); return; }
     // An answer's citation names a block number; it is resolved against this paper's index before the bridge sees it.
     const marker = citedMarker(passage.anchor);
-    const block = marker !== null && bundle ? citedBlock(bundle.index, marker)?.id : undefined;
+    // A note's drawn region has no quote: it lands on the first block it covered, only in the copy it was captured from.
+    const captured = marker === null && !passage.anchor.quote && passage.anchor.elementID && passage.anchor.manifestSHA256 === bundle?.manifestSHA256
+      && bundle?.index.blocks.some(b => b.id === passage.anchor.elementID) ? passage.anchor.elementID : undefined;
+    if (marker === null && !passage.anchor.quote && !captured) { setNotice('This snippet came from another copy of this paper, so its place isn’t shown.'); onPassageHandled(); return; }
+    const block = marker !== null && bundle ? citedBlock(bundle.index, marker)?.id : captured;
     if (marker !== null && !block) { setNotice('This answer cites a passage this paper doesn’t have.'); onPassageHandled(); return; }
     // A different compile of the same source (or another artifact) keeps the quote search: `same` only decides whether the block hint applies.
     command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256, block));
@@ -513,7 +607,16 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
                 const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
                 setEquation({ id: selection.parts[0].equationID!, quote, anchor, explain: true }); setSelection(null); command('clearSelection');
               }}>AI Explainer</button>] : [])])}
+          {/* Notes: the selection as a quotation (no AI), or a tapped equation as its rendered image. */}
+          {noteCapture && <button className="secondary small" data-testid="selection-add-to-note" onClick={() => {
+            const part = selection.parts[0];
+            if (selection.parts.length === 1 && part.kind === 'equation' && part.equationID) {
+              const e = part.equationID; setSelection(null); command('clearSelection');
+              void addElement(e, part.blockID, equationLabel(e));
+            } else addSelection(selection, quote);
+          }}>Add to note</button>}
         </div>}
+        {snippet && srcdoc && !error && <SnippetOverlay initial={snippet.box} busy={snippet.busy} issue={snippet.issue} onUse={box => void useSnippet(box)} onCancel={() => setSnippet(null)} />}
         {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
         {referenceNotice && <div className="reader-reference-notice" role="status" data-testid="reference-notice">
@@ -536,6 +639,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         onDiscuss={discuss} onExplain={figureView && bundle.index.figures.some(f => f.id === figureReference.id)
           ? () => { setFigureReference(null); setFigure({ id: figureReference.id, open: true, explain: true }); } : undefined} />}
       {bundle && tableDetail && <FigureReferenceDetail bundle={bundle} reference={tableDetail} theme={theme} fontSize={font}
+        onAddToNote={noteCapture ? () => { const f = bundle.index.figures.find(x => x.id === tableDetail.id); const block = f?.block_id ?? tableDetail.id;
+          void addElement(tableDetail.id, block, tableDetail.label, () => setTableDetail(null)); } : undefined}
         onChat={figureView?.context && bundle.index.figures.some(f => f.id === tableDetail.id) ? () => { setTableDetail(null); setFigure({ id: tableDetail.id, open: true }); } : undefined}
         onClose={() => setTableDetail(null)} onDiscuss={discuss} onExplain={figureView && bundle.index.figures.some(f => f.id === tableDetail.id)
           ? () => { setTableDetail(null); setFigure({ id: tableDetail.id, open: true, explain: true }); } : undefined} onGo={() => {
@@ -547,12 +652,14 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       {bundle && equation && <Suspense fallback={null}><EquationView key={equation.id} bundle={bundle} equationID={equation.id} theme={theme} fontSize={font} host={equations}
         autoExplain={equation.explain} onSwitch={id => setEquation(equationTarget(id))}
         onClose={() => setEquation(null)} onCite={marker => { setExplainerReturn({kind:'equation',id:equation.id}); setEquation(null); goToCited(marker); }}
-        onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined} /></Suspense>}
+        onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined}
+        onAddToNote={noteCapture ? () => { const e = bundle.index.equations.find(x => x.id === equation.id); void addElement(equation.id, e?.block_id, equationLabel(equation.id), () => setEquation(null)); } : undefined} /></Suspense>}
       {versionOpen && <ReaderVersionDialog bundle={bundle} update={update} onUpdate={updateCopy} onClose={() => setVersionOpen(false)} />}
       {bundle && equationTiles && <EquationTiles bundle={bundle} theme={theme} onClose={() => setEquationTiles(false)}
         onEquation={id => { setEquationTiles(false); showEquation(id); }} />}
       {bundle && figure.open && (
         <FigureViewer bundle={bundle} theme={theme} initial={figure.id} explain={figure.explain} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
+          onAddToNote={noteCapture ? id => { const f = bundle.index.figures.find(x => x.id === id); void addElement(id, f?.block_id, figureName(bundle, id), () => setFigure({ id: null, open: false })); } : undefined}
           onCite={(marker,id) => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
           onShowInPaper={id => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}
@@ -676,9 +783,10 @@ function ReferenceActions({ reference, frame, onClose, onAdd, onDiscuss }: {
 /** A figure, table or code block on its own: one top row — Explain in Chat and, for a figure or table the figure view
  * can read, AI Explainer (its walkthrough on the figure page) — and the X (owner, build 62; DESIGN.md "Sheet top row");
  * Show in paper (or Go to …) under it. */
-function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, onGo, onDiscuss, onExplain, onChat }: {
+function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, onGo, onDiscuss, onExplain, onChat, onAddToNote }: {
   bundle: VerifiedBundle; reference: ReaderFigureReference; theme: 'light' | 'dark'; fontSize: number;
   onClose: () => void; onGo: () => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>; onExplain?: () => void; onChat?: () => void;
+  /** Notes: this table (or figure) as an image into the composer. */ onAddToNote?: () => void;
 }) {
   const doc = useMemo(() => frameDocument(bundle, { parentOrigin: location.origin, figureID: reference.id, theme, fontSize }), [bundle, reference.id, theme, fontSize]);
   const [busy, setBusy] = useState(false), [issue, setIssue] = useState<string | null>(null);
@@ -699,7 +807,8 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
           title="Ask about this figure; nothing is sent"><Icon name="chat" size={15} />{busy ? 'Saving draft…' : 'Chat about Figure'}</button>}
         {onExplain && <button className="sheet-action prominent" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
           title="Walks through it part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
-        {!onDiscuss && !onExplain && <h2>{reference.label}</h2>}
+        {onAddToNote && <button className="sheet-action" disabled={busy} onClick={onAddToNote} data-testid="table-add-to-note" title="Save this in a note"><Icon name="notes" size={15} />Add to note</button>}
+        {!onDiscuss && !onExplain && !onAddToNote && <h2>{reference.label}</h2>}
       </SheetTop>
       <iframe className="figure-frame" title={reference.label} sandbox="allow-scripts" srcDoc={doc} />
       {issue && <p className="issue" role="alert">{issue}</p>}
