@@ -85,9 +85,9 @@ function endpoint(path: string, baseUrl = config.url): string {
   return url.toString();
 }
 
-async function send(path: string, init: RequestInit & { token?: string; maximum?: number; timeout?: number; sessionSignal?: AbortSignal; contentType?: string; baseUrl?: string }): Promise<{ status: number; body: Uint8Array<ArrayBuffer>; headers: Headers }> {
+async function send(path: string, init: RequestInit & { token?: string; maximum?: number; timeout?: number; sessionSignal?: AbortSignal; contentType?: string; baseUrl?: string; extra?: Record<string, string> }): Promise<{ status: number; body: Uint8Array<ArrayBuffer>; headers: Headers }> {
   if (!config.url || !config.anonKey) throw new BackendError('not_configured');
-  const headers: Record<string, string> = { apikey: config.anonKey, ...(init.body ? { 'Content-Type': init.contentType ?? 'application/json' } : {}) };
+  const headers: Record<string, string> = { ...init.extra, apikey: config.anonKey, ...(init.body ? { 'Content-Type': init.contentType ?? 'application/json' } : {}) };
   if (init.token) headers.Authorization = `Bearer ${init.token}`;
   const deadline = requestDeadline([init.signal, init.sessionSignal], init.timeout ?? 30_000);
   try {
@@ -402,7 +402,7 @@ function authFailure(status: number, body: Uint8Array, headers: Headers, verifyi
 
 // ---------- Authorized calls ----------
 
-async function authorized(path: string, init: { method?: string; body?: BodyInit | null; contentType?: string; maximum?: number; account?: string; signal?: AbortSignal; timeout?: number }): Promise<Uint8Array<ArrayBuffer>> {
+async function authorized(path: string, init: { method?: string; body?: BodyInit | null; contentType?: string; maximum?: number; account?: string; signal?: AbortSignal; timeout?: number; extra?: Record<string, string> }): Promise<Uint8Array<ArrayBuffer>> {
   init.signal?.throwIfAborted();
   const account = current?.user.id, before = generation;
   const sessionSignal = lifetime.signal;
@@ -509,6 +509,20 @@ export async function createSupportReport(body: {
   }, { account, signal, maximum: 65_536 });
   if (typeof value !== 'string' || !isUUID(value) || value !== body.id) throw new BackendError('invalid_response');
   return value;
+}
+
+/** Snippet blobs (NOTES_AND_SNIPPETS.md "Blob API"): `PUT/GET functions/v1/note-assets/{blobID}`, opaque ciphertext only.
+ * The PUT is idempotent for the same ID and digest; a timeout is resolved by repeating it. */
+export async function putNoteAsset(blobID: string, stored: Uint8Array, sha256: string, account: string, signal?: AbortSignal): Promise<{ state: 'ready'; bytes: number }> {
+  if (!isUUID(blobID) || !/^[0-9a-f]{64}$/.test(sha256)) throw new BackendError('invalid_request');
+  const value = parse(await authorized(`functions/v1/note-assets/${blobID.toLowerCase()}`, { method: 'PUT', body: stored as BodyInit, contentType: 'application/octet-stream',
+    extra: { 'x-content-sha256': sha256 }, account, signal, maximum: 65_536, timeout: 120_000 })) as { state?: unknown; bytes?: unknown } | null;
+  if (!value || value.state !== 'ready' || value.bytes !== stored.length) throw new BackendError('invalid_response');
+  return { state: 'ready', bytes: stored.length };
+}
+export async function getNoteAsset(blobID: string, maximum: number, account: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+  if (!isUUID(blobID)) throw new BackendError('invalid_request');
+  return authorized(`functions/v1/note-assets/${blobID.toLowerCase()}`, { method: 'GET', account, signal, maximum, timeout: 120_000 });
 }
 
 /** Uploads a redrawn screenshot to the existing support-assets function. */
