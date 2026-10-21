@@ -6,7 +6,7 @@ import { localChatContext, observeArxivSources, prepareArxivReader } from '../li
 import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
 import { type FocusEvent as ReactFocusEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { type Activity, loadActivity, saveActivity } from '../lib/activity';
+import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
 import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
 import { type DeviceRecord, type Preparation, eraseDeletedAccount, forgetDevice, readDevice } from '../lib/keys';
@@ -113,6 +113,13 @@ const SHORTCUTS = [['/ or ⌘K', 'Search the library or ML papers'], ['⌘F', 'F
   ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
 const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' };
 
+/** The activity the library views show: live while one is on screen, the last shown otherwise (C1). */
+function useActivity(store: ActivityStore, live: boolean): Map<string, Activity> {
+  const shown = useRef(store.snapshot());
+  const snapshot = useCallback(() => (live ? (shown.current = store.snapshot()) : shown.current), [store, live]);
+  return useSyncExternalStore(store.subscribe, snapshot);
+}
+
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
   // What this browser reads about a paper it prepares goes to the server only while it asks (ARXIV_DEVICE_ONLY.md §5.3).
@@ -161,7 +168,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     return () => { ++navigationIntent.current; removeEventListener('popstate', pop); };
   }, [chat]);
   const [device, setDevice] = useState<DeviceRecord | null>(null);
-  const [activity, setActivity] = useState<Map<string, Activity>>(new Map());
+  // Reading activity lives outside React state (C1): while a paper is read, its place reports don't render the app.
+  const [activityStore] = useState(() => new ActivityStore());
   const [activityLoaded, setActivityLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
@@ -301,7 +309,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       if (!record || record.deviceID !== ready.deviceID) return;
       const saved = await loadActivity(record);
       if (!live) return;
-      setDevice(record); setActivity(saved);
+      setDevice(record); activityStore.replace(saved);
     }).catch(() => {}).finally(() => { if (live) setActivityLoaded(true); });
     return () => { live = false; if (saveTimer.current) clearTimeout(saveTimer.current); readerCache.clear(); };
   }, [account, ready.deviceID]);
@@ -312,20 +320,24 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   },[devicePDFs,openReader]);
   const record = useCallback((itemID: string, value: Activity) => {
     if (!activityLoaded || leaving) return;
-    setActivity(previous => {
-      const next = new Map(previous); next.set(itemID, value);
-      return next;
-    });
-  }, [activityLoaded, leaving]);
+    activityStore.set(itemID, value);
+  }, [activityLoaded, leaving, activityStore]);
 
+  // Saved half a second after the last change (encrypted, on this device), without rendering anything.
   useEffect(() => {
     if (!device || !ready.local || leaving) return;
     const local = ready.local;
-    const timer = setTimeout(() => { saveActivity(device, activity, local).catch(() => {}); }, 500);
-    saveTimer.current = timer;
-    return () => clearTimeout(timer);
-  }, [device, activity, leaving, ready.local]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const changed = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { saveActivity(device, activityStore.snapshot(), local).catch(() => {}); }, 500);
+      saveTimer.current = timer;
+    };
+    const unsubscribe = activityStore.subscribe(changed);
+    return () => { unsubscribe(); clearTimeout(timer); };
+  }, [device, leaving, ready.local, activityStore]);
 
+  const readSaved = useCallback((itemID: string) => activityStore.get(itemID), [activityStore]);
   const match = /^\/paper\/([0-9a-f-]{36})$/.exec(path);
   const paperID = match?.[1] ?? null;
   const route: Route = paperID ? 'paper' : path === '/feed' ? 'feed' : 'library';
@@ -339,7 +351,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const reading = useReadingMode(ws, route === 'paper' && !!item);
   const latest = useRef({ ws, route, paperID, reading });
   latest.current = { ws, route, paperID, reading };
-  const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
+  const libraryShown = route !== 'paper' || (railTab === 'library' && ws.left.open);
+  const activity = useActivity(activityStore, libraryShown);
+  const model = useLibraryModel(library, activity, view, libraryShown);
   const feed = useFeed(account, library.serverEntries);
   const podcasts = usePodcasts(account);
   const player = usePodcastPlayer(account);
@@ -403,7 +417,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       await chat?.settleBeforeSignOut();
       owner.signal.throwIfAborted();
       if (forget) await forgetDevice(account, owner.signal);
-      else if (device && ready.local) await saveActivity(device, activity, ready.local).catch(() => {});
+      else if (device && ready.local) await saveActivity(device, activityStore.snapshot(), ready.local).catch(() => {});
       if (!forget) await chat?.retireJournal();
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
       if (forget) clearPositions(account);
@@ -581,8 +595,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         catch (e) { if (legacy && !signal.aborted) return null; throw e; }
         const context = localChatContext(reference, bundle);
         return { text: { format: 'paper-context-v2', text: context.text }, identity: { source: 'arxiv', source_id: context.source_id, revision: context.revision, manifest_sha256: context.manifest_sha256, title: item.metadata?.title ?? undefined, authors: item.metadata?.authors ?? [] } };
-      } : undefined} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
+      } : undefined} />} cache={readerCache} account={account} item={item} saved={activityStore.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
+        readSaved={readSaved}
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}

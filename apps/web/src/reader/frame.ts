@@ -42,8 +42,12 @@ export function bundleStyles(bundle: VerifiedBundle, hrefs: (string | null)[] = 
   return [...new Set(ordered)].map(member => new TextDecoder().decode(bundle.contents.get(member!.path)!));
 }
 
-/** The bundle's HTML with app-owned presentation: no bundle scripts, inlined styles, verified images as data URIs. */
-export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): string {
+/** The last framed bundle's document around its config block: parsing the paper, encoding every image and adding the
+ * styles, CSP and frame script happen once per bundle; each figure or table view of the same paper (and every ←/→ step)
+ * only adds its own config (C4). One paper at a time, so at most one extra copy is held. */
+let template: { bundle: VerifiedBundle; before: string; after: string } | null = null;
+function documentTemplate(bundle: VerifiedBundle): { before: string; after: string } {
+  if (template?.bundle === bundle) return template;
   const html = new TextDecoder().decode(bundle.contents.get(bundle.manifest.entrypoint)!);
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const stylesheetHrefs = [...doc.querySelectorAll('link[rel~="stylesheet"]')].map(l => l.getAttribute('href'));
@@ -61,16 +65,27 @@ export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): st
   const configBlock = doc.createElement('script');
   configBlock.setAttribute('type', 'application/json');
   configBlock.setAttribute('data-gradstep-config', '');
+  // A script's text is serialized as is, so the config can take this marker's place exactly.
+  const marker = `gradstep-frame-config-${crypto.randomUUID()}`;
+  configBlock.textContent = marker;
+  const script = doc.createElement('script');
+  script.textContent = frame.script;
+  doc.body.append(configBlock, script);
+  const parts = ('<!doctype html>\n' + doc.documentElement.outerHTML).split(marker);
+  if (parts.length !== 2) throw new Error('frame_template');
+  template = { bundle, before: parts[0], after: parts[1] };
+  return template;
+}
+
+/** The bundle's HTML with app-owned presentation: no bundle scripts, inlined styles, verified images as data URIs. */
+export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): string {
+  const { before, after } = documentTemplate(bundle);
   const config = {
     parent_origin: options.parentOrigin, paper_line: options.paperLine ?? null, paper_tags: options.paperTags ?? null, paper_authors: options.paperAuthors ?? [], font_size: options.fontSize ?? null, theme: options.theme ?? null, line_width: options.lineWidth ?? null,
     bundle: { ...bundle.index, manifest_sha256: bundle.manifestSHA256, ...(options.figureID ? { figure_id: options.figureID } : {}) },
   };
   // `<` escaped so no text in the index can end the data block.
-  configBlock.textContent = JSON.stringify(config).replace(/</g, '\\u003c');
-  const script = doc.createElement('script');
-  script.textContent = frame.script;
-  doc.body.append(configBlock, script);
-  return '<!doctype html>\n' + doc.documentElement.outerHTML;
+  return before + JSON.stringify(config).replace(/</g, '\\u003c') + after;
 }
 
 /** Messages from the frame, validated with the native coordinator's bounds. */

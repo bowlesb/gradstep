@@ -271,6 +271,8 @@ const matchesFence = (value: unknown, fence: WriterFence): boolean => {
 export interface JournalAccess {
   get(key: string): Promise<Bytes | undefined>;
   range(lower: string, upper: string): Promise<[string, Bytes][]>;
+  /** How many records are in the range, without reading them (C8). */
+  count?(lower: string, upper: string): Promise<number>;
   commit(headKey: string, expected: Bytes | null, put: [string, Bytes][], remove: string[], device?: { key: string; deviceID: string; fence?: WriterFence; current?: () => boolean }): Promise<'committed' | 'conflict' | 'fenced'>;
 }
 const sameBytes = (a: unknown, b: Uint8Array | null) => {
@@ -285,6 +287,10 @@ export const journalAccess: JournalAccess = {
     const store = tx.objectStore('journal'), range = IDBKeyRange.bound(lower, upper);
     const names = store.getAllKeys(range), values = store.getAll(range);
     return () => names.result.map((name, i) => [name as string, values.result[i] as Bytes]);
+  }, false, JOURNAL_VERSION),
+  count: (lower, upper) => run<number>(['journal'], 'readonly', tx => {
+    const request = tx.objectStore('journal').count(IDBKeyRange.bound(lower, upper));
+    return () => request.result;
   }, false, JOURNAL_VERSION),
   commit: (headKey, expected, put, remove, device) => {
     let outcome: 'committed' | 'conflict' | 'fenced' = 'committed';

@@ -11,6 +11,19 @@ export interface Location { block: number; fraction: number; height: number; y: 
 export interface Activity { opened: number; progress: number; location?: Location; manifest?: string }
 
 const MAX = 5_000;
+
+/** This session's reading activity, kept outside React (C1): a reading-place report (several a second while scrolling)
+ * updates it without rendering the app; the views that show activity subscribe. Each change is a new map (a snapshot). */
+export class ActivityStore {
+  private map = new Map<string, Activity>();
+  private listeners = new Set<() => void>();
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  snapshot = () => this.map;
+  get(itemID: string): Activity | undefined { return this.map.get(itemID); }
+  set(itemID: string, value: Activity) { const next = new Map(this.map); next.set(itemID, value); this.map = next; this.emit(); }
+  replace(map: Map<string, Activity>) { this.map = map; this.emit(); }
+  private emit() { for (const listener of [...this.listeners]) listener(); }
+}
 const key = (account: string) => `${config.environment}:${account}`;
 const aad = (account: string) => utf8(`gradstep/web-reading/v1/${account}`);
 const saves = new Map<string, Promise<void>>();

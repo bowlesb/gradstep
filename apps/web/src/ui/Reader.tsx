@@ -88,7 +88,9 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onBackToChat?: () => void;
   /** Reading mode (READING_MODE.md): the toolbar becomes a quiet bar over the paper. */
   reading?: ReadingMode;
-  onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
+  onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void;
+  /** The paper's latest saved place (the app no longer renders for each report, C1), read when the paper (re)opens. */
+  readSaved?: (itemID: string) => Activity | undefined };
 
 export function Reader(props: ReaderProps) {
   const { account, item } = props;
@@ -98,7 +100,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved: shownSaved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, reading, readSaved }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -149,6 +151,10 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [lineWidth, setLineWidth] = useState(readLineWidth);
   // Reading mode: how far through the paper (whole percent) and whether the quiet bar shows.
   const [progress, setProgress] = useState(0);
+  // Only reading mode shows the percent; elsewhere a scroll report doesn't render the reader for it (C1).
+  const progressNow = useRef(0), readingOn = useRef(!!reading?.on);
+  readingOn.current = !!reading?.on;
+  useEffect(() => { if (reading?.on) setProgress(progressNow.current); }, [reading?.on]);
   const [barShown, setBarShown] = useState(false);
   const barTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -245,7 +251,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       const message: FrameMessage | null = readFrameMessage(event.data.value, bundle ?? undefined);
       if (!message) return;
       switch (message.type) {
-        case 'headings':
+        case 'headings': {
+          const saved = readSaved?.(item.id) ?? shownSaved;
           setHeadings(message.items);
           frameReady.current = true; setBridgeReady(true);
           appliedPresentation.current = initialPresentation;
@@ -255,6 +262,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           restoreAcross.current = false;
           onActivity(item.id, { ...(saved ?? { progress: 0 }), opened: Date.now() });
           break;
+        }
         case 'position': {
           const now = Date.now();
           // The bridge already bounds scroll reports (120 ms plus scroll-end). Keep the final one:
@@ -262,7 +270,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           // App owns debounced, ordered encrypted persistence independently of this in-memory update.
           const { block, fraction, height, y } = message;
           onActivity(item.id, { opened: now, progress: message.progress, location: { block, fraction, height, y }, manifest: bundle?.manifestSHA256 });
-          setProgress(Math.round(message.progress * 100));
+          progressNow.current = Math.round(message.progress * 100);
+          if (readingOn.current) setProgress(progressNow.current);
           let current: string | null = null;
           for (const h of headingBlocks) { if (h.block <= block) current = h.id; else break; }
           setActive(current);
@@ -289,7 +298,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled, onContents, workspace?.left.open]);
+  }, [bundle, command, item.id, onActivity, onKey, shownSaved, readSaved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled, onContents, workspace?.left.open]);
 
   // A link out of the paper, from the paper or one of its figure frames: a new tab, as the apps open Safari (A18).
   useEffect(() => {

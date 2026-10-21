@@ -65,6 +65,21 @@ beforeEach(async () => {
 });
 afterEach(() => { for (const c of controllers.splice(0)) c.abort(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it('opens by reading the events once and counting the partition, not reading it again (C8)', async () => {
+  const first = await Journal.open(scope, deps);
+  await first.journal.appendLocal([await sealEvent(root(), id(), deviceID, ring)]);
+  const ranges: [string, string][] = [], counts: [string, string][] = [];
+  const spy = { ...access, range: (lower: string, upper: string) => { ranges.push([lower, upper]); return access.range(lower, upper); },
+    count: (lower: string, upper: string) => { counts.push([lower, upper]); return access.count!(lower, upper); } };
+  const reopened = await Journal.open(await newScope(), { ...deps, access: spy });
+  expect(reopened.snapshot.events).toHaveLength(1);
+  expect(ranges).toHaveLength(1); expect(ranges[0][0]).toContain(':e:');
+  expect(counts).toHaveLength(1);
+  // An access without counting still works (it reads the range).
+  const plain = await Journal.open(await newScope(), { ...deps, access: { ...access, count: undefined } });
+  expect(plain.snapshot.events).toHaveLength(1);
+});
+
 it('restores sealed drafts, exact local outbox bytes and a complete pull checkpoint', async () => {
   const first = await Journal.open(scope, deps), d = draft();
   await first.journal.checkpointDraft(d);

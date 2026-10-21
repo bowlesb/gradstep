@@ -80,10 +80,23 @@ export const VISUAL_ANSWERS_KEY = 'gradstep.chat-visual-answers.v1';
 export function readVisualAnswers(): boolean { try { return localStorage.getItem(VISUAL_ANSWERS_KEY) !== 'false'; } catch { return true; } }
 export function writeVisualAnswers(on: boolean) { try { localStorage.setItem(VISUAL_ANSWERS_KEY, on ? 'true' : 'false'); } catch { /* per-browser convenience */ } }
 const bytes = (s: string) => new TextEncoder().encode(s).length;
+/** Finished explanations kept in memory (C8): least recently used first out. A figure's result carries its image. */
+const EQUATION_RESULTS = 200, FIGURE_RESULTS = 24;
+function remember<V>(map: Map<string, V>, key: string, value: V, limit: number) {
+  map.delete(key); map.set(key, value);
+  while (map.size > limit) map.delete(map.keys().next().value!);
+}
+function recall<V>(map: Map<string, V>, key: string): V | undefined {
+  const value = map.get(key);
+  if (value !== undefined) { map.delete(key); map.set(key, value); }
+  return value;
+}
 const scope = (documentID: string | null) => documentID ?? 'general';
 const busy = (c: Composer) => c.phase === 'saving' || c.phase === 'streaming' || c.phase === 'finishing';
 export const composerBusy = busy;
 const CHECKPOINT_DELAY = 400, CHECKPOINT_MAX = 2_000, TURN_INTERVAL = 1_000;
+/** Streamed text notifies subscribers at most this often (C2); the chat pane shows text at its own 80 ms cadence. */
+const STREAM_PUBLISH = 100;
 
 export const browserLocks: Locks = {
   hold: name => new Promise((resolve, reject) => {
@@ -98,6 +111,7 @@ export const browserLocks: Locks = {
 };
 
 export type AIUseCase = 'general' | 'paper' | 'equations' | 'figures';
+const contextualKey = (documentID: string, anchor: TextAnchor) => JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
 const scenarioKey = 'gradstep.ai.scenarios.v1';
 function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
   try { const value=JSON.parse(localStorage.getItem(scenarioKey)??'{}'); return Object.fromEntries(['general','paper','equations','figures'].flatMap(k=>isProfileChoice(value?.[k])?[[k,value[k]]]:[])); } catch { return {}; }
@@ -118,7 +132,7 @@ export class ChatSession {
   }
   private reference(documentID:string|null):SourcePaperReference|undefined {
     if(!documentID)return undefined;
-    return this.sourcePapers.get(documentID)?.reference ?? [...this.history.state.events.values()].find(e=>e.payload.paperReference?.membershipID===documentID)?.payload.paperReference;
+    return this.sourcePapers.get(documentID)?.reference ?? this.history.state.paperReference(documentID);
   }
   readonly composers = new Map<string, Composer>();
   readonly selected = new Map<string, string>();
@@ -214,7 +228,13 @@ export class ChatSession {
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getVersion = () => this.version;
-  private publish() { if (!this.signal.aborted) { this.version++; for (const listener of this.listeners) listener(); } }
+  private publish() {
+    if (this.pendingPublish) { clearTimeout(this.pendingPublish); this.pendingPublish = null; }
+    if (!this.signal.aborted) { this.version++; for (const listener of this.listeners) listener(); }
+  }
+  private pendingPublish: ReturnType<typeof setTimeout> | null = null;
+  /** One notification for a run of streamed text (C2); any other change still notifies at once. */
+  private publishSoon() { this.pendingPublish ??= setTimeout(() => { this.pendingPublish = null; this.publish(); }, STREAM_PUBLISH); }
   private allowed() { this.signal.throwIfAborted(); if (!this.accepting) throw new BackendError('cancelled'); }
   /** Work a reload or closing the tab would lose (the before-unload warning and storage-update deferral use this). */
   get hasVolatileContent() {
@@ -282,7 +302,7 @@ export class ChatSession {
   contextualComposer(documentID: string, anchor: TextAnchor, kind:AIUseCase = 'figures'): Composer {
     this.allowed();
     validateEvent({ kind: 'position', entityID: documentID, documentID, parents: [], anchor });
-    const key = JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
+    const key = contextualKey(documentID, anchor);
     const cached = this.composers.get(this.contextualComposers.get(key) ?? '');
     if (cached && (!cached.conversationID || !this.history.state.isDeleted(cached.conversationID))) return cached;
     const saved = this.history.state.conversationSummaries().find(s => s.documentID === documentID && s.anchor?.manifestSHA256 === anchor.manifestSHA256
@@ -291,6 +311,23 @@ export class ChatSession {
     if (saved) c.conversationID = saved.id;
     this.contextualKinds.set(c.id,kind); c.anchor = { ...anchor }; this.composers.set(c.id, c); this.contextualComposers.set(key, c.id); this.claimEditor(c.id);
     return c;
+  }
+  /** An equation or figure view closed: a composer it only showed goes, with its editor lock (C8). Text, a conversation,
+   * work under way or a promotion to the main chat keeps it. */
+  releaseContextual(c: Composer) {
+    if (c.draft || c.conversationID || busy(c) || c.question || c.answer || c.revision || c.savedRevision || this.promotedContexts.has(c.id)
+      || this.turnOwners.has(c.id) || this.checkpoints.has(c.id) || this.streams.has(c.id)) return;
+    let contextual = false;
+    for (const [key, id] of this.contextualComposers) if (id === c.id) { this.contextualComposers.delete(key); contextual = true; }
+    if (!contextual) return;
+    this.contextualKinds.delete(c.id); this.composers.delete(c.id); this.releaseEditor(c.id);
+  }
+  /** The view showing it is (again) on screen: a composer released meanwhile comes back (React may remount a view). */
+  retainContextual(c: Composer, kind: AIUseCase) {
+    if (this.signal.aborted || !c.documentID || !c.anchor || this.composers.has(c.id)) return;
+    const key = contextualKey(c.documentID, c.anchor);
+    if (this.composers.has(this.contextualComposers.get(key) ?? '')) return;
+    this.composers.set(c.id, c); this.contextualComposers.set(key, c.id); this.contextualKinds.set(c.id, kind); this.claimEditor(c.id);
   }
 
   // ---------- Model, effort and length ----------
@@ -591,7 +628,7 @@ export class ChatSession {
   /** A finished result for this equation with the current default model (memory only, this login lifetime). */
   savedEquation(manifest: string, equationID: string, action: EquationAction, choice?: ProfileChoice): EquationResult | null {
     const p = choice ?? this.equationProfile();
-    return this.equations.get(equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`)) ?? null;
+    return recall(this.equations, equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`)) ?? null;
   }
   /** One equation-view request, sent exactly as this browser's chat sends a question about the paper (its default
    * profile, capabilities, consent and the numbered paper on this device), so the server reads the same cached prefix.
@@ -612,7 +649,7 @@ export class ChatSession {
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     const key = equationKey(bundle.manifestSHA256, input.equationID, action, `${profile.model}-${profile.effort}-${profile.length}`);
-    const saved = this.equations.get(key);
+    const saved = recall(this.equations, key);
     if (saved) { update(saved); return saved; }
     const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: equationTurn(input.number) }], input.latex, action,
       { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
@@ -631,7 +668,7 @@ export class ChatSession {
         : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
     } finally { clearTimeout(deadline); controller.dispose(); }
     if (result.phase === 'done') {
-      this.equations.set(key, result);
+      remember(this.equations, key, result, EQUATION_RESULTS);
       if (action === 'equation') this.noteExplanation({ kind: 'equation', documentID, manifest: bundle.manifestSHA256, targetID: input.equationID, label: equationTurn(input.number), at: Date.now() });
     }
     void this.refreshBalance();
@@ -643,7 +680,7 @@ export class ChatSession {
   private profileKey(): string { const p = this.equationProfile(); return `${p.model}-${p.effort}-${p.length}`; }
   /** A finished walkthrough (or, with `part`, that part more simply) with the current default model (memory only). */
   savedFigure(manifest: string, figureID: string, action: FigureAction, part = '', choice?: ProfileChoice): FigureResult | null {
-    return this.figureResults.get(figureKey(manifest, figureID, action, choice ? `${choice.model}-${choice.effort}-${choice.length}` : this.profileKey(), part)) ?? null;
+    return recall(this.figureResults, figureKey(manifest, figureID, action, choice ? `${choice.model}-${choice.effort}-${choice.length}` : this.profileKey(), part)) ?? null;
   }
   /** One figure-view request, sent exactly as this browser's chat sends a question about the paper (its default profile,
    * capabilities, consent and the numbered paper on this device) with this figure's image, as a chat question naming it
@@ -669,7 +706,7 @@ export class ChatSession {
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     const key = figureKey(bundle.manifestSHA256, input.figureID, action, `${profile.model}-${profile.effort}-${profile.length}`, input.part?.key ?? '');
-    const saved = this.figureResults.get(key);
+    const saved = recall(this.figureResults, key);
     if (saved) { update(saved); return saved; }
     const figure = bundle.index.figures.find(f => f.id === input.figureID);
     const image = figure ? await figureImage(bundle, figure) : null;
@@ -701,7 +738,7 @@ export class ChatSession {
         : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
     } finally { clearTimeout(deadline); controller.dispose(); }
     if (result.phase === 'done') {
-      this.figureResults.set(key, result);
+      remember(this.figureResults, key, result, FIGURE_RESULTS);
       if (action === 'figure') this.noteExplanation({ kind: 'figure', documentID, manifest: bundle.manifestSHA256, targetID: figure.id, label: name, at: Date.now() });
     }
     void this.refreshBalance();
@@ -979,6 +1016,8 @@ export class ChatSession {
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
     let topicTitle: string | null = null, followUps: string[] | null = null, nextMap: StudyMap | null = null, answeredBy: { model?: string; profile?: string } = {};
+    // The streamed text's size, kept as it grows (C2: not the whole text encoded again for every piece).
+    let liveBytes = 0;
     let figureParts: FigureParts | null = null, asked: string | null = null, sent = request;
     // What the answer's last done/error said it cost (credits, `charged`), for the note under an interrupted answer.
     let end: { credits?: number; charged?: boolean } | null = null;
@@ -988,9 +1027,13 @@ export class ChatSession {
       for await (const event of this.deps.stream(this.account, sent, controller.signal)) {
         controller.signal.throwIfAborted();
         if (event.type === 'delta') {
-          const next = c.liveText + event.text;
-          if (bytes(next) > 200_000) { c.liveText = boundedText(next); outcome = { kind: 'failed', code: 'answer_too_large' }; break; }
-          c.liveText = next; c.progress = null; checkpointTurn();
+          const first = !c.liveText;
+          liveBytes += bytes(event.text);
+          if (liveBytes > 200_000) { c.liveText = boundedText(c.liveText + event.text); outcome = { kind: 'failed', code: 'answer_too_large' }; break; }
+          c.liveText += event.text; c.progress = null; checkpointTurn();
+          // The first text replaces "Thinking…" at once; later text is shown by the pane's own cadence.
+          if (first) this.publish(); else this.publishSoon();
+          continue;
         } else if (event.type === 'status') c.progress = event.progress;
         else if (event.type === 'diagram') diagram = { title: event.title, source: event.source };
         else if (event.type === 'visual') diagram = { title: event.title, source: event.html, format: 'html-v1' };
@@ -1020,7 +1063,7 @@ export class ChatSession {
       try { figures = await chatFigureImages(asked, null, figureBundle); } catch { figures = []; }
       if (figures.length && !next.signal.aborted && !this.signal.aborted && !this.stopping.has(c.id) && !this.retiredStorage && this.accepting) {
         sent = { ...sent, operationID: crypto.randomUUID(), figures }; figureManifest = figureBundle.manifestSHA256;
-        c.liveText = ''; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null; end = null;
+        c.liveText = ''; liveBytes = 0; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null; end = null;
         outcome = { kind: 'failed', code: 'transport' };
         c.progress = { kind: 'looking_at_figure', query: figures[0] ? figureLabel(figures[0].caption) ?? undefined : undefined }; this.publish();
         controller = next; deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);

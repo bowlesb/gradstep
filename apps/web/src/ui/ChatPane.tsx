@@ -99,12 +99,13 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   }, []);
   const field = useRef<HTMLTextAreaElement>(null);
   const [displayText, setDisplayText] = useState(c.liveText);
-  // Fixed cadence, not a debounce: continuously arriving tokens must remain visibly streaming.
-  const latestText = useRef(c.liveText); latestText.current = c.liveText;
+  // Fixed cadence, not a debounce: continuously arriving tokens must remain visibly streaming. It reads the composer's
+  // text itself, which the session updates in place; the session notifies less often than text arrives (C2).
+  const live = useRef(c); live.current = c;
   useEffect(() => {
     setDisplayText(c.liveText);
     if (c.phase !== 'streaming') return;
-    const t = setInterval(() => setDisplayText(latestText.current), 80);
+    const t = setInterval(() => setDisplayText(live.current.liveText), 80);
     return () => clearInterval(t);
   }, [c.id, c.phase]);
   useLayoutEffect(() => { follow.current.reset(); setAway(false); }, [c.id]);
@@ -374,7 +375,7 @@ function useNarrow() {
   return narrow;
 }
 function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null) => void }) {
-  useChatUpdates(chat);
+  const historyVersion = useChatUpdates(chat);
   // All first and chosen (owner, build 57: "You can put All to the left and make that the default").
   const [search, setSearch] = useState(''), [filter, setFilter] = useState('all');
   const [sort, setSort] = useState<'last' | 'title' | 'started'>('last');
@@ -393,9 +394,13 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
     }));
   };
   const normalized = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-  const rows = chat.history.state.conversationSummaries().filter(c => (filter === 'all' || (filter === 'this' ? c.documentID === currentDocument : filter === 'paper' ? !!c.documentID : !c.documentID))
-    && normalized(search).split(/\s+/).filter(Boolean).every(word => normalized(`${c.title} ${c.questions} ${papers.get(c.documentID ?? '') ?? ''}`).includes(word)));
-  rows.sort((a, b) => sort === 'title' ? summaryTitle(a).localeCompare(summaryTitle(b)) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
+  // Filtered and sorted once per history change or choice, not on every streamed answer's update (C2).
+  const rows = useMemo(() => {
+    const words = normalized(search).split(/\s+/).filter(Boolean);
+    const list = chat.history.state.conversationSummaries().filter(c => (filter === 'all' || (filter === 'this' ? c.documentID === currentDocument : filter === 'paper' ? !!c.documentID : !c.documentID))
+      && words.every(word => normalized(`${c.title} ${c.questions} ${papers.get(c.documentID ?? '') ?? ''}`).includes(word)));
+    return list.sort((a, b) => sort === 'title' ? summaryTitle(a).localeCompare(summaryTitle(b)) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
+  }, [chat, historyVersion, filter, currentDocument, search, papers, sort]); // eslint-disable-line react-hooks/exhaustive-deps
   // The reader's columns (≡ › Columns); a narrow window shows the conversation and Last read only (as an iPhone in portrait).
   const narrow = useNarrow();
   const shown = { paper: columns.paper && !narrow, messages: columns.messages && !narrow, started: columns.started && !narrow };

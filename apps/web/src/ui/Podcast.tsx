@@ -229,7 +229,14 @@ export function usePodcastPlayer(account: string) {
   const [issue, setIssue] = useState<string | null>(null);
   const [replacementID, setReplacement] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [positionMs, setPosition] = useState(0);
+  // The playing position lives outside React state (C1): only what shows it (the dock) renders for each timeupdate.
+  const position = useRef(0), positionListeners = useRef(new Set<() => void>());
+  const setPosition = useCallback((ms: number) => {
+    if (position.current === ms) return;
+    position.current = ms; for (const listener of [...positionListeners.current]) listener();
+  }, []);
+  const subscribePosition = useCallback((listener: () => void) => { positionListeners.current.add(listener); return () => { positionListeners.current.delete(listener); }; }, []);
+  const getPosition = useCallback(() => position.current, []);
   const [rate, setRateState] = useState(1);
   const audio = useRef<HTMLAudioElement | null>(null);
   const [element, setElement] = useState<HTMLAudioElement | null>(null);
@@ -261,7 +268,7 @@ export function usePodcastPlayer(account: string) {
   const reset = useCallback(() => {
     current.current = { episode: null, detail: null, status: 'idle' };
     setEpisode(null); setDetail(null); setStatus('idle'); setIssue(null); setPlaying(false); setPosition(0); setReplacement(null);
-  }, []);
+  }, [setPosition]);
   const stop = useCallback(() => { if (!valid()) return; save(); release(); reset(); }, [valid, release, reset, save]);
   useEffect(() => {
     active.current = true; reset();
@@ -277,7 +284,7 @@ export function usePodcastPlayer(account: string) {
     current.current.status = 'revoked'; current.current.detail = null;
     setDetail(null); setStatus('revoked'); setPlaying(false); setPosition(0); setReplacement(replacement);
     setIssue('This episode is no longer available. Its audio and saved position were removed.');
-  }, [valid, release, account, lifetime]);
+  }, [valid, release, account, lifetime, setPosition]);
   const open = useCallback(async (next: Episode) => {
     if (!valid()) return;
     save(); release();
@@ -324,7 +331,7 @@ export function usePodcastPlayer(account: string) {
       release(); current.current.status = 'failed'; setStatus('failed');
       setIssue(error instanceof BackendError && error.code === 'podcast_unplayable' ? 'This browser can’t play this episode’s audio.' : message(error));
     } finally { owner.signal.removeEventListener('abort', aborted); }
-  }, [account, lifetime, owner, valid, revoke, release, save]);
+  }, [account, lifetime, owner, valid, revoke, release, save, setPosition]);
   const play = useCallback(() => {
     const element = audio.current;
     if (!valid() || !element) return;
@@ -342,7 +349,7 @@ export function usePodcastPlayer(account: string) {
     if (!valid() || !element || current.current.status !== 'ready' || !Number.isFinite(ms)) return;
     const end = Number.isFinite(element.duration) ? element.duration * 1000 : current.current.episode?.durationMs ?? 0;
     element.currentTime = Math.max(0, Math.min(ms, end)) / 1000; setPosition(Math.round(element.currentTime * 1000)); save();
-  }, [valid, save]);
+  }, [valid, save, setPosition]);
   const skip = useCallback((delta: number) => { if (audio.current) seek(audio.current.currentTime * 1000 + delta); }, [seek]);
   const setRate = useCallback((value: number) => { if (!valid() || !SPEEDS.some(s => s === value)) return; setRateState(value); if (audio.current) audio.current.playbackRate = value; }, [valid]);
   const bind = useCallback((node: HTMLAudioElement | null) => { if (node) audio.current = node; setElement(node); }, []);
@@ -371,7 +378,7 @@ export function usePodcastPlayer(account: string) {
       element.removeEventListener('timeupdate', time); element.removeEventListener('play', playing); element.removeEventListener('pause', paused); element.removeEventListener('ended', ended);
       document.removeEventListener('visibilitychange', hide); window.removeEventListener('pagehide', leave);
     };
-  }, [element, valid, save]);
+  }, [element, valid, save, setPosition]);
   useEffect(() => {
     if (!('mediaSession' in navigator) || !episode || !valid()) return;
     const media = navigator.mediaSession;
@@ -409,13 +416,14 @@ export function usePodcastPlayer(account: string) {
     try { const replacement = await podcastEpisode(account, replacementID, controller.signal); if (valid() && !controller.signal.aborted) await open(replacement); }
     catch (e) { if (valid() && !controller.signal.aborted) setIssue(message(e)); }
   }, [account, replacementID, valid, open]);
-  return { episode, detail, status, issue, playing, positionMs, rate, open, play, pause, toggle, seek, skip, setRate, stop, bind, setIssue, replacementID, openReplacement };
+  return { episode, detail, status, issue, playing, get positionMs() { return position.current; }, subscribePosition, getPosition, rate, open, play, pause, toggle, seek, skip, setRate, stop, bind, setIssue, replacementID, openReplacement };
 }
 export type PlayerModel = ReturnType<typeof usePodcastPlayer>;
 
 /** Evidence: true opens the passage, false offers Add, null means the navigation was superseded. */
 export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel; onEvidence: (episode: Episode, evidence: Evidence) => boolean | null | Promise<boolean | null>; onAdd?: (episode: Episode) => Promise<void> }) {
-  const { episode, detail, status, issue, playing, positionMs, rate } = player;
+  const { episode, detail, status, issue, playing, rate } = player;
+  const positionMs = useSyncExternalStore(player.subscribePosition, player.getPosition);
   const [expanded, setExpanded] = useState(false);
   const [notice, setNotice] = useState<Episode | null>(null);
   const [adding, setAdding] = useState(false);

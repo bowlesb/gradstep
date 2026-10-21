@@ -182,6 +182,28 @@ describe('the figure view in the chat session', () => {
     expect((await other.figure(member, { figureID: 'b-3' }, 'figure_simpler', () => {}, new AbortController().signal)).issue).toBe('invalid_request');
     expect(server.requests).toHaveLength(0);
   });
+  it('keeps a bounded number of finished results in memory, least recently used out first (C8)', async () => {
+    const chat = await setup([[{ type: 'delta', text: 'It squares x.' }, { type: 'done', stopReason: 'end_turn', credits: 1, charged: true }]]);
+    for (let i = 0; i < 201; i++) await chat.equation(member, { equationID: `e${i}`, latex: 'x^2', number: null }, 'equation', () => {}, new AbortController().signal);
+    expect(chat.savedEquation(bundle.manifestSHA256, 'e0', 'equation')).toBeNull();
+    expect(chat.savedEquation(bundle.manifestSHA256, 'e1', 'equation')).not.toBeNull(); // read: now the most recent
+    await chat.equation(member, { equationID: 'e201', latex: 'x^2', number: null }, 'equation', () => {}, new AbortController().signal);
+    expect(chat.savedEquation(bundle.manifestSHA256, 'e1', 'equation')).not.toBeNull();
+    expect(chat.savedEquation(bundle.manifestSHA256, 'e2', 'equation')).toBeNull();
+  });
+  it('lets go of a figure or equation composer that was only shown, keeping one with text (C8)', async () => {
+    const chat = await setup([[{ type: 'done', stopReason: 'end_turn', credits: 0 }]]);
+    const anchor = { manifestSHA256: bundle.manifestSHA256, elementID: 'b-3', quote: 'Figure 1', prefix: '', suffix: '' };
+    const shown = chat.contextualComposer(member, anchor);
+    expect(chat.composers.has(shown.id)).toBe(true);
+    chat.releaseContextual(shown);
+    expect(chat.composers.has(shown.id)).toBe(false);
+    chat.retainContextual(shown, 'figures'); // shown again (a remount)
+    expect(chat.contextualComposer(member, anchor)).toBe(shown);
+    chat.edit(shown, 'What is on the left?');
+    chat.releaseContextual(shown);
+    expect(chat.composers.has(shown.id)).toBe(true);
+  });
   it('lists what this tab explained for Your assets: each figure or equation once, newest first; a failure is not listed', async () => {
     const chat = await setup([[{ type: 'figure', walkthrough: event as any }, { type: 'done', stopReason: 'end_turn', credits: 5, charged: true }],
       [{ type: 'delta', text: 'Simpler.' }, { type: 'done', stopReason: 'end_turn', credits: 1, charged: true }],
