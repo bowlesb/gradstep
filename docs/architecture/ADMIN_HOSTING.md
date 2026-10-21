@@ -47,6 +47,9 @@ project, add a custom domain, modify DNS or deploy Supabase functions. Reader/in
 The locked Wrangler's explicit Pages `--force` mode disables its agent-specific fallback to creating a Worker
 when a Pages project is missing. Noninteractive stdin then makes a missing project fail instead of prompting to
 create one. This flag selects the hosting product; it does not bypass the build or security gates.
+Wrangler is pinned exactly (`4.148.0`) and `scripts/deploy-web.mjs` is the only deployment path: the root
+`npm run deploy`/`preview` scripts (`wrangler deploy`/`wrangler dev`, which would deploy a Worker outside these
+gates) and the unused `@cloudflare/vite-plugin` were removed on 2026-10-21 (review D6).
 
 The client build receives only the selected staging URL, its public anon JWT and `staging` as Vite variables.
 Inherited Vite overrides and known server/Cloudflare credentials are removed from the build environment, and

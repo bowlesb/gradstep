@@ -423,7 +423,8 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
 
     def test_real_schema_preserves_personal_data_and_rejects_pre_restore_cursors(self):
         self.sql(f"insert into auth.users(id) values ('{self.ACCOUNT}');")
-        self.sql('update app_private.pipeline_policy set enabled=true;update app_private.pdf_upload_policy set enabled=true;'
+        # PDF uploads stay off: every PDF is processed on the device (migration 058's pdf_device_only check).
+        self.sql('update app_private.pipeline_policy set enabled=true;'
                  'update app_private.tag_policy set enabled=true;update app_private.provider_spending_policy set enabled=true;')
         for i in range(1, 4):
             self.actor_sql(f"select public.v2_begin_import(gen_random_uuid(),'2407.0390{i}',{i-1},1);")

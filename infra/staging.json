@@ -82,7 +82,8 @@
     "upload-pdf",
     "podcast",
     "podcast-member",
-    "note-assets"
+    "note-assets",
+    "feed-refresh"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,

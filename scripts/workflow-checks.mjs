@@ -960,8 +960,9 @@ async function profileQuotesProblem(measured) {
   const list = measured.map(x => x.operation).filter(op => UUID_PATTERN.test(op)).map(op => `'${op}'`).join(',');
   const quotes = await management.sql(`select operation_id::text op, profile, model, effort, length, max_output_tokens, title_model,
     credit_ceiling from app_private.chat_quotes where operation_id in (${list})`);
+  // Every model call goes through OpenRouter since 2026-10-18 (migration 089); no direct Anthropic attempt is admitted.
   const attempts = await management.sql(`select operation_id::text op, model, state, actual_microusd from app_private.provider_attempts
-    where provider='anthropic' and operation_id in (${list})`);
+    where provider='openrouter' and route='chat' and operation_id in (${list})`);
   const table = JSON.parse(readFileSync(PROFILE_FIXTURE, 'utf8'));
   for (const x of measured) {
     const q = quotes.find(row => row.op === x.operation), own = attempts.filter(row => row.op === x.operation);
@@ -969,9 +970,9 @@ async function profileQuotesProblem(measured) {
     if (!q) return `${x.id}: no chat_quotes row`;
     if (q.profile !== x.id || q.model !== published.api_model || Number(q.max_output_tokens) !== published.max_output_tokens)
       return `${x.id}: quote ${q.profile}/${q.model}/${q.max_output_tokens} differs from the published profile`;
-    if ((q.title_model === 'claude-haiku-5-5') !== x.titled) return `${x.id}: quote title_model ${q.title_model ?? 'null'}`;
+    if (['anthropic/claude-haiku-5.5', 'claude-haiku-5-5'].includes(q.title_model) !== x.titled) return `${x.id}: quote title_model ${q.title_model ?? 'null'}`;
     if (Number(q.credit_ceiling) < x.credits) return `${x.id}: settled ${x.credits} credits above the quoted ${q.credit_ceiling}`;
-    // The answer's round(s), plus the title's own attempt when one was asked for (Anthropic attempts only).
+    // The answer's round(s), plus the title's own attempt when one was asked for (OpenRouter chat attempts).
     if (own.length < (x.titled ? 2 : 1) || own.some(a => a.state !== 'succeeded')) return `${x.id}: provider attempts ${own.map(a => `${a.model}:${a.state}`).join(', ') || 'none'}`;
     x.provider_usd = own.reduce((sum, a) => sum + Number(a.actual_microusd ?? 0), 0) / 1e6;
   }
