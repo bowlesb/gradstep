@@ -373,7 +373,7 @@ struct EquationView: View {
             guard let image = try? await web.takeSnapshot(configuration: configuration),
                   let opaque = SnippetCapturer.opaque(image, background: .secondarySystemGroupedBackground, traits: web.traitCollection) else { return }
             let anchor = NoteAnchor(manifestSHA256: context.bundle.manifestSHA256, rendererRevision: ReaderVersions.revision(of: context.bundle) ?? 0,
-                                    blockIDs: [context.blockID], rects: [], viewport: nil, quote: nil)
+                                    blockIDs: NoteAnchor.isBlockID(context.blockID) ? [context.blockID] : [], rects: [], viewport: nil, quote: nil)
             let snippet = CapturedSnippet(kind: .region, image: opaque, quote: nil, source: SnippetCapturer.source(for: paper, label: context.label),
                                           anchor: anchor, capturedAt: Date(), origin: .equation, paperID: paper.id)
             model.notes.notice = nil

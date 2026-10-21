@@ -24,6 +24,8 @@ public enum NotesFormat {
     public static let maximumRects = 64
     /// The largest integer every client represents exactly (JavaScript's safe integer).
     public static let maximumInteger: Int64 = 9_007_199_254_740_991
+    /// Counters and revisions: the browser's bound (2³¹ − 1).
+    public static let maximumCounter: Int64 = 2_147_483_647
     /// Stored blob limits (nonce ‖ ciphertext ‖ tag): full image 2 MiB of image bytes, thumbnail 64 KiB.
     public static let maximumFullImageBytes = 2 * 1024 * 1024
     public static let maximumThumbnailBytes = 64 * 1024
@@ -72,6 +74,20 @@ public struct NoteRecord: Equatable, Sendable {
 }
 
 public struct NoteSource: Equatable, Sendable {
+    public static let maximumTitleBytes = 2_000
+    public static let maximumSectionBytes = 1_000
+    public static let maximumLabelBytes = 200
+
+    /// The longest prefix of `text` within `bytes` UTF-8 bytes, cut between whole characters.
+    public static func prefix(_ text: String, bytes: Int) -> String {
+        guard text.utf8.count > bytes else { return text }
+        var out = ""
+        for character in text {
+            guard out.utf8.count + String(character).utf8.count <= bytes else { break }
+            out.append(character)
+        }
+        return out
+    }
     public enum Kind: String, Sendable { case arxiv, localPDF = "local_pdf", document }
     public let kind: Kind
     public let title: String
@@ -94,11 +110,13 @@ public struct NoteSource: Equatable, Sendable {
     }
 
     func validate() throws {
-        guard title.utf8.count <= 2_048, authors.count <= 64, authors.allSatisfy({ $0.utf8.count <= 512 }),
-              (sourceID?.utf8.count ?? 0) <= 256, (url?.utf8.count ?? 0) <= 2_048,
-              (section?.utf8.count ?? 0) <= 1_024, (label?.utf8.count ?? 0) <= 256 else { throw NotesValidationError("source over its bounds") }
-        if let revision { guard (0...100_000).contains(revision) else { throw NotesValidationError("invalid source revision") } }
-        if let page { guard (1...100_000).contains(page) else { throw NotesValidationError("invalid source page") } }
+        // The browser's bounds (apps/web/src/lib/notes.ts), so neither client writes what the other refuses.
+        guard title.utf8.count <= NoteSource.maximumTitleBytes, authors.count <= 64, authors.allSatisfy({ $0.utf8.count <= 512 }),
+              (sourceID?.utf8.count ?? 0) <= 200, (url?.utf8.count ?? 0) <= 2_048,
+              (section?.utf8.count ?? 0) <= NoteSource.maximumSectionBytes, (label?.utf8.count ?? 0) <= NoteSource.maximumLabelBytes
+        else { throw NotesValidationError("source over its bounds") }
+        if let revision { guard (1...Int(NotesFormat.maximumCounter)).contains(revision) else { throw NotesValidationError("invalid source revision") } }
+        if let page { guard (1...10_000).contains(page) else { throw NotesValidationError("invalid source page") } }
         if let pdfSHA256 { guard NotesJSON.isSHA256(pdfSHA256) else { throw NotesValidationError("invalid pdfSHA256") } }
         if let url { guard let parsed = URL(string: url), parsed.scheme == "https" else { throw NotesValidationError("invalid source url") } }
     }
@@ -116,8 +134,13 @@ public struct NoteSource: Equatable, Sendable {
 }
 
 public struct NoteAnchor: Equatable, Sendable {
-    public let manifestSHA256: String
-    public let rendererRevision: Int
+    /// A reader block ID as every client accepts it.
+    public static func isBlockID(_ value: String) -> Bool {
+        !value.isEmpty && value.utf8.count <= 200 && value.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }
+    }
+    /// Nil only in records another client wrote without a bundle identity (Gradstep's own captures always set both).
+    public let manifestSHA256: String?
+    public let rendererRevision: Int?
     public let blockIDs: [String]
     /// Viewport-relative rectangles, each [x, y, w, h] in 0…1.
     public let rects: [[Double]]
@@ -125,7 +148,7 @@ public struct NoteAnchor: Equatable, Sendable {
     public let viewport: [Double]?
     public let quote: String?
 
-    public init(manifestSHA256: String, rendererRevision: Int, blockIDs: [String], rects: [[Double]], viewport: [Double]?, quote: String?) {
+    public init(manifestSHA256: String?, rendererRevision: Int?, blockIDs: [String], rects: [[Double]], viewport: [Double]?, quote: String?) {
         self.manifestSHA256 = manifestSHA256; self.rendererRevision = rendererRevision; self.blockIDs = blockIDs
         self.rects = rects; self.viewport = viewport; self.quote = quote
     }
@@ -139,13 +162,15 @@ public struct NoteAnchor: Equatable, Sendable {
     }
 
     func validate() throws {
-        guard NotesJSON.isSHA256(manifestSHA256) else { throw NotesValidationError("invalid manifestSHA256") }
-        guard (0...1_000_000).contains(rendererRevision) else { throw NotesValidationError("invalid rendererRevision") }
-        guard blockIDs.count <= NotesFormat.maximumBlockIDs, blockIDs.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 200 }) else {
+        if let manifestSHA256 { guard NotesJSON.isSHA256(manifestSHA256) else { throw NotesValidationError("invalid manifestSHA256") } }
+        if let rendererRevision {
+            guard (0...Int(NotesFormat.maximumCounter)).contains(rendererRevision) else { throw NotesValidationError("invalid rendererRevision") }
+        }
+        guard blockIDs.count <= NotesFormat.maximumBlockIDs, blockIDs.allSatisfy(NoteAnchor.isBlockID) else {
             throw NotesValidationError("too many source blocks")
         }
         guard rects.count <= NotesFormat.maximumRects, rects.allSatisfy({ rect in
-            rect.count == 4 && rect.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 } && rect[0] + rect[2] <= 1.001 && rect[1] + rect[3] <= 1.001
+            rect.count == 4 && rect.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 }
         }) else { throw NotesValidationError("invalid anchor rects") }
         if let viewport {
             guard viewport.count == 3, viewport.allSatisfy({ $0.isFinite && $0 > 0 && $0 <= 100_000 }) else { throw NotesValidationError("invalid viewport") }
@@ -154,7 +179,7 @@ public struct NoteAnchor: Equatable, Sendable {
     }
 
     var json: NotesJSON {
-        .object([("manifestSHA256", .string(manifestSHA256)), ("rendererRevision", .int(Int64(rendererRevision))),
+        .object([("manifestSHA256", .optionalString(manifestSHA256)), ("rendererRevision", rendererRevision.map { .int(Int64($0)) } ?? .null),
                  ("blockIDs", .array(blockIDs.map(NotesJSON.string))),
                  ("rects", .array(rects.map { .array($0.map(NotesJSON.double)) })),
                  ("viewport", viewport.map { .array($0.map(NotesJSON.double)) } ?? .null),
@@ -234,7 +259,7 @@ public struct NoteEntryRecord: Equatable, Sendable {
 
     public func validate() throws {
         guard counter >= 1 else { throw NotesValidationError("counter must be >= 1") }
-        guard counter <= NotesFormat.maximumInteger else { throw NotesValidationError("counter over the safe integer range") }
+        guard counter <= NotesFormat.maximumCounter else { throw NotesValidationError("counter over its range") }
         try NotesJSON.validateTimestamp(capturedAt, "capturedAt")
         // The browser's bound (±1,440): every real offset is within ±14 hours; neither client rejects the other's.
         guard (-1_440...1_440).contains(offsetMinutes) else { throw NotesValidationError("invalid offsetMinutes") }
@@ -247,8 +272,9 @@ public struct NoteEntryRecord: Equatable, Sendable {
         if let media, let thumb = media.thumb, thumb.blobID == media.full.blobID { throw NotesValidationError("thumbnail reuses the full blob") }
         switch kind {
         case .region: guard media != nil else { throw NotesValidationError("region without media") }
-        case .quote: guard let quote, !quote.isEmpty, media == nil else { throw NotesValidationError("quote entry without a quote") }
-        case .text: guard media == nil, quote == nil else { throw NotesValidationError("text entry with captured content") }
+        case .quote: guard let quote, !quote.isEmpty else { throw NotesValidationError("quote entry without a quote") }
+        case .text:
+            guard media == nil, quote == nil, source == nil, anchor == nil else { throw NotesValidationError("text entry with captured content") }
         }
     }
 
@@ -361,7 +387,7 @@ public enum NotesRecord: Equatable, Sendable {
     }
 
     private static func anchor(_ read: NotesJSON.Reader) throws -> NoteAnchor {
-        NoteAnchor(manifestSHA256: try read.string("manifestSHA256"), rendererRevision: Int(try read.int("rendererRevision")),
+        NoteAnchor(manifestSHA256: try read.optionalString("manifestSHA256"), rendererRevision: try read.optionalInt("rendererRevision").map(Int.init),
                    blockIDs: try read.strings("blockIDs"), rects: try read.numberArrays("rects"),
                    viewport: try read.optionalNumbers("viewport"), quote: try read.optionalString("quote"))
     }

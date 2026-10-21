@@ -187,9 +187,9 @@ extension ReaderModel {
         referenceNotice = nil
         // The captured passage, as Go to passage finds a chat's: its quote, else its first block on the same reader copy.
         // A different copy never inherits the old pixel rectangle; when the place can't be found the reader says so.
-        if let anchor = entry.anchor, let block = anchor.blockIDs.first {
+        if let anchor = entry.anchor, let manifest = anchor.manifestSHA256, let block = anchor.blockIDs.first {
             var request = PaperPassageRequest(documentID: paper.id, conversationID: UUID(),
-                                              anchor: TextAnchor(manifestSHA256: anchor.manifestSHA256, quote: anchor.quote ?? entry.quote ?? "",
+                                              anchor: TextAnchor(manifestSHA256: manifest, quote: anchor.quote ?? entry.quote ?? "",
                                                                  elementID: block))
             request.origin = .note
             passageRequest = request

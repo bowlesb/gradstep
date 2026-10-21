@@ -1,8 +1,10 @@
 # Notes and snippets
 
 Designed 2026-10-20 local / 2026-10-21 UTC. Proposal and interactive design prototype, now being built: see
-[Server status](#server-status--blob-api-live-on-staging-2026-10-21-utc) and
-[Browser client status](#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc); no client is released.
+[Server status](#server-status--blob-api-live-on-staging-2026-10-21-utc),
+[Browser client status](#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc) and
+[Native client status](#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc);
+no client is released.
 The owner requested the end-to-end experience and examination of the current app.
 This document separates that direction from recommended details and implementation gates. Current released
 clients remain TestFlight 77 and browser Pages `27c45ca0` as recorded in IMPLEMENTATION_STATUS.md.
@@ -178,6 +180,61 @@ and two-tap corners (Draw snippet is in Paper ⋯; keyboard users have Whole vie
 corners); capture from a local PDF (the browser opens local PDFs outside the reader frame); Open in paper for a paper
 not in this library (it says to add it). Real Safari, the hosted function and cross-platform (native ↔ browser)
 records are untested; Playwright WebKit cannot persist the device keys, so the full journeys run in Chromium.
+
+### Native client status — iPhone, iPad and Mac, implemented locally, not released (2026-10-21 UTC)
+
+The native app (`apps/apple`) implements the contract; it is **not in TestFlight**. Its transport was exercised against
+the staging function with a disposable account. Evidence: [implementation status](../IMPLEMENTATION_STATUS.md#notes-and-snippets-native--october-21-utc-local-not-released).
+
+- **Records and blobs** (`ScienceReaderCore/Notes.swift`): the codec writes the fixture's key order with JavaScript's
+  number and string formatting, so every fixture record and the encryption vector match byte for byte. Validation
+  matches the browser's bounds (`apps/web/src/lib/notes.ts`) so neither client writes what the other refuses:
+  `tests/fixtures/notes/cross-client-v1.json` holds six Swift-written records the browser codec re-encodes byte for
+  byte and six browser-written records (null anchor identity, `0.30000000000000004`, `1e-7`, ±1,440-minute offsets,
+  emoji/CJK titles) Swift re-encodes byte for byte. The reducer is the browser's: `(counter, entryID)` order, heads as
+  versions with the greatest event ID shown, permanent tombstones, incomplete entries kept out of other notes, malformed
+  and future records counted; non-Notes `note` events are ignored and the catalog reducer ignores Notes records.
+- **Local durability** (`EncryptedStore`, store format 7): unsent blobs are sealed rows (`local_note_blobs`) listed in the
+  authenticated metadata manifest with each held entry and the last-used note. `saveNoteEntry` commits blobs, a new note
+  and the entry in one SQLite transaction; a failed write leaves nothing. `pending()` withholds an entry, and anything
+  depending on it, until all its blobs are `ready`; chats and catalogs are never held. Holds follow key-rotation rebasing.
+  Downloads and acknowledged uploads form an encrypted cache (192 MiB / 4,000 objects, oldest first); unsent captures
+  (≤512 / 96 MiB) are never evicted. Opening refuses a missing unsent blob rather than dropping it.
+- **Transport and sync** (`NoteAssets.swift`, `BackendNoteAssets`): `CloudSync` uploads pending blobs (same IDs and bytes
+  on every retry) after catch-up and before pushing events; per-blob failures are shown in Notes and never stop chats.
+  Responses map as deployed: 409 conflict, 413, 400 refusals, 429 `quota` (storage, or the month's downloads on GET),
+  `rate_limited` and 503 as retryable; a GET body must match `X-Content-SHA256` and then its descriptor (digest, tag,
+  magic bytes, decoded dimensions) before it is cached or shown. Images load on demand, thumbnail first.
+- **Navigation**: iPhone tabs are Feed · Library · Paper · Chat · Notes. Every ⋯ menu (Feed and Listen, Library, Paper
+  including its empty and error states, Chat in all states, Notes list and note) ends with Settings after Report this
+  screen; on phone widths it opens as a sheet over the screen and Done returns there. The presentations Settings can open
+  (sign-in, recovery, chats, diagrams, credits, reports, errors) are hosted inside that sheet while it is open. iPad and
+  Mac add Notes to the wide view switch (Mac toolbar, View menu ⌘6) with the list beside the open note; their Settings
+  gear/toolbar item and ⌘, are unchanged, and the menu section opens that same Settings and returns to the view.
+- **Capture**: Paper ⋯ › Draw snippet, the selection menu's Draw snippet and Add to note (a quotation; separate from
+  the paid chat actions), the Mac Paper menu (Draw Snippet, Add Selection to Note; no shortcuts), a figure or table
+  page's Add to note (the whole item preselected, then adjustable), the equation page's Add to note (its rendering, on
+  the card's background), and the local PDF reader's ⋯ › Draw snippet. Drawing freezes the page under an overlay (drag in
+  either direction, nearest of four 44 pt corners, move inside, edge sliders, Whole page), Cancel/Escape restores it, and
+  a size change asks for a new box. HTML: `WKWebView.takeSnapshot` of exactly the box at screen density, blocks/section/
+  figure label read from the page DOM and checked against the bundle; PDF: PDFKit draws just that part of the page
+  (rotation applied). The composer shows the encoded image that will be saved, preselects the last note (Quick notes on
+  first use), offers New note and an optional comment, and returns to the page with "Saved to … · Open note".
+- **Notes**: list (search over titles, writing, quotes and source titles on the device; +; rename and delete with the
+  note's name and entry count; counts, last edited, pending syncs), the stream (date separators; crops with full-size
+  pinch/double-tap zoom; quotations; writing; Edit comment; Open in paper at the captured passage on the same reader copy;
+  Source details; Delete; "2 versions · Review" with Keep this version), Add text, and the state table's labels: locked
+  (Unlock notes), signed out, waiting, image waiting to upload, upload failures in words, missing images with Retry.
+
+Choices where the contract was open: the local PDF source carries `pdfSHA256` and a one-based `page` with no anchor; an
+equation-page capture has its block and no rectangle; anchor rectangles are rounded to 1/10,000; tombstones have no
+parents (the browser names the heads; each client reads both); a repeated Save of a committed capture is a no-op.
+
+Not done natively: encrypted composer/comment drafts (Cancel after typing asks Discard or Keep editing); "Keep both";
+a New snippets jump; two-tap corner placement and VoiceOver capture announcements beyond the area's label and size;
+Open in paper for a local PDF source (it shows the source details); adjusting an equation-page capture. The physical
+iPhone is paused; device-to-device sync (native ↔ browser through staging) has not been run end to end — only the
+records (shared fixtures) and the blob service (live) are proven. Store format 7 cannot be opened by older builds.
 
 ## Product contract
 

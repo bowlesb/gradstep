@@ -27,6 +27,12 @@ with Settings in the top-right ⋯ (implementation direction for this delivery).
 uses a local rasterizer inside the reader frame; it passed fidelity checks on real bundles in Playwright's Chromium,
 Firefox and WebKit, and a runtime probe disables Draw snippet with a message where it can't work. Details and limits:
 [browser client status](architecture/NOTES_AND_SNIPPETS.md#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc).
+Update 2026-10-21 UTC (iPhone, iPad and Mac, local, not in TestFlight): the iPhone tab bar is Feed · Library · Paper ·
+Chat · Notes and every top-right ⋯ ends with Settings, shown over the screen; iPad and Mac add Notes to their view
+switch and keep their own Settings control and ⌘,. Capture adds a Draw snippet entry to the selection menu beside Add
+to note and a Paper menu pair on the Mac (no shortcuts); no persistent reader shortcut was added. The native and
+browser codecs accept exactly each other's records (shared cross-client fixtures). Details and limits:
+[native client status](architecture/NOTES_AND_SNIPPETS.md#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc).
 
 ## Responsiveness, dollar balances and platform parity (October 20; parity released, dollars design only)
 

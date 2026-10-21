@@ -282,13 +282,15 @@ enum SnippetCaptureError: LocalizedError {
         """
 
     static func source(for paper: Paper, label: String? = nil, section: String? = nil) -> NoteSource {
-        let title = String(paper.title.prefix(500)), authors = Array(paper.authorNames.prefix(64)).map { String($0.prefix(200)) }
+        let title = NoteSource.prefix(paper.title, bytes: NoteSource.maximumTitleBytes)
+        let authors = Array(paper.authorNames.prefix(64)).map { NoteSource.prefix($0, bytes: 512) }
+        let section = section.map { NoteSource.prefix($0, bytes: NoteSource.maximumSectionBytes) }
         if let arxiv = paper.arxivReaderSource {
             return NoteSource(kind: .arxiv, title: title, authors: authors, sourceID: arxiv.sourceID, revision: arxiv.revision,
                               url: "https://arxiv.org/abs/\(arxiv.sourceID)v\(arxiv.revision)", section: section, label: label,
                               membershipID: paper.sourceMembership?.membershipID)
         }
-        return NoteSource(kind: .document, title: title, authors: authors, sourceID: paper.id.wire, revision: paper.sourceRevision,
+        return NoteSource(kind: .document, title: title, authors: authors, sourceID: paper.id.wire, revision: paper.sourceRevision.flatMap { $0 >= 1 ? $0 : nil },
                           url: nil, section: section, label: label, membershipID: paper.sourceMembership?.membershipID)
     }
 
@@ -311,7 +313,7 @@ enum SnippetCaptureError: LocalizedError {
                                                                                  "w": crop.width / zoom, "h": crop.height / zoom],
                                                        in: nil, contentWorld: .defaultClient) as? [String: Any]
         let known = Set(bundle.index.blocks.map(\.id))
-        let blocks = ((found?["blocks"] as? [String]) ?? []).filter { known.contains($0) }.prefix(NotesFormat.maximumBlockIDs)
+        let blocks = ((found?["blocks"] as? [String]) ?? []).filter { known.contains($0) && NoteAnchor.isBlockID($0) }.prefix(NotesFormat.maximumBlockIDs)
         // The section heading above the box (h2 and below: h1 is the paper's own title, already the source title).
         let section = (found?["section"] as? String).map { String($0.prefix(300)) }.flatMap { $0.isEmpty || $0 == paper.title ? nil : $0 }
         let label = (found?["label"] as? String).flatMap { $0.wholeMatch(of: /(?:Figure|Table|Algorithm) ?[A-Za-z0-9.]{1,10}/) != nil ? $0 : nil }
@@ -350,7 +352,8 @@ enum SnippetCaptureError: LocalizedError {
         let text = String(quote.utf8.prefix(NotesFormat.maximumQuoteBytes)) ?? String(quote.prefix(5_000))
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         var seen = Set<String>(), blocks: [String] = []
-        for part in selection.parts where seen.insert(part.blockID).inserted && blocks.count < NotesFormat.maximumBlockIDs { blocks.append(part.blockID) }
+        for part in selection.parts where NoteAnchor.isBlockID(part.blockID) && seen.insert(part.blockID).inserted
+            && blocks.count < NotesFormat.maximumBlockIDs { blocks.append(part.blockID) }
         let anchor = NoteAnchor(manifestSHA256: bundle.manifestSHA256, rendererRevision: ReaderVersions.revision(of: bundle) ?? 0,
                                 blockIDs: blocks, rects: [], viewport: nil, quote: text)
         return CapturedSnippet(kind: .quote, image: nil, quote: text, source: source(for: paper), anchor: anchor, capturedAt: Date(),
@@ -369,7 +372,8 @@ enum SnippetCaptureError: LocalizedError {
         guard let image = PDFRegionRenderer.render(page: page, pageRect: pageRect, crop: crop, scale: max(2, scale)) else { throw SnippetCaptureError.unavailable }
         let index = view.document.map { $0.index(for: page) } ?? 0
         let digest = Data(SHA256Digest.hash(presentation.data)).hex
-        let source = NoteSource(kind: .localPDF, title: String(presentation.title.prefix(500)), authors: Array(presentation.authors.prefix(64)),
+        let source = NoteSource(kind: .localPDF, title: NoteSource.prefix(presentation.title, bytes: NoteSource.maximumTitleBytes),
+                                authors: Array(presentation.authors.prefix(64)).map { NoteSource.prefix($0, bytes: 512) },
                                 sourceID: presentation.sourceID, revision: presentation.revision,
                                 url: presentation.sourceID.flatMap { id in presentation.revision.map { "https://arxiv.org/abs/\(id)v\($0)" } },
                                 section: nil, label: nil, pdfSHA256: digest, page: index + 1)
