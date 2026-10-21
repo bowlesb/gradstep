@@ -455,7 +455,8 @@ struct LibraryView: View {
                 }
             }
             Divider()
-            Button("Manage catalogs…") { model.showCatalogs = true }
+            // No ellipsis (owner, build 78: "No three dots after manage catalogs").
+            Button("Manage catalogs") { model.showCatalogs = true }
         } label: {
             // A long name is shortened so the search field keeps most of the row.
             let name = model.currentCatalog.name
