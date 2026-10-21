@@ -9,7 +9,7 @@ import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure } fr
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
 import { spansOf, tagInput } from './tagger.ts';
 import { mathRuns, transcribe } from './transcribe.ts';
-import { BLOCK_TEXT_CHUNK, CROP_MARGIN, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
+import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region } from './types.ts';
 
 /** A piece of text with formula markers (`__EQ_<id>__`) where the reference's HTML had them. */
@@ -19,7 +19,7 @@ export const MARKER = /__EQ_(e-[0-9a-f]+-\d+)__/g;
 
 export type FigureImage = { request: { page: number; rect: [number, number, number, number] } };
 export type LogicalBlock =
-  | { kind: 'heading'; level: number; marked: Marked; text: string }
+  | { kind: 'heading'; level: number; marked: Marked; text: string; trace?: string }
   | { kind: 'paragraph'; marked: Marked; text: string; role: '' | 'authors' | 'footnote' | 'abstract' }
   | { kind: 'equation'; formula: string }
   | { kind: 'code'; lines: Marked[]; text: string }
@@ -183,6 +183,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const readers = [...ordered.filter(r => r.cls !== 'authors'), ...ordered.filter(r => r.cls === 'authors').flatMap(r => r.parts ?? []),
       ...ordered.flatMap(r => r.captions ?? [])];
     let owner = growLines(glyphs, assign(glyphs, readers));
+    if (input.lineOwners) owner = lineOwners(glyphs, owner);
     for (const r of ordered) if (r.cls === 'authors') { const parts = new Set(r.parts); owner = owner.map(o => o && parts.has(o) ? r : o); }
     nGlyphs += glyphs.length; nUnowned += owner.filter(o => o === null).length;
     const owned = (r: Region) => glyphs.filter((_, i) => owner[i] === r);
@@ -237,6 +238,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       const texts: string[] = [], parts: Marked[] = [], tagFormulas: Formula[] = [];
       for (const line of linesFor(r)) {
         let spans = TAGGED.has(cls) && !inReferences ? spansFor(line) : [];
+        if (input.extendSpans && spans.length) spans = extendSpans(line, spans);
         // Math the tagger missed, found by its fonts and written from the text layer (transcribe.mathRuns).
         if (input.fontMath && spans.length < 64 && TAGGED.has(cls) && !inReferences && cls !== 'authors') {
           spans = [...spans, ...fontSpans(line, spans)].sort((a, b) => a[0] - b[0]);
@@ -259,6 +261,8 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       if (continues(text, cls, prevCls)) { para.push({ marked: inner, text, formulas: tagFormulas, role: '' }); continue; }
       flushPara();
       if (title && cls !== 'title' && canonicalText(text) === canonicalText(title)) continue;
+      // The library's title read as a heading when the layout found no title: the reader's h1 is that title already.
+      if (input.headingDupes && !title && cls === 'heading' && input.title && letters(text) === letters(input.title)) continue;
       if (canonicalText(text) === lastText) continue;
       lastText = canonicalText(text);
       if (cls === 'paragraph' && canonicalText(text).toLowerCase() === 'abstract') cls = 'heading';
@@ -269,20 +273,24 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         if (inReferences && refs.length) flushRefs();
         inReferences = /^\s*(\d+\.?\s*)?(references|bibliography|literature cited|works cited)\b/i.test(text);
         const level = /^\d+(\.\d+)*\.?\s/.test(text) ? 2 + Math.min(2, (text.trim().split(' ')[0].match(/\./g) ?? []).length) : 2;
-        blocks.push({ kind: 'heading', level, marked: inner, text }); addTrace('heading', text, level);
+        blocks.push({ kind: 'heading', level, marked: inner, text, trace: addTrace('heading', text, level) });
       } else if (cls === 'listing') {
         blocks.push({ kind: 'code', lines: inner.split('\n'), text });
         const bid = addTrace('code', text);
         for (const f of tagFormulas) commit(f, bid, 'body');
       } else if (inReferences && (cls === 'paragraph' || cls === 'bibitem')) {
-        refs.push(text);
+        // One region often holds several entries (the layout boxes a column of them): each entry starts at a line that
+        // opens with a label ("[12]", "12.") or sits out to the left of the line before (hanging indent).
+        if (input.splitReferences) refs.push(...referenceEntries(linesFor(r), texts));
+        else refs.push(text);
       } else if (cls === 'footnote') {
         notes.push({ marked: inner, text, formulas: tagFormulas });
         continue; // a footnote at the column's foot does not close the paragraph above it
       } else if (cls === 'authors') {
         blocks.push({ kind: 'paragraph', marked: inner, text, role: 'authors' }); addTrace('paragraph', text);
       } else {
-        if (cls === 'abstract' && !(trace.headings.length && trace.headings[trace.headings.length - 1].title === 'Abstract')) {
+        const abstractHeading = (t: string) => input.headingDupes ? letters(t) === 'abstract' : t === 'Abstract';
+        if (cls === 'abstract' && !(trace.headings.length && abstractHeading(trace.headings[trace.headings.length - 1].title))) {
           blocks.push({ kind: 'heading', level: 2, marked: 'Abstract', text: 'Abstract' }); addTrace('heading', 'Abstract', 2);
         }
         para.push({ marked: inner, text, formulas: tagFormulas, role: cls === 'abstract' ? 'abstract' : '' });
@@ -344,6 +352,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   }
   flushPara();
   if (refs.length) flushRefs();
+  if (input.headingDupes) contentsAsText(blocks, trace);
   recognisePending();
 
   trace.title = title || input.pdf.name.replace(/\.[^.]*$/, '');
@@ -373,6 +382,127 @@ export function fontSpans(line: readonly Glyph[], taken: readonly [number, numbe
     if (hi - lo + 1 === idx.length && !taken.some(([a, b]) => a <= hi && lo < b)) out.push([lo, hi + 1]);
   }
   return out;
+}
+
+/** A references region's lines (glyphs, and their text) as its entries: a line starts an entry when it opens with a
+ * label ("[12]", "12.", "(12)") or begins more than half an em left of the line before (the hanging indent most styles
+ * use); otherwise it continues the entry, a word broken at the line's end joined. */
+export function referenceEntries(lines: readonly Glyph[][], texts: readonly string[]): string[] {
+  const label = /^\s*(\[\s*[\w+.\-]{1,12}\s*\]|\(\d{1,4}\)|\d{1,4}\.)\s/;
+  const lefts = lines.map(l => Math.min(...l.filter(visible).map(g => g.x0)));
+  const sizes = lines.map(l => median(l.map(g => g.size)) || 10);
+  const labelled = texts.filter(t => label.test(t)).length >= 2;
+  const entries: string[][] = [];
+  texts.forEach((t, i) => {
+    if (!t) return;
+    const starts = !entries.length || (labelled ? label.test(t) : lefts[i] < lefts[i - 1] - 0.5 * sizes[i]);
+    if (starts) entries.push([t]); else entries[entries.length - 1].push(t);
+  });
+  return entries.map(e => joinLines(e)).filter(Boolean);
+}
+
+/** A printed table of contents: three or more headings in a row, each of which comes again as a later heading, are the
+ * contents list, not sections; they become paragraphs (the reader's Contents is built from the sections themselves).
+ * In place, the reference's index kept in step. */
+export function contentsAsText(blocks: LogicalBlock[], trace: TraceIndex): void {
+  const key = (b: LogicalBlock) => b.kind === 'heading' ? letters(b.text).replace(/\d+$/, '') : '';
+  const later = new Map<string, number>(); // heading text -> last index
+  blocks.forEach((b, i) => { if (b.kind === 'heading' && b.level > 1) later.set(key(b), i); });
+  let run: number[] = [];
+  const settle = () => {
+    if (run.length >= 3) for (const i of run) {
+      const b = blocks[i] as Extract<LogicalBlock, { kind: 'heading' }>;
+      blocks[i] = { kind: 'paragraph', marked: b.marked, text: b.text, role: '' };
+      const row = trace.blocks.find(t => t.id === b.trace);
+      if (row) row.kind = 'paragraph';
+      trace.headings = trace.headings.filter(h => h.id !== b.trace);
+    }
+    run = [];
+  };
+  blocks.forEach((b, i) => {
+    if (b.kind === 'heading' && b.level > 1 && b.trace && (later.get(key(b)) ?? i) > i) run.push(i);
+    else settle();
+  });
+  settle();
+}
+
+/** One run of a text line (glyphs at word spacing or closer) belongs to one region: the region holding most of it. A
+ * heading whose box is narrower than its text otherwise loses its first or last letters to the paragraph box beside it
+ * ("ic droplet size" for "Electrostatic droplet size"). Column gutters (over one glyph height) end a run. */
+export function lineOwners(glyphs: readonly Glyph[], owner: readonly (Region | null)[]): (Region | null)[] {
+  const index = new Map<Glyph, number>(glyphs.map((g, i) => [g, i]));
+  const out = [...owner];
+  for (const line of linesOf(glyphs)) {
+    const order = byX(line);
+    let run: Glyph[] = [];
+    const settle = () => {
+      if (run.length < 2) return;
+      const votes = new Map<Region, number>();
+      for (const g of run) { const o = out[index.get(g)!]; if (o) votes.set(o, (votes.get(o) ?? 0) + 1); }
+      if (votes.size < 2) return;
+      const [winner, n] = [...votes].sort((a, b) => b[1] - a[1])[0];
+      // Only a clear majority, and never for floats or displays (their glyphs are read by other rules).
+      if (n * 2 <= run.length || ['figure', 'table', 'display'].includes(winner.cls)) return;
+      if ([...votes.keys()].some(r => ['figure', 'table', 'display'].includes(r.cls))) return;
+      for (const g of run) out[index.get(g)!] = winner;
+    };
+    for (const g of order) {
+      const prev = run[run.length - 1];
+      if (prev && g.x0 - prev.x1 > LINE_GAP * Math.max(1.0, g.bottom - g.top)) { settle(); run = []; }
+      run.push(g);
+    }
+    settle();
+  }
+  return out;
+}
+
+const OPERATOR_NAMES = new Set(['sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'sinh', 'cosh', 'tanh', 'log', 'ln', 'exp', 'max', 'min', 'sup', 'inf',
+  'lim', 'det', 'dim', 'arg', 'Pr', 'tr', 'diag', 'softmax', 'argmax', 'argmin']);
+/** A tagged formula's glyph run grown over what the tagger cut off at its edges (spans in stream order, as `lineText`
+ * takes them): touching digits and operators in the roman font ("63.6" of "63.6±3.9") and an operator name set against it
+ * ("cos" of "cos θ"). The tagger's commonest error is a formula cut short (the desktop's boundary analysis); a grown span
+ * is kept only when its glyphs are one stretch of the stream and it meets no other span. */
+export function extendSpans(line: readonly Glyph[], spans: readonly [number, number][]): [number, number][] {
+  if (!spans.length) return [...spans];
+  const order = argsort(line, g => g.x0), at = new Map(order.map((i, k) => [i, k]));
+  const owner = new Map<number, number>(); // x position -> span number
+  spans.forEach(([s, e], n) => { for (let i = s; i < e; i++) { const k = at.get(i); if (k !== undefined) owner.set(k, n); } });
+  const roman = (g: Glyph) => /^(CMR|LMRoman\d*-Regular|NimbusRomNo9L-Regu|TeXGyreTermes-Regular|NewTXRoman|ntxr|txr|Times-Roman)/i.test(g.font.replace(/^[A-Z]{6}\+/, ''));
+  // Glyphs of one formula: touching, or across the medium and thick spaces TeX sets around operators and relations.
+  const operator = (g: Glyph) => /^[=+\-−×±<>≤≥≈∼·∈]$/.test(g.text);
+  const touching = (a: Glyph, b: Glyph) => b.x0 - a.x1 < (operator(a) || operator(b) ? 0.32 : 0.12) * Math.max(a.size, b.size, 1);
+  const neutral = (g: Glyph) => roman(g) && /^[0-9.=+\-−()[\]/×±·]$/.test(g.text);
+  const current: [number, number][] = spans.map(([s, e]) => [s, e]);
+  const grown = current.map(([s, e], n): [number, number] => {
+    const xs = [];
+    for (let i = s; i < e; i++) { const k = at.get(i); if (k !== undefined) xs.push(k); }
+    let lo = Math.min(...xs), hi = Math.max(...xs);
+    const free = (k: number) => k >= 0 && k < order.length && owner.get(k) === undefined && visible(line[order[k]]);
+    // Left: digits and operators, then an operator name.
+    while (free(lo - 1) && neutral(line[order[lo - 1]]) && touching(line[order[lo - 1]], line[order[lo]])) lo--;
+    // TeX sets a thin space (1/6 em) between an operator name and its argument; the name's own letters touch.
+    let k = lo - 1, name = '';
+    while (free(k) && roman(line[order[k]]) && /^\p{L}$/u.test(line[order[k]].text)
+      && (k === lo - 1 ? line[order[lo]].x0 - line[order[k]].x1 < 0.3 * Math.max(line[order[k]].size, 1) : touching(line[order[k]], line[order[k + 1]]))) { name = line[order[k]].text + name; k--; }
+    if (name && OPERATOR_NAMES.has(name) && !(free(k) && /^\p{L}$/u.test(line[order[k]].text))) lo = k + 1;
+    // Right: digits and operators (not a closing comma or full stop).
+    while (free(hi + 1) && neutral(line[order[hi + 1]]) && touching(line[order[hi]], line[order[hi + 1]])) hi++;
+    while (hi > Math.max(...xs) && /^[.]$/.test(line[order[hi]].text)) hi--;
+    const idx = order.slice(lo, hi + 1), a = Math.min(...idx), b = Math.max(...idx);
+    if (b - a + 1 !== idx.length || current.some(([x, y], m) => m !== n && x <= b && a < y)) return [s, e];
+    // The grown span owns its glyphs from now on: a later span does not grow into them.
+    for (let p = lo; p <= hi; p++) owner.set(p, n);
+    current[n] = [a, b + 1];
+    return [a, b + 1];
+  });
+  // Spans that now meet ("x =" and "y" of "x = y") are one formula when their glyphs touch across the meeting point.
+  const sorted = [...grown].sort((p, q) => p[0] - q[0]), merged: [number, number][] = [];
+  for (const sp of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && last[1] === sp[0] && touching(line[last[1] - 1], line[sp[0]]) && line[sp[0]].x0 >= line[last[1] - 1].x0) last[1] = sp[1];
+    else merged.push([sp[0], sp[1]]);
+  }
+  return merged;
 }
 
 const letters = (text: string) => text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');

@@ -1,6 +1,7 @@
 import Foundation
 import ScienceReaderCore
 import CoreML
+import JavaScriptCore
 
 // The device route on this Mac, for evaluation (docs/architecture/DEVICE_PDF_ROUTE.md):
 //   swift run -c release DevicePDFRouteTool <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js>
@@ -16,6 +17,13 @@ struct Tool {
             let value = args[i + 1]; args.removeSubrange(i...(i + 1)); return value
         }
         func flag(_ name: String) -> Bool { if let i = args.firstIndex(of: name) { args.remove(at: i); return true }; return false }
+        // --replay-converter <record.json> --compiler <js>: the converter alone in JavaScriptCore on a run's recorded host
+        // answers (no models), timed: with JSC_useJIT=false in the environment this is the phone's case (no JIT for an
+        // app's JSContext).
+        if let recordPath = option("--replay-converter"), let compiler = option("--compiler") {
+            try replayConverter(record: URL(fileURLWithPath: recordPath), compiler: URL(fileURLWithPath: compiler), repeats: Int(option("--repeat") ?? "1") ?? 1)
+            return
+        }
         // --check-determinism: the tagger and the layout on fixed inputs, alone and while the recogniser runs on another
         // thread; prints how many outputs differ from the first.
         if flag("--check-determinism"), let models = option("--models") {
@@ -194,4 +202,67 @@ func benchRecogniser(models: URL, samples: URL, units: MLComputeUnits, repeats: 
     }
     let ms = Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6
     print("batched: \(work.count) crops in \(groups.count) batches, \(String(format: "%.0f", ms)) ms, \(String(format: "%.1f", ms / Double(work.count))) ms per crop; agreement \(box.agree)/\(work.count)")
+}
+
+/// The converter on recorded host answers (`--record`), in JavaScriptCore, timed; blank images of the asked sizes.
+func replayConverter(record url: URL, compiler: URL, repeats: Int) throws {
+    let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+    let pages = record["pages"] as! [Any]
+    var tags: [String: Any] = [:], recognitions: [String: Any] = [:]
+    for pair in record["tags"] as! [[Any]] { tags[pair[0] as! String] = pair[1] }
+    for pair in record["recognitions"] as! [[Any]] { recognitions[pair[0] as! String] = pair[1] }
+    var input = record["input"] as! [String: Any]
+    input["trace"] = false; input["record"] = false
+    let source = try String(contentsOf: compiler, encoding: .utf8)
+    for round in 0..<max(1, repeats) {
+        let context = JSContext()!
+        context.exceptionHandler = { _, e in FileHandle.standardError.write(Data("JS: \(e?.toString() ?? "")\n".utf8)) }
+        context.evaluateScript(source)
+        let api = context.objectForKeyedSubscript("GradstepDevicePDF")!
+        let host = JSValue(newObjectIn: context)!
+        final class Count { var misses = 0 }
+        let count = Count()
+        let page: @convention(block) (Int) -> Any = { i in pages[i] }
+        let tag: @convention(block) (JSValue) -> Any = { lines in
+            let n = Int(lines.objectForKeyedSubscript("length")?.toInt32() ?? 0)
+            var out: [Any] = []
+            for i in 0..<n {
+                let l = lines.objectAtIndexedSubscript(i)!
+                let chars = ((l.objectForKeyedSubscript("char")?.toArray() as? [NSNumber]) ?? []).map { String($0.intValue) }
+                let fonts = ((l.objectForKeyedSubscript("font")?.toArray() as? [NSNumber]) ?? []).map { String($0.intValue) }
+                let x = ((l.objectForKeyedSubscript("x")?.toArray() as? [NSNumber]) ?? []).map { String(format: "%.3f", $0.doubleValue) }
+                let key = chars.joined(separator: ",") + "|" + fonts.joined(separator: ",") + "|" + x.joined(separator: ",")
+                if let hit = tags[key] { out.append(hit) } else { count.misses += 1; out.append(fonts.map { _ in -10.0 }) }
+            }
+            return out
+        }
+        let recognise: @convention(block) (JSValue) -> Any = { crops in
+            let n = Int(crops.objectForKeyedSubscript("length")?.toInt32() ?? 0)
+            var out: [Any] = []
+            for i in 0..<n {
+                let c = crops.objectAtIndexedSubscript(i)!
+                let rect = ((c.objectForKeyedSubscript("rect")?.toArray() as? [NSNumber]) ?? []).map { String($0.intValue) }.joined(separator: ",")
+                out.append(recognitions["\(c.objectForKeyedSubscript("page")!.toInt32()):\(rect)"] ?? NSNull())
+            }
+            return out
+        }
+        let image: @convention(block) (JSValue) -> Any = { r in
+            let rect = ((r.objectForKeyedSubscript("rect")?.toArray() as? [NSNumber]) ?? []).map(\.intValue)
+            guard rect.count == 4 else { return NSNull() }
+            let w = max(1, rect[2] - rect[0]), h = max(1, rect[3] - rect[1])
+            let png = DevicePDFRaster.png(DevicePDFRaster.RGB(width: w, height: h, pixels: [UInt8](repeating: 230, count: w * h * 3)))
+            var out: [String: Any] = ["png": png.base64EncodedString(), "width": w, "height": h]
+            if let clean = r.objectForKeyedSubscript("clean"), clean.isObject { out["rect"] = rect }
+            return out
+        }
+        host.setObject(page, forKeyedSubscript: "page" as NSString)
+        host.setObject(tag, forKeyedSubscript: "tag" as NSString)
+        host.setObject(recognise, forKeyedSubscript: "recognise" as NSString)
+        host.setObject(image, forKeyedSubscript: "image" as NSString)
+        let start = DispatchTime.now().uptimeNanoseconds
+        let result = api.invokeMethod("convert", withArguments: [input, host])
+        let seconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
+        let sha = result?.objectForKeyedSubscript("manifest_sha256")?.toString() ?? "none"
+        print("round \(round): \(String(format: "%.2f", seconds)) s for \(pages.count) pages (\(String(format: "%.3f", seconds / Double(pages.count))) s/page), tag misses \(count.misses), manifest \(sha.prefix(12)), JIT \(ProcessInfo.processInfo.environment["JSC_useJIT"] ?? "default")")
+    }
 }

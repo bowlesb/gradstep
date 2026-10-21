@@ -307,6 +307,10 @@ export function compare(truthBlocks, deviceBlocks) {
   }
   const order = { truth_blocks: substantial, found: matches.length, block_recall: round(matches.length / Math.max(1, substantial)),
     whole_blocks: round(matches.filter(m => m.ratio >= 0.8).length / Math.max(1, substantial)),
+    // Not whole: the device block holds this one and more (merged with a neighbour), or only part of it (split).
+    merged: matches.filter(m => m.ratio < 0.8 && m.covered >= 0.8).length, split: matches.filter(m => m.covered < 0.8).length,
+    by_kind: matches.reduce((acc, m) => { const k = truthBlocks[m.ti].kind, c = m.ratio >= 0.8 ? 'whole' : m.covered >= 0.8 ? 'merged' : 'split';
+      acc[k] ??= { whole: 0, merged: 0, split: 0 }; acc[k][c]++; return acc; }, {}),
     adjacent_in_order: round(adjacentOK / Math.max(1, matches.length - 1)), pairs_in_order: round(concordant / Math.max(1, pairsN)) };
   // Headings (the desktop's comparison: letters only; run-in paragraph titles and the HTML reader's h5/h6 theorem and proof
   // labels left out of the truth).

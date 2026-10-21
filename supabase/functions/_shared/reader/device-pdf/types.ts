@@ -94,6 +94,14 @@ export interface DevicePDFInput {
   tidy?: boolean;
   /** Math the tagger missed (paragraph lines and table cells), found by its fonts (transcribe.mathRuns); with `transcribe`. */
   fontMath?: boolean;
+  /** Tagged formulas grown over the digits, operators and operator names the tagger cut off (convert.extendSpans). */
+  extendSpans?: boolean;
+  /** A text line's run belongs to the region holding most of it (convert.lineOwners). */
+  lineOwners?: boolean;
+  /** No heading twice: the library's title, "ABSTRACT", a printed contents list (convert.contentsAsText). */
+  headingDupes?: boolean;
+  /** A references region holding several entries read as its entries (convert.referenceEntries). */
+  splitReferences?: boolean;
 }
 
 export interface Formula {

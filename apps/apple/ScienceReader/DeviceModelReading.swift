@@ -95,6 +95,8 @@ enum DeviceModelEngine {
             let route = DevicePDFRoute(models: models, compilerSource: try String(contentsOf: compilerURL, encoding: .utf8))
             var options = DevicePDFRoute.Options(title: title, sourceID: source.sourceID, revision: source.revision)
             options.authors = authors; options.rules = rules
+            // Each recogniser batch in flight holds its own state (about 0.4 GB for a batch of 8): two only where memory is ample.
+            options.recogniserConcurrency = ProcessInfo.processInfo.physicalMemory >= 7_500_000_000 ? 2 : 1
             options.onPreview = { output in
                 guard let verified = try? VerifiedReaderBundle.verify(manifest: output.manifest, expectedSHA256: output.manifestSHA256, members: output.members),
                       let bundle = try? ReaderBundleLoader.admitImages(in: verified) else { return }

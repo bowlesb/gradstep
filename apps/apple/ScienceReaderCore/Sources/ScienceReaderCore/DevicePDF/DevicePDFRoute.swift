@@ -285,7 +285,7 @@ public final class DevicePDFRoute {
             "pdf": ["sha256": digest, "bytes": data.count, "name": name], "pages": pageCount,
             "models": models.provenance, "tagger": models.taggerVocabulary, "trace": options.trace, "record": options.record,
         ]
-        for rule in options.rules where ["transcribe", "frontMatter", "tidy", "fontMath"].contains(rule) { input[rule] = true }
+        for rule in options.rules where ["transcribe", "frontMatter", "tidy", "fontMath", "extendSpans", "lineOwners", "headingDupes", "splitReferences"].contains(rule) { input[rule] = true }
         if !options.authors.isEmpty { input["authors"] = Array(options.authors.prefix(200)) }
         if let title = options.title { input["title"] = title }
         if let sourceID = options.sourceID, let revision = options.revision { input["paper"] = ["source_id": sourceID, "revision": revision] }
