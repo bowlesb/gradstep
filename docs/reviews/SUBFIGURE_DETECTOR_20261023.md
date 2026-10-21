@@ -1,9 +1,33 @@
 # Subfigure detector round 3: structure first, bottom-up ink grouping, local VLM judge — 2026-10-23
 
-Status: **in progress** (filled as results arrive). Research only; no application code, model catalogue or
+Status: **complete for this round; no approach meets the gates and none beats the 10-22 release candidate.** Research only; no application code, model catalogue or
 release changed. Previous rounds: [10-21](SUBFIGURE_DETECTOR_20261021.md), [10-22](SUBFIGURE_DETECTOR_20261022.md).
 Gates: ≥ 95% panel recall and < 2% wrong crops. All development uses the 238-figure arXiv validation set and the
 313-figure frozen validation set; test 2 is spent and is not used here.
+
+## Summary
+
+- **Structure first:** in the 152,680 figure elements of the corpus HTML, **15.7% already have ≥ 2 images**
+  (exact parts, no model; 9.6% with sub-captions). The model is needed only for single-image figures (74%); one
+  in eight of those names ≥ 2 parts in its caption (8.9% of all figures).
+- **Bottom-up ink grouping** (components → learned pairwise affinity → average-linkage clustering, 2.9 MB model,
+  55 ms per figure) does what it promises structurally — every ink pixel ends in a crop, clipping drops — but on
+  arXiv validation it reaches only **68.5% (62.5–74.0) fully right with 24% harmful** versus **77.3% / 12.2%** for
+  the 10-22 detector policy; without the detector prior 55.9%. It under-splits touching/framed panels (one
+  connected component) and over-splits lettered plot groups and legends. Used to refine the detector's crops it
+  changes nothing (orphan attachment) or hurts (re-seeding). Not adopted.
+- **Local VLM judge** (Qwen2.5-VL-7B-Instruct, Apache-2.0): good at single-vs-compound (92%), panel count (85%)
+  and reading the letter of a boxed part (97%); **degenerate** on ownership (shared vs owned), "one lettered
+  panel?" and verifying a split (it always answers the same word). As an agreement filter on noisy training
+  labels it keeps clean labels but mostly discards correct pseudo-labels; an R18 fine-tune with filtered labels
+  scores 75.6% vs 74.8% unfiltered on validation (+0.8 points, 2 figures — within noise). As an offline check,
+  disagreement between its count and the detector's split flags the bad splits well (21% perfect when they
+  disagree vs 87% when they agree).
+- **Gates (≥ 95% panel recall, < 2% wrong crops): not met** by anything in this round; the 10-22 release
+  candidate (test 2: 73.3% fully right, 18.8% harmful, 84% recall) remains the best system. Test 2 is spent; a
+  fresh test-3 candidate set (227 figures from unused author families) and an independent-review packet are
+  ready, not yet labelled.
+- Cost: $0 paid API; RTX 3090 ≈ 3 GPU-hours (VLM 1.5 h, detector fine-tunes 1 h, predictions) plus CPU.
 
 ## 1. Structure first: how often the HTML already splits a figure
 
@@ -120,3 +144,39 @@ the validation, test or test-2 sets: 227 single-image figures (`d23/data/eval-te
 human reviewer labels them with the existing block/vector annotation sheets (no model output shown), double-checks
 25% with a second reviewer, and the set is locked before any model run; VLM/detector disagreements on training
 data form a separate review queue that never mixes with the test.
+
+## 5. What this means for integration
+
+1. Use HTML structure first: multi-image figures already have exact parts (15.7% of figures).
+2. Keep the 10-22 detector policy as the candidate-part provider for single-image figures, behind the
+   "whole" fallback; keep the model-free completeness check on every crop.
+3. **Count agreement as an unsure signal:** the strongest new evidence is that a second opinion on the *number of
+   parts* separates good from bad splits (offline: 87% vs 21% perfect). In the app the explainer model already
+   sees the figure; if its own panel count (or its chosen parts) disagrees with the detector's count, fall back to
+   the whole figure. This needs no on-device VLM.
+4. No iPhone model yet: the only component under 40 MB that works is the grouping model without a detector, and
+   it is far below the detector.
+
+## What did not work
+
+- Bottom-up grouping as a replacement (−9 points) and as a refinement (no gain).
+- Detector-guided component splitting, a weaker training-time prior, caption-count replay: each ≤ 3 points.
+- The VLM on ownership, grouping and split verification (degenerate answers); as a label filter, no measurable
+  gain.
+
+## Next
+
+1. Label test 3 with an independent human reviewer (packet in `.artifacts/subfigure-detector-20261023/
+   test3-review-packet/`), lock it, then score the release candidate once.
+2. Prototype the count-agreement fallback in the explainer flow (integration step 2), measured on validation
+   with the explainer's own answers.
+3. For touching/framed panels, a per-pixel instance head (rather than connected components) is the remaining
+   bottom-up idea; it needs real per-pixel labels, which the vector data provides for plots but not for photos.
+
+## Evidence
+
+`.artifacts/subfigure-detector-20261023/`: `html-structure.json`, `vlm-val-accuracy.json`, `vlm/` (answers,
+label-filter QA sheets), `review-queue/` (VLM-vs-GT count disagreements), `test3-review-packet/`. GPU host:
+`/home/ben/science-reader-subfigures/d23/` (`runs/aff-v*` grouping models, `eval/grp-*.json`, `runs/ft-r18-*`,
+`data/qwen2.5-vl-7b-instruct` pinned at revision `cc594898…`). Code: `scripts/subfigure-detector/sfd/group/`,
+`sfd/vlm/`, `sfd/mine/html_structure.py`; 33 pytest tests pass on the Mac.

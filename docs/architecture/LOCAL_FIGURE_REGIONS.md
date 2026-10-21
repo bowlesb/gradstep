@@ -1,5 +1,10 @@
 # Local figure regions
 
+Status, 2026-10-23: structure first (15.7% of arXiv figures already have exact per-image parts); bottom-up
+ink grouping and a local VLM judge were measured and not adopted; the 10-22 release candidate remains the best
+detector, below the gates. Count disagreement is proposed as an extra "whole figure" fallback. See
+[round 3](../reviews/SUBFIGURE_DETECTOR_20261023.md).
+
 Status, 2026-10-22: the rights-clean release candidate scores 73.3% fully right / 18.8% wrong crops / 84%
 panel recall on a new never-seen arXiv test; gates not met, nothing bundled. The on-device API for offering
 parts P1… to the explainer (with a "whole" fallback) and Core ML FP32 parity are specified in

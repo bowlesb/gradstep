@@ -713,6 +713,17 @@ Both platform states were read back at **06:07:35 UTC**. Evidence and exact coun
 `catalog-release-verification.json`; archive hashes and acceptance identity are in `release-75-provenance.json`.
 No physical iPhone or paid model call was used.
 
+## Subfigure round 3 — 2026-10-23 (research; no new model adopted; gates not met)
+
+The arXiv HTML already splits 15.7% of figures into exact images (no model needed); single-image figures (74%)
+remain the model's job. A bottom-up ink-grouping model (components + learned affinity, 2.9 MB) removes clipping
+by construction but scores 68.5% fully right / 24% harmful on validation versus 77.3% / 12.2% for the 10-22
+detector, so it is not adopted. A local Qwen2.5-VL-7B judge (Apache-2.0) is reliable for single/compound (92%),
+panel count (85%) and letter reading (97%) but degenerate for ownership, grouping and split verification; as a
+label filter it gave no measurable gain. Count disagreement is a strong offline "unsure" signal (87% vs 21%
+perfect splits) and is proposed for the explainer flow. A fresh test-3 candidate set and an independent review
+packet are prepared. Details: [round 3](reviews/SUBFIGURE_DETECTOR_20261023.md).
+
 ## Subfigure detector release candidate — 2026-10-22 (research; not released; gates not met)
 
 A rights-clean release candidate (RT-DETRv2-M trained only on corpus-derived and synthetic data, plus
