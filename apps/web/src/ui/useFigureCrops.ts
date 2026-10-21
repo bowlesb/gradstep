@@ -55,6 +55,6 @@ export function useFigureBlobInk(image: Blob | null): FigureInk | null | undefin
  * unchecked: framed loosely and outlined. */
 export function useFramedParts(ink: FigureInk | null | undefined, image: { width: number; height: number } | null, input: FramingInput):
   { parts: FramedPart[]; coverage: number | null } | undefined {
-  const key = JSON.stringify([input.boxes, input.caption ?? '', input.labels ?? [], input.detector ?? null, image?.width, image?.height]);
+  const key = JSON.stringify([input.boxes, input.caption ?? '', input.labels ?? [], input.detector ?? null, input.exact ?? null, input.structureParts ?? 0, image?.width, image?.height]);
   return useMemo(() => ink === undefined || (!ink && !image) ? undefined : frameParts(ink, ink ?? image!, input), [ink, key]); // eslint-disable-line react-hooks/exhaustive-deps
 }

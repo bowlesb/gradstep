@@ -330,7 +330,7 @@ createServer(async (request, response) => {
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     // midstream: the provider fails after the first text; nothing is charged (2026-10-16, CHAT.md "When an answer stops early").
-    if (['answer', 'slow', 'steady', 'scrolling', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram', 'figure_panels', 'figure_panels_loose'].includes(p?.mode)) a.chatMode = p.mode;
+    if (['answer', 'slow', 'steady', 'scrolling', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram', 'figure_panels', 'figure_panels_loose', 'figure_subfigures', 'figure_subfigures_grouped'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
@@ -595,6 +595,19 @@ createServer(async (request, response) => {
         { label: 'Left plot', title: 'Reward against KL divergence', text: 'Each point is one training run; higher and further left is better [¶2].', paragraphs: [2], box: { x: 0.06, y: 0.07, w: 0.42, h: 0.79 } },
         { label: 'Right plot', title: 'Win rate against temperature', text: 'Each line is one method; the dashed line is an even match [¶2].', paragraphs: [2], box: rightBox },
         { label: '', title: 'Reading it as a whole', text: 'Together the plots make the figure’s single point.', paragraphs: [] }] });
+      event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
+    }
+    // figure_subfigures: a real figure of three sub-captioned images (2610.22353v1 Figure 3, figure-view.spec.ts serves the
+    // paper), answered as a model answers once told the structure (FIGURE_VIEW.md "Structure first"): a concept card, then
+    // (a), (b) boxed on its band and (c), each the figure's own sub-figure. figure_subfigures_grouped: "(a) and (b)" as one
+    // boxed part and (c): two parts for three sub-figures (count disagreement).
+    if ((mode === 'figure_subfigures' || mode === 'figure_subfigures_grouped') && body.action === 'figure') {
+      const concept = { kind: 'concept', label: '', title: 'How to read the three plots', text: 'Each plot follows training on the same model with and without shared experts.', paragraphs: [] };
+      const c = { label: '(c)', title: 'Router variance', text: 'The router\u2019s own variance stays lower with shared experts [¶4].', paragraphs: [4] };
+      event('figure', { format: 'figure-walkthrough-v1', summary: 'Figure 3 shows that shared experts make routing less exploratory [¶4].', sections: mode === 'figure_subfigures_grouped'
+        ? [concept, { label: '(a) and (b)', title: 'Criticality and expert variance', text: 'Both top plots fall with shared experts [¶4].', paragraphs: [4], box: { x: 0, y: 0, w: 1, h: 0.66 } }, c]
+        : [concept, { label: '(a)', title: 'Routing criticality', text: 'Routing criticality is lower with shared experts throughout training [¶4].', paragraphs: [4] },
+          { label: '(b)', title: 'Expert variance', text: 'The variance across experts shrinks once shared experts carry the common load [¶4].', paragraphs: [4], box: { x: 0.01, y: 0.34, w: 0.98, h: 0.32 } }, c] });
       event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
     }
     if (body.action === 'figure') {

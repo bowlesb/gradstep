@@ -306,6 +306,81 @@ final class FigureViewJourneyTests: XCTestCase {
         }
     }
 
+    /// Structure first (FIGURE_VIEW.md "Structure first"): a real multi-image arXiv figure (2610.22353v1 Figure 3, three
+    /// images with sub-captions (a)–(c)), compiled on this Mac by the device compiler
+    /// (`node scripts/reader-device-compile.mjs --ids=2610.22353v1 --out=<dir>`) and passed as
+    /// `TEST_RUNNER_FIGURE_STRUCTURE_BUNDLE=<dir>/2610.22353v1`. The walkthrough's parts (a), (b) (boxed on its band) and (c)
+    /// are the figure's own sub-figures: exact, tight on their bands. Grouped, "(a) and (b)" plus (c) are two parts for three
+    /// sub-figures (count disagreement): the group shows the whole figure, outlined, while (c) stays exact.
+    func testARealMultiImageFiguresPartsAreItsOwnSubfigures() throws { try subfigures(appearance: "light", grouped: false) }
+    func testARealMultiImageFiguresPartsAreItsOwnSubfiguresDark() throws { try subfigures(appearance: "dark", grouped: false) }
+    func testGroupedPartsOfARealMultiImageFigureShowTheWholeFigure() throws { try subfigures(appearance: "light", grouped: true) }
+
+    private func subfigures(appearance: String, grouped: Bool) throws {
+        guard let bundle = ProcessInfo.processInfo.environment["FIGURE_STRUCTURE_BUNDLE"], !bundle.isEmpty else {
+            throw XCTSkip("Set TEST_RUNNER_FIGURE_STRUCTURE_BUNDLE to a compiled 2610.22353v1 bundle")
+        }
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=figure_walkthrough", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
+                               "--figure-fixture-bundle=\(bundle)", "--figure-fixture-subfigures", "-appearance", appearance] + (grouped ? ["--figure-fixture-grouped"] : [])
+        app.launch()
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
+        app.show("paper")
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 20), "the real paper opens")
+        XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 20))
+        app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        app.contentsTab("Figures").tap()
+        let row = app.buttons["contents.figure.2"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+        XCTAssertTrue(app.buttons["figureView.explain"].waitForExistence(timeout: 5), "Figure 3's page")
+        capture(app, "Real multi-image figure page (\(appearance))")
+        app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        let composer = app.descendants(matching: .any)["contextChat.composer"].firstMatch
+        let inView = { (card: XCUIElement) in card.isHittable && card.frame.minY > 120 && card.frame.maxY < composer.frame.minY - 8 }
+        func reveal(_ card: XCUIElement) {
+            #if targetEnvironment(macCatalyst)
+            let page = app.scrollViews["figureView.walkthrough"]
+            for _ in 0..<10 where !inView(card) { page.scroll(byDeltaX: 0, deltaY: card.frame.maxY >= composer.frame.minY ? -120 : 120) }
+            #else
+            for _ in 0..<10 where !inView(card) { card.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
+            #endif
+        }
+        func card(_ number: Int) -> XCUIElement { app.descendants(matching: .any)["figureView.section.\(number).crop"] }
+        // The sent image is the three images composed (1187 × 2342), scaled to 763 × 1506; each band plus 15 px of margin.
+        let bandA = (763.0 + 30) / (0.33006 * 1506 + 30), bandB = (763.0 + 30) / ((0.659693 - 0.340307) * 1506 + 30)
+        if grouped {
+            let group = card(2), c = card(3)
+            XCTAssertTrue(group.waitForExistence(timeout: 10)); XCTAssertTrue(c.waitForExistence(timeout: 5))
+            XCTAssertEqual(group.label, "Figure 3, whole, for (a) and (b)", "two parts for three sub-figures: the group shows the whole figure")
+            XCTAssertEqual(c.label, "Detail of Figure 3: (c)", "(c) is still the figure's own sub-figure")
+            XCTAssertEqual(c.frame.width / c.frame.height, bandA, accuracy: 0.05, "(c) on its band \(c.frame)")
+            reveal(group); capture(app, "Grouped parts: the group on the whole figure (\(appearance))")
+            reveal(c); capture(app, "Grouped parts: (c) exact (\(appearance))")
+            return
+        }
+        let a = card(2), b = card(3), c = card(4)
+        XCTAssertTrue(a.waitForExistence(timeout: 10), "(a), with no box, is the figure's own sub-figure")
+        XCTAssertTrue(b.waitForExistence(timeout: 5)); XCTAssertTrue(c.waitForExistence(timeout: 5))
+        XCTAssertFalse(card(1).exists, "the concept card has no image")
+        for (element, name) in [(a, "(a)"), (b, "(b)"), (c, "(c)")] { XCTAssertEqual(element.label, "Detail of Figure 3: \(name)") }
+        XCTAssertEqual(a.frame.width / a.frame.height, bandA, accuracy: 0.05, "(a) on its band \(a.frame)")
+        XCTAssertEqual(b.frame.width / b.frame.height, bandB, accuracy: 0.05, "(b) on its band \(b.frame)")
+        XCTAssertEqual(c.frame.width / c.frame.height, bandA, accuracy: 0.05, "(c) on its band \(c.frame)")
+        XCTAssertFalse(app.staticTexts["figureView.coverageFallback"].exists, "the three sub-figures hold the whole figure")
+        reveal(a); capture(app, "Real multi-image walkthrough: (a) (\(appearance))")
+        reveal(b); capture(app, "Real multi-image walkthrough: (b) (\(appearance))")
+        reveal(c); capture(app, "Real multi-image walkthrough: (c) (\(appearance))")
+        // A tap expands the part to the whole figure, the part outlined.
+        b.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["figureView.fullscreen.image"].waitForExistence(timeout: 5), "the whole figure, fullscreen")
+        sleep(1); capture(app, "Real multi-image: (b) expanded to the whole figure (\(appearance))")
+        app.buttons["figureView.fullscreen.close"].tap()
+    }
+
     /// Report this screen on the sheets that had no "…" (where the builds 66–76 feedback was given), with the app's own
     /// snapshot, returning to the same sheet; the two explain actions are peers and a table's says "Chat about Table".
     func testReportThisScreenFromContentsAndAFigurePage() throws {

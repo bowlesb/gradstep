@@ -4,7 +4,7 @@
 // paper's other figures; a part's ⋯ explains it more simply, shows it in the paper (with Back) or starts a chat draft
 // about it. A figure reference in the text offers the same two actions. Both requests are the chat's own (its
 // capabilities, with figure_view, and exactly this figure).
-import {readFileSync} from 'node:fs';
+import {existsSync,readFileSync} from 'node:fs';
 import {expect,test,type APIRequestContext,type Page} from '@playwright/test';
 import {RECOVERY_CODE} from './fixture-keys.mjs';
 import {fixtureOrigin} from './environment';
@@ -17,19 +17,30 @@ const twoPlots=readFileSync(new URL('../../apple/ScienceReader/Resources/ReaderS
 // A second figure, for the walkthrough's heading menu.
 const twoFigures=html.toString('utf8').replace('<figure id="tab1">','<figure id="S1.F2"><img src="2601.01234v2/figure.jpg"><figcaption>Figure 2: A second figure.</figcaption></figure><figure id="tab1">');
 // The authored arXiv fixture as a source membership (the official HTML this browser prepares), as the equation journey.
-async function openFixture(page:Page,request:APIRequestContext,source:Buffer|string=html,image:Buffer=raster){
+/** A real arXiv paper, served from the sweep's cache on this Mac (its HTML and the assets the device compiler fetched,
+ * `.artifacts/reader-sweep/`), as the library's source membership. */
+type RealPaper={id:string;revision:number;title:string};
+const sweep=new URL('../../../.artifacts/reader-sweep/',import.meta.url);
+const sweepSource=(p:RealPaper)=>new URL(`sources/${p.id}v${p.revision}.html`,sweep);
+async function openFixture(page:Page,request:APIRequestContext,source:Buffer|string=html,image:Buffer=raster,real?:RealPaper){
  await request.post(`${fixtureOrigin}/__reset`);
+ const key=real?`${real.id}v${real.revision}`:'2601.01234v2';
  await page.route('https://arxiv.org/**',async route=>{
   const url=route.request().url();
-  if(url==='https://arxiv.org/html/2601.01234v2')await route.fulfill({status:200,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:source});
-  else if(url==='https://arxiv.org/html/2601.01234v2/figure.jpg')await route.fulfill({status:200,contentType:'image/jpeg',headers:{'access-control-allow-origin':'*'},body:image});
+  const headers={'access-control-allow-origin':'*'};
+  if(url===`https://arxiv.org/html/${key}`)await route.fulfill({status:200,contentType:'text/html',headers,body:real?readFileSync(sweepSource(real)):source});
+  else if(!real&&url==='https://arxiv.org/html/2601.01234v2/figure.jpg')await route.fulfill({status:200,contentType:'image/jpeg',headers,body:image});
+  else if(real&&url.startsWith(`https://arxiv.org/html/${key}/`)){
+   const name=encodeURIComponent(url.split('/').slice(-1)[0]),type=/\.svg$/i.test(name)?'image/svg+xml':/\.png$/i.test(name)?'image/png':'image/jpeg';
+   await route.fulfill({status:200,contentType:type,headers,body:readFileSync(new URL(`assets/${key}/${name}`,sweep))});
+  }
   else throw Error('Unexpected source acquisition '+url);
  });
  await page.route(`${fixtureOrigin}/rest/v1/rpc/v3_library_page`,async route=>{
   const response=await route.fetch(),body=await response.json();
   const row=body.entries.find((e:{kind:string})=>e.kind==='item');
-  body.entries=[{kind:'import',id:member,created_seq:row.created_seq,state_seq:row.state_seq,intent_revision:1,visible:true,phase:'source_only',source:'arxiv',source_id:'2601.01234',requested_revision:2,source_revision:2,
-   metadata_id:row.metadata_id,version_id:row.version_id,metadata_recorded_at:row.metadata_recorded_at,source_url:'https://arxiv.org/abs/2601.01234v2',retryable:false,metadata:{title:'Authored HTML fixture',authors:['Fixture author'],categories:['cs.LG']}}];
+  body.entries=[{kind:'import',id:member,created_seq:row.created_seq,state_seq:row.state_seq,intent_revision:1,visible:true,phase:'source_only',source:'arxiv',source_id:real?.id??'2601.01234',requested_revision:real?.revision??2,source_revision:real?.revision??2,
+   metadata_id:row.metadata_id,version_id:row.version_id,metadata_recorded_at:row.metadata_recorded_at,source_url:`https://arxiv.org/abs/${key}`,retryable:false,metadata:{title:real?.title??'Authored HTML fixture',authors:['Fixture author'],categories:['cs.LG']}}];
   body.has_more=false;body.next_cursor={format:2,account_id:body.account_id,through:body.baseline_cursor,created_seq:row.created_seq,id:member,kind:'import'};
   await route.fulfill({response,json:body});
  });
@@ -37,7 +48,7 @@ async function openFixture(page:Page,request:APIRequestContext,source:Buffer|str
  await page.goto('/');await page.getByTestId('email').fill('returning@example.test');await page.getByTestId('send-code').click();
  await page.getByTestId('code').fill('123456');await page.getByTestId('verify').click();
  await page.getByTestId('use-recovery-code').click();await page.getByTestId('recovery-code').fill(RECOVERY_CODE);await page.getByTestId('recover').click();
- await page.getByTestId('library-table').getByRole('link',{name:'Authored HTML fixture',exact:true}).click();
+ await page.getByTestId('library-table').getByRole('link',{name:real?.title??'Authored HTML fixture',exact:true}).click();
 }
 /** The figure page from Contents › Figures › its row (the same page a tapped figure and the gallery open). */
 async function openFigure(page:Page){
@@ -464,4 +475,67 @@ test('parts are framed by confidence: an imprecise box is looser and outlined, a
   await page.screenshot({path:`../../.artifacts/figure-detail-removal/browser-panel-menu-${test.info().project.name}.png`});
   await page.keyboard.press('Escape');
  }
+});
+
+// Structure first (FIGURE_VIEW.md "Structure first"): a real multi-image arXiv figure — 2610.22353v1 Figure 3, three
+// images with sub-captions (a)–(c) — compiled in this browser from the sweep's cached source. The walkthrough request tells
+// the model the sub-figures after the caption; its parts (a), (b) (boxed on its band) and (c) are the figure's own images:
+// exact, tight on their bands. Grouped, "(a) and (b)" plus (c) are two parts for three sub-figures (count disagreement):
+// the group shows the whole figure, outlined, while (c) stays exact. Opt-in: needs `.artifacts/reader-sweep/` (the sweep and
+// `node scripts/reader-device-compile.mjs --ids=2610.22353v1` fill it).
+const moe:RealPaper={id:'2610.22353',revision:1,title:'Rethinking Routing Exploration in Modern Mixture-of-Experts'};
+for(const grouped of [false,true])test(`a real multi-image figure's parts are its own sub-figures${grouped?' (grouped: the count disagrees)':''}`,async({page,request})=>{
+ test.skip(!existsSync(sweepSource(moe)),'The sweep\'s cached 2610.22353v1 is not on this Mac.');
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ test.setTimeout(120_000);
+ const shot=(name:string)=>`../../.artifacts/figure-structure/browser-${name}-${test.info().project.name}.png`;
+ await openFixture(page,request,html,raster,moe);
+ await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{mode:grouped?'figure_subfigures_grouped':'figure_subfigures'}});
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:60000});
+ const tabs=page.getByRole('tablist',{name:'Show',exact:true});
+ await expect(page.getByTestId('contents')).toBeEnabled();
+ if(!await tabs.isVisible())await page.getByTestId('contents').click();
+ await tabs.getByRole('tab',{name:'Figures'}).click();
+ await page.getByTestId('contents-figure-2').click();
+ const viewer=page.getByRole('dialog',{name:'Figures'});
+ await expect(viewer.frameLocator('iframe.figure-frame').locator('figcaption')).toContainText('Shared experts make MoE routing less exploratory');
+ await viewer.getByTestId('figure-explain').click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ await expect(viewer.getByTestId('figure-summary')).toContainText('shared experts make routing less exploratory');
+ // The request: the caption, then the figure's own sub-figures and their bands in the composed image.
+ const sent=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests as Record<string,any>[];
+ expect(sent).toHaveLength(1);
+ expect(sent[0].selection.quote).toBe('Figure 3: Shared experts make MoE routing less exploratory.\n\n'
+  +"The image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n"
+  +'- (a) Routing criticality: y 0.00–0.33\n- (b) Expert variance: y 0.34–0.66\n- (c) Router variance: y 0.67–1.00\n'
+  +'Give each its own panel card, labelled as listed, in this order.');
+ // The composed image (1187 × 2342) as sent, scaled to 763 × 1506; each band and 15 px of white margin.
+ expect([sent[0].figures[0].width,sent[0].figures[0].height]).toEqual([763,1506]);
+ const card=(i:number)=>viewer.getByTestId(`figure-section-${i}`).getByTestId('figure-crop');
+ const aspect=async(l:ReturnType<typeof card>)=>{const b=(await l.boundingBox())!;return b.width/b.height;};
+ const bandA=(763+30)/(0.33006*1506+30),bandB=(763+30)/((0.659693-0.340307)*1506+30);
+ await expect(card(0)).toHaveCount(0);
+ if(grouped){
+  await expect(card(1)).toHaveAttribute('data-level','low');await expect(card(1)).not.toHaveAttribute('data-exact','true');
+  await expect(card(1).getByTestId('part-outline')).toBeVisible();
+  await expect(card(2)).toHaveAttribute('data-level','high');await expect(card(2)).toHaveAttribute('data-exact','true');
+  expect(await aspect(card(2))).toBeCloseTo(bandA,1);
+  await card(1).scrollIntoViewIfNeeded();await page.screenshot({path:shot('grouped-whole-light')});
+  await card(2).scrollIntoViewIfNeeded();await page.screenshot({path:shot('grouped-c-exact-light')});
+  return;
+ }
+ for(const i of [1,2,3]){await expect(card(i)).toHaveAttribute('data-level','high');await expect(card(i)).toHaveAttribute('data-exact','true');await expect(card(i).getByTestId('part-outline')).toBeHidden();}
+ expect(await aspect(card(1))).toBeCloseTo(bandA,1);expect(await aspect(card(2))).toBeCloseTo(bandB,1);expect(await aspect(card(3))).toBeCloseTo(bandA,1);
+ await expect(viewer.getByTestId('figure-coverage-fallback')).toHaveCount(0);
+ for(const scheme of ['light','dark'] as const){
+  await page.emulateMedia({colorScheme:scheme});
+  for(const [i,name] of [[1,'a'],[2,'b'],[3,'c']] as const){await card(i).scrollIntoViewIfNeeded();await page.screenshot({path:shot(`walkthrough-${name}-${scheme}`)});}
+ }
+ await page.emulateMedia({colorScheme:'light'});
+ // A tap expands a part to the whole figure, the part outlined.
+ await card(2).click();
+ const whole=page.locator('.fullscreen-figure').getByTestId('fullscreen-crop');
+ await expect(whole).toHaveAttribute('data-view','whole');await expect(whole.getByTestId('part-outline')).toBeVisible();
+ await page.waitForTimeout(700);await page.screenshot({path:shot('expanded-b-light')});
+ await page.locator('.fullscreen-figure').getByRole('button',{name:'Close',exact:true}).click();
 });

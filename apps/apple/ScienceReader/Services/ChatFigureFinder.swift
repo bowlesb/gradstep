@@ -74,7 +74,9 @@ enum ChatFigureFinder {
     /// A figure decoded once for the figure view: its panels composed (what is shown and cropped) and the image a request
     /// sends, as `image(for:bundle:)` makes it (several panels from that composite, one panel from its own bytes). Pure, so
     /// it runs off the main actor (NATIVE_REVIEW_20261021 C9: it was decoded twice at full size on the main thread).
-    struct Prepared: @unchecked Sendable { let image: CGImage?; let sent: ChatFigureImage? }
+    /// `structure`: the figure's own sub-figures in the composed image (FigureStructure; FIGURE_VIEW.md "Structure first"),
+    /// when it has several images and the image is their composite.
+    struct Prepared: @unchecked Sendable { let image: CGImage?; let sent: ChatFigureImage?; var structure: FigureStructure? = nil }
     static func prepared(_ figure: ReaderBundleIndex.Figure, bundle: VerifiedReaderBundle) -> Prepared {
         let paths = Array(figure.assetPaths.prefix(maximumPanels))
         let images = paths.compactMap { bundle.data(for: $0).flatMap(image) }
@@ -84,9 +86,23 @@ enum ChatFigureFinder {
               let paragraph = bundle.index.blocks.firstIndex(where: { $0.id == figure.blockID }).map({ $0 + 1 }) else {
             return Prepared(image: whole, sent: nil)
         }
+        let structure = whole == nil ? nil : self.structure(of: figure, bundle: bundle).flatMap { $0.fits(width: encoded.width, height: encoded.height) ? $0 : nil }
         return Prepared(image: whole, sent: ChatFigureImage(id: "F1", paragraph: paragraph, caption: figure.caption, mediaType: "image/jpeg",
             data: encoded.data.base64EncodedString(), width: encoded.width, height: encoded.height,
-            blockID: figure.blockID, assetPath: path, assetPaths: paths))
+            blockID: figure.blockID, assetPath: path, assetPaths: paths), structure: structure)
+    }
+
+    /// A figure's own structure from its bundle: its block's markup in the page, its asset paths and the images' sizes in
+    /// the manifest (FigureStructure). Nil for a figure of one image.
+    static func structure(of figure: ReaderBundleIndex.Figure, bundle: VerifiedReaderBundle) -> FigureStructure? {
+        guard figure.assetPaths.count >= 2,
+              let html = bundle.data(for: bundle.manifest.entrypoint).flatMap({ String(data: $0, encoding: .utf8) }),
+              let markup = EquationMarkup.block(in: html, blockID: figure.blockID) else { return nil }
+        let sizes = figure.assetPaths.map { path -> (width: Int, height: Int)? in
+            guard let member = bundle.manifest.members.first(where: { $0.path == path }), let width = member.width, let height = member.height else { return nil }
+            return (width, height)
+        }
+        return FigureStructure.make(markup: markup, assetPaths: figure.assetPaths, sizes: sizes, caption: figure.caption)
     }
 
     /// A figure's panels as one image: each scaled to the widest panel's width, top to bottom, 2 % of the width of white

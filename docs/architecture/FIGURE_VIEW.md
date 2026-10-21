@@ -1,5 +1,68 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Structure first and the count check — 2026-10-21 (local source; not released, not deployed)
+
+Integration steps 1 and 3 of [subfigure detector round 3](../reviews/SUBFIGURE_DETECTOR_20261023.md): 15.7 % of arXiv
+HTML figures already hold two or more images (9.6 % with sub-captions), so their parts are exact without a model; and a
+second opinion on the *number* of parts separates good splits from bad ones (offline 87 % vs 21 % perfect). Both clients
+(iPhone/iPad/Mac one SwiftUI path, and the browser) do the same, from the same rules and fixtures. No server, prompt,
+schema, storage or spend change; the image a request carries is unchanged.
+
+- **The structure** (`ScienceReaderCore/FigureStructure.swift`, `apps/web/src/lib/figure-structure.ts`). Read on the
+  device from the reader bundle: the figure block's markup in the page (`<figure data-reader-figure>`), its `asset_paths`
+  and the images' sizes in the manifest. Panel images are the `<img>`s outside a paragraph (a legend symbol inside words is
+  not one); a run of images followed by sub-captions — paragraphs "(a) …" / "a) …", the compiler's form of a panel's own
+  caption — gets one sub-caption for the run or one per image; otherwise the caption's letters in order when it names
+  exactly as many panels as there are images; otherwise the images are unlettered ("Image 2"). A sub-figure is one image or
+  one sub-caption's images. Fewer than two sub-figures in the composed image: no structure.
+- **Geometry kept.** The composed image is unchanged (every image scaled to the widest one's width, stacked top to bottom
+  with 2 % of the width of white between them; the first four images: `ChatFigureFinder.composite`, `composeFigure`), so
+  each sub-figure is a full-width band of it, computed with the composite's own arithmetic (`stackLayout`), and stored chat
+  parts and kept walkthroughs still map to the same pixels. A structure is used only when its composite's aspect is within
+  2 % of the image actually sent (`fits` / `structureFits`).
+- **Told to the model.** The walkthrough's `selection.quote` is the caption, a blank line, then (for a figure with a
+  structure, when both fit the 4,000-character selection):
+  ```
+  The image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):
+  - (a) Routing criticality: y 0.00–0.33
+  - (b) Expert variance: y 0.34–0.66
+  - (c) Router variance: y 0.67–1.00
+  Give each its own panel card, labelled as listed, in this order.
+  ```
+  ("Only the first 4 of its 6 images are in the image." when the figure has more.) The quote follows the cached paper, so
+  the cache is unchanged; `figure_simpler` still quotes the part's text; kept answers keep their keys.
+- **Matching a walkthrough's sections** (`matchSections` / `FigureStructure.match`, panel cards only, each sub-figure
+  once): by letter (the label's, else the title's) or by the note's label ("Image 2"); then a box whose IoU with one band
+  is at least 0.6 (a section lettered otherwise is not moved); then, when there are exactly as many panel cards as
+  sub-figures, the unboxed rest in order. A label naming two panels ("(a) and (b)") matches none of these and stops the
+  order step. A matched section gets a card even without a box.
+- **Exact parts** (`exact` in the framing): the band is the part's region, tight (score 1, high), with the background
+  margin; it is always kept (never an extra) and shapes completion as a box. Others are framed as before.
+- **Count check** (both surfaces, `FigureFraming.frame` / `frameParts`): when there are two or more parts and their number
+  is neither the caption's lettered panels (L ≥ 2) nor the figure's own sub-figures (S ≥ 2), whichever are stated, every
+  part that isn't exact scores at most `countCap` 0.3: the whole figure with the part outlined (reason `count`). One part
+  is not a split and is not checked. This replaces "more parts than the caption: −0.3" (those parts now show the whole
+  figure; the extras are still outlines); a part lettered outside the caption is still −0.3 when the count agrees.
+- **Where:** walkthrough cards, and chat's figure parts (inline, strip, overview, full view) when the parts were cut from
+  the figure's own composite (`figureFacts` / `ReaderModel.figurePartCrops`).
+- **Coverage note** counts an exact part's band as shown.
+- **Browser fullscreen:** a tall figure (every multi-image composite) kept its width and was squeezed into the window's
+  height; the viewport is now narrower instead (`--aspect`).
+- **Fixtures.** `tests/fixtures/figure-crops/structure.json` (11 markup cases from real figures — 2610.22353v1 Figures 3
+  and 4, 2610.14704v1 Figure 5 — and edge cases; 13 section-matching cases; sub-captions; layouts) and six new
+  `framing.json` cases on `stacked-subfigures.png` (DPO Figures 1, 4, 2 composed as a request composes them,
+  `scripts/figure-structure-fixture.py`): exact sub-figures, a detail beside exact parts, the count disagreeing with the
+  structure or the caption, agreeing with the structure but not the caption, and one part (not checked); two existing
+  cases changed (more parts than the caption, a caption naming two of four → the whole figure). Browser
+  `figure-structure.test.ts` writes the expectations (`UPDATE_STRUCTURE_FIXTURE=1`); Swift `FigureStructureTests` and
+  `FigureFramingTests` reproduce them.
+- **Known limits.** Stacking is how the image has always been composed: a 2 × 2 grid of images reaches the model as four
+  bands, not the paper's layout. Only the first four images are composed. Unlettered sub-captions are not read (the images
+  are "Image N"). A sub-figure image that itself holds several plots is one exact part; the AI's boxes inside it are framed
+  as usual. Matching trusts the model's labels; a wrong letter shows the wrong sub-figure, exactly (the card still expands
+  to the whole figure).
+- **Evidence:** IMPLEMENTATION_STATUS.md "Structure first and the count check".
+
 ## Extract the subfigure removed — 2026-10-21 (local source; not released, not deployed)
 
 Owner: "Let's not do extract the subfigure, users can always go to the original feature and just zoom in if they want.
@@ -38,7 +101,8 @@ Let's simplify our life by trying to consistently create one good product experi
 ## Parts as viewports — 2026-10-21 (local source; not released, not deployed)
 
 *Since "Extract the subfigure removed" above: the "Extract" request and its detail card no longer exist; read the
-mentions below as history.*
+mentions below as history. Since "Structure first and the count check" above: a part that is one of the figure's own
+sub-figures is exact, and the count rule below ("more were boxed … (0.3)") is replaced by the count check.*
 
 Owner: "in different panels, when we present it, we present it in such a way that if it's inaccurate, the user can just
 click and see the whole figure, so we present it as a crop of the whole thing, that they can expand, rather than an

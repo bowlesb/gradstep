@@ -4,6 +4,7 @@ import { CopyButton } from './CopyButton';
 import { decodeStoredFigureParts, type StoredFigureParts } from '../lib/chat-figures';
 import type { Rect } from '../lib/figure-crops';
 import type { FramedPart } from '../lib/figure-framing';
+import { matchSections, structureFits, type FigureStructure } from '../lib/figure-structure';
 import { useFigureBlobInk, useFramedParts } from './useFigureCrops';
 import { FramedFigure } from './FigureViewport';
 
@@ -27,10 +28,10 @@ export function Visual({ title, html }: { title: string; html: string }) {
     </Dialog></div>;
 }
 
-export function Diagram({ title, source, format, figureImage = null, figureCaption = '' }: { title: string; source: string; format?: 'mermaid-v1' | 'html-v1' | 'figure-parts-v1'; figureImage?: Blob | null; figureCaption?: string }) {
+export function Diagram({ title, source, format, figureImage = null, figureCaption = '', figureStructure = null }: { title: string; source: string; format?: 'mermaid-v1' | 'html-v1' | 'figure-parts-v1'; figureImage?: Blob | null; figureCaption?: string; figureStructure?: FigureStructure | null }) {
   const [open, setOpen] = useState(false);
   if (format === 'html-v1') return <Visual title={title} html={source} />;
-  if (format === 'figure-parts-v1') return <FigureParts title={title} source={source} image={figureImage} caption={figureCaption} />;
+  if (format === 'figure-parts-v1') return <FigureParts title={title} source={source} image={figureImage} caption={figureCaption} structure={figureStructure} />;
   // The diagram itself in the answer (owner, build 46: "If you bothered to create a diagram please show it"); full size on request.
   return <div className="chat-diagram">
     <div className="diagram-inline"><DiagramFrame source={source} compact /></div>
@@ -205,11 +206,17 @@ export function useFigureDataURL(image: Blob | null): { url: string | null; size
 }
 
 /** Every part framed on the figure as the question carried it (FIGURE_VIEW.md "Parts as viewports": completed, then
- * tight, loose and outlined, or the whole figure outlined by confidence; a caption naming its panels caps the parts):
- * undefined while that is worked out (no part shows and then changes size), or without the paper's image on this device. */
-export function usePartCrops(stored: StoredFigureParts | null, image: Blob | null, caption = '', size: { w: number; h: number } | null = null): FramedPart[] | undefined {
+ * tight, loose and outlined, or the whole figure outlined by confidence; a caption naming its panels caps the parts; a part
+ * that is one of the figure's own sub-figures, "Structure first", is exact; when the parts number neither the caption's
+ * panels nor the sub-figures, the others show the whole figure): undefined while that is worked out (no part shows and
+ * then changes size), or without the paper's image on this device. */
+export function usePartCrops(stored: StoredFigureParts | null, image: Blob | null, caption = '', size: { w: number; h: number } | null = null,
+  structure: FigureStructure | null = null): FramedPart[] | undefined {
   const parts = stored?.parts ?? [];
-  return useFramedParts(useFigureBlobInk(image), size && { width: size.w, height: size.h }, { boxes: parts.map(p => p.box as Rect), caption, labels: parts.map(p => p.label) })?.parts;
+  const own = structure && size && structureFits(structure, { width: size.w, height: size.h }) ? structure : null;
+  const matched = matchSections(parts.map(p => ({ label: p.label, title: '', box: p.box as Rect })), own);
+  return useFramedParts(useFigureBlobInk(image), size && { width: size.w, height: size.h }, { boxes: parts.map(p => p.box as Rect), caption, labels: parts.map(p => p.label),
+    exact: matched.map(k => k === null || !own ? null : own.parts[k].rect), structureParts: own?.parts.length ?? 0 })?.parts;
 }
 
 /** One part as a viewport into the whole figure, at rest, fitted within `width` × `width` (never magnified past 3×). */
@@ -260,10 +267,10 @@ export function FigurePartsOverview({ title, stored, url, size, crops }: { title
 /** An answer's figure parts saved before the inline crops (no markers in its text): each part cropped under the answer
  * with its number and label; a click opens the whole figure with the parts outlined and each crop's note. Without the
  * paper on this device (`image` null), the notes alone. */
-export function FigureParts({ title, source, image, caption = '' }: { title: string; source: string; image: Blob | null; caption?: string }) {
+export function FigureParts({ title, source, image, caption = '', structure = null }: { title: string; source: string; image: Blob | null; caption?: string; structure?: FigureStructure | null }) {
   const stored = decodeStoredFigureParts(source);
   const { url, size } = useFigureDataURL(image);
-  const crops = usePartCrops(stored, image, caption, size);
+  const crops = usePartCrops(stored, image, caption, size, structure);
   const [open, setOpen] = useState(false);
   if (!stored) return null;
   return <div className="figure-parts" data-testid="figure-parts">

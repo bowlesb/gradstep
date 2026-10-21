@@ -3,6 +3,7 @@
 // sent exactly as this browser's chat sends a question about the paper, so they read the chat's cached paper.
 import type { VerifiedBundle } from './bundle';
 import { figureLabel } from './chat-figures';
+import type { FigureStructure } from './figure-structure';
 
 export const FIGURE_WALKTHROUGH_FORMAT = 'figure-walkthrough-v1';
 /** The walkthrough and one part again, more simply. ("Extract the subfigure and more context", `figure_detail`, was
@@ -16,8 +17,10 @@ export interface FigureBox { x: number; y: number; w: number; h: number }
 export type FigureCardKind = 'panel' | 'concept' | 'related_work';
 export interface FigureSection { kind?: FigureCardKind; label: string; title: string; text: string; paragraphs: number[]; box?: FigureBox }
 export interface FigureWalkthrough { format: typeof FIGURE_WALKTHROUGH_FORMAT; summary: string; sections: FigureSection[] }
-/** The image the request carried (JPEG, base64), kept with the result: a box is cropped from exactly it. */
-export interface SentFigure { data: string; width: number; height: number }
+/** The image the request carried (JPEG, base64), kept with the result: a box is cropped from exactly it. `structure`: the
+ * figure's own sub-figures in it, when it has several images (figure-structure.ts), described to the model with the
+ * caption and shown as exact parts. */
+export interface SentFigure { data: string; width: number; height: number; structure?: FigureStructure | null }
 /** What the view shows for one request: the walkthrough (or, without one, the model's words) and how it ended. */
 export interface FigureResult {
   phase: 'loading' | 'done' | 'failed'; walkthrough: FigureWalkthrough | null; text: string; issue: string | null;

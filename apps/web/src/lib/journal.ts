@@ -242,6 +242,9 @@ export class Journal {
     for (const listener of this.faultListeners) listener(error);
   }
   get revision() { return this.head.revision; }
+  /** How many events this journal holds. Only event writes change it (local appends, pulled pages, rebases); outbox
+   * acknowledgements, drafts, turns and snippet-blob bookkeeping change the revision but not this. */
+  get eventCount() { return this.head.count; }
   get lockScope() { return this.lockName; }
   /** Only this separate lane is held over sync network requests. Local editor commits remain free to proceed. */
   sync<T>(body: () => Promise<T>): Promise<T> { return this.deps.lock(`${this.lockName}sync`, body); }
@@ -499,11 +502,15 @@ export class Journal {
   }
 
   /** Events authored here: records and outbox entries, with an optional draft receipt and turn retirement, atomically. */
-  appendLocal(envelopes: EventEnvelope[], options: { draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn; expectedRevision?: number;
+  appendLocal(envelopes: EventEnvelope[], options: { draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn;
+    /** The event count the caller planned against (`eventCount`): another event write since then is a conflict. Writes that
+     * leave events alone (acknowledgements, drafts, turns, snippet blobs) don't invalidate the plan; anything in them
+     * this commit depends on (draft receipt, turn retirement, blob capacity) is checked below against the current head. */
+    expectedEvents?: number;
     /** Snippet blobs the events need, committed in the same transaction (NOTES_AND_SNIPPETS.md "Local durability"). */
     blobs?: { blobID: string; stored: Bytes }[] } = {}): Promise<void> {
     return this.commit(async head => {
-      if (options.expectedRevision !== undefined && head.revision !== options.expectedRevision) throw new JournalError('journal_conflict');
+      if (options.expectedEvents !== undefined && head.count !== options.expectedEvents) throw new JournalError('journal_conflict');
       // Recovery retires only the exact checkpoint it read after acquiring ownership. Rebase or a late writer
       // forces a fresh read; it must never delete newer text while committing an older interrupted answer.
       if (options.recoveryTurn) {

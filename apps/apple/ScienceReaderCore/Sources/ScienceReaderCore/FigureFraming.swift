@@ -8,7 +8,10 @@ import Foundation
 // (how much the box had to grow, or whether it still cuts ink), the caption's panel letters, and how the parts sit against
 // each other (a neighbour's ink inside the frame, slivers); a hook takes the subfigure detector's agreement later. High: the
 // part and its margin, as a crop looked; medium: looser, the part outlined; low: the whole figure, the part outlined. A
-// caption that names its panels caps the parts: extra ones are outlines on the whole figure.
+// caption that names its panels caps the parts: extra ones are outlines on the whole figure. A part that is one of the
+// figure's own sub-figures (FigureStructure: its images in the bundle) is exact: its band, tight. When the AI's parts number
+// neither the caption's lettered panels nor the figure's own sub-figures (count disagreement, subfigure detector round 3),
+// its other parts show the whole figure with the part outlined.
 // The browser's apps/web/src/lib/figure-framing.ts is the same rules and numbers; both are checked against
 // tests/fixtures/figure-crops/framing.json.
 
@@ -20,8 +23,11 @@ public enum FigureFraming {
         public static let high = 0.75, medium = 0.45
         /// Completion growth (area added ÷ the AI box's area): free up to `growthFree`, then `growthPerUnit` per unit.
         public static let growthFree = 0.5, growthPerUnit = 0.6, growthMaxPenalty = 0.5
-        /// The caption names L ≥ 2 panels and more parts were boxed, or a part's own letter isn't the caption's.
+        /// A part's own letter isn't the caption's (the caption names L ≥ 2 panels).
         public static let countPenalty = 0.3
+        /// Count disagreement: two or more parts, and their number is neither the caption's L ≥ 2 lettered panels nor the
+        /// figure's own S ≥ 2 sub-figures (whichever it states): every part not exact scores at most this (the whole figure).
+        public static let countCap = 0.3
         /// A neighbour's ink inside the part (the largest share of a component another part owns inside this region).
         public static let intrusionFree = 0.02, intrusionBase = 0.26, intrusionMaxPenalty = 0.4
         /// A sliver: narrower than `sliverSide` of the figure on either side, or smaller than `sliverArea` of it.
@@ -38,7 +44,7 @@ public enum FigureFraming {
         /// As the fixture states them (`parameters`), for the test that both ports agree.
         public static var all: [String: Double] {
             ["high": high, "medium": medium, "growthFree": growthFree, "growthPerUnit": growthPerUnit, "growthMaxPenalty": growthMaxPenalty,
-             "countPenalty": countPenalty, "intrusionFree": intrusionFree, "intrusionBase": intrusionBase, "intrusionMaxPenalty": intrusionMaxPenalty,
+             "countPenalty": countPenalty, "countCap": countCap, "intrusionFree": intrusionFree, "intrusionBase": intrusionBase, "intrusionMaxPenalty": intrusionMaxPenalty,
              "sliverSide": sliverSide, "sliverArea": sliverArea, "sliverPenalty": sliverPenalty, "detectorAgree": detectorAgree,
              "detectorMaxPenalty": detectorMaxPenalty, "uncheckedScore": uncheckedScore, "looseFraction": looseFraction,
              "veilHigh": veilHigh, "veilMedium": veilMedium, "veilLow": veilLow, "veilRevealed": veilRevealed]
@@ -93,22 +99,34 @@ public enum FigureFraming {
     /// image the request carried (completed together, extras left out), or unchecked without it (`width`/`height` give the
     /// size then). Also the share of the figure's ink the kept parts' completed crops show (the whole figure for a part that
     /// couldn't be completed; nil without ink or boxes), for the coverage note.
+    /// `exact`: each part's exact region when it is one of the figure's own sub-figures (`FigureStructure.match`), as
+    /// fractions; nil for a part the AI boxed. `structureParts`: how many sub-figures the figure's own structure has (0
+    /// without one), for the count check.
     public static func frame(_ ink: FigureInk?, width: Int, height: Int, boxes: [CropRect], caption: String = "", labels: [String] = [],
-                             detector: [Double?]? = nil) -> (parts: [FramedPart], coverage: Double?) {
+                             detector: [Double?]? = nil, exact: [CropRect?]? = nil, structureParts: Int = 0) -> (parts: [FramedPart], coverage: Double?) {
         let W = Double(ink?.width ?? width), H = Double(ink?.height ?? height)
         guard !boxes.isEmpty, W > 0, H > 0 else { return ([], nil) }
         let pad = Double(FigureCropCompletion.padding(width: Int(W), height: Int(H))), padX = pad / W, padY = pad / H
         let letters = captionLetters(caption), names = boxes.indices.map { $0 < labels.count ? labels[$0] : "" }
-        let kept = keptParts(names, letters: letters), keptIndex = boxes.indices.filter { kept[$0] }, extras = boxes.count - keptIndex.count
+        // A sub-figure of the figure's own is exact: always kept, its band its region (and its box for completion).
+        let exact: [CropRect?] = boxes.indices.map { k in exact.flatMap { k < $0.count ? $0[k] : nil } }
+        let shape = boxes.indices.map { exact[$0] ?? boxes[$0] }
+        let kept = zip(keptParts(names, letters: letters), exact).map { $0 || $1 != nil }
+        let keptIndex = boxes.indices.filter { kept[$0] }, extras = boxes.count - keptIndex.count
+        // Count disagreement: two or more parts whose number is neither the caption's lettered panels nor the figure's own
+        // sub-figures (when either is stated).
+        let L = letters.count, S = structureParts, N = boxes.count
+        let disagree = N >= 2 && (L >= 2 || S >= 2) && !(L >= 2 && N == L) && !(S >= 2 && N == S)
         func px(_ b: CropRect) -> CropRect { CropRect(b.x0 * W, b.y0 * H, b.x1 * W, b.y1 * H) }
-        let done = ink.flatMap { ink in keptIndex.isEmpty ? nil : FigureCropCompletion.complete(ink, fractions: keptIndex.map { boxes[$0] }) }
+        let done = ink.flatMap { ink in keptIndex.isEmpty ? nil : FigureCropCompletion.complete(ink, fractions: keptIndex.map { shape[$0] }) }
         let crops: [CropRect?] = boxes.indices.map { k in keptIndex.firstIndex(of: k).flatMap { done?.crops[$0] } }
-        let regions = boxes.indices.map { crops[$0] ?? px(boxes[$0]) }
-        let owner = ink.flatMap { ink in done.map { _ in FigureCropCompletion.owners(ink.components, keptIndex.map { px(boxes[$0]) }) } } ?? []
+        let regions = boxes.indices.map { k in exact[k].map(px) ?? crops[k] ?? px(boxes[k]) }
+        let owner = ink.flatMap { ink in done.map { _ in FigureCropCompletion.owners(ink.components, keptIndex.map { px(shape[$0]) }) } } ?? []
         let parts = boxes.indices.map { k -> FramedPart in
             let region = regions[k]
             var reasons: [Reason] = [], score = 1.0
-            if !kept[k] { reasons.append(.extra); score = 0 }
+            if exact[k] != nil { /* the figure's own sub-figure: exact */ }
+            else if !kept[k] { reasons.append(.extra); score = 0 }
             else if done == nil { reasons.append(.unchecked); score = Parameters.uncheckedScore }
             else if crops[k] == nil { reasons.append(.cut); score = 0 }
             else {
@@ -116,9 +134,9 @@ public enum FigureFraming {
                 let grew = min(Parameters.growthMaxPenalty, max(0, growth - Parameters.growthFree) * Parameters.growthPerUnit)
                 if grew > 0 { reasons.append(.grew); score -= grew }
             }
-            if score > 0 {
+            if score > 0, exact[k] == nil {
                 let own = labelLetter(names[k])
-                if letters.count >= 2, extras > 0 { reasons.append(.count); score -= Parameters.countPenalty }
+                if disagree { reasons.append(.count) }
                 else if letters.count >= 2, let own, !letters.contains(own) { reasons.append(.letter); score -= Parameters.countPenalty }
                 if let ink, done != nil, let me = keptIndex.firstIndex(of: k) {
                     let wide = 0.5 * W * H
@@ -135,6 +153,7 @@ public enum FigureFraming {
                 if let agreement = detector?[safe: k] ?? nil, agreement < Parameters.detectorAgree {
                     reasons.append(.detector); score -= Parameters.detectorMaxPenalty * (Parameters.detectorAgree - agreement) / Parameters.detectorAgree
                 }
+                if disagree { score = min(score, Parameters.countCap) }
             }
             score = round6(min(1, max(0, score)))
             let level: Level = score >= Parameters.high ? .high : score >= Parameters.medium ? .medium : .low
@@ -150,9 +169,15 @@ public enum FigureFraming {
             func f(_ r: CropRect) -> CropRect { CropRect(round6(r.x0 / W), round6(r.y0 / H), round6(r.x1 / W), round6(r.y1 / H)) }
             return FramedPart(level: level, score: score, reasons: reasons, frame: f(frame), region: f(region), padX: padX, padY: padY,
                               veil: level == .high ? Parameters.veilHigh : level == .medium ? Parameters.veilMedium : Parameters.veilLow,
-                              outlined: level != .high, extra: !kept[k])
+                              outlined: level != .high, extra: !kept[k], exact: exact[k] != nil)
         }
-        return (parts, done.map { extras > 0 ? 1 : ($0.coverage ?? 1) })
+        // The share of the ink the kept parts show: an exact part its band, another its completed crop (the whole figure when
+        // it couldn't be completed).
+        guard let done, let ink else { return (parts, nil) }
+        if extras > 0 { return (parts, 1) }
+        guard exact.contains(where: { $0 != nil }) else { return (parts, done.coverage ?? 1) }
+        let shown = keptIndex.enumerated().map { i, k in exact[k].map(px) ?? done.crops[i] ?? CropRect(0, 0, W, H) }
+        return (parts, ink.coverage(shown))
     }
 }
 
@@ -173,6 +198,8 @@ public struct FramedPart: Equatable, Sendable {
     public let outlined: Bool
     /// A part beyond the caption's panels: an outline on the whole figure, not a crop of its own.
     public let extra: Bool
+    /// One of the figure's own sub-figures (its band of the composed image): exact, framed tightly.
+    public var exact = false
 
     /// The frame's aspect (width ÷ height) in pixels of an image of this size: the card's.
     public func aspect(width: Int, height: Int) -> Double {

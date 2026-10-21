@@ -21,7 +21,7 @@ interface Row { id: string; device_id: string; cursor: number; epoch: number; fo
 interface Page { events: Row[]; next_cursor: number; has_more: boolean }
 export interface AppendOptions {
   draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn;
-  /** Planned against the latest journal revision, so a delayed generated title cannot replace a rename. */
+  /** Planned against the latest journal events, so a delayed generated title cannot replace a rename. */
   title?: { id: string; conversationID: string; text: string; source: 'generated' | 'renamed' };
   /** Snippet blobs the events need (Notes): committed in the same local transaction; requires the durable journal. */
   blobs?: { blobID: string; stored: Bytes }[];
@@ -209,7 +209,10 @@ export class History {
       for (let attempt = 0; ; attempt++) {
       this.signal.throwIfAborted();
       await this.journal?.refresh();
-      const expectedRevision = this.journal?.revision;
+      // The plan reads events only, so only an event write since then is a conflict. Background writes that add no
+      // events (outbox acknowledgements, uploaded snippets marked ready, cached downloads, draft checkpoints) may land
+      // while this seals; counting them would let a busy sync exhaust the retries and report `local_storage`.
+      const expectedEvents = this.journal?.eventCount;
       const memoryTitles = options.title && this.state.revisions(options.title.conversationID).map(e => e.id).join(':');
       const planned = [...entries];
       if (options.title) {
@@ -249,7 +252,7 @@ export class History {
           requestedAnswer: options.draft.requestedAnswer && { ...options.draft.requestedAnswer, questionID: this.resolve(options.draft.requestedAnswer.questionID) },
           acknowledgedSubmissionID: options.draft.acknowledgedSubmissionID && this.resolve(options.draft.acknowledgedSubmissionID),
           receipt: options.draft.receipt && { ...options.draft.receipt, submissionID: this.resolve(options.draft.receipt.submissionID), eventIDs: options.draft.receipt.eventIDs.map(id => this.resolve(id)) } };
-        try { await this.journal.appendLocal(envelopes, { ...options, draft, expectedRevision }); }
+        try { await this.journal.appendLocal(envelopes, { ...options, draft, expectedEvents }); }
         catch (error) {
           if ((error as { code?: string }).code === 'journal_conflict' && attempt < 2) continue;
           if (options.recoveryTurn && (error as { code?: string }).code === 'journal_stale') throw error;

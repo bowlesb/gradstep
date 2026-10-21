@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
 import { cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
 import { boxFractions } from '../lib/figure-crops';
+import { matchSections } from '../lib/figure-structure';
 import type { FramedPart } from '../lib/figure-framing';
 import { framingShown, type ArxivFigure, type FramingSurface } from '../lib/figure-framing-record';
 import { useFramedParts, useSentInk } from './useFigureCrops';
@@ -143,9 +144,17 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   // Every part a viewport into the whole figure (FIGURE_VIEW.md "Parts as viewports"): completed on the image the request
   // carried, then framed by confidence (tight, loose and outlined, or the whole figure outlined); a caption naming its
   // panels caps the parts shown. The note below says when the parts leave some of the figure's ink out.
+  // Structure first (FIGURE_VIEW.md "Structure first"): a figure of several images has exact parts, its own sub-figures;
+  // a section that shows one (by letter, a box on its band, or in order) is shown as it, tight; the others as the AI boxed
+  // them. When the parts number neither the caption's panels nor the sub-figures, the AI's own show the whole figure.
   const ink = useSentInk(image?.data);
-  const boxed = sections.flatMap((s, i) => (!s.kind || s.kind === 'panel') && s.box ? [i] : []);
-  const framed = useFramedParts(ink, image, { boxes: boxed.map(i => boxFractions(sections[i].box!)), caption, labels: boxed.map(i => sections[i].label || sections[i].title) });
+  const structure = image?.structure ?? null;
+  const matched = useMemo(() => matchSections(sections.map(s => ({ label: s.label, title: s.title, kind: s.kind, box: s.box ? boxFractions(s.box) : null })), structure),
+    [sections, structure]);
+  const boxed = sections.flatMap((s, i) => (!s.kind || s.kind === 'panel') && (s.box || matched[i] !== null) ? [i] : []);
+  const exactOf = (i: number) => matched[i] !== null && structure ? structure.parts[matched[i]!].rect : null;
+  const framed = useFramedParts(ink, image, { boxes: boxed.map(i => exactOf(i) ?? boxFractions(sections[i].box!)), exact: boxed.map(exactOf),
+    structureParts: structure?.parts.length ?? 0, caption, labels: boxed.map(i => sections[i].label || sections[i].title) });
   const shownFor = new Map(boxed.map((i, k) => [i, framed?.parts[k]] as const));
   const coverage = !framed || !image ? null : framed.coverage ?? (ink === null ? cropCoverage(sections, image) : null);
   const source = useMemo((): FigureSource | null => image ? { src: `data:image/jpeg;base64,${image.data}`, width: image.width, height: image.height } : null, [image]);
@@ -159,7 +168,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     const show = (surface: FramingSurface, i: number, part: FramedPart | undefined, box: { x: number; y: number; w: number; h: number } | undefined, parts: number, index: number) => {
       if (part && box) framingShown(recordKey(surface, i), { figure: { ...arxiv, figure: label }, surface, part: index, parts, level: part.level, box: boxFractions(box), region: part.region, frame: part.frame });
     };
-    boxed.forEach((i, k) => show('walkthrough', i, framed?.parts[k], sections[i].box, boxed.length, k));
+    boxed.forEach((i, k) => { const e = exactOf(i); show('walkthrough', i, framed?.parts[k], sections[i].box ?? (e ? { x: e[0], y: e[1], w: e[2] - e[0], h: e[3] - e[1] } : undefined), boxed.length, k); });
   }); // eslint-disable-line react-hooks/exhaustive-deps
   const snippet = async (key: string, heading: string) => {
     const capture = captures.current.get(`card:${key}`);
