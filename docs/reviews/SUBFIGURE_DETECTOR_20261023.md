@@ -46,17 +46,33 @@ Training data: 14,084 training-split figures (6,000 vector compounds, 2,500 vect
 
 | Variant (arXiv validation, 238 figures) | Fully right | Harmful | Single false split | Compound perfect | Panel recall | Crop precision | Clipped | Not split | Merged |
 |---|---|---|---|---|---|---|---|---|---|
-| RC detector + policy (10-22, for reference) | 77.3 | 12.2 | 4.8 | 69.3 | 79.2 | 87.0 | 13 | 20 | 4 |
-| Grouping, no detector prior (pair AUC .929) | *pending* | | | | | | | | |
+| RC detector + policy (10-22, for reference) | 77.3 | 12.2 | 0.0 | 69.3 | 79.2 | 90.2 | 13 | 25 | 7 |
+| Grouping, no detector prior (pair AUC .929), + caption | 55.9 | 30.3 | 9.7 | 43.8 | 57.5 | 77.0 | 10 | 33 | 39 |
 | Grouping + R18 detector prior (pair AUC .986) | 64.3 | 21.0 | 11.3 | 55.7 | 65.5 | 79.1 | 7 | 35 | 13 |
 | + detector-guided component splitting | 65.5 | 22.7 | 12.9 | 58.0 | 69.0 | 78.0 | 7 | 28 | 12 |
 | + caption-count replay | 68.1 | 23.5 | 12.9 | 61.4 | 72.2 | 80.0 | 9 | 20 | 18 |
+| v2: prior from an early detector checkpoint, split-consistent training (pair AUC .974), + split + caption | 68.5 (62.5–74.0) | 24.0 | 9.7 | 60.8 | 72.4 | 80.0 | 10 | 18 | 19 |
+| Seeded: RC crops rebuilt from whole components | 73.5 | 16.0 | 0.0 | 64.2 | 76.4 | 87.2 | 14 | 25 | 13 |
+| Seeded: RC crops + learned orphan attachment only | 77.3 | 12.2 | 0.0 | 69.3 | 79.1 | 90.2 | 13 | 25 | 7 |
 
 What it fixes and what it does not: clipping falls (7–9 clipped figures vs 13–16 for the detector) and every
 split covers 100% of the ink, as designed. But the grouping **under-splits** (35 compounds kept as one) because
 touching or framed panels are one connected ink component or are bridged by connectors, and it **over-splits**
 lettered plot groups and figures with large legends. Merge threshold (0.3–0.7) and panel-ink share (2–8%) do not
-change this (66.8–68.5%).
+change this (66.8–68.5%). The v2 prior (weaker detector during training, so the model does not over-trust it) did
+not help either.
+
+Used as a refinement of the detector's crops it does not help: rebuilding crops from components lowers the
+score (components that straddle panels drag crops together), and learned orphan attachment leaves every outcome
+unchanged. A diagnostic of the RC's 13 clipped validation figures explains why: 76% of the missing ink belongs to
+components lying entirely outside every crop and 24% to components cut by a crop edge — the completion step
+already attaches the reachable ones, and the rest are elements whose ownership the annotator and the geometry
+disagree on (legends between panels, column headings), not pixels a better grouping can recover.
+
+Size and speed: the pair model is 2.9 MB; components + features + clustering take 55 ms median (98 ms p90;
+38 components median) per figure in Python on one core. Without the detector prior it fits easily under the
+40 MB iPhone target but scores 55.9%; with the R18 prior the bundle is ≈ 83 MB FP32 (the R18 export fails FP16
+parity, 10-22).
 
 ## 3. Local VLM as judge (never coordinates)
 

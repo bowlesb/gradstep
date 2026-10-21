@@ -156,3 +156,94 @@ def group_figure(img, model, det=None, caption_letters=(), thr=.5, floor=.15, pa
     if any((b[2] - b[0]) * (b[3] - b[1]) >= .92 * W * H for b in crops):
         return []
     return crops
+
+
+def refine_crops(img, model, crops, det=None, mask=None, inside=.9):
+    """Seeded grouping: keep the detector policy's panels (count and identity) but rebuild each crop from whole
+    components. Components >= `inside` within one crop seed that crop; every other component joins the crop it is
+    most affine to (mean pair affinity with that crop's seeds; nearest crop when it has no candidate edge)."""
+    if len(crops) < 2:
+        return crops
+    mask = F.ink_mask(img) if mask is None else mask
+    comps, lab = F.components(img, mask)
+    if len(comps) < 2 or len(comps) > 3 * F.N_COMP_MAX:
+        return crops
+    owner = []
+    for c in comps:
+        b = c['box']; a = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
+        best, bf = -1, 0.0
+        for k, cr in enumerate(crops):
+            w = min(b[2], cr[2]) - max(b[0], cr[0]); h = min(b[3], cr[3]) - max(b[1], cr[1])
+            f = max(0.0, w) * max(0.0, h) / a
+            if f > bf:
+                best, bf = k, f
+        owner.append(best if bf >= inside else -1)
+    pairs = F.candidate_pairs(comps)
+    dboxes = [p['box'] for p in (det or []) if p['class'] == 0 and p['score'] >= .3]
+    da = F.det_assign(comps, dboxes) if det is not None else None
+    probs = model.predict_proba(F.pair_features(comps, pairs, mask, det=da, n_det=len(dboxes)))[:, 1] if pairs else []
+    aff = {}
+    for (i, j), p in zip(pairs, probs):
+        for u, v in ((i, j), (j, i)):
+            if owner[u] == -1 and owner[v] >= 0:
+                aff.setdefault(u, {}).setdefault(owner[v], []).append(p)
+    members = [[i for i, o in enumerate(owner) if o == k] for k in range(len(crops))]
+    for i, o in enumerate(owner):
+        if o >= 0:
+            continue
+        cand = {k: float(np.mean(v)) for k, v in aff.get(i, {}).items()}
+        if cand:
+            k = max(cand, key=cand.get)
+        else:
+            k = min(range(len(crops)), key=lambda t: sum(F.gap(comps[i]['box'], crops[t])))
+        members[k].append(i)
+    out = []
+    for k, mem in enumerate(members):
+        out.append(_bbox(comps, mem) if mem else crops[k])
+    H, W = mask.shape
+    if any((b[2] - b[0]) * (b[3] - b[1]) >= .92 * W * H for b in out):
+        return crops
+    return out
+
+
+def attach_orphans(img, model, crops, det=None, mask=None, max_grow=None):
+    """Learned orphan attachment: keep the policy's crops; every ink component lying entirely outside all crops
+    joins the crop whose inside components it is most affine to (nearest crop without a candidate edge). Crops may
+    then overlap (the app allows overlap); nothing already inside a crop moves."""
+    if len(crops) < 2:
+        return crops
+    mask = F.ink_mask(img) if mask is None else mask
+    comps, lab = F.components(img, mask)
+    if len(comps) < 2 or len(comps) > 3 * F.N_COMP_MAX:
+        return crops
+
+    def inside_of(b):
+        best, bf = -1, 0.0
+        a = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
+        for k, cr in enumerate(crops):
+            w = min(b[2], cr[2]) - max(b[0], cr[0]); h = min(b[3], cr[3]) - max(b[1], cr[1])
+            f = max(0.0, w) * max(0.0, h) / a
+            if f > bf:
+                best, bf = k, f
+        return best, bf
+    own = [inside_of(c['box']) for c in comps]
+    orphans = [i for i, (k, f) in enumerate(own) if f == 0.0]
+    if not orphans:
+        return crops
+    pairs = F.candidate_pairs(comps)
+    dboxes = [p['box'] for p in (det or []) if p['class'] == 0 and p['score'] >= .3]
+    da = F.det_assign(comps, dboxes) if det is not None else None
+    probs = model.predict_proba(F.pair_features(comps, pairs, mask, det=da, n_det=len(dboxes)))[:, 1] if pairs else []
+    aff = {}
+    for (i, j), p in zip(pairs, probs):
+        for u, v in ((i, j), (j, i)):
+            if own[u][1] == 0.0 and own[v][1] >= .9:
+                aff.setdefault(u, {}).setdefault(own[v][0], []).append(p)
+    out = [list(c) for c in crops]
+    for i in orphans:
+        cand = {k: float(np.mean(v)) for k, v in aff.get(i, {}).items()}
+        b = comps[i]['box']
+        k = max(cand, key=cand.get) if cand else min(range(len(crops)), key=lambda t: sum(F.gap(b, crops[t])))
+        o = out[k]
+        out[k] = [min(o[0], b[0]), min(o[1], b[1]), max(o[2], b[2]), max(o[3], b[3])]
+    return out
