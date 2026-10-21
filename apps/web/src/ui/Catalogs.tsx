@@ -2,8 +2,18 @@ import { useState } from 'react';
 import type { Library } from './Library';
 import { Dialog } from './common';
 import type { Catalog } from '../lib/library-catalogs';
+import { catalogCSVRows, csvFileName, libraryCSV } from '../lib/library-csv';
 
 const paperCount = (count: number) => `${count} ${count === 1 ? 'paper' : 'papers'}`;
+
+/** Export as CSV (owner, build 75: "save the entire catalog as csv"): every paper in the catalog, written here and saved
+ * by this browser; nothing is sent. */
+function saveCSV(name: string, csv: string) {
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), link = document.createElement('a');
+  link.href = url; link.download = csvFileName(name); link.hidden = true;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
 
 export function CatalogsDialog({ open, onClose, library }: { open: boolean; onClose: () => void; library: Library }) {
   const catalogs = library.catalogs;
@@ -54,6 +64,7 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
           <div className="row-actions">
             <button className="link" aria-label={`Rename ${c.name}`} onClick={() => { setEditing(c); setName(c.name); }}>Rename</button>
             {c.id !== catalogs.state.defaultID && <button className="link" aria-label={`Make ${c.name} default`} onClick={() => void run(() => catalogs.makeDefault(c.id))}>Make default</button>}
+            <button className="link" aria-label={`Export ${c.name} as CSV`} data-testid="catalog-export" onClick={() => saveCSV(c.name, libraryCSV(catalogCSVRows(library.catalogEntries(c.id))))}>Export as CSV</button>
             <button className="link" aria-label={`Delete ${c.name}`} onClick={() => { const other = catalogs.state.catalogs.find(x => x.id !== c.id); setDeleting(c); setMode(other ? 'existing' : 'new'); setTarget(other?.id ?? ''); setName(''); }}>Delete…</button>
           </div>
         </li>)}</ul>

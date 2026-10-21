@@ -79,3 +79,26 @@ test('new additions stay in the chosen catalog and an individual paper can move 
   const evidence = await (await request.get(`${FIXTURE}/__library-action-evidence`)).json();
   expect(evidence.entries.find((e: { metadata?: { title?: string } }) => e.metadata?.title?.includes('Direct Preference Optimization'))?.visible).toBe(true);
 });
+
+// Build 75 (ACLs): "an option to save the entire catalog as csv". Saved by this browser, nothing sent.
+test('a catalog exports every paper as a CSV file named after it', async ({ page }, info) => {
+  await signIn(page); const titles = await page.getByTestId('paper-row').locator('.title').allTextContents(); await open(page);
+  const sent: string[] = []; page.on('request', r => { if (r.method() !== 'GET') sent.push(r.url()); });
+  await page.screenshot({ path: `../../.artifacts/feedback-20261021/browser/b6-catalogs-${info.project.name}-light.png` });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: `../../.artifacts/feedback-20261021/browser/b6-catalogs-${info.project.name}-dark.png` });
+  await page.emulateMedia({ colorScheme: 'light' });
+  const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export Default as CSV', exact: true }).click()]);
+  expect(download.suggestedFilename()).toBe('Default.csv');
+  const bytes = await (await download.createReadStream()).toArray().then(chunks => Buffer.concat(chunks));
+  expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  const text = bytes.toString('utf8').slice(1), lines = text.split('\r\n');
+  expect(lines[0]).toBe('Title,Authors,Year,arXiv ID,DOI,Link,Tags,Added');
+  // The entire catalog: every paper the table shows, and the archived one it hides by default.
+  for (const title of titles) expect(lines.some(line => line.startsWith(title.trim()))).toBe(true);
+  expect(lines.some(line => line.startsWith('Mamba: Linear-Time Sequence Modeling'))).toBe(true);
+  expect(lines.filter(Boolean)).toHaveLength(titles.length + 2);
+  expect(text).toContain(',2305.18290v3,,https://arxiv.org/abs/2305.18290v3,Alignment,');
+  expect(sent).toEqual([]);
+  await expect(dialog(page)).toBeVisible();
+});
