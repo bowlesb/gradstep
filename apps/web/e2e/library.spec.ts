@@ -70,7 +70,8 @@ test('a full library stays searchable while an import progresses', async ({ page
   // Wide windows filter from the side panel's tag list; narrow ones from the chips' tag menu.
   const rail = page.getByRole('navigation', { name: 'Library filters' });
   const tag = async (name: string) => (await rail.isVisible())
-    ? rail.getByRole('button', { name: new RegExp(name || 'Self-supervised learning') }).click()
+    // Anchored: the rail's "Search ML papers for “…”" (build 75) also names the chosen tag.
+    ? rail.getByRole('button', { name: new RegExp('^' + (name || 'Self-supervised learning')) }).click()
     : page.getByRole('combobox', { name: 'Filter by tag' }).selectOption(name);
   await tag('Self-supervised learning');
   await expect(page.getByTestId('library-table')).toHaveAttribute('aria-rowcount', '1999');

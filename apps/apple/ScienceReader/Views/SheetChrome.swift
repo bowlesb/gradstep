@@ -53,11 +53,11 @@ private struct SheetTopRowModifier: ViewModifier {
                 // One item, not a group: iOS 26 moves bar buttons that don't fit into an overflow menu (both words
                 // and the X went there in a half-height sheet); one view is laid out in the space it has.
                 if chat != nil || explainer != nil {
-                    // With the sheet's "…" beside the X the trailing group is wider than the bar allows for: keep clear of it.
+                    // With the sheet's "…" beside the X the side groups are wider than the bar allows for: keep clear of both.
                     if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .principal) { actions.padding(.trailing, report == nil ? 0 : 14) }.sharedBackgroundVisibility(.hidden)
+                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, report == nil ? 0 : 12) }.sharedBackgroundVisibility(.hidden)
                     } else {
-                        ToolbarItem(placement: .principal) { actions.padding(.trailing, report == nil ? 0 : 14) }
+                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, report == nil ? 0 : 12) }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
