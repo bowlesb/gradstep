@@ -1,6 +1,7 @@
 # AI recommendations (similar papers, added for you)
 
-Status, 2026-10-21: **designed and implemented on a branch; not deployed.** Migration
+Status, 2026-10-21: **designed, implemented and verified locally on a branch; not deployed** (evidence in
+[IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md)). Migration
 `202610210143_recommendations.sql`, Edge function `recommend`, native iPhone/iPad/Mac and browser clients. The deploy
 steps and the one paid live check are at the end. Proposal and owner exchange: [proposal](../proposals/AI_RECOMMENDATIONS.md).
 
@@ -119,9 +120,11 @@ fixed commitment. The reader pays 1 credit ($0.005) per request that adds papers
 - `tests/backend/recommend.test.ts`: request validation, candidate merge/exclusion/cap, prompt bounds, incremental pick
   parsing, the whole run with fakes (events in order, adds idempotent, settlement), replay, failures uncharged, and
   the real OpenRouter adapter's attribution (`feature: recommend`, Haiku, Vertex route).
-- Native: `RecommendationsTests` (model: catalog assignment, Undo/Remove, event decoding) and the UI journey
-  `RecommendationJourneyTests` with `--recommend-fixture` (no network). Browser: unit tests and `recommend.spec.ts`
-  (desktop and phone) against the fixture backend.
+- Native: Core `RecommendationsTests` (decoding, request body, keyword filter), app `RecommendationsAppTests` and
+  `LibraryModelTests` (catalog filing through the real transport, Remove/Undo, closing the sheet), UI journeys
+  `RecommendationJourneyTests` with `--recommend-fixture` (no network). Browser: `tests/recommend.test.ts` and
+  `e2e/recommend.spec.ts` (desktop and phone) against the fixture backend. The browser has no Library ⋯ menu, so its
+  catalog entry is a **Recommend** button beside Catalogs.
 
 ## Deploy (not done; the lead runs it)
 

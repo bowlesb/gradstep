@@ -1,6 +1,36 @@
 # Implementation status
 
 
+## AI recommendations — 2026-10-21 UTC (branch `worktree-agent-a6b735d13259a6476`; not deployed, not released)
+
+Owner, TestFlight 78: "uses AI with our server to search for the most similar papers and just adds them … 1, 3 or 5";
+decisions delegated ("just take your best judgement"). Design, decisions and deploy order:
+[AI_RECOMMENDATIONS.md](architecture/AI_RECOMMENDATIONS.md); decisions also in [DECISIONS.md](DECISIONS.md).
+
+Built: migration `202610210143_recommendations.sql` (kind `recommend`, policy 20/day and 1 credit, runs table deleted
+with the account, begin/pool/finish, stale runs swept uncharged, Costs feature and Health counts); Edge function
+`recommend` (DataCite and Feed pool candidates, never arXiv; one admitted Haiku 5.5 call through OpenRouter, feature
+`recommend`; picks added as the reader as they stream; 1 credit only when a paper was added; replay free); admin Costs
+and Health; iPhone/iPad/Mac menus under Find similar papers (and Mac's Paper menu), Recommend for this catalog,
+the streamed sheet with reasons, Remove and Undo, filing into the catalog being viewed; the browser equivalents (the
+catalog entry is a Recommend button beside Catalogs: the browser has no Library ⋯ menu); privacy draft paragraph;
+explicit paid check `recommend.smoke`.
+
+Verified locally (no provider call, no deployment, no physical phone): `npm test` passes (backend 698, browser units
+580); `npm run test:database` passes (121 s; `recommendations.sql` in the final phase, also alone with
+`python3 scripts/test-database.py --recommendations-only`); `tests/backend/recommend.test.ts` 11/11 (including the real
+OpenRouter adapter's attribution against a fake stream); Playwright `recommend.spec.ts` 12/12 desktop and phone, and
+`library-actions`, `catalogs`, `parity` 39 passed, 1 pre-existing conditional skip; native Core `RecommendationsTests`
+4/4, app `RecommendationsAppTests` 4/4 and `LibraryModelTests/testRecommendationsStreamAndFileAddedPapersWhereTheReaderAsked`
+(real transport, paper filed to the chosen catalog with the sheet closed); UI journeys on fresh iPhone 17 Pro and iPad
+Pro 13 Simulators (add 3 → reasons → Remove one → Undo; daily limit; closing the sheet keeps the request, dark); Mac
+Catalyst build compiles (no Mac UI test). The wider native regression run had one failure that needs the downloaded
+real-paper corpus absent from this worktree (`testOfflineReportedPaperRegressionsThroughNativeLibrary`). Evidence and
+screenshots: `.artifacts/recommendations/` (native) and `.artifacts/recommendations/browser/`.
+
+Not verified: the live model's choices and cost (the one paid check, ~$0.001 estimated, is in the deploy steps);
+"Why recommended" after the sheet closes is a follow-up; "Chat about this paper" is not built.
+
 ## Snippets, Podcasts default and AI defaults explainer — 2026-10-21 UTC (local source, not released)
 
 Owner requests and build-78 feedback, iPhone first with iPad, Mac and browser parity: Notes is renamed **Snippets** (a
