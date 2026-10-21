@@ -95,6 +95,24 @@ not be used for ownership, grouping or split verification. As a gate on the RC d
 when its count agrees with the system's crop count, 86.9% of those splits are perfect (137 figures); when it
 disagrees, only 21.4% are (14 figures). Its "ONE" answers changed nothing (the RC already keeps those singles).
 
+### The judge as a labeler (agreement filter on noisy training labels)
+
+The count question was put to the VLM for 1,500 sampled teacher pseudo-labels and all 1,043 unverified
+whitespace (XY-cut) compound labels (0.69 s each; 2,543 queries ≈ 45 min with batching and a shared GPU). It agrees
+with 85.8% of the pseudo-labels and 89.6% of the whitespace labels. A visual check of 12 kept and 12 dropped
+figures per source (my review, development only):
+
+| Source | Kept by VLM: labels correct | Dropped by VLM: labels correct |
+|---|---|---|
+| Teacher pseudo-labels | 12/12 | ≈ 10/12 (the VLM over-counted small plots, "11"/"12") |
+| Whitespace labels | ≈ 11/12 | ≈ 7/12 |
+
+So the filter removes some wrong whitespace labels but mostly discards correct pseudo-labels; its count errors
+are systematic over-counts of plots inside lettered parts. Validation disagreements between the VLM count and
+the ground truth (26 figures, `.artifacts/subfigure-detector-20261023/review-queue/`) are, on inspection, mostly
+VLM over-counts, with two genuinely debatable groupings — the review queue works as a way to find label
+ambiguity, but it is not a source of ground truth.
+
 ## 4. Fresh test proposal
 
 A test-3 candidate pool is drawn from the 611 test-split papers whose author components never contributed to
