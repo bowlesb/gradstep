@@ -206,6 +206,34 @@ final class NotesJourneyTests: XCTestCase {
         capture("Note with a quotation")
     }
 
+    /// A figure page's Add to note starts with the whole figure chosen; Use snippet saves it from the page.
+    func testFigurePageAddToNoteStartsWithTheWholeFigure() throws {
+        let app = launch()
+        try requirePhoneLayout(app)
+        let web = openSample(app)
+        let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure:")).firstMatch
+        for _ in 0..<6 where !(figure.exists && figure.isHittable) { web.swipeUp() }
+        XCTAssertTrue(figure.waitForExistence(timeout: 5)); figure.tap()
+        let add = app.buttons["figureView.addToNote"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "The figure page offers Add to note")
+        add.tap()
+        let use = app.buttons["capture.use"]
+        XCTAssertTrue(use.waitForExistence(timeout: 10))
+        waitFor("The whole figure is already chosen") { use.isEnabled }
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Drag corners")).firstMatch.exists)
+        capture("Figure page: whole figure chosen")
+        use.tap()
+        let save = app.buttons["composer.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        waitFor("Prepared") { save.isEnabled }
+        save.tap()
+        let saved = app.staticTexts["notes.saved"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 10), "Saved, on the figure page")
+        capture("Figure page: saved")
+        app.buttons["notes.saved.open"].tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10), "Open note leaves the figure page for the note")
+    }
+
     /// Settings is the last section of every top-right menu and returns to where it was opened.
     func testSettingsFromEveryMenuReturnsToItsOrigin() throws {
         let app = launch()

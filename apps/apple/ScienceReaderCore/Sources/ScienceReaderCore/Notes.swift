@@ -18,7 +18,6 @@ public enum NotesFormat {
     /// Encoded record bound (contract: 48 KiB).
     public static let maximumRecordBytes = 48 * 1024
     public static let maximumTitleScalars = 80
-    public static let maximumTitleBytes = 240
     public static let maximumCommentBytes = 16 * 1024
     public static let maximumQuoteBytes = 20 * 1024
     public static let maximumBlockIDs = 64
@@ -55,7 +54,6 @@ public struct NoteRecord: Equatable, Sendable {
     public static func normalizedTitle(_ input: String) -> String? {
         let title = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, title.unicodeScalars.count <= NotesFormat.maximumTitleScalars,
-              title.utf8.count <= NotesFormat.maximumTitleBytes,
               !title.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
         return title
     }
@@ -63,7 +61,6 @@ public struct NoteRecord: Equatable, Sendable {
     public func validate() throws {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw NotesValidationError("empty title") }
         guard title.unicodeScalars.count <= NotesFormat.maximumTitleScalars else { throw NotesValidationError("title over 80 Unicode scalars") }
-        guard title.utf8.count <= NotesFormat.maximumTitleBytes else { throw NotesValidationError("title over 240 UTF-8 bytes") }
         guard NoteRecord.normalizedTitle(title) == title else { throw NotesValidationError("title not trimmed") }
         try NotesJSON.validateTimestamp(createdAt, "createdAt")
     }
@@ -148,7 +145,7 @@ public struct NoteAnchor: Equatable, Sendable {
             throw NotesValidationError("too many source blocks")
         }
         guard rects.count <= NotesFormat.maximumRects, rects.allSatisfy({ rect in
-            rect.count == 4 && rect.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 } && rect[0] + rect[2] <= 1.0001 && rect[1] + rect[3] <= 1.0001
+            rect.count == 4 && rect.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 } && rect[0] + rect[2] <= 1.001 && rect[1] + rect[3] <= 1.001
         }) else { throw NotesValidationError("invalid anchor rects") }
         if let viewport {
             guard viewport.count == 3, viewport.allSatisfy({ $0.isFinite && $0 > 0 && $0 <= 100_000 }) else { throw NotesValidationError("invalid viewport") }
@@ -239,7 +236,8 @@ public struct NoteEntryRecord: Equatable, Sendable {
         guard counter >= 1 else { throw NotesValidationError("counter must be >= 1") }
         guard counter <= NotesFormat.maximumInteger else { throw NotesValidationError("counter over the safe integer range") }
         try NotesJSON.validateTimestamp(capturedAt, "capturedAt")
-        guard (-1_080...1_080).contains(offsetMinutes) else { throw NotesValidationError("invalid offsetMinutes") }
+        // The browser's bound (±1,440): every real offset is within ±14 hours; neither client rejects the other's.
+        guard (-1_440...1_440).contains(offsetMinutes) else { throw NotesValidationError("invalid offsetMinutes") }
         guard comment.utf8.count <= NotesFormat.maximumCommentBytes else { throw NotesValidationError("comment over 16 KiB") }
         guard (quote?.utf8.count ?? 0) <= NotesFormat.maximumQuoteBytes else { throw NotesValidationError("quote over 20 KiB") }
         try source?.validate()

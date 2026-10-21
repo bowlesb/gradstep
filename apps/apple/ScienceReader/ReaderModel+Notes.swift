@@ -162,12 +162,6 @@ extension ReaderModel {
         return UUID(uuid: bytes)
     }
 
-    func rememberNoteDestination(_ id: UUID?) {
-        guard let store, notesAvailability == .ready else { return }
-        let persistence = localPersistence
-        _ = try? persistence.acceptWrite { _ in try await store.setNoteDestination(id) }
-    }
-
     /// The decrypted, verified image for a descriptor: memory, this device's encrypted copy, then a download.
     func noteImage(_ media: NoteMedia) async throws -> UIImage {
         if let cached = notes.cachedImage(media) { return cached }
