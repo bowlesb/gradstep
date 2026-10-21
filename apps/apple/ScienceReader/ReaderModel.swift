@@ -3561,7 +3561,14 @@ final class ReaderModel {
                 addedAt: Date(timeIntervalSince1970: Double(member.createdAt) / 1000), pageCount: member.pageCount,
                 canReadStructured: false, archived: member.archived, tags: member.tags, ownTags: member.tags))
         }
-        papers = papers.filter { !$0.isLocalPDF } + local
+        local.sort { $0.id.wire < $1.id.wire }
+        // Assigning `papers` rebuilds the row lookup, the visible rows and the text index: only when these rows changed.
+        let current = papers.filter(\.isLocalPDF)
+        let unchanged = current.count == local.count && zip(current, local).allSatisfy { old, new in
+            old.id == new.id && old.title == new.title && old.addedAt == new.addedAt && old.pageCount == new.pageCount
+                && old.archived == new.archived && old.tags == new.tags
+        }
+        if !unchanged { papers = papers.filter { !$0.isLocalPDF } + local }
     }
 
     /// The Add sheet's network calls for the signed-in account (a script in UI fixtures).
@@ -5046,7 +5053,11 @@ final class ReaderModel {
     @discardableResult
     func publish(_ snapshot: LocalStoreSnapshot) -> Bool {
         guard snapshot.generation >= publishedGeneration else { return false }
-        publishedGeneration = snapshot.generation; publishedPendingCount = snapshot.pendingCount; privateState = snapshot.state
+        if publishedPendingCount != snapshot.pendingCount { publishedPendingCount = snapshot.pendingCount }
+        // Every scheduled sync and write publishes again. The same generation is the same committed history, so its
+        // projections (catalogs, chat counts, diagrams, summaries) and the library rows are not rebuilt or re-rendered.
+        guard snapshot.generation > publishedGeneration else { return true }
+        publishedGeneration = snapshot.generation; privateState = snapshot.state
         presentLocalPDFMemberships()
         return true
     }

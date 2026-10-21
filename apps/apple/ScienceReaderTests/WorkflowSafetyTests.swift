@@ -390,6 +390,31 @@ final class WorkflowSafetyTests: XCTestCase {
         XCTAssertEqual(model.privateState.events.count, 2)
     }
 
+    /// C1: the same store generation published again (every scheduled sync and write does) invalidates no view: the
+    /// history projections and the library rows are left as they are.
+    func testRepublishingTheSameGenerationInvalidatesNothing() async throws {
+        let account = UUID(), device = UUID(), key = ReaderCrypto.randomKey(), bundle = KeyBundle.generate(accountID: account)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("workflow-republish-\(UUID().wire)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = try EncryptedStore(url: folder.appendingPathComponent("state.sqlite"), accountID: account, localKey: key, keys: bundle)
+        _ = try await store.append(PrivateEvent(kind: .note, text: "Saved state"), deviceID: device)
+        let snapshot = await store.snapshot()
+        let model = ReaderModel(configuration: nil)
+        XCTAssertTrue(model.publish(snapshot))
+        final class Flag: @unchecked Sendable { var changed = false }
+        let flag = Flag()
+        withObservationTracking {
+            _ = model.privateState; _ = model.papers; _ = model.conversationSummaries; _ = model.libraryCatalogs
+        } onChange: { flag.changed = true }
+        XCTAssertTrue(model.publish(snapshot), "The same generation is still accepted")
+        XCTAssertFalse(flag.changed, "Nothing was re-projected or re-rendered")
+        _ = try await store.append(PrivateEvent(kind: .note, text: "Newer state"), deviceID: device)
+        let newer = await store.snapshot()
+        XCTAssertTrue(model.publish(newer))
+        XCTAssertTrue(flag.changed)
+        XCTAssertEqual(model.privateState.events.count, 2)
+    }
+
     func testNewerSyncAttemptOwnsStatusEvenWithoutAStoreGenerationChange() throws {
         var ownership = ReaderWorkOwnership()
         let store = ownership.storeScope
