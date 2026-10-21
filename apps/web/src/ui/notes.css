@@ -9,7 +9,7 @@
 .notes-list:not(.rail) { max-width: 760px; width: 100%; margin: 0 auto; padding-bottom: 24px; }
 .notes-head { align-items: center; }
 .notes-head .view-sub { flex: 1; }
-.notes-new { margin-left: auto; border: 1px solid var(--line); border-radius: 50%; width: 36px; height: 36px; color: var(--accent); }
+.notes-head .notes-new { margin-left: auto; border: 1px solid var(--line); border-radius: 50%; width: 36px; height: 36px; color: var(--accent); }
 .notes-search { flex-direction: row; align-items: center; gap: 8px; margin: 4px 20px 10px; padding: 0 12px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line);
   color: var(--faint); font-weight: 400; }
 .notes-list.rail .notes-search { margin: 10px 10px 6px; }
@@ -77,7 +77,7 @@ button.snippet-image { cursor: zoom-in; }
 .snippet-zoom .zoom-stage { max-height: min(62dvh, 900px); overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
 .snippet-zoom .zoom-stage img { display: block; height: auto; margin: 0 auto; }
 .zoom-control { flex-direction: row; align-items: center; gap: 12px; font-weight: 500; }
-.zoom-control input { flex: 1; min-height: 28px; padding: 0; }
+.zoom-control input[type=range] { border: 0; background: none; flex: 1; min-height: 28px; padding: 0; }
 .notes-saved, .notes-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 35; display: flex; align-items: center; gap: 10px;
   max-width: min(560px, calc(100vw - 24px)); background: var(--text); color: var(--surface); padding: 6px 6px 6px 14px; border-radius: 12px; box-shadow: var(--pop); font-size: 13.5px; }
 .notes-saved { width: max-content; }
@@ -106,7 +106,7 @@ button.snippet-image { cursor: zoom-in; }
 .snippet-edges summary { cursor: pointer; font-size: 13px; color: var(--accent); min-height: 32px; display: flex; align-items: center; }
 .snippet-edge-grid { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 6px 12px; padding-top: 6px; }
 .snippet-edge-grid label { font-size: 12px; font-weight: 500; gap: 2px; }
-.snippet-edge-grid input { min-height: 24px; padding: 0; }
+.snippet-edge-grid input[type=range] { border: 0; background: none; min-height: 24px; padding: 0; }
 .snippet-bar .primary { display: inline-flex; align-items: center; gap: 6px; }
 
 /* Phone widths: the apps' five destinations, Settings in the top-right ⋯. */

@@ -23,13 +23,11 @@ export function SnippetOverlay({ initial, busy, issue, onUse, onCancel }: {
   const announce = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const element = stage.current; if (!element) return;
-    let first = true;
+    let previous: { width: number; height: number } | null = null;
     const observer = new ResizeObserver(([entry]) => {
       const next = { width: Math.round(entry.contentRect.width), height: Math.round(entry.contentRect.height) };
-      setSize(previous => {
-        if (!first && previous && (previous.width !== next.width || previous.height !== next.height)) { setBox(null); setNotice('The page changed size. Draw the box again.'); }
-        first = false; return next;
-      });
+      if (previous && (previous.width !== next.width || previous.height !== next.height)) { setBox(null); setNotice('The page changed size. Draw the box again.'); }
+      previous = next; setSize(next);
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -97,7 +95,7 @@ export function SnippetOverlay({ initial, busy, issue, onUse, onCancel }: {
       </div>}
     </div>
     <div className="snippet-bar" role="toolbar" aria-label="Draw snippet">
-      <button className="secondary small" onClick={onCancel} disabled={busy} data-testid="snippet-cancel">Cancel</button>
+      <button className="secondary small" onClick={onCancel} disabled={busy} data-testid="snippet-cancel" autoFocus>Cancel</button>
       <span className="snippet-title"><strong>Draw snippet</strong><span className="fine">{notice ?? issue ?? (shown ? (small ? 'Use the edge controls to refine' : 'Drag the corners to adjust') : 'Drag around anything on the page')}</span></span>
       <span className="visually-hidden" aria-live="polite" ref={announce} />
       <details className="snippet-edges"><summary>Edges</summary>

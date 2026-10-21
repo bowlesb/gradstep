@@ -241,13 +241,13 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   useEffect(() => {
     commands.current = {
       find: openFind,
-      escape: () => { if (finding) { closeFind(); return true; } return false; },
+      escape: () => { if (snippet && !snippet.busy) { setSnippet(null); return true; } if (finding) { closeFind(); return true; } return false; },
       section: delta => sectionStep.current(delta),
       versionDetails: () => setVersionOpen(true),
       drawSnippet: () => drawSnippet.current(),
     };
     return () => { commands.current = null; };
-  }, [commands, openFind, closeFind, finding]);
+  }, [commands, openFind, closeFind, finding, snippet]);
   // A short pause while typing, then the frame searches from the reading place.
   useEffect(() => {
     if (!finding || !frameReady.current) return;
@@ -332,7 +332,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     setSelection(null); command('clearSelection');
     setSnippet({ box: null, busy: false, issue: null });
   };
-  const useSnippet = async (box: Box) => {
+  const takeSnippet = async (box: Box) => {
     if (!bundle || !noteCapture) return;
     setSnippet({ box, busy: true, issue: null });
     const reply = await ask('capture', [box], 30_000);
@@ -616,7 +616,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             } else addSelection(selection, quote);
           }}>Add to note</button>}
         </div>}
-        {snippet && srcdoc && !error && <SnippetOverlay initial={snippet.box} busy={snippet.busy} issue={snippet.issue} onUse={box => void useSnippet(box)} onCancel={() => setSnippet(null)} />}
+        {snippet && srcdoc && !error && <SnippetOverlay initial={snippet.box} busy={snippet.busy} issue={snippet.issue} onUse={box => void takeSnippet(box)} onCancel={() => setSnippet(null)} />}
         {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
         {referenceNotice && <div className="reader-reference-notice" role="status" data-testid="reference-notice">

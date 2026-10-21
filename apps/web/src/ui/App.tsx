@@ -135,10 +135,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.
   const readerCommands = useRef<ReaderCommands | null>(null);
   const readerActions = useLibraryActions(library, undefined, useMemo(() => [
-    // Notes: Paper ⋯ › Draw snippet (the always-available entry; NOTES_AND_SNIPPETS.md "Capture entry points").
-    { label: 'Draw snippet', testID: 'draw-snippet', applies: (paper: LibraryPaper) => isReaderPaper(paper), run: () => readerCommands.current?.drawSnippet?.() },
     { label: 'Reader version details', testID: 'reader-version-details',
-      applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() }], []),similar);
+      applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() },
+    // Notes: Paper ⋯ › Draw snippet (the always-available entry; NOTES_AND_SNIPPETS.md "Capture entry points"), after
+    // the existing first item.
+    { label: 'Draw snippet', testID: 'draw-snippet', applies: (paper: LibraryPaper) => isReaderPaper(paper), run: () => readerCommands.current?.drawSnippet?.() }], []),similar);
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
@@ -649,6 +650,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} />;
   }
 
+  // Paper (phone): the paper last open in this tab, else the one most recently opened on this device.
+  const recentPaper = useMemo(() => {
+    const visible = new Set(library.entries.filter(e => isReaderPaper(e) && e.visible).map(e => e.id));
+    if (lastPaper && visible.has(lastPaper)) return lastPaper;
+    return [...activity].filter(([id]) => visible.has(id)).sort((a, b) => (b[1].opened ?? 0) - (a[1].opened ?? 0))[0]?.[0] ?? null;
+  }, [library.entries, lastPaper, activity]);
   const nav = (to: string, label: string, icon: IconName, current: boolean, testID?: string) => (
     <a href={to} className={current ? 'nav-link on' : 'nav-link'} aria-current={current ? 'page' : undefined} data-testid={testID} title={label}
       onClick={e => { e.preventDefault(); navigate(to); }}><Icon name={icon} /><span className="nav-label">{label}</span></a>
@@ -726,7 +733,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       {savedNote && <div className="notes-saved" role="status" data-testid="notes-saved"><span>Saved to {savedNote.title}{savedNote.offline ? ' · Waiting to sync' : ''}</span>
         <button className="link" onClick={() => { setSavedNote(null); void navigate(`/notes/${savedNote.noteID}`); }} data-testid="open-saved-note">Open note</button>
         <button className="icon-button" aria-label="Dismiss" onClick={() => setSavedNote(null)}><Icon name="close" size={14} /></button></div>}
-      {phone && <PhoneTabs route={route} chatOpen={ws.right.open} lastPaper={lastPaper && library.entries.some(e => isReaderPaper(e) && e.visible && e.id === lastPaper) ? lastPaper : null}
+      {phone && <PhoneTabs route={route} chatOpen={ws.right.open} lastPaper={recentPaper}
         navigate={to => void navigate(to)} onChat={() => { if (route !== 'paper') setChatMode('general'); ws.show('right'); }} />}
       {notes && composer && <RegionBoundary region="note-composer" label="Add to note" compact onReport={report}><NoteComposer store={notes} draft={composer.draft}
         onAdjust={composer.adjust ? () => { const adjust = composer.adjust!; setComposer(null); adjust(); } : undefined} onClose={() => setComposer(null)}
