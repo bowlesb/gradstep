@@ -1054,12 +1054,10 @@ struct ChatView: View {
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 5)
             HStack(spacing: 4) {
+                // One control for the model (build 69: the model button and an options slider both chose it); its
+                // Choose model page also has the length, Use for new chats and About. Answer options stay in ⋯.
                 AISelectionButton(model: model).padding(.leading, 14)
                 Spacer(minLength: 0)
-                Button { model.showAnswerOptions = true } label: {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 18)).foregroundStyle(.secondary)
-                        .frame(width: 38, height: 40).contentShape(Circle())
-                }.buttonStyle(.plain).accessibilityLabel("Answer options").accessibilityIdentifier("chat.composerOptions")
                 if keyboardUp {
                     Button { composerFocused = false } label: {
                         Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 16)).foregroundStyle(.secondary)
