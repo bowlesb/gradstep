@@ -10,6 +10,9 @@ import type { FindResult, FoundPaper, PaperRequest } from './chat.ts';
 import { arxivReference } from './arxiv.ts';
 import { dataciteIDURL, dataciteTitleURLs, lookupDataCite, matchPaper, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
+import { readJSONCapped } from './http.ts';
+/** An OpenAlex search answer (10 works, selected fields) is tens of kilobytes; refuse anything far larger (review A24). */
+const OPENALEX_MAX_BYTES = 2 * 1024 * 1024;
 import type { SearchInput, SearchOutcome } from './tavily.ts';
 
 export interface FinderOptions {
@@ -61,7 +64,7 @@ export function paperFinder(user: SupabaseClient,
         answered = true;
         // A paper's preprint and journal versions are often separate works: prefer one
         // with an arXiv copy, then one with an open-access PDF.
-        const candidates = openAlexCandidates(await response.json());
+        const candidates = openAlexCandidates(await readJSONCapped(response, OPENALEX_MAX_BYTES));
         const openPDF = (url: string | null) => {
           const open = url ? publicHTTPS(url.replace(/^http:\/\//i, 'https://')) : null;
           return open && !/(^|\.)arxiv\.org$/.test(open.hostname) ? open : null;

@@ -4,7 +4,7 @@
 import { installEgressGuard } from '../_shared/egress.ts';
 import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
-import { PublicError, sha256 } from '../_shared/http.ts';
+import { PublicError, readRequestJSON, sha256 } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { MAX_REFERENCE_CHARS, resolveReference } from '../_shared/reference.ts';
@@ -17,6 +17,8 @@ installProviderHealth('add-reference', serviceClient);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUDGET_MS = 25_000;
+/** The JSON body: an operation id, the reader's text (at most 2,000 characters, up to 4 bytes each) and capabilities. */
+const MAX_BODY_BYTES = 16 * 1024;
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -28,7 +30,9 @@ Deno.serve(async request => {
     const { accountID, user } = await userClient(request);
     const service = serviceClient();
     let body: { operation_id?: unknown; reference?: unknown; capabilities?: unknown; consent_version?: unknown };
-    try { body = await request.json(); } catch { throw new PublicError(400, 'invalid_request'); }
+    // Bounded before parsing (review A24): the input is at most 2,000 characters plus a few fields.
+    body = await readRequestJSON(request, MAX_BODY_BYTES) as typeof body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PublicError(400, 'invalid_request');
     const reference = typeof body.reference === 'string' ? body.reference.replace(/\s+/g, ' ').trim() : '';
     if (typeof body.operation_id !== 'string' || !UUID.test(body.operation_id) || reference.length < 8 || [...reference].length > MAX_REFERENCE_CHARS) {
       throw new PublicError(400, 'invalid_request');

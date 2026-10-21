@@ -2,7 +2,7 @@
 // bounded ingress: authenticated customer RPCs for catalog/quote/start/status,
 // service RPCs only after the caller's token is verified. Responses carry public
 // metadata only; storage paths, funders and work keys never leave the server.
-import { PublicError, sha256, uuid } from './http.ts';
+import { PublicError, readBounded, sha256, uuid } from './http.ts';
 
 export interface PodcastAPIDeps {
   /** Verifies the bearer token and returns an RPC bound to that customer session. */
@@ -34,10 +34,10 @@ export function podcastError(message: string): PublicError {
 }
 
 async function body(request: Request, limit = 8192): Promise<Record<string, unknown>> {
-  const declared = request.headers.get('content-length');
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) throw new PublicError(413, 'invalid_podcast_request');
-  const text = await request.text();
-  if (text.length > limit) throw new PublicError(413, 'invalid_podcast_request');
+  // At most `limit` bytes whether or not a length is declared: the stream is never read past it (review A24).
+  let text: string;
+  try { text = new TextDecoder().decode(await readBounded(request, limit)); }
+  catch (error) { throw new PublicError(error instanceof PublicError && error.status === 413 ? 413 : 400, 'invalid_podcast_request'); }
   try {
     const value = JSON.parse(text) as unknown;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();

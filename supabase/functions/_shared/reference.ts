@@ -6,6 +6,7 @@
 import type { FindResult, FoundPaper } from './chat.ts';
 import { dataciteIDURL, lookupDataCite, openAlexCandidates, titleWords, type DiscoveryResult } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
+import { readJSONCapped } from './http.ts';
 
 export const MAX_REFERENCE_CHARS = 2_000;
 const MAILTO = 'hello@gradstep.ai';
@@ -114,7 +115,8 @@ async function getJSON(fetcher: typeof fetch, url: string, signal: AbortSignal):
   try {
     const response = await fetcher(url, { headers: UA, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(8_000)]) });
     if (!response.ok) { void response.body?.cancel().catch(() => {}); return null; }
-    return await response.json();
+    // Selected fields and a few rows only: a body over 2 MiB is not an answer worth reading (review A24).
+    return await readJSONCapped(response, 2 * 1024 * 1024);
   } catch { return null; }
 }
 
