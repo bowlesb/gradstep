@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+
+## Subfigures: rough zoom is the goal (owner, 2026-10-21)
+
+After labelling test figures himself ("more awkward than I thought it would be"), the owner set the product goal: "if we
+can just get a rough zoom in at the point where we think it is, that is already a huge win, and if it's not always
+accurate that's ok, or we can back off in cases where the evidence or confidence is really awful." The success measure
+for subfigures is therefore reader-facing: **right zoom** (the viewport centres on the correct panel and shows most of
+it), **backed off** (a looser frame or the whole figure with the part outlined) and **wrong zoom** (the view lands on a
+different panel or cuts the intended one misleadingly) — wrong zoom is the failure to keep very low. Pixel-exact panel
+boxes (the earlier ≥95% recall / <2% wrong-crop gates) are a research target, not the release bar. Human test labels are
+collected by tapping once inside each panel (the private labelling page, test-3 figures), with boxes optional.
+
 ## One figure result: "Extract the subfigure" removed (owner, 2026-10-21; implemented locally, not released)
 
 Owner, verbatim: "Let's not do extract the subfigure, users can always go to the original feature and just zoom in if
