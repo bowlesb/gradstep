@@ -3451,8 +3451,10 @@ final class ReaderModel {
         do {
             let result = try await backend.addReference(text, accountID: accountID)
             guard sessionID == scope else { return nil }
+            // The paper is added on the server either way: a catalog assignment that can't be saved here (no private
+            // store yet) leaves it in the default catalog instead of reporting the add as failed.
             if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
-                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
+                try? await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
             }
             let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
             let source = result.paper?.source_id
@@ -3583,8 +3585,10 @@ final class ReaderModel {
         do {
             let result = try await service.addPaper(query)
             guard sessionID == scope else { return nil }
+            // The paper is added on the server either way: a catalog assignment that can't be saved here (no private
+            // store yet) leaves it in the default catalog instead of reporting the add as failed.
             if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
-                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
+                try? await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
             }
             if result.status == "added" { Task { await refreshLibrary() } }
             return AddOutcome.from(result)
