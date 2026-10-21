@@ -50,6 +50,73 @@ name.
   Store Server API credentials); provisioning the per-feature OpenRouter keys (owner step, RESILIENCE.md); the
   account-delete body bound (deletion work is another agent's); the Anthropic SDK test transport (review E1).
 
+## Notes and snippets, browser — October 21 UTC (local; not deployed)
+
+The browser client of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc)
+is implemented on branch `worktree-agent-a9b813b0dfc3cc40f` (codec `6197453`, storage/sync `76ed829`, UI `ad3fc2f`,
+capture `58e4fff`, then follow-ups). **Not deployed**: no Pages build, no hosted request, no staging account was used;
+the released browser remains Pages `27c45ca0`. Everything below ran locally against the fixture backend, whose
+`note-assets` route follows the deployed contract (idempotent PUT, 409/413/429 `quota`, GET `no-store`).
+
+- **Codec and crypto** (`apps/web/tests/notes.test.ts`, 16 cases): all six fixture records decode and re-encode
+  byte for byte; the five invalid fixture records fail with their stated reasons; the future record is counted and
+  its note marked; ordering, renames, concurrent comments/titles (two versions; choosing writes after every head),
+  tombstones defeating stale edits, counters after deletion, entries before their note, malformed counts; Library
+  catalogs ignore Notes records and Notes ignore catalogs (both directions). The encryption vector matches byte for
+  byte (stored blob, SHA-256, AAD, descriptor); length/digest/tag/account/blob/type tampering is refused; header
+  dimensions are checked (PNG IHDR, JPEG SOF).
+- **Storage and sync** (`notes-store.test.ts`, 6 cases, real WebCrypto and spec IndexedDB): one transaction holds
+  sealed blobs, the new note and the entry (a fresh tab reopens them, no plaintext in IndexedDB); offline, the note
+  root is sent and the entry held with "Waiting to sync"; on Retry the same blob IDs and bytes are uploaded, then
+  the entry; a full store (429) holds the entry while a chat is sent and a dependent comment edit waits with it;
+  repeated Save keeps one identity; text entries need no journal; on-demand fetch prefers the local copy, verifies a
+  download (tampering refused), caches it encrypted and revokes object URLs on retire; blob records stay outside the
+  range an older release counts and are removed with the browser's keys; cache eviction never removes unsynced crops
+  and an over-capacity save commits nothing. `notes-capture.test.ts` (3): capture replies are bounded and bound to the
+  open bundle; anchors keep only verified blocks and clamped rectangles; the frame CSP string and the shim's
+  no-network rule are unchanged.
+- **Capture fidelity** (opt-in `notes-capture.playwright.config.ts`, 20/20): the real reader frame (bundle CSP,
+  sandbox, shim, bridge) on the DPO Mathpix sample and on the official arXiv HTML of 2305.18290v3 compiled by the
+  shipped device compiler; text, display MathML, a figure, a mixed region and an off-screen equation; light and
+  dark; Chromium 1× and 2×, Firefox, WebKit 2×, each compared with the browser's own screenshot of the same pixels.
+  Chromium and Firefox: text and the off-screen equation match exactly (mean 0.00), display math and mixed
+  regions within a mean of 0.1; figures differ by image resampling only (at most 0.4% of pixels without a match
+  within one device pixel, Firefox). WebKit places some text lines one device pixel differently (strict mean up to
+  3.9; within one pixel, mean ≤0.2 for text and math, ≤0.7 for figures, ≤0.06% unmatched). The first WebKit run left
+  figures blank (WebKit paints pictures inside an SVG image only after its first paint); the frame's own decoded
+  pictures are now painted over the render. No network request was made. Images and metrics: `.artifacts/notes-capture/` (this worktree).
+- **Journeys** (`e2e/notes.spec.ts`, desktop and phone, 3 each): navigation (desktop Library · Feed · Notes; phone
+  Feed · Library · Paper · Chat · Notes and ⋯ › Settings); new note, Add text, selection › Add to note, Paper ⋯ › Draw
+  snippet with the exact PNG previewed, Saved to … · Open note, two encrypted uploads (no image signature on the
+  server), thumbnail and zoom, edit comment, rename, dark mode; a second browser of the account syncs the note,
+  downloads and decrypts the crop; Open in paper; search; delete snippet and note with confirmations; a full snippet
+  store keeps the crop through a reload, says why and uploads it on Retry; figure and equation pages add their item;
+  Escape cancels drawing; Whole view + Use snippet by keyboard. Screenshots reviewed in light and dark:
+  `.artifacts/web-e2e/notes/`. One phone run of the quota journey raced the test's own quota switch after reload;
+  the journey now waits for the held state before lifting the quota.
+- **Regression**: Affected existing journeys were rerun on this branch and, for comparison, on base `82c8656`
+  extracted locally (same machine and fixture). Desktop layout, library, library-actions, reader, reader-drafts,
+  parity and owner-58: 31 pass / 5 fail / 1 skip on both, the same five failures. Phone layout, reader, parity,
+  figure-view, equation-view, library, library-actions, library-window, catalogs, account-assets, owner-58,
+  feed-personal, reader-drafts, build-62, chat and podcast-workspace: base 67 pass / 7 fail / 15 skip; this branch had
+  three more failures. podcast-workspace used the phone's old top-navigation Chats button (the same All chats dialog
+  is now ⋯ › Your assets › Chats, and the test takes that path on a phone); figure-view Find measured a scroll clamp
+  at the end of a short fixture paper that the phone destination bar makes reachable (the test now requires the match
+  to stay in view when the paper is scrolled to its end, otherwise the 3 px bound); library-window passed on two
+  reruns (load-dependent). Afterwards figure-view, podcast-workspace and notes pass on desktop and phone, 34/34. The
+  failures present on base as well — stale copy and consent version, model labels, Find similar papers ahead of Reader
+  version details, draft-status text and others in account-delete, arxiv-html, build-62, chat-controls, chat-redesign,
+  equation-view, journal, library-actions, owner-58 and reader — are pre-existing and unchanged here. A complete run
+  of every journey was not finished (stopped after 64 desktop tests with only base failures).
+- `npm test`: browser units 56 files / 520 tests (25 for Notes), backend 685 (+1 skipped), operations 18, egress scan
+  and device PDF freshness pass; **compiler freshness fails** (`apps/apple/.../arxiv-reader.js` differs from a fresh
+  esbuild of the unchanged compiler inputs in this worktree's `npm ci`); no compiler input changed on this branch.
+
+Limits: see the Notes document's browser section — no encrypted composer drafts, session-only last destination,
+no "Keep both", no hold menu or local-PDF capture; real Safari, the hosted function and native ↔ browser records are
+untested; Playwright WebKit cannot persist device keys, so full journeys are Chromium-only. No paid call, physical
+phone or NAS access.
+
 ## Notes images server — October 21 UTC (staging live)
 
 The server half of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#server-status--blob-api-live-on-staging-2026-10-21-utc)

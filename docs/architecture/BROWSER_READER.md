@@ -1,5 +1,19 @@
 # Browser reader
 
+## Notes and snippets — October 21 UTC (local; not deployed)
+
+The browser implements [Notes and snippets](NOTES_AND_SNIPPETS.md#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc)
+against the local fixture backend: a Notes destination (desktop adds it to Library · Feed · Chats; phone widths use
+the apps' Feed · Library · Paper · Chat · Notes with Settings in the top-right ⋯), the note list and stream, Add text,
+Add to note from a selection and from figure, table and equation pages, and Paper ⋯ › Draw snippet. Records are
+encrypted `note` events (`lib/notes.ts`); images are AES-256-GCM blobs committed with their entry in the encrypted
+journal and uploaded to `note-assets` before the entry event (`lib/notes-store.ts`). Draw snippet's image is made
+inside the sandboxed reader frame by `frame-shim.js` (cloned document → SVG `foreignObject` → canvas, the frame's
+decoded pictures painted over it), with no network and the frame CSP unchanged; the app CSP adds `img-src blob:`
+for decrypted images shown through revocable object URLs. Draw snippet sits after Reader version details in the
+paper's ⋯; selection bars gain Add to note after the existing actions. Not deployed; evidence and limits are in
+[implementation status](../IMPLEMENTATION_STATUS.md#notes-and-snippets-browser--october-21-utc-local-not-deployed).
+
 ## October 20 navigation and scrolling parity (deployed, Pages 27c45ca0)
 
 The account-owned chat controller captures drafts before navigation and finishes encryption/storage after the
