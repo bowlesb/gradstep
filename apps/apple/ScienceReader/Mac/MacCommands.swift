@@ -188,7 +188,7 @@ struct GradstepCommands: Commands {
                 .keyboardShortcut("a", modifiers: [.command, .shift]).disabled(model.selectedPaper == nil)
             // Notes: no keyboard shortcut until the existing bindings are audited (NOTES_AND_SNIPPETS.md).
             Button("Draw Snippet") { paper?.drawSnippet?() }.disabled(paper?.drawSnippet == nil)
-            Button("Add Selection to Note") { paper?.addSelectionToNote?() }.disabled(paper?.addSelectionToNote == nil)
+            Button("Save Selection as Snippet") { paper?.addSelectionToNote?() }.disabled(paper?.addSelectionToNote == nil)
             // The paper's "…" menu, item for item (PaperView), so nothing on screen is missing from the menu bar.
             Button("Listen") { if let paper = model.selectedPaper { model.podcasts.listen(to: paper) } }
                 .disabled(model.selectedPaper.map { !model.podcasts.canListen(to: $0) } ?? true)

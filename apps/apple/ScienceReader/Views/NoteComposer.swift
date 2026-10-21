@@ -60,7 +60,7 @@ struct NoteComposerView: View {
                 .frame(maxWidth: 640).frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Add to note").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Save snippet").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { cancel() }.macBarButton().accessibilityIdentifier("composer.cancel")
@@ -81,7 +81,7 @@ struct NoteComposerView: View {
             let notes = model.notes.state.notes
             if let last = model.notes.destination, notes.contains(where: { $0.id == last }) { destination = .existing(last) }
             else if let first = notes.first { destination = .existing(first.id) }
-            else { destination = .new; newTitle = "Quick notes" }
+            else { destination = .new; newTitle = "Quick snippets" }
         }
     }
 
@@ -125,7 +125,7 @@ struct NoteComposerView: View {
 
     private var destinationPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Note").font(.subheadline.weight(.semibold))
+            Text("Collection").font(.subheadline.weight(.semibold))
             Menu {
                 ForEach(model.notes.state.notes.prefix(20)) { note in
                     Button { destination = .existing(note.id) } label: {
@@ -133,8 +133,8 @@ struct NoteComposerView: View {
                     }
                 }
                 Divider()
-                Button { destination = .new; if newTitle.isEmpty { newTitle = model.notes.state.notes.isEmpty ? "Quick notes" : "" }; titleFocused = true } label: {
-                    Label("New note", systemImage: "plus")
+                Button { destination = .new; if newTitle.isEmpty { newTitle = model.notes.state.notes.isEmpty ? "Quick snippets" : "" }; titleFocused = true } label: {
+                    Label("New collection", systemImage: "plus")
                 }.accessibilityIdentifier("composer.destination.new")
             } label: {
                 HStack {
@@ -145,21 +145,21 @@ struct NoteComposerView: View {
                 .padding(.horizontal, 12).frame(minHeight: 44)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
             }
-            .accessibilityLabel("Note, \(destinationTitle)").accessibilityIdentifier("composer.destination")
+            .accessibilityLabel("Collection, \(destinationTitle)").accessibilityIdentifier("composer.destination")
             if case .new = destination {
-                TextField("Name your note", text: $newTitle)
+                TextField("Name your collection", text: $newTitle)
                     .textFieldStyle(.plain).focused($titleFocused)
                     .padding(.horizontal, 12).frame(minHeight: 44)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                    .accessibilityLabel("New note name").accessibilityIdentifier("composer.newTitle")
+                    .accessibilityLabel("New collection name").accessibilityIdentifier("composer.newTitle")
             }
         }
     }
 
     private var destinationTitle: String {
         switch destination {
-        case .existing(let id): model.notes.state.note(id)?.title ?? "Choose a note"
-        case .new: "New note"
+        case .existing(let id): model.notes.state.note(id)?.title ?? "Choose a collection"
+        case .new: "New collection"
         }
     }
 

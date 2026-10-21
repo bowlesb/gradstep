@@ -426,7 +426,7 @@ struct NoteSavedBanner: View {
             StatusBanner(tone: .info, systemImage: "checkmark.circle",
                          message: "Saved to \(notice.title)" + (notice.waiting ? " · Waiting to sync" : ""),
                          messageID: "notes.saved") {
-                Button("Open note") { leave(); model.openNote(notice.noteID, entry: notice.entryID) }
+                Button("Open") { leave(); model.openNote(notice.noteID, entry: notice.entryID) }
                     .accessibilityIdentifier("notes.saved.open")
                 Button { model.notes.notice = nil } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)) }
                     .accessibilityLabel("Dismiss").tint(.secondary)

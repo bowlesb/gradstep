@@ -359,12 +359,12 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   useEffect(() => { if (bridgeReady && captureSupport === null) void ask('captureProbe', [], 8000).then(r => setCaptureSupport(r.ok)); }, [bridgeReady, captureSupport, ask]);
   const noteFailure = (error: unknown) => error instanceof SnippetImageError && error.code === 'image_too_large'
     ? 'This snippet is too large to keep as an image. Draw a smaller box.' : 'Couldn’t make an image of this here. Try again.';
-  const imageNotes = (): string | null => !noteCapture ? 'Your notes are still opening.' : !noteCapture.writable ? 'Notes can’t be changed in this tab.'
-    : !noteCapture.images ? 'Snippets with images need this browser’s encrypted storage, which isn’t active in this tab. Select text and choose Add to note instead.' : null;
+  const imageNotes = (): string | null => !noteCapture ? 'Your snippets are still opening.' : !noteCapture.writable ? 'Snippets can’t be changed in this tab.'
+    : !noteCapture.images ? 'Snippets with images need this browser’s encrypted storage, which isn’t active in this tab. Select text and choose Save snippet instead.' : null;
   drawSnippet.current = () => {
     const blocked = imageNotes();
     if (blocked) { setNotice(blocked); return; }
-    if (captureSupport === false) { setNotice('Draw snippet isn’t available in this browser: it can’t make an image of the page here. Select text and choose Add to note, or add a whole figure from its page.'); return; }
+    if (captureSupport === false) { setNotice('Draw snippet isn’t available in this browser: it can’t make an image of the page here. Select text and choose Save snippet, or add a whole figure from its page.'); return; }
     if (!bundle || !bridgeReady) return;
     if (finding) closeFind();
     setSelection(null); command('clearSelection');
@@ -415,7 +415,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   };
   const addSelection = (current: Selection, text: string) => {
     if (!bundle) return;
-    if (!noteCapture?.writable) { setNotice(noteCapture ? 'Notes can’t be changed in this tab.' : 'Your notes are still opening.'); return; }
+    if (!noteCapture?.writable) { setNotice(noteCapture ? 'Snippets can’t be changed in this tab.' : 'Your snippets are still opening.'); return; }
     const blocks = current.parts.map(p => p.blockID);
     noteCapture.add({ kind: 'quote', quote: text, capturedAt: Date.now(), source: paperSource(item, bundle.index, blocks[0]), anchor: snippetAnchor(bundle, blocks, { quote: text }) });
     setSelection(null); command('clearSelection');
@@ -656,7 +656,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
               const e = part.equationID; setSelection(null); command('clearSelection');
               void addElement(e, part.blockID, equationLabel(e));
             } else addSelection(selection, quote);
-          }}>Add to note</button>}
+          }}>Save snippet</button>}
         </div>}
         {snippet && srcdoc && !error && <SnippetOverlay initial={snippet.box} busy={snippet.busy} issue={snippet.issue} onUse={box => void takeSnippet(box)} onCancel={() => setSnippet(null)} />}
         {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage" data-testid="passage-chats">{markedChats.map(id => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>{markTitle(id)}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Cancel</button></div>}

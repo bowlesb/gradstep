@@ -616,10 +616,12 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 @keyframes info-scrim-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .info-scrim { animation: none; } }
 .chat-options-heading { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.activity-field { display: flex; flex-direction: column; gap: 6px; }
+.activity-field label { font-weight: 600; font-size: 14px; }
 .chat-options-heading h2 { margin: 0; }
 .chat-options-heading .link { display: inline-flex; align-items: center; gap: 2px; min-height: 0; flex-basis: 100%; padding: 0; }
 .info-tip-text.open { display: block; white-space: pre-line; position: absolute; left: -6px; top: calc(100% + 4px); z-index: 50; width: max-content; max-width: min(300px, 78vw); padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--pop); font-size: 12.5px; line-height: 1.45; white-space: normal; }
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--pop); font-size: 12.5px; line-height: 1.45; }
 /* Operator tools (owner, build 58): one grey Admin group, shown only to owner and support. */
 .menu-admin { display: flex; flex-direction: column; gap: 2px; margin: 2px -4px; padding: 4px; border-radius: 8px; background: var(--row-hover); }
 .menu-admin .menu-heading { padding-top: 0; }

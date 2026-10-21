@@ -270,7 +270,7 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         // right-click anywhere on the page).
         var notes: [UIMenuElement] = []
         if let noteAction, hasSelection || !Platform.isMac {
-            notes.append(UIAction(title: "Add to note", image: UIImage(systemName: "note.text.badge.plus"),
+            notes.append(UIAction(title: "Save snippet", image: UIImage(systemName: "note.text.badge.plus"),
                                   identifier: UIAction.Identifier("reader.selection.addToNote")) { _ in noteAction() })
         }
         if let drawSnippet {

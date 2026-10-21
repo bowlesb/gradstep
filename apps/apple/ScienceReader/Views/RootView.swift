@@ -155,7 +155,7 @@ struct RootView: View {
                 .buttonStyle(.plain)
                 .disabled(tab == .paper && model.selectedPaper == nil)
                 .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
-                .accessibilityIdentifier("tab.\(tab.rawValue.lowercased())")
+                .accessibilityIdentifier("tab.\(String(describing: tab))")
                 .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
                 .accessibilityShowsLargeContentViewer { Label(tab.rawValue, image: tab.icon) }
             }
@@ -1315,13 +1315,24 @@ struct SettingsView: View {
                     } header: { Text("AI credits") }
                 }
                 if model.chatTransport != nil {
-                    Section("AI defaults by activity") {
+                    Section {
                         ForEach(AIUseCase.allCases) { scenario in
                             NavigationLink { AIScenarioDefaults(model: model, scenario: scenario) } label: {
                                 LabeledContent(scenario.title, value: model.localDefault(for: scenario).map { "\(model.localAI.name($0)) (local)" }
                                     ?? (model.chatProfileTable?.label(model.profileDefault(for: scenario).model) ?? model.profileDefault(for: scenario).model.label))
                             }.accessibilityIdentifier("settings.aiScenario.\(scenario.rawValue)")
                         }
+                        // Owner, 2026-10-21: "Podcasts is missing from defaults in model settings" — who writes new episodes.
+                        if model.podcasts.writerSettingAvailable {
+                            NavigationLink { PodcastWriterDefaults(model: model) } label: {
+                                LabeledContent("Podcasts", value: model.podcasts.effectiveDefaultWriter?.label ?? "Default")
+                            }
+                            .accessibilityIdentifier("settings.aiScenario.podcasts")
+                            .onAppear { model.podcasts.prepareListen() }
+                        }
+                    } header: {
+                        // Owner, 2026-10-21: "an explainer saying some considerations when choosing the default for each category".
+                        AIDefaultsHeader(title: "AI defaults by activity", info: AIDefaultsGuide.section, identifier: "settings.aiDefaults.guide")
                     }
                     // Owner, build 59: "it should say default options for new chats… the actual toggles belong with the
                     // rest of the toggles, all the info can stay in the special info section… accessible with another
@@ -1378,7 +1389,7 @@ struct SettingsView: View {
                         model.closeSettings(); model.notes.openNoteID = nil; model.tab = .notes
                         if !model.compactLayout { model.wideMode = .notes }
                     } label: {
-                        LabeledContent("Notes", value: Self.count(model.notes.shownNotes.count))
+                        LabeledContent("Snippets", value: Self.count(model.notes.shownNotes.count))
                             .foregroundStyle(Color.primary)
                     }
                     .accessibilityIdentifier("settings.notes")
@@ -1478,8 +1489,8 @@ struct PrivacyView: View {
     var body: some View {
         List {
             Section {
-                Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.")
-            } header: { Text("Your notes and conversations") }
+                Text("Private conversations and snippets are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.")
+            } header: { Text("Your snippets and conversations") }
             Section {
                 Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about through OpenRouter to Google Vertex (Gemini and Claude) or DeepInfra (DeepSeek), according to Answer options. A random account ID accompanies requests for cost accounting. Claude through OpenRouter writes the chat’s title and suggested questions. The model may search the web for some questions; those searches go to Tavily, a search service.")
             } header: { Text("AI answers") }
@@ -1561,7 +1572,7 @@ struct RecoveryView: View {
                     Text(model.needsRecovery ? "Restore your private library" : (model.recoveryCode != nil ? "Save your recovery code" : "Set up this device"))
                         .font(.title2.weight(.semibold))
                     if model.needsRecovery || model.recoveryCode != nil {
-                        Text("Your private conversations and notes are encrypted. If you lose all approved devices and this code, we cannot recover that content.")
+                        Text("Your private conversations and snippets are encrypted. If you lose all approved devices and this code, we cannot recover that content.")
                     }
                 }
                 if model.needsRecovery {
@@ -1776,7 +1787,7 @@ struct DeleteAccountView: View {
             Form {
                 Section {
                     Text("This permanently deletes your account:")
-                    Label("Your library, conversations, notes and diagrams, and the files of papers converted privately for you", systemImage: "books.vertical")
+                    Label("Your library, conversations, snippets and diagrams, and the files of papers converted privately for you", systemImage: "books.vertical")
                     Label("Your support reports and screenshots", systemImage: "exclamationmark.bubble")
                     Label("This device’s copy; other devices are signed out and your recovery code stops working", systemImage: "iphone")
                 }

@@ -1886,6 +1886,21 @@ device; its existing episodes play without it, and making one before it is opene
 Builds up to 61 send no device source for a legacy item. Native test:
 `PodcastPresentationTests.testALegacyArxivItemSendsTheTextPreparedOnThisDevice`.
 
+### Default writer in Settings (owner, 2026-10-21; local source, not released)
+
+Owner: "Podcasts is missing from defaults in model settings." Settings › AI defaults by activity (browser: AI chat
+options › Activity) lists **Podcasts** after the four chat activities. Its page offers only the writers the server
+lists for podcasts: every `capabilities.lengths[].writers` entry, once each, in the server's order (the default
+first), read from the catalog or paper call (`PodcastCapabilities.offeredWriters`, browser `offeredWriters`). The
+choice is kept on this device (`ai.podcastWriter`; browser `gradstep.ai.podcastWriter.v1`); Use recommended default
+forgets it. Make an episode preselects it whenever the chosen length offers that writer, else the server's default
+(`PodcastLength.writer(preferring:)`, browser `chooseWriter`); a writer chosen in the sheet is kept across lengths that
+offer it. The quote sends it in the existing `writer` field, so no server change. The row is shown while generation is
+offered (or not yet known); with no writers listed the page says Gradstep chooses. Tests: `PodcastPresentationTests.
+testTheSettingsDefaultWriterIsPreselectedWhereTheLengthOffersIt`, browser `ai-defaults.test.ts`, the UI journey
+`PodcastJourneyTests.testSettingsChoosesWhoWritesNewEpisodes` (iPhone, iPad, Mac) and `podcast-workspace.spec.ts`
+"AI chat options sets who writes new episodes" (desktop, phone, tablet).
+
 ## OpenRouter-only cutover (owner, 2026-10-18; implementation in progress)
 
 All script passes and speech move to OpenRouter under the existing per-account admission/settlement ledger.

@@ -23,12 +23,33 @@ struct ChatTranscript: View {
             if let context = model.promotedChatContext {
                 ContextualConversationScroll(model: model, token: nil) {
                     VStack(alignment: .leading, spacing: 16) {
+                        // A note snippet's chat: the way back to its entry, like the explainers' Back (2026-10-21).
+                        if context.noteReturn != nil {
+                            Button { model.returnToNote() } label: {
+                                Label("Back to snippets", systemImage: "arrow.uturn.backward").font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 12).frame(minHeight: 44)
+                            }
+                            .modifier(ReaderControlMaterial()).accessibilityIdentifier("chat.backToNote")
+                        }
                         Text(context.label).font(.title2.weight(.semibold)).accessibilityIdentifier("chat.promotedContext")
                         if let image = context.image {
                             ZoomableFigureImage(image: image).frame(height: 260).accessibilityLabel(context.label)
+                                .accessibilityIdentifier("chat.promotedImage")
+                            if context.noteReturn != nil {
+                                Text(context.imageSent ? "This picture goes with your questions in this chat."
+                                     : "This paper isn’t on this device, so the picture stays here; the chat knows where it came from.")
+                                    .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("chat.promotedImageNote")
+                            }
+                        } else if context.noteReturn != nil, !context.quote.isEmpty {
+                            Text(context.quote).font(.system(.body, design: .serif)).lineSpacing(3).lineLimit(12)
+                                .padding(.horizontal, 14).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                                .accessibilityIdentifier("chat.promotedQuote")
                         }
-                        ChatMessageText(source: context.text, fontSize: fontSize, streaming: false, speaker: "Saved explanation",
-                            identifier: "chat.contextExplanation", assistant: true, onCite: { model.goToCitedBlock($0) })
+                        if !context.text.isEmpty || context.noteReturn == nil {
+                            ChatMessageText(source: context.text, fontSize: fontSize, streaming: false, speaker: "Saved explanation",
+                                identifier: "chat.contextExplanation", assistant: true, onCite: { model.goToCitedBlock($0) })
+                        }
                         ContextualChatThread(model: model, token: nil, onCite: { model.goToCitedBlock($0) })
                     }.padding(.horizontal, 16).padding(.top, insets.top + 16).padding(.bottom, insets.bottom + 16)
                 }.id(scope)

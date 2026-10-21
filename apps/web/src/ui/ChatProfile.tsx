@@ -115,10 +115,12 @@ const range = (e: Estimate) => e.low === e.high ? `${e.low}` : `${e.low}–${e.h
  * usual credits per question from the server's published estimates. Answer options' "About AI chat options" opens the
  * About view directly. */
 export type ChatOptionsView = 'defaults' | 'about';
-export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, onChange, onRetry, visualAnswers, onVisualAnswers, scenarioControl }: {
+export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, onChange, onRetry, visualAnswers, onVisualAnswers, scenarioControl, picker }: {
   open: boolean; onClose: () => void; view: ChatOptionsView; onView: (view: ChatOptionsView) => void;
   table: ProfileTable | null; choice: ProfileChoice; onChange: (choice: ProfileChoice) => void; onRetry: () => Promise<void>;
   visualAnswers?: boolean; onVisualAnswers?: (on: boolean) => void; scenarioControl?:ReactNode;
+  /** An activity that isn't a chat (Podcasts' writer) shows its own choice in place of the model and length. */
+  picker?: ReactNode;
 }) {
   const models = listedModels(table), auto = hasAutoEffort(table);
   if (view === 'defaults') return <Dialog open={open} onClose={onClose} title="AI chat options" className="chat-options">
@@ -129,10 +131,10 @@ export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, 
     </div>
     <p className="fine">New chats in this browser start with these. Each chat can change them from its ⋯ menu › Answer options.</p>
     {scenarioControl}
-    <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />
+    {picker ?? <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />}
     {onVisualAnswers && <label className="check-row"><input type="checkbox" checked={visualAnswers ?? true} onChange={e => onVisualAnswers(e.target.checked)} data-testid="visual-answers" />
       <span className="with-info">Visual answers <InfoTip text="Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose." testID="visual-answers-info" /></span></label>}
-    {!table && <p className="fine">Answer options couldn’t be loaded. <RetryOptions onRetry={onRetry} /></p>}
+    {!table && !picker && <p className="fine">Answer options couldn’t be loaded. <RetryOptions onRetry={onRetry} /></p>}
     <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
   </Dialog>;
   return <Dialog open={open} onClose={onClose} title="AI chat options" wide className="chat-options">

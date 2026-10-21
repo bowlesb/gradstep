@@ -25,23 +25,23 @@ struct NotesView: View {
                 if wide { wideBody } else { phoneBody }
             }
         }
-        .alert("New note", isPresented: $creating) {
-            TextField("Note name", text: $name).accessibilityIdentifier("notes.name")
+        .alert("New collection", isPresented: $creating) {
+            TextField("Collection name", text: $name).accessibilityIdentifier("notes.name")
             Button("Cancel", role: .cancel) {}
             Button("Create") { let title = name; Task { await create(title) } }
-        } message: { Text("A note can collect snippets from as many papers as you like.") }
-        .alert("Rename note", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { note in
-            TextField("Note name", text: $name).accessibilityIdentifier("notes.name")
+        } message: { Text("A collection can hold snippets from as many papers as you like.") }
+        .alert("Rename collection", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { note in
+            TextField("Collection name", text: $name).accessibilityIdentifier("notes.name")
             Button("Cancel", role: .cancel) {}
             Button("Save") { let title = name; Task { await rename(note.id, title) } }
         }
-        .confirmationDialog(deleting.map { "Delete “\($0.title)”?" } ?? "Delete note?",
+        .confirmationDialog(deleting.map { "Delete “\($0.title)”?" } ?? "Delete collection?",
                             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible,
                             presenting: deleting) { note in
-            Button("Delete note", role: .destructive) { Task { await delete(note.id) } }
+            Button("Delete collection", role: .destructive) { Task { await delete(note.id) } }
             Button("Cancel", role: .cancel) {}
         } message: { note in
-            Text("This removes the note and its \(note.entries.count) \(note.entries.count == 1 ? "entry" : "entries") from your devices when they sync. Your papers stay in the Library.")
+            Text("This removes the collection and its \(note.entries.count) \(note.entries.count == 1 ? "snippet" : "snippets") from your devices when they sync. Your papers stay in the Library.")
         }
         .alert("Couldn’t save on this device", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
             Button("OK") { issue = nil }
@@ -74,9 +74,9 @@ struct NotesView: View {
                     NoteDetailView(model: model, noteID: id, showsBack: false).id(id)
                 } else {
                     ContentUnavailableView {
-                        Label { Text(model.notes.state.notes.isEmpty ? "Your ideas, collected" : "Choose a note") } icon: { Image(GradstepSymbol.notes) }
+                        Label { Text(model.notes.state.notes.isEmpty ? "Your ideas, collected" : "Choose a collection") } icon: { Image(GradstepSymbol.notes) }
                     } description: {
-                        Text(model.notes.state.notes.isEmpty ? "Create a note, or capture a snippet while reading." : "Its snippets and writing show here.")
+                        Text(model.notes.state.notes.isEmpty ? "Capture a snippet while reading with Paper ⋯ › Draw snippet." : "Its snippets show here.")
                     }
                 }
             }
@@ -89,15 +89,15 @@ struct NotesView: View {
     private func unavailable(locked: Bool) -> some View {
         NavigationStack {
             ContentUnavailableView {
-                Label { Text(locked ? "Unlock notes" : "Notes") } icon: { Image(GradstepSymbol.notes) }
+                Label { Text(locked ? "Unlock snippets" : "Snippets") } icon: { Image(GradstepSymbol.notes) }
             } description: {
-                Text(locked ? "Notes are encrypted with this account’s keys. Approve this device or use your recovery code to open them here."
-                     : "Sign in to keep encrypted notes of what you read, on all your devices.")
+                Text(locked ? "Snippets are encrypted with this account’s keys. Approve this device or use your recovery code to open them here."
+                     : "Sign in to keep encrypted snippets of what you read, on all your devices.")
             } actions: {
-                Button { model.openSignIn() } label: { ProminentLabel(title: locked ? "Unlock notes" : "Sign in") }
+                Button { model.openSignIn() } label: { ProminentLabel(title: locked ? "Unlock snippets" : "Sign in") }
                     .buttonStyle(.borderedProminent).accessibilityIdentifier(locked ? "notes.unlock" : "notes.signIn")
             }
-            .navigationTitle("Notes").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Snippets").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: nil) } }
             .tabBarSpace()
         }
@@ -107,15 +107,15 @@ struct NotesView: View {
 
     private func create(_ title: String) async {
         do { let id = try await model.createNote(title); model.notes.openNoteID = id }
-        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The note couldn’t be saved." }
+        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The collection couldn’t be saved." }
     }
     private func rename(_ id: UUID, _ title: String) async {
         do { try await model.renameNote(id, to: title) }
-        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The note couldn’t be renamed." }
+        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The collection couldn’t be renamed." }
     }
     private func delete(_ id: UUID) async {
         do { try await model.deleteNote(id) }
-        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The note couldn’t be deleted." }
+        catch { issue = (error as? LocalizedError)?.errorDescription ?? "The collection couldn’t be deleted." }
     }
 }
 
@@ -137,23 +137,21 @@ extension EnvironmentValues {
 struct NotesScreenMenu: View {
     @Bindable var model: ReaderModel
     let note: NotesState.Note?
-    var addText: (() -> Void)? = nil
     @Environment(\.noteActions) private var actions
 
     var body: some View {
         Menu {
             if let note {
-                if let addText { MenuRow("Add text", systemImage: "text.badge.plus", action: addText).accessibilityIdentifier("note.addText") }
-                MenuRow("Rename note", systemImage: "pencil") { actions.rename(note) }.accessibilityIdentifier("note.rename")
-                Button(role: .destructive) { actions.delete(note) } label: { Label("Delete note", systemImage: "trash") }
+                MenuRow("Rename collection", systemImage: "pencil") { actions.rename(note) }.accessibilityIdentifier("note.rename")
+                Button(role: .destructive) { actions.delete(note) } label: { Label("Delete collection", systemImage: "trash") }
                     .accessibilityIdentifier("note.delete")
             } else if model.notesAvailability == .ready {
-                MenuRow("New note", systemImage: "plus") { actions.newNote() }.accessibilityIdentifier("notes.menu.new")
+                MenuRow("New collection", systemImage: "plus") { actions.newNote() }.accessibilityIdentifier("notes.menu.new")
             }
             MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
             SettingsMenuSection(model: model)
         } label: { Image(systemName: "ellipsis") }
-            .accessibilityLabel(note == nil ? "Notes options" : "Note options")
+            .accessibilityLabel(note == nil ? "Snippets options" : "Collection options")
             .accessibilityIdentifier(note == nil ? "notes.options" : "note.options")
     }
 }
@@ -178,9 +176,14 @@ struct NotesList: View {
                     .accessibilityIdentifier("notes.problems")
             }
             ForEach(notes) { note in
-                Button { model.notes.openNoteID = note.id } label: { NoteRow(model: model, note: note) }
+                // Each note is a card (owner, 2026-10-21: "each needs a very pleasant border around it, so it looks like
+                // a bunch of cards"; DESIGN.md "Cards"), 10 pt apart, inside the 16 pt margins.
+                Button { model.notes.openNoteID = note.id } label: { NoteRow(model: model, note: note).contentCard(selected: note.id == selection) }
                     .buttonStyle(.plain)
                     .tag(note.id)
+                    .listRowInsets(EdgeInsets(top: 5, leading: DesignMetrics.margin, bottom: 5, trailing: DesignMetrics.margin))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                     .accessibilityIdentifier("notes.row.\(note.title)")
                     .contextMenu {
                         Button { actions.rename(note) } label: { Label("Rename", systemImage: "pencil") }
@@ -190,7 +193,6 @@ struct NotesList: View {
                         Button(role: .destructive) { actions.delete(note) } label: { Label("Delete", systemImage: "trash") }
                         Button { actions.rename(note) } label: { Label("Rename", systemImage: "pencil") }.tint(.accentColor)
                     }
-                    .macRowHover()
             }
         }
         .listStyle(.plain)
@@ -198,24 +200,24 @@ struct NotesList: View {
             if notes.isEmpty {
                 let searching = !model.notes.search.trimmingCharacters(in: .whitespaces).isEmpty
                 ContentUnavailableView {
-                    Label { Text(searching ? "No matching notes" : "Your ideas, collected") } icon: {
+                    Label { Text(searching ? "No matching snippets" : "Your ideas, collected") } icon: {
                         searching ? Image(systemName: "magnifyingglass") : Image(GradstepSymbol.notes)
                     }
                 } description: {
-                    Text(searching ? "Try a title, a comment or quoted text." : "Create a note, or capture your first snippet in Paper with ⋯ › Draw snippet.")
+                    Text(searching ? "Try a title, a comment or quoted text." : "Capture your first snippet in Paper with ⋯ › Draw snippet.")
                 } actions: {
                     if searching { Button("Clear search") { model.notes.search = "" } }
-                    else { Button { actions.newNote() } label: { ProminentLabel(title: "New note") }.buttonStyle(.borderedProminent)
+                    else { Button { actions.newNote() } label: { ProminentLabel(title: "New collection") }.buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("notes.empty.new") }
                 }
             }
         }
-        .searchable(text: Bindable(model.notes).search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search notes")
-        .navigationTitle("Notes").navigationBarTitleDisplayMode(.inline)
+        .searchable(text: Bindable(model.notes).search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search snippets")
+        .navigationTitle("Snippets").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { actions.newNote() } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("New note").accessibilityIdentifier("notes.new")
+                    .accessibilityLabel("New collection").accessibilityIdentifier("notes.new")
             }
             ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: nil) }
         }
@@ -231,7 +233,7 @@ struct NotesList: View {
     private var problemLine: String {
         var parts: [String] = []
         let future = model.notes.state.futureNoteIDs.count + model.notes.state.futureRecordCount
-        if future > 0 { parts.append("Update Gradstep to see \(future == 1 ? "a note" : "\(future) notes and entries") made with a newer version.") }
+        if future > 0 { parts.append("Update Gradstep to see \(future == 1 ? "a collection" : "\(future) collections and snippets") made with a newer version.") }
         if model.notes.state.incompleteEntryCount > 0 { parts.append("Some entries are still arriving.") }
         if model.notes.state.malformedCount > 0 {
             parts.append("\(model.notes.state.malformedCount) \(model.notes.state.malformedCount == 1 ? "entry" : "entries") couldn’t be read; send a report so it can be fixed.")
@@ -259,7 +261,6 @@ struct NoteRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -267,7 +268,7 @@ struct NoteRow: View {
     private var meta: String {
         let count = note.entries.count
         let date = Date(timeIntervalSince1970: Double(note.lastEdited) / 1000).formatted(date: .abbreviated, time: .omitted)
-        return "\(count) \(count == 1 ? "entry" : "entries") · \(date)" + (model.notes.isWaiting(note) ? " · Waiting to sync" : "")
+        return "\(count) \(count == 1 ? "snippet" : "snippets") · \(date)" + (model.notes.isWaiting(note) ? " · Waiting to sync" : "")
     }
 }
 
@@ -289,7 +290,7 @@ struct NoteDetailView: View {
         if let note = model.notes.state.note(noteID) {
             stream(note)
         } else {
-            ContentUnavailableView("This note is no longer here", systemImage: "trash",
+            ContentUnavailableView("This collection is no longer here", systemImage: "trash",
                                    description: Text("It may have been deleted on another device."))
         }
     }
@@ -300,7 +301,7 @@ struct NoteDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if note.hasConflict { conflictBanner(note).padding(.bottom, 16) }
                     if note.futureEntryCount > 0 {
-                        StatusBanner(tone: .info, systemImage: "arrow.down.app", message: "Update Gradstep to see \(note.futureEntryCount) more \(note.futureEntryCount == 1 ? "entry" : "entries") in this note.")
+                        StatusBanner(tone: .info, systemImage: "arrow.down.app", message: "Update Gradstep to see \(note.futureEntryCount) more \(note.futureEntryCount == 1 ? "snippet" : "snippets") in this collection.")
                             .padding(.bottom, 16)
                     }
                     if note.entries.isEmpty {
@@ -309,7 +310,7 @@ struct NoteDetailView: View {
                     ForEach(Array(note.entries.enumerated()), id: \.element.id) { index, entry in
                         if index == 0 || !Calendar.current.isDate(day(entry), inSameDayAs: day(note.entries[index - 1])) {
                             Text(day(entry).formatted(date: .abbreviated, time: .omitted)).font(.footnote.weight(.semibold))
-                                .foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 8).padding(.bottom, 14)
+                                .foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 8).padding(.bottom, -6) // owner, build 78: close to its first entry
                                 .accessibilityAddTraits(.isHeader)
                         }
                         NoteEntryView(model: model, entry: entry, number: index + 1,
@@ -318,12 +319,6 @@ struct NoteDetailView: View {
                                       zoom: { zoomed = entry }, details: { details = entry }, review: { reviewing = entry },
                                       delete: { deletingEntry = entry })
                             .id(entry.id)
-                    }
-                    if !note.entries.isEmpty {
-                        Button { writing = NoteTextRequest(noteID: note.id, entryID: nil, text: "", kind: .text) } label: {
-                            Label("Add text", systemImage: "plus").font(.subheadline.weight(.semibold))
-                        }
-                        .frame(minHeight: 44).accessibilityIdentifier("note.addTextBottom")
                     }
                 }
                 .padding(.horizontal, DesignMetrics.margin).padding(.vertical, 16)
@@ -335,13 +330,8 @@ struct NoteDetailView: View {
         .navigationTitle(note.title).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(!showsBack)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { writing = NoteTextRequest(noteID: note.id, entryID: nil, text: "", kind: .text) } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("Add text").accessibilityIdentifier("note.add")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                NotesScreenMenu(model: model, note: note, addText: { writing = NoteTextRequest(noteID: note.id, entryID: nil, text: "", kind: .text) })
-            }
+            // Owner, build 78: "Let’s stick with the comment option for now only": no separate writing between snippets.
+            ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: note) }
         }
         .tabBarSpace()
         .sheet(item: $writing) { request in NoteTextSheet(model: model, request: request).macSheetKeys(enabled: false) }
@@ -354,7 +344,7 @@ struct NoteDetailView: View {
                 Task { do { try await model.deleteEntry(entry.id) } catch { issue = (error as? LocalizedError)?.errorDescription } }
             }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in Text("This removes it and its comment from this note when your devices sync.") }
+        } message: { _ in Text("This removes it and its comment from this collection when your devices sync.") }
         .alert("Couldn’t save on this device", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
             Button("OK") { issue = nil }
         } message: { Text(issue ?? "") }
@@ -375,16 +365,17 @@ struct NoteDetailView: View {
         ContentUnavailableView {
             Label { Text("A place for your next idea") } icon: { Image(GradstepSymbol.notes) }
         } description: {
-            Text("Add your own writing, or collect a snippet while reading with Paper ⋯ › Draw snippet.")
+            Text("Collect a snippet while reading with Paper ⋯ › Draw snippet, or select text and choose Save snippet.")
         } actions: {
-            Button { writing = NoteTextRequest(noteID: noteID, entryID: nil, text: "", kind: .text) } label: { ProminentLabel(title: "Add text") }
-                .buttonStyle(.borderedProminent).accessibilityIdentifier("note.empty.addText")
-            if model.selectedPaper != nil { Button("Open Paper") { model.tab = .paper; if !model.compactLayout { model.wideMode = .reader } } }
+            if model.selectedPaper != nil {
+                Button { model.tab = .paper; if !model.compactLayout { model.wideMode = .reader } } label: { ProminentLabel(title: "Open Paper") }
+                    .buttonStyle(.borderedProminent).accessibilityIdentifier("note.empty.openPaper")
+            }
         }
     }
 
     private func conflictBanner(_ note: NotesState.Note) -> some View {
-        StatusBanner(tone: .problem, systemImage: "square.on.square", message: "2 versions of this note’s name", actionsBelow: true) {
+        StatusBanner(tone: .problem, systemImage: "square.on.square", message: "2 versions of this collection’s name", actionsBelow: true) {
             ForEach(note.heads, id: \.eventID) { version in
                 Button("Keep “\(version.record.title)”") { Task { try? await model.renameNote(note.id, to: version.record.title) } }
             }
@@ -428,6 +419,11 @@ struct NoteEntryView: View {
                 Menu {
                     MenuRow(record.kind == .text ? "Edit text" : "Edit comment", systemImage: "pencil", action: edit)
                         .accessibilityIdentifier("entry.edit")
+                    // Owner, 2026-10-21: a Chat option to talk about the snippet (nothing is sent until the reader asks).
+                    if record.kind != .text {
+                        MenuRow("Chat", systemImage: "bubble.left.and.text.bubble.right") { model.chatAboutNoteEntryLoadingImage(entry) }
+                            .accessibilityIdentifier("entry.chat")
+                    }
                     if record.source != nil {
                         MenuRow("Open in paper", systemImage: "doc.text") { if !model.openNoteSource(record) { details() } }
                             .accessibilityIdentifier("entry.openInPaper")
@@ -459,6 +455,11 @@ struct NoteEntryView: View {
             }
             if !record.comment.isEmpty {
                 Text(record.comment).font(.body).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, record.kind == .text ? 0 : 12)
+                    .overlay(alignment: .leading) {
+                        if record.kind != .text { Capsule().fill(Color.accentColor.opacity(0.7)).frame(width: 3).accessibilityHidden(true) }
+                    }
+                    .accessibilityLabel(record.kind == .text ? record.comment : "Your comment: \(record.comment)")
                     .accessibilityIdentifier("entry.comment.\(number)")
             } else if record.kind != .text {
                 Button("Add a comment", action: edit).font(.subheadline).frame(minHeight: 32).accessibilityIdentifier("entry.addComment.\(number)")
@@ -573,7 +574,19 @@ struct SnippetZoomView: View {
                 else { ProgressView() }
             }
             .navigationTitle(entry.record.source?.label ?? "Snippet").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("zoom.done") } }
+            .toolbar {
+                // Chat about this snippet (owner, 2026-10-21), as a figure's Chat about Figure: a chat with it attached, nothing sent.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        let shown = image?.cgImage
+                        dismiss()
+                        if let shown { model.chatAboutNoteEntry(entry, image: shown) } else { model.chatAboutNoteEntryLoadingImage(entry) }
+                    } label: { Text("Chat") }
+                    .accessibilityHint("A chat about this snippet; nothing is sent until you ask.")
+                    .accessibilityIdentifier("zoom.chat")
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("zoom.done") }
+            }
             .task {
                 guard let media = entry.record.media?.full else { return }
                 do { image = try await model.noteImage(media) } catch { failed = NoteImageView.message(error) }

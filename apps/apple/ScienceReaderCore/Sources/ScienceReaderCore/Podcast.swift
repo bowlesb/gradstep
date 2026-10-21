@@ -305,6 +305,12 @@ public struct PodcastLength: Codable, Equatable, Sendable, Identifiable {
     }
     /// The maximum for a writer, else the length's own (the default writer's).
     public func maxCredits(for writer: String?) -> Int { writers.first { $0.writer == writer }?.maxCredits ?? maxCredits }
+    /// The writer to preselect (Settings › AI defaults › Podcasts, 2026-10-21): the reader's default when this length
+    /// offers it, else the server's default (listed first); nil when the server lists no writers.
+    public func writer(preferring wanted: String?) -> String? {
+        if let wanted, writers.contains(where: { $0.writer == wanted }) { return wanted }
+        return writers.first?.writer
+    }
     private enum CodingKeys: String, CodingKey { case profile, label, estimate, writers; case targetSeconds = "target_seconds", maxCredits = "max_credits" }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -363,6 +369,12 @@ public struct PodcastCapabilities: Codable, Equatable, Sendable {
         guard (1...10_000).contains(maxCredits), (30...3_600).contains(targetSeconds), lengths.count <= 8,
               Set(lengths.map(\.profile)).count == lengths.count,
               transfer.map({ $0.remainingBytes >= 0 && $0.limitBytes >= 0 }) ?? true else { throw ReaderError.corruptData }
+    }
+    /// Every writer the server offers for any length, once each, in the order listed (the default first): what
+    /// Settings › AI defaults › Podcasts may offer. Empty from servers without the choice.
+    public var offeredWriters: [PodcastWriter] {
+        var seen = Set<String>()
+        return lengths.flatMap(\.writers).filter { seen.insert($0.writer).inserted }
     }
 }
 

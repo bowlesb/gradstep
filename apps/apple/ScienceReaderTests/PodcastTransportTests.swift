@@ -323,6 +323,37 @@ final class PodcastPresentationTests: XCTestCase {
         XCTAssertNil(generation().selectedWriter, "no writers listed: the policy's default, nothing to choose")
     }
 
+    /// Owner, 2026-10-21: "Podcasts is missing from defaults in model settings". Settings offers every writer the server
+    /// lists (once, its default first); a new request starts with the reader's default wherever the chosen length
+    /// offers it, else the server's default, and a writer chosen in the sheet survives a length that offers it.
+    func testTheSettingsDefaultWriterIsPreselectedWhereTheLengthOffersIt() {
+        let both = PodcastFixtureTransport.lengths
+        let deepseekOnly = PodcastLength(profile: "podcast-short-v1", label: "Short", targetSeconds: 150, maxCredits: 140,
+                                         writers: [PodcastWriter(writer: "deepseek", label: "DeepSeek V4 Pro", maxCredits: 140)])
+        let listed = PodcastCapabilities(catalog: true, generation: true, delivery: true, lengths: [deepseekOnly] + both.dropFirst())
+        XCTAssertEqual(listed.offeredWriters.map(\.writer), ["deepseek", "anthropic"], "each writer once, the server's default first")
+        XCTAssertEqual(PodcastCapabilities(catalog: true, generation: true, delivery: true, lengths: Self.lengths).offeredWriters, [],
+                       "servers without the choice offer nothing to choose")
+        XCTAssertEqual(both[1].writer(preferring: "anthropic"), "anthropic")
+        XCTAssertEqual(deepseekOnly.writer(preferring: "anthropic"), "deepseek", "not offered for this length: the server's default")
+        XCTAssertEqual(both[1].writer(preferring: "flash"), "deepseek", "a writer the server no longer lists is ignored")
+        XCTAssertNil(Self.lengths[1].writer(preferring: "anthropic"), "no writers listed: the server decides")
+
+        var offer = PodcastGeneration(paperTitle: "A paper", itemID: UUID(), documentID: UUID(), phase: .offer, capabilities: listed,
+                                      preferredWriter: "anthropic")
+        XCTAssertEqual(offer.selected, "podcast-5min-v1")
+        XCTAssertEqual(offer.selectedWriter, "anthropic", "the default from Settings, not the server's")
+        offer.choose(length: "podcast-short-v1")
+        XCTAssertEqual(offer.selectedWriter, "deepseek", "Short offers only DeepSeek")
+        offer.choose(length: "podcast-10min-v1")
+        XCTAssertEqual(offer.selectedWriter, "deepseek", "a writer the length offers is kept")
+        offer.selectedWriter = nil
+        offer.choose(length: "podcast-20min-v1")
+        XCTAssertEqual(offer.selectedWriter, "anthropic", "otherwise the Settings default again")
+        let plain = PodcastGeneration(paperTitle: "A paper", itemID: UUID(), documentID: UUID(), phase: .offer, capabilities: listed)
+        XCTAssertEqual(plain.selectedWriter, "deepseek", "no default chosen: the server's")
+    }
+
     func testLengthsBeyondTheBalanceAreGreyedOutAndNotQuoted() {
         let offer = generation()
         XCTAssertEqual(offer.selected, "podcast-5min-v1")
