@@ -2,10 +2,10 @@
 // the paper the device prepared (arXiv's own figure, re-encoded on the device), so the model reads the figure itself,
 // and the model may break it into parts the device crops and shows with an explanation each. Sent only under consent
 // cloud-ai-v3, which names figures. Nothing here is stored: the images pass through to the provider like the text.
-import type Anthropic from '@anthropic-ai/sdk';
+import type { ContentBlock, ToolDefinition } from './model-request.ts';
 
 export const FIGURE_LIMITS = Object.freeze({ images: 3, base64Chars: 1_600_000, totalBase64Chars: 3_200_000, maxSide: 1_600, captionChars: 1_200 });
-/** Hold per attached image: Anthropic bills about (width × height) / 750 tokens after resizing to about 1.15 MP. */
+/** Hold per attached image: Claude bills about (width × height) / 750 tokens after resizing to about 1.15 MP. */
 export const IMAGE_HOLD_TOKENS = 1_600;
 
 export interface FigureImage { id: string; paragraph: number; caption: string; mediaType: 'image/jpeg' | 'image/png'; data: string; width: number; height: number }
@@ -41,14 +41,14 @@ export function figureImages(value: unknown): FigureImage[] {
 }
 
 /** The blocks that go before the question: each figure's label (its paragraph number and caption), then its image. */
-export function figureBlocks(images: readonly FigureImage[]): Anthropic.Beta.Messages.BetaContentBlockParam[] {
+export function figureBlocks(images: readonly FigureImage[]): ContentBlock[] {
   return images.flatMap(image => [
     { type: 'text' as const, text: `<figure id="${image.id}" paragraph="¶${image.paragraph}">${image.caption.replace(/[<>]/g, ' ')}</figure>` },
     { type: 'image' as const, source: { type: 'base64' as const, media_type: image.mediaType, data: image.data } },
   ]);
 }
 
-export const SHOW_FIGURE_PARTS_TOOL: Anthropic.Beta.Messages.BetaTool = {
+export const SHOW_FIGURE_PARTS_TOOL: ToolDefinition = {
   name: 'show_figure_parts',
   description: 'Breaks a figure attached to the question into its parts: the reader sees each part cropped from the figure, placed in '
     + 'your text where a line [[part N]] stands (N counts the parts in the order you list them). Use it only when a figure is attached '
@@ -83,7 +83,7 @@ const clean = (value: unknown, limit: number): string | null => {
  * complex figure" and "Figure 4" asked of a build without figures both got a caption-only answer). The device finds
  * the figure in its copy of the paper and asks again with it attached; offered only to devices that say they can
  * (`figure_requests`), under consent v3, so an older build is never left with an unanswered request. */
-export const LOOK_AT_FIGURE_TOOL: Anthropic.Beta.Messages.BetaTool = {
+export const LOOK_AT_FIGURE_TOOL: ToolDefinition = {
   name: 'look_at_figure',
   description: 'Gets the image of one figure or table of this paper from the reader\'s device. Use it when the question is about a '
     + 'figure or table (named, or one you choose, such as "the most complex figure") and no figure is attached (no F1). Name it as '

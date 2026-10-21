@@ -272,7 +272,7 @@ final class VisualScenarioTests: XCTestCase {
             },
             "signin": Scenario(arguments: ["--authentication-fixture", "--reset-authentication-fixture"]) { app in
                 // The wide iPad layout has no tab bar; Settings is its gear button.
-                if app.buttons["tab.settings"].exists { app.show("settings") } else { app.buttons["Settings"].tap() }
+                app.show("settings")
                 let signIn = app.buttons["account.signIn"]
                 XCTAssertTrue(signIn.waitForExistence(timeout: 5)); signIn.tap()
                 XCTAssertTrue(app.buttons["auth.emailMethod"].waitForExistence(timeout: 5)); sleep(1)
@@ -316,6 +316,7 @@ final class VisualScenarioTests: XCTestCase {
     /// Tabs on compact layouts; the wide iPad layout's own controls otherwise (paper chat sits beside
     /// the reader there).
     private func go(_ app: XCUIApplication, _ tab: String) {
+        if tab == "settings", app.buttons["tab.notes"].exists { app.show("settings"); return }
         if app.buttons["tab.\(tab)"].exists { app.buttons["tab.\(tab)"].tap(); return }
         #if targetEnvironment(macCatalyst)
         // The Mac's view switch is the window toolbar's "View" group and its Settings item.

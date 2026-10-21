@@ -65,7 +65,7 @@ deletion), 0135 (default privileges). Deploy order and live checks: IMPLEMENTATI
 | A24 | Fixed, one part deferred | 3886527, 42cdcc6 | Bounded bodies and third-party JSON; rebinding window narrowed (residual risk in PDF_UPLOADS §1); helpers kept out of the compiler's `http.ts`. Account-delete body bound deferred to the deletion work. |
 | C6 | Fixed | f432f08 (0107) | Token check and account read together; admit+dispatch in one call; receipt concurrent with finish. Local JWKS verification not attempted. |
 | C7 | Fixed | 9255ee3 (0108) | Partial indexes; stale sweep records failures and moves on. Lifetime import counters left to E2. |
-| D1 | Partly fixed | 90b7017 | Removed `deepseek.ts`, the direct podcast script and speech providers and their tests. The Anthropic SDK adapter and native-search branches remain as the transport of 17 chat and 3 admission tests (E1). |
+| D1 | Fixed | 90b7017, fa2ba64 | Removed `deepseek.ts`, the direct podcast script and speech providers; then (owner 2026-10-21, OpenRouter exclusively) the SDK adapter, direct cards, fallback beta, native search, `claudeOpenRouter` and the `@anthropic-ai/sdk` dependency; tests run on the OpenRouter adapter. |
 | D4 | Fixed | 0f26222, 35c3cba | Scripts, admin labels, docs; drills stream in OpenRouter's format. |
 | D5 | Fixed | 53e3851 (0135) | `test:ops`, the 7 failures, widened fingerprints, `deno check` and admin `tsc` in fast, no silent skips, default-grant emulation, current-schema phase. |
 | D6 | Fixed | 0c44802 | Wrangler shortcuts and unused plugin removed; Wrangler pinned. |

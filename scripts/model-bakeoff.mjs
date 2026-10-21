@@ -136,7 +136,7 @@ async function serverParams(p, question, figures) {
   const captured = [];
   const errors = [];
   const deps = {
-    accountID: 'aaaaaaaa-0000-4000-8000-00000000b0f0', nativeSearch: false, webSearch: false,
+    accountID: 'aaaaaaaa-0000-4000-8000-00000000b0f0', webSearch: false,
     rpc: async (name, params) => {
       switch (name) {
         case 'worker_local_chat_context': return { title: p.index.title };
@@ -155,7 +155,7 @@ async function serverParams(p, question, figures) {
     log: () => {}, sleep: async () => {},
   };
   const digest = createHash('sha256').update(p.text).digest('hex');
-  const body = { operation_id: randomUUID(), consent_version: 'cloud-ai-v3', mode: 'paper',
+  const body = { operation_id: randomUUID(), consent_version: 'cloud-ai-v6', mode: 'paper',
     local_context: { format: 'reader-local-context-v2', membership_id: randomUUID(), source: 'arxiv', source_id: p.id, revision: p.revision,
       manifest_sha256: digest, source_sha256: digest, text: p.text },
     messages: [{ role: 'user', text: question }], capabilities: ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'],

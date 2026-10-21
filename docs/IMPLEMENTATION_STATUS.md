@@ -53,6 +53,97 @@ released browser is still Pages `27c45ca0`. iPhone sources were read for wording
   from the repository's node_modules only); after merging it the check passes and the moved copy in
   `apps/web/src/reader/` matches the app's.
 
+## OpenRouter exclusively, cost per account, no import quota — October 21 UTC (built and tested locally; not deployed)
+
+Owner directives of 2026-10-21 ([decisions](DECISIONS.md)). Nothing deployed; no hosted, paid or phone check run; the
+browser and Apple apps untouched. Designs: PROVIDER_SPENDING.md "OpenRouter only (2026-10-21)",
+OPERATIONS_AND_BILLING.md "OpenRouter exclusively and cost per account", LIBRARY_CAPACITY.md "No import quota".
+
+- **Code:** direct-provider cards, the Anthropic SDK client/stream adapter, the fallback beta, native search and the
+  `claudeOpenRouter` switch removed; `anthropic.ts` → `inference.ts`, own request types in `model-request.ts`,
+  `admittedAnthropic` → `admittedModelCalls` (always `worker_openrouter_admit`); `@anthropic-ai/sdk` removed from
+  `deno.json`, `package.json` and the pipeline worker (locks pruned offline). Web search is our Tavily `search_web` tool
+  only. provider-health maps only real providers; the egress guard still refuses direct model hosts and logs them.
+- **Config:** `deploy-staging.py` stops setting `CHAT_CLAUDE_OPENROUTER` and deletes `ANTHROPIC_API_KEY`,
+  `DEEPSEEK_API_KEY` and `CHAT_CLAUDE_OPENROUTER` from the project; the worker deploy accepts no Vertex identity;
+  `infra/staging.json` loses its unused entries; `config.function-secrets` fails on a direct key; `budget.health` fails on
+  OpenRouter attempts only and names legacy ones.
+- **Migrations (after 0100–0135, in order):** 0140 OpenRouter-only reporting (legacy named, held, kept), 0141
+  `v1_admin_account_costs`, 0142 no import quota (lifetime limits NULL; in-flight backstop 100/2,000). Fixtures:
+  `openrouter_only_reporting.sql`, `account_costs.sql`, `no_import_quota.sql`.
+- **Admin:** Costs tab (sortable, per-account feature/model breakdowns, this month and last 30 days); Health shows legacy
+  attempts apart from OpenRouter ones. Screenshots (fixture): desktop light and phone dark, no horizontal overflow.
+- **Evidence (local):** `npm test` all nine steps pass (backend 683/683 — direct-adapter and native-search tests removed,
+  chat tests now use OpenRouter models, reported costs and consent v6 as production requires; browser 520/520;
+  operations Node 24 and Python 124; Edge `deno check`; admin `tsc`); `npm run test:database` passed (824 steps, 127 s);
+  `npm run test:ops` passed. `scripts/check-admin-build.mjs` needs the production backend environment, absent in this
+  worktree; the built bundle contains no Costs fixture data (checked by search).
+- **Deploy order:** (1) migrations through `scripts/deploy-staging.py` (0140 needs 0102/0108/0128; 0141 needs 0037/0140);
+  (2) every routine Edge function (all import the changed `egress.ts`/`provider-health.ts`; chat the rest) — the same
+  run sets the secrets and removes the retired ones; (3) the Cloud Run worker (`scripts/deploy-pipeline-worker.py`:
+  tags, podcasts, provider-health, no SDK); (4) the admin site (`node scripts/deploy-web.mjs admin`).
+- **Live checks (read-only, unpaid):** `worker_budget_health()` has `unknown_openrouter_attempts_over_1h` and
+  `reconciliation.legacy` (`by_provider` `{"anthropic":1}`, held 138 micro-USD until the Oct 17 attempt is settled, then
+  0); the Management API secret list has no `ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY`/`CHAT_CLAUDE_OPENROUTER`;
+  `node scripts/workflow-checks.mjs --only config.function-secrets,budget.health` passes; `GET functions/v1/chat` lists
+  every model with `provider: "openrouter"` and `tariff: "openrouter-reviewed-cards"`; `app_private.library_policy` shows
+  NULL lifetime limits and 100/2,000 in flight; Admin › Costs loads for the owner and its month cost equals Spending's
+  month `reported + estimated` for attempts; Admin › Health shows legacy separately. Paid (owner's choice, ~$0.005): one
+  chat answer appears in Costs under that account, feature chat, model `anthropic/claude-sonnet-5.5` or `gemini-3.8-flash`.
+- **Not done here:** the Swift and browser copies of the chat profile fixture and the apps' quota/limit strings and
+  4,000-entry bound (app agents; listed in LIBRARY_CAPACITY.md); dropping the still-evaluated lifetime count queries
+  (perf, review C7/E2); provisioning per-feature OpenRouter keys (owner).
+
+## Notes and snippets, native — October 21 UTC (local; not released)
+
+The iPhone, iPad and Mac client of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc)
+is implemented on branch `worktree-agent-a59beff74b009e4ac` (codec `443f04d`, store/transport `6aa4cc4`, iPhone UI
+`8143fd7`, iPad/Mac `7e9857a`, browser-interop alignment `8ccf4f7` and follow-ups). **Not in TestFlight**; clients
+remain build 77. All Simulator work used two devices created for this run (iPhone 17 Pro, iPad Pro 13-inch M5, iOS 26.4)
+and the Mac (Catalyst), then deleted; the physical iPhone stayed paused.
+
+- **Core** (`swift test`, ScienceReaderCore): **383 tests pass** (50 suites). New: `NotesTests` (15) — the six fixture
+  records re-encode byte for byte, the five invalid records fail with their stated reasons, the future record is kept,
+  the encryption vector matches (blob hex, SHA-256, AAD, descriptor), tamper/account/type checks, reducer ordering,
+  versions and their resolution, immutable fields, tombstones, incomplete entries, catalogs ignored both ways, format-1
+  envelopes; `NoteStoreTests` (9) — atomic save and its failure, holds and release, dependent edits, key-rotation
+  rebasing, idempotent uploads with quota/timeout/conflict, verified on-demand downloads into the encrypted cache,
+  format 6→7 migration, a missing unsent blob refused, cache eviction; `NotesInteropTests` (2) — see below. Four older
+  legacy-format tests now strip the new metadata keys; one migration test expects schema 6.
+- **Cross-client records** (`tests/fixtures/notes/cross-client-v1.json`): the browser codec (`apps/web/src/lib/notes.ts`,
+  bundled by a scratch script) read **6/6** Swift-written edge-case records and re-encoded each byte for byte; Swift
+  reads, validates and re-encodes the **6/6** browser-written ones. Swift's validators were aligned to the browser's
+  bounds first (offsets ±1,440, 80-scalar titles, revision ≥ 1, block IDs `[0-9A-Za-z_-]`, nullable anchor identity).
+- **Staging** (opt-in `NotesLiveAssetsTests`, 2026-10-21 08:33:59 UTC, project `coxhjvqpflgxkleydati`): a disposable
+  `@example.invalid` account; the app's own `BackendNoteAssets` uploaded a real capture's PNG (11,122 B stored) and JPEG
+  thumbnail (8,062 B) from an `EncryptedStore`, which then released the held entry; a repeat PUT was 200; a second
+  store downloaded, verified, decrypted and cached both; a different digest was 409 and an unknown ID 404. The account
+  was deleted through `account-delete` (`{deleted:true, complete:true}`). No paid calls.
+- **App tests** (`NotesAppTests`, 7/7): every deployed note-assets status and body, `X-Content-SHA256` checked; text crops
+  stay PNG at full size with no camera/place/time metadata; large and photographic crops fit the limits (JPEG fallback);
+  PDF regions render exactly the chosen part, rotated pages included; model writes through the encrypted fixture store
+  (create, trimmed titles, capture with sealed images, exact retry, text, comment, rename, new note with its first
+  entry, search, delete, reopen); Settings presentation rules.
+- **UI journeys** (`NotesJourneyTests`): iPhone — Draw snippet → Save to a new note → Open note → full size → Edit comment →
+  Rename → Add text → Delete (with name and count); selection › Add to note; a figure page's Add to note with the whole
+  figure preselected; Settings from the Library, Feed, Paper, Chat, Notes and note menus returning to each (Report this
+  screen just above it); light and dark — **all pass**. Wide layout — Notes beside Feed/Library/Reader/Browse/General
+  Chat, list beside the note, capture beside the chat column, Settings round trip: **passes on iPad (light and dark) and
+  on the Mac (light and dark)** (menu-bar Draw Snippet; Escape cancels drawing). `SettingsTests` 6/6 with the new navigation.
+- **Regression context**: the full app unit bundle (510 tests) has failures unrelated to Notes — four
+  `PaperWebViewTests` Contents cases fail identically on the base commit `82c8656`; two podcast tests follow main's
+  podcast-script change; one needs the local import corpus; three timed out only while other suites shared the machine
+  and pass alone. A stale Simulator stalled WebKit loading until rebooted (as recorded before).
+- **`npm test`**: its first step fails — `arxiv-reader.js` is stale against shared server modules changed on main after
+  the last compiler build (no compiler input changed here; rebuilding the shipped reader is left to its owner). The
+  remaining fast-tier steps pass when run individually: backend 697, operations 24, Python operations 124, arXiv egress
+  scan, Edge type check, admin type check, browser units 519/520 — the one failure was the Swift interop executable's cold
+  `swift run` build inside its test window, and `tests/interop.test.ts` passes 5/5 once built.
+
+Not done natively (also listed in the architecture document): encrypted composer/comment drafts, "Keep both", a New
+snippets jump, two-tap corners and richer VoiceOver capture announcements, Open in paper for local PDF sources,
+adjusting an equation-page capture, and an end-to-end native ↔ browser sync through staging.
+
 ## Builds 66–76 open feedback — October 21 UTC (feedback branch; not merged, not released)
 
 Implemented on branch `worktree-agent-a9ba7e1c4135d32c0` from `641541c`, then merged with `main` at `fa1f69f` (browser

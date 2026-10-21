@@ -73,6 +73,10 @@ class StagingDeploymentTests(unittest.TestCase):
                 if 'note_bucket' in config and url.endswith('/bucket/note-assets'):
                     events.append('note_bucket_read')
                     return {**config['note_bucket'], **getattr(self, 'remote_note_drift', {})}
+                if url.endswith('/secrets') and method == 'DELETE':
+                    events.append('retired_secrets')
+                    self.removed_secrets = list(body)
+                    return None
                 if url.endswith('/secrets'):
                     events.append('function_secrets')
                     self.secret_names = [entry['name'] for entry in body]
@@ -132,7 +136,11 @@ class StagingDeploymentTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertIn('OPENROUTER_CHAT_API_KEY', self.secret_names)
         self.assertNotIn('ANTHROPIC_API_KEY', self.secret_names); self.assertNotIn('DEEPSEEK_API_KEY', self.secret_names)
+        self.assertNotIn('CHAT_CLAUDE_OPENROUTER', self.secret_names, 'the always-on switch is gone')
         self.assertIn('CHAT_DEEPSEEK', self.secret_names)
+        # Owner, 2026-10-21 (OpenRouter exclusively): retired direct keys an earlier deploy may have set are removed.
+        self.assertEqual(self.removed_secrets, ['ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'CHAT_CLAUDE_OPENROUTER'])
+        self.assertLess(events.index('function_secrets'), events.index('retired_secrets'))
         for mode in ['hidden', 'on']:
             events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], config_extra={'chat_deepseek': mode})
             self.assertIsNone(error)

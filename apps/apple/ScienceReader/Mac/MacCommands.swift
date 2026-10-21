@@ -12,6 +12,9 @@ struct PaperMenuActions {
     var selection: ((SelectionAction) -> Void)?
     /// The open paper's figure gallery; unavailable for a paper without figures.
     var figures: (() -> Void)? = nil
+    /// Notes (NOTES_AND_SNIPPETS.md): draw a box on the page, or keep the selected text as a quotation.
+    var drawSnippet: (() -> Void)? = nil
+    var addSelectionToNote: (() -> Void)? = nil
 }
 
 private struct PaperMenuActionsKey: FocusedValueKey { typealias Value = PaperMenuActions }
@@ -164,6 +167,9 @@ struct GradstepCommands: Commands {
             }.disabled(paper?.selection == nil)
             Button("Ask About This Paper") { model.askAboutSelectedPaper() }
                 .keyboardShortcut("a", modifiers: [.command, .shift]).disabled(model.selectedPaper == nil)
+            // Notes: no keyboard shortcut until the existing bindings are audited (NOTES_AND_SNIPPETS.md).
+            Button("Draw Snippet") { paper?.drawSnippet?() }.disabled(paper?.drawSnippet == nil)
+            Button("Add Selection to Note") { paper?.addSelectionToNote?() }.disabled(paper?.addSelectionToNote == nil)
             // The paper's "…" menu, item for item (PaperView), so nothing on screen is missing from the menu bar.
             Button("Listen") { if let paper = model.selectedPaper { model.podcasts.listen(to: paper) } }
                 .disabled(model.selectedPaper.map { !model.podcasts.canListen(to: $0) } ?? true)

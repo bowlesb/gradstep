@@ -211,3 +211,12 @@ dialog.modal{background:#181a23;border-color:#272a37;box-shadow:0 24px 70px rgba
 .scale-rows>div{border-color:#272a37}
 }
 .health .panel>h2+.muted{margin:-10px 0 14px}
+/* Costs tab (migration 0141): per-account AI cost tables. */
+.costs .table-scroll{position:relative}.costs-table{margin-top:4px;min-width:760px}.costs-table th,.costs-table td{padding:12px 10px;vertical-align:top}
+.costs-table tbody th{font-weight:500;max-width:360px}.costs-table .email{overflow-wrap:anywhere}.costs-table tbody th small{display:block;margin-top:3px;font-size:11px;color:#8a90a1;overflow-wrap:anywhere}
+.costs-table .tags{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap}.costs-table td small,.breakdown td small,.breakdown th small{display:block;margin-top:2px;font-size:11px;color:#8a90a1}
+.costs-table tr.synthetic{background:repeating-linear-gradient(135deg,transparent 0 9px,rgba(120,128,150,.035) 9px 18px)}.costs-table tr.cost-detail>td{background:#fafbfd;padding:4px 10px 14px}
+.breakdown{margin-top:8px}.breakdown caption{text-align:left;font-size:13px;font-weight:600;color:#4b5061;padding:4px 0}.breakdown th,.breakdown td{padding:9px 8px}.breakdown{min-width:440px}.breakdown tbody th{font-weight:500;color:#3f4455;overflow-wrap:break-word}.breakdown td.num{white-space:nowrap}
+.costs .check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:12px;font-weight:500}.costs .check input{width:auto}.costs .metric small{display:block;margin-top:8px;color:#818898;font-size:12px}
+@media(prefers-color-scheme:dark){.costs-table tr.cost-detail>td{background:#14161e}.breakdown caption{color:#c4c8d6}.breakdown tbody th{color:#d2d5e1}}
+@media(max-width:650px){.costs-table{min-width:640px}.costs .section-heading{flex-wrap:wrap}}

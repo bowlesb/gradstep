@@ -5,11 +5,13 @@ import StoreKit
 import SwiftUI
 
 enum ReaderTab: String, CaseIterable, Identifiable {
-    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", settings = "Settings"
+    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Notes", settings = "Settings"
+    /// The phone's floating tab bar (owner, 2026-10-20): Notes replaces Settings, which every top-right menu now opens.
+    static let phoneTabs: [ReaderTab] = [.feed, .library, .paper, .chat, .notes]
     var id: Self { self }
-    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .settings: "gearshape" } }
+    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
 }
-enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat" }
+enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat", notes = "Notes" }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
 /// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says.
 enum SelectionAction: String, CaseIterable {
@@ -124,6 +126,10 @@ struct LocalPaperPresentation: Identifiable, Equatable, Sendable {
     let id: UUID
     let title: String
     let data: Data
+    /// The arXiv identity behind the saved PDF, for a snippet's source line (nil when unknown).
+    var sourceID: String? = nil
+    var revision: Int? = nil
+    var authors: [String] = []
 }
 
 struct ChatFollowRequest: Equatable {
@@ -133,7 +139,12 @@ struct ChatFollowRequest: Equatable {
 
 @MainActor @Observable
 final class ReaderModel {
-    var tab: ReaderTab = .library { didSet { if tab == .chat { returnToChatAvailable = false } } }
+    var tab: ReaderTab = .library { didSet {
+        if tab == .chat { returnToChatAvailable = false }
+        // Going somewhere from Settings (an explanation, a downloaded paper) leaves it; Done is not needed.
+        if tab != oldValue, settingsPresented { settingsPresented = false }
+        if tab != oldValue, notes.capturing != nil { notes.capturing = nil }
+    } }
     var wideMode: WideMode = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
     @ObservationIgnored private var deviceTextIndex = DevicePaperTextIndex()
@@ -816,6 +827,7 @@ final class ReaderModel {
             }
             let summaries = privateState.conversationSummaries()
             if summaries != conversationSummaries { conversationSummaries = summaries }
+            notes.update(privateState)
         }
     }
     /// All chats' rows: one summary per saved conversation, computed once per history change (one pass over the
@@ -933,25 +945,35 @@ final class ReaderModel {
     var chatConsentPrompt: ChatConsentPrompt?
     /// Paper podcasts: Listen catalog, player, downloads, private generation (Services/PodcastCenter.swift).
     let podcasts = PodcastCenter()
+    /// Notes and snippets (Services/NotesCenter.swift, ReaderModel+Notes.swift; docs/architecture/NOTES_AND_SNIPPETS.md).
+    let notes = NotesCenter()
+    /// Settings shown over the current screen on a phone-width layout: the last section of every top-right menu opens
+    /// it, and closing it returns to the same place (NOTES_AND_SNIPPETS.md "Navigation"). The wide layouts keep their
+    /// own Settings destination (`tab == .settings`, the header gear, the Mac toolbar and ⌘,).
+    var settingsPresented = false
+    /// RootView: whether the phone-width layout (the five-item tab bar) is showing.
+    @ObservationIgnored var compactLayout = true
+    /// Tests and UI fixtures: the note-assets transport; nil uses the app's network client.
+    @ObservationIgnored var notesTransportOverride: (any NoteAssetTransport)?
     private(set) var creditBalance: CreditBalance?
     private(set) var creditBalanceIssue: String?
     private let chatTransportOverride: (any ChatTransport)?
     private let chatConsentStore: any AuthenticationCredentialStore
     var isDiscardingDraft: Bool { chatWorkspace.isDiscarding(in: chatContext) }
-    private var backend: BackendClient?
+    private(set) var backend: BackendClient?
     private var keys: DeviceKeys?
-    private var device: LocalDevice?
+    private(set) var device: LocalDevice?
     private(set) var localPersistence = ReaderLocalPersistence()
     private var draftQueue: ReaderDraftQueue?
     private var pendingDraftCheckpoints: [UUID: ChatWorkspace.Checkpoint] = [:]
     private var draftsRestored = false
     private let retirementQueue = ReaderRetirementQueue()
-    private var store: EncryptedStore? { localPersistence.store }
+    var store: EncryptedStore? { localPersistence.store }
     private var sync: CloudSync?
     private var started = false
-    private var workOwnership = ReaderWorkOwnership()
+    private(set) var workOwnership = ReaderWorkOwnership()
     var sessionID: UUID { workOwnership.accountSessionID }
-    private var accountID: UUID? { didSet { if accountID != oldValue {
+    private(set) var accountID: UUID? { didSet { if accountID != oldValue {
         selectedCatalogID = nil; catalogWriteTail = nil; showCatalogs = false; catalogBusy = false; catalogDeletionProgress = nil
         librarySearchSourceChanged(); podcasts.accountChanged()
     } } }
@@ -1007,7 +1029,8 @@ final class ReaderModel {
             do {
                 let data = try await store.read(record.identity)
                 guard let self, self.readerSessionID == scope else { return }
-                self.localPaperPresentation = LocalPaperPresentation(id: record.id, title: title, data: data)
+                self.localPaperPresentation = LocalPaperPresentation(id: record.id, title: title, data: data, sourceID: sourceID, revision: revision,
+                    authors: self.papers.first { $0.sourceID == sourceID }?.authorNames ?? [])
             } catch {
                 guard let self, self.readerSessionID == scope else { return }
                 self.error = "The saved PDF could not be opened. Add or download the PDF again."
@@ -1977,7 +2000,12 @@ final class ReaderModel {
         try Task.checkCancellation()
         restoreReadingActivity(reading)
         self.device = device
-        self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local) { [weak self] updated in
+        self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local,
+                              noteAssets: notesTransportOverride ?? BackendNoteAssets(backend: backend, accountID: device.accountID),
+                              onNoteUploads: { [weak self] report in
+                                  guard let self, self.workOwnership.owns(activation), self.accountID == device.accountID else { return }
+                                  self.notes.record(report)
+                              }) { [weak self] updated in
             guard let self, self.workOwnership.owns(activation), self.accountID == updated.accountID else { return }
             self.device = updated
         }
@@ -2155,6 +2183,7 @@ final class ReaderModel {
         generalChat = true
         email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
+        notes.reset(); settingsPresented = false
         showReportsAfterComposer = false; error = nil; sessionEndedIssue = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
         syncIssue = nil
     }
@@ -4988,6 +5017,7 @@ final class ReaderModel {
     func publish(_ snapshot: LocalStoreSnapshot) -> Bool {
         guard snapshot.generation >= publishedGeneration else { return false }
         publishedGeneration = snapshot.generation; publishedPendingCount = snapshot.pendingCount; privateState = snapshot.state
+        notes.update(snapshot: snapshot)
         presentLocalPDFMemberships()
         return true
     }

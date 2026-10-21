@@ -10,8 +10,11 @@ import { isRouterClaude, routedClaudeModel } from './openrouter-claude-pricing.t
 // (`autoEffort`) before it holds credits, and it holds, quotes and records the resolved profile. DeepSeek V4.1 Flash
 // joins as a fourth model (through OpenRouter to DeepInfra since 2026-10-18). Both are additive to
 // `chat-profiles-v1`: builds 57/58 decode only that version, refuse an unknown default, skip unknown model and effort
-// ids and read the first 64 profiles, so the 27 profiles they know stay first and unchanged.
-import { CHAT_EFFORT, CHAT_MAX_TOKENS, CHAT_MODEL, creditsFor, MICROUSD_PER_CREDIT, RATE_VERSION, ratesFor, TARIFF } from './anthropic.ts';
+// ids and read the first 64 profiles, so the 27 profiles they know stay first, with the same ids and choices.
+//
+// Every model is served through OpenRouter (owner, 2026-10-18; 2026-10-21 "exclusively use open router"): Claude and
+// Gemini on its Google Vertex route, DeepSeek on DeepInfra. Estimates use those reviewed cards.
+import { CHAT_EFFORT, CHAT_MAX_TOKENS, CHAT_MODEL, creditsFor, MICROUSD_PER_CREDIT, RATE_VERSION, ratesFor } from './inference.ts';
 
 import { GEMINI_MODEL } from './gemini-pricing.ts';
 
@@ -25,28 +28,33 @@ export type LengthChoice = 'brief' | 'standard' | 'detailed';
 export interface Choice { model: ModelChoice; effort: EffortChoice; length: LengthChoice }
 /** A request's choice as sent: its effort may still be `auto`. */
 export interface RequestedChoice { model: ModelChoice; effort: EffortRequest; length: LengthChoice }
-export type ChatProvider = 'anthropic' | 'deepseek' | 'openrouter';
+/** Who serves every answer: OpenRouter, the only inference provider. */
+export type ChatProvider = 'openrouter';
+/** The model family a choice belongs to (it orders the published table and names the upstream route). */
+type ModelFamily = 'claude' | 'deepseek' | 'gemini';
 
-/** The consent version that names DeepSeek as the processor when the reader chooses it (chat.ts CONSENT_VERSIONS). */
+/** The consent version that named DeepSeek directly (builds before OpenRouter); OpenRouter's DeepSeek needs v6. */
 export const DEEPSEEK_CONSENT_VERSION = 'cloud-ai-v4';
+/** The consent that names OpenRouter (and its Google Vertex route): required for every answer. */
 export const GEMINI_CONSENT_VERSION = 'cloud-ai-v5';
 
-interface ModelEntry { id: ModelChoice; label: string; detail: string; apiModel: string; fallbacks: boolean; provider: ChatProvider }
+/** `clientModel`: the stable model identity clients have always seen in `done` (chat.ts answeringModel); the request
+ * goes to its OpenRouter model (`routedModel`). */
+interface ModelEntry { id: ModelChoice; label: string; detail: string; clientModel: string; family: ModelFamily }
 interface EffortEntry { id: EffortChoice; label: string; detail: string; thinkingTokens: number }
 interface LengthEntry { id: LengthChoice; label: string; detail: string; answerTokens: number; instructions: string | null }
 
-// Model IDs and capabilities checked with GET /v1/models on 2026-10-08: all three Claude models take adaptive thinking
-// and `output_config.effort` (low/medium/high); Sonnet 5.5 falls back to Sonnet 5, Opus 5.5 to Opus 5 / Opus 4.8,
-// Haiku 5.5 has no fallback models. DeepSeek V4.1 Flash (`deepseek-flash`, 2026-10-16): image input, tools, thinking,
-// 1M context; its Anthropic-compatible endpoint accepted adaptive thinking, `output_config.effort` and a one-hour
-// `cache_control` block in a live probe (CHAT.md "DeepSeek in chat"); no fallback models. Prices: anthropic.ts.
+// Routes and prices: openrouter-claude-pricing.ts (Claude 5.5 through Google Vertex; reasoning at the chosen effort, no
+// server-side fallback), openrouter-deepseek-pricing.ts (DeepSeek V4.1 Flash through DeepInfra) and gemini-pricing.ts.
 export const MODELS: readonly ModelEntry[] = Object.freeze([
-  { id: 'haiku', label: 'Haiku', detail: 'Quick, economical explanations', apiModel: 'claude-haiku-5-5', fallbacks: false, provider: 'anthropic' },
-  { id: 'sonnet', label: 'Sonnet', detail: 'Strong answers at a moderate cost', apiModel: CHAT_MODEL, fallbacks: true, provider: 'anthropic' },
-  { id: 'opus', label: 'Opus', detail: 'Most capable; costs the most', apiModel: 'claude-opus-5-5', fallbacks: true, provider: 'anthropic' },
-  { id: 'deepseek', label: 'DeepSeek', detail: 'Low cost; processed by DeepSeek', apiModel: 'deepseek-flash', fallbacks: false, provider: 'deepseek' },
-  { id: 'gemini', label: 'Gemini Flash', detail: 'Recommended for paper questions; lower cost', apiModel: GEMINI_MODEL, fallbacks: false, provider: 'openrouter' },
+  { id: 'haiku', label: 'Haiku', detail: 'Quick, economical explanations', clientModel: 'claude-haiku-5-5', family: 'claude' },
+  { id: 'sonnet', label: 'Sonnet', detail: 'Strong answers at a moderate cost', clientModel: 'claude-sonnet-5-5', family: 'claude' },
+  { id: 'opus', label: 'Opus', detail: 'Most capable; costs the most', clientModel: 'claude-opus-5-5', family: 'claude' },
+  { id: 'deepseek', label: 'DeepSeek', detail: 'Low cost; processed by DeepSeek', clientModel: 'deepseek-flash', family: 'deepseek' },
+  { id: 'gemini', label: 'Gemini Flash', detail: 'Recommended for paper questions; lower cost', clientModel: GEMINI_MODEL, family: 'gemini' },
 ]);
+/** The OpenRouter model a choice is sent as. */
+const routedModel = (m: ModelEntry) => routedDeepSeekModel(routedClaudeModel(m.clientModel));
 // Effort maps one to one onto the API's `output_config.effort`, with adaptive thinking on every model. The thinking
 // allowance is added to the length's answer allowance: max_tokens covers thinking and the answer together.
 export const EFFORTS: readonly EffortEntry[] = Object.freeze([
@@ -73,10 +81,10 @@ export const DEFAULT_AUTO_CHOICE: Readonly<RequestedChoice> = Object.freeze({ mo
 export interface ChatProfile extends Choice {
   /** `sonnet-low-standard`: recorded with the quote and returned with the answer. */
   id: string;
+  /** The OpenRouter model the answer is sent as (`anthropic/claude-sonnet-5.5`). */
   apiModel: string;
   /** Output allowance for the whole answer, thinking included (all rounds share it). */
   maxTokens: number;
-  fallbacks: boolean;
   /** Who serves the answer (and whose admission, breaker and usage rows it uses). */
   provider: ChatProvider;
   /** Added after the paper; null for Standard (today's instructions). */
@@ -87,19 +95,19 @@ const model = (id: ModelChoice) => MODELS.find(entry => entry.id === id)!;
 const effort = (id: EffortChoice) => EFFORTS.find(entry => entry.id === id)!;
 const length = (id: LengthChoice) => LENGTHS.find(entry => entry.id === id)!;
 
-/** The provider that serves an API model (an Anthropic model unless it is one of DeepSeek's). */
-export function providerForModel(apiModel: string): ChatProvider {
-  return (apiModel === GEMINI_MODEL || isRouterClaude(apiModel) || isRouterDeepSeek(apiModel)) ? 'openrouter' : apiModel.startsWith('deepseek-') ? 'deepseek' : 'anthropic';
+/** OpenRouter for every model it has a reviewed route for; null for anything else (never sent). */
+export function providerForModel(apiModel: string): ChatProvider | null {
+  return (apiModel === GEMINI_MODEL || isRouterClaude(apiModel) || isRouterDeepSeek(apiModel)) ? 'openrouter' : null;
 }
 
 export function isDefaultChoice(choice: RequestedChoice): boolean {
   return choice.model === DEFAULT_CHOICE.model && choice.effort === DEFAULT_CHOICE.effort && choice.length === DEFAULT_CHOICE.length;
 }
 
-export function resolveProfile(choice: Choice | null, claudeOpenRouter = false): ChatProfile {
+export function resolveProfile(choice: Choice | null): ChatProfile {
   const c = choice ?? DEFAULT_CHOICE, m = model(c.model), e = effort(c.effort), l = length(c.length);
-  return { model: c.model, effort: c.effort, length: c.length, id: `${c.model}-${c.effort}-${c.length}`, apiModel: claudeOpenRouter ? routedDeepSeekModel(routedClaudeModel(m.apiModel)) : m.apiModel,
-    maxTokens: l.answerTokens + e.thinkingTokens, fallbacks: claudeOpenRouter && m.provider === 'anthropic' ? false : m.fallbacks, provider: claudeOpenRouter ? 'openrouter' : m.provider, lengthInstructions: l.instructions };
+  return { model: c.model, effort: c.effort, length: c.length, id: `${c.model}-${c.effort}-${c.length}`, apiModel: routedModel(m),
+    maxTokens: l.answerTokens + e.thinkingTokens, provider: 'openrouter', lengthInstructions: l.instructions };
 }
 
 /** A request's `profile` field: exactly `{model, effort, length}` with known values (effort may be `auto`); null when
@@ -209,48 +217,52 @@ export interface PublishOptions {
   deepseek: boolean;
   /** Off/hidden until consent, accounting and the deployed adapter are verified. */
   gemini?: boolean;
-  claudeOpenRouter?: boolean;
   /** Whether a model's reviewed price card stays valid long enough to offer it (A4, migration 0101); absent: all are. */
   available?: (apiModel: string) => boolean;
 }
 
+/** The published `tariff`: every estimate in the table is priced at its model's reviewed OpenRouter card (each quote
+ * records the card it was held at: inference.ts tariffFor). */
+export const PUBLISHED_TARIFF = 'openrouter-reviewed-cards';
+
 /** `GET functions/v1/chat`: the table clients display. Versioned; clients send only `{model, effort, length}`.
- * Additive since 2026-10-16: the 27 Claude profiles first and unchanged (old builds read only the first 64 and skip
- * what they do not know), then DeepSeek's nine, then the `auto` profiles; `efforts` lists `auto` last; models carry
- * their `provider` and required consent. Flash's profiles are appended; updated clients prefer `default_recommended`. */
+ * Additive since 2026-10-16: the 27 Claude profiles first, with their ids and choices unchanged (old builds read only
+ * the first 64 and skip what they do not know), then DeepSeek's nine, then the `auto` profiles; `efforts` lists `auto`
+ * last; models carry their `provider` (OpenRouter) and required consent. Flash's profiles are appended; updated clients
+ * prefer `default_recommended`. */
 export function publishedProfiles(options: PublishOptions = { deepseek: false }) {
-  const servedAs = (m: ModelEntry) => options.claudeOpenRouter ? routedDeepSeekModel(routedClaudeModel(m.apiModel)) : m.apiModel;
-  const models = MODELS.filter(m => (m.provider !== 'deepseek' || options.deepseek) && (m.provider !== 'openrouter' || options.gemini)
-    && options.available?.(servedAs(m)) !== false);
+  const models = MODELS.filter(m => (m.family !== 'deepseek' || options.deepseek) && (m.family !== 'gemini' || options.gemini)
+    && options.available?.(routedModel(m)) !== false);
   const recommendGemini = !!options.gemini && models.some(m => m.id === 'gemini');
   const explicit = (list: readonly ModelEntry[]) => list.flatMap(m => EFFORTS.filter(e => m.id !== 'gemini' || e.id === 'medium').flatMap(e => LENGTHS.map(l => {
-    const profile = resolveProfile({ model: m.id, effort: e.id, length: l.id }, options.claudeOpenRouter);
+    const profile = resolveProfile({ model: m.id, effort: e.id, length: l.id });
     return { id: profile.id, model: m.id, effort: e.id as EffortRequest, length: l.id, api_model: profile.apiModel,
       max_output_tokens: profile.maxTokens, credits: estimateCredits(profile) };
   })));
   // An `auto` profile: the estimate of the effort usually picked for its length, the maximum of the highest it can pick.
   const auto = models.flatMap(m => LENGTHS.map(l => {
-    const usual = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].usual, length: l.id }, options.claudeOpenRouter);
-    const highest = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].highest, length: l.id }, options.claudeOpenRouter);
+    const usual = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].usual, length: l.id });
+    const highest = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].highest, length: l.id });
     const typical = estimateCredits(usual), most = estimateCredits(highest);
     return { id: `${m.id}-auto-${l.id}`, model: m.id, effort: AUTO_EFFORT.id as EffortRequest, length: l.id, api_model: highest.apiModel,
       max_output_tokens: highest.maxTokens, credits: { low: typical.low, high: typical.high, max: most.max } };
   }));
   return {
-    version: PROFILE_VERSION, rate_version: RATE_VERSION, tariff: TARIFF, microusd_per_credit: MICROUSD_PER_CREDIT,
+    version: PROFILE_VERSION, rate_version: RATE_VERSION, tariff: PUBLISHED_TARIFF, microusd_per_credit: MICROUSD_PER_CREDIT,
     default: { ...DEFAULT_CHOICE },
     default_auto: { ...DEFAULT_AUTO_CHOICE },
     ...(recommendGemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
-    models: models.map(m => ({ id: m.id, label: m.label, detail: options.claudeOpenRouter ? `${m.detail} · OpenRouter → ${m.provider === 'deepseek' ? 'DeepInfra' : 'Google Vertex'}` : m.detail, api_model: options.claudeOpenRouter ? routedDeepSeekModel(routedClaudeModel(m.apiModel)) : m.apiModel, provider: options.claudeOpenRouter ? 'openrouter' : m.provider,
-      ...(m.provider === 'deepseek' ? { consent_version: options.claudeOpenRouter ? ROUTER_CONSENT_VERSION : DEEPSEEK_CONSENT_VERSION } : (m.provider === 'openrouter' || options.claudeOpenRouter) ? { consent_version: GEMINI_CONSENT_VERSION } : {}) })),
+    models: models.map(m => ({ id: m.id, label: m.label, detail: `${m.detail} · OpenRouter → ${m.family === 'deepseek' ? 'DeepInfra' : 'Google Vertex'}`,
+      api_model: routedModel(m), provider: 'openrouter' as ChatProvider,
+      consent_version: m.family === 'deepseek' ? ROUTER_CONSENT_VERSION : GEMINI_CONSENT_VERSION })),
     efforts: [...EFFORTS.map(e => ({ id: e.id as EffortRequest, label: e.label, detail: e.detail })), { ...AUTO_EFFORT }],
     lengths: LENGTHS.map(l => ({ id: l.id, label: l.label, detail: l.detail })),
-    profiles: [...explicit(models.filter(m => m.provider === 'anthropic')), ...explicit(models.filter(m => m.provider === 'deepseek')), ...auto.filter(p => p.model !== 'gemini'), ...explicit(models.filter(m => m.provider === 'openrouter')), ...auto.filter(p => p.model === 'gemini')],
+    profiles: [...explicit(models.filter(m => m.family === 'claude')), ...explicit(models.filter(m => m.family === 'deepseek')), ...auto.filter(p => p.model !== 'gemini'), ...explicit(models.filter(m => m.family === 'gemini')), ...auto.filter(p => p.model === 'gemini')],
     estimate_note: 'For a question about a typical 25-page paper. Web searches add about 2 credits each.',
   };
 }
 
-// Kept in step with anthropic.ts: the default profile is exactly the request the chat function made before profiles.
+// Kept in step with inference.ts: the default profile is exactly the request the chat function makes without one.
 if (resolveProfile(null).maxTokens !== CHAT_MAX_TOKENS || resolveProfile(null).apiModel !== CHAT_MODEL || DEFAULT_CHOICE.effort !== CHAT_EFFORT) {
   throw new Error('chat profile default drifted from the deployed request');
 }

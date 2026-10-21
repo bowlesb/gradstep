@@ -13,6 +13,36 @@ Provider SDK and search transport retries are disabled. A new explicit request, 
 continuation, needs a new grant and must fit the operation's remaining ceiling. The database records
 admission, final usage and reconciliation; application logs contain identifiers and counts only.
 
+## OpenRouter only (2026-10-21; design and local evidence, not deployed)
+
+Owner, 2026-10-21: "exclusively use open router for better breakdowns of user by cost". Design for migrations 0140
+and 0141 and the code removal; [decision](../DECISIONS.md), [operations](OPERATIONS_AND_BILLING.md#openrouter-exclusively-and-cost-per-account--2026-10-21).
+
+- **Admission.** `admittedModelCalls` (was `admittedAnthropic`) admits every model round with
+  `worker_openrouter_admit` (provider `openrouter`, dispatch metadata in the same transaction). A model without a
+  reviewed OpenRouter route, or a provider-native tool, is refused before admission (`cause: server`). SQL admission
+  already refused any other provider for a model route (`invalid_provider_route`, migration 089); `provider_attempts`
+  keeps its legacy provider values for history.
+- **Pricing.** `inference.ts` prices only the reviewed OpenRouter cards (Claude on Vertex, DeepSeek on DeepInfra,
+  Gemini Flash) and a ceiling card above all of them for anything else; OpenRouter's reported `usage.cost` is used when
+  present. Direct Anthropic/DeepSeek list-price cards, the fallback beta and native search fees are gone. Quotes record
+  `tariffFor(model)`; the published profile table's `tariff` is `openrouter-reviewed-cards`.
+- **Legacy attempts (0140).** `app_private.legacy_provider(p)` is true for every provider but `openrouter` and
+  `tavily`. `openrouter_reconcile_health()` reports `other_providers` (legacy only, no longer Tavily), `legacy`
+  (`attempts`, `held_microusd`, `oldest_at`, `by_provider`) and `search_unresolved` (Tavily). `budget_health_extra()`
+  adds `unknown_openrouter_attempts_over_1h`, the count the scheduled `budget.health` check fails on; the base
+  `unknown_attempts_over_1h` (all providers) stays for older checks. Legacy rows are never deleted, re-priced or left
+  out of `manual_held_microusd`, the month's spend or its reservation; an owner reconciles each with evidence.
+- **Health cache (0140).** `v1_admin_health.money.chat_cache` reads `openrouter` usage (it read `anthropic` only).
+- **Cost per account (0141).** `v1_admin_account_costs(p_limit)` aggregates `provider_attempts` (excluding `denied`)
+  and settled `metered_operations` per account for the UTC month and the last 30 UTC days, by feature
+  (`app_private.cost_feature(route, transport feature)`) and by provider and model. Read only; owner with MFA through
+  `spending_owner(30)`, which also applies the admin-spending request rate.
+- **Egress.** `isDirectModelHost` still refuses Anthropic, DeepSeek, OpenAI, Google Generative Language and Vertex AI
+  hosts, now also `texttospeech.googleapis.com`, and logs `model_egress_blocked` with the host and caller only.
+  provider-health no longer maps those hosts to providers, so a refused request never becomes a provider health row or
+  moves a breaker; `classifyError` counts the refusal as `rejected`.
+
 ## OpenRouter consolidation — 2026-10-18 (staging deployed; TestFlight 73 iPhone/iPad/Mac)
 
 Migration 089, the chat function and Cloud Run worker revision `gradstep-pipeline-00049-ghn` are deployed.

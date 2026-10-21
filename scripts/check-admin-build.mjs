@@ -47,7 +47,7 @@ try {
     window.addEventListener('securitypolicyviolation', event => window.__adminCSPViolations.push(event.violatedDirective));
   });
   const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-  for (const query of ['', '?fixture=spending', '?fixture=accounts', '?fixture=purchases', '?fixture=reliability']) {
+  for (const query of ['', '?fixture=spending', '?fixture=accounts', '?fixture=purchases', '?fixture=reliability', '?fixture=costs']) {
     const response = await page.goto(origin + '/' + query);
     assert.equal(response.status(), 200); assert.equal(response.headers()['content-security-policy'], headers['Content-Security-Policy']);
     await page.getByRole('heading', { name: 'Administration', exact: true }).waitFor();
@@ -62,7 +62,7 @@ try {
   await page.screenshot({ path: join(artifacts, 'production-sign-in-phone-dark.png') });
   assert.deepEqual(external, []); assert.deepEqual(errors, []);
   await writeFile(join(artifacts, 'production-build-check.json'), JSON.stringify({ mode: 'loopback production bundle with actual static CSP',
-    fixture_queries_checked: 4, public_backend_configured: true, sign_in_attempts: 0, external_requests: external.length,
+    fixture_queries_checked: 5, public_backend_configured: true, sign_in_attempts: 0, external_requests: external.length,
     hosted_mfa_verified: false, hosted_writes: 0, page_errors: errors }, null, 2) + '\n');
   console.log('PASS production admin: strict CSP, configured sign-in, fixture exclusion, desktop/phone dark, no off-origin requests or writes');
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }

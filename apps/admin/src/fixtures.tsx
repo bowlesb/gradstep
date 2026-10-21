@@ -6,6 +6,7 @@ import { Accounts, type AccountList, type AccountsApi, type AdminAccount, type A
 import { Reliability } from './reliability';
 import { Shell } from './shell';
 import { Purchases, type PurchasesApi, type PurchaseSubmission, type PurchaseTransaction } from './purchases';
+import { Costs, type AccountCost, type AccountCosts, type CostWindow } from './costs';
 
 // Development-only sample data for screenshots: `?fixture=reliability` (add `&state=empty`
 // for empty states) and `?fixture=accounts`. main.tsx loads this module only when import.meta.env.DEV is true,
@@ -102,17 +103,18 @@ export function ReliabilityFixture() {
   </Shell>;
 }
 
-/** Reliability's hourly provider table (RESILIENCE.md): two days, Google's voices throttled in the newest hours. */
+/** Reliability's hourly provider table (RESILIENCE.md): two days of OpenRouter (every model call) and Tavily, search
+ * throttled in the newest hours. */
 function providerHoursFixture(empty: boolean): ProviderHour[] {
   if (empty) return [];
   const now = Date.now(), rows: ProviderHour[] = [];
   for (let h = 0; h < 48; h++) {
     const hour = new Date(Math.floor(now / 3_600_000 - h) * 3_600_000).toISOString();
     const busy = h < 2;
-    rows.push({ hour, provider: 'anthropic', calls: 380 - h * 3, ok: 376 - h * 3, throttled: 2, failed: h === 30 ? 24 : 2, rejected: 0, breaker_open: 0,
+    rows.push({ hour, provider: 'openrouter', calls: 380 - h * 3, ok: 376 - h * 3, throttled: 2, failed: h === 30 ? 24 : 2, rejected: 0, breaker_open: 0,
       latency_ms_avg: 2_300, latency_ms_max: 41_000, retry_after_max_s: h === 30 ? 20 : null });
-    rows.push({ hour, provider: 'google', calls: 31, ok: busy ? 18 : 31, throttled: busy ? 7 : 0, failed: 0, rejected: 0, breaker_open: busy ? 6 : 0,
-      latency_ms_avg: 21_000, latency_ms_max: 74_000, retry_after_max_s: busy ? 60 : null });
+    rows.push({ hour, provider: 'tavily', calls: 31, ok: busy ? 18 : 31, throttled: busy ? 7 : 0, failed: 0, rejected: 0, breaker_open: busy ? 6 : 0,
+      latency_ms_avg: 1_900, latency_ms_max: 15_000, retry_after_max_s: busy ? 60 : null });
   }
   return rows;
 }
@@ -276,11 +278,11 @@ function healthFixture(days: number, state: string | null): HealthData {
     const podcasts = Math.round(active * 0.05 * (0.6 + 0.8 * rand()));
     const failedPapers = quiet ? Math.round(papers * 0.01) : i === 3 ? Math.round(papers * 0.18) : Math.round(papers * 0.02 * rand());
     const failedPodcasts = quiet ? 0 : Math.round(podcasts * 0.12 * rand());
-    // Staging rates (2026-10-15): a chat answer about 2.5¢ with the paper cached, an episode about 11¢ (script review,
-    // DeepSeek script, Google voices), a web search 0.8¢ on 6% of answers.
-    const anthropic = chats * 25_000 + podcasts * 30_000, deepseek = podcasts * 4_000, google = podcasts * 80_000, tavily = chats * 0.06 * 8_000;
+    // Staging rates: a chat answer about 2.5¢ with the paper cached, an episode about 11¢ (script, review and voices, all
+    // through OpenRouter), a web search 0.8¢ list value on 6% of answers (prepaid).
+    const openrouter = chats * 25_000 + podcasts * 114_000, tavily = chats * 0.06 * 8_000;
     return { day: iso(day), signups, active, papers, chats, chatting: Math.round(active * 0.6), podcasts, failedPapers, failedPodcasts,
-      reports: !quiet && (i === 2 || i === 11) ? 1 : 0, by_provider: { anthropic, deepseek, google, tavily: Math.round(tavily) } };
+      reports: !quiet && (i === 2 || i === 11) ? 1 : 0, by_provider: { openrouter, tavily: Math.round(tavily) } };
   });
   const sum = (rows: typeof all, f: (r: typeof all[number]) => number) => rows.reduce((n, r) => n + f(r), 0);
   const window = all.slice(-days), last7 = all.slice(-7), last30 = all.slice(-30);
@@ -303,18 +305,18 @@ function healthFixture(days: number, state: string | null): HealthData {
       credits_consumed: sum(window, r => r.chats * 5 + r.podcasts * 40), credits_granted: sum(window, r => r.signups * 500),
       chat_cache: empty ? { read_tokens: 0, write_tokens: 0, input_tokens: 0 } : { read_tokens: 61_000_000, write_tokens: 19_000_000, input_tokens: 8_000_000 },
       daily: window.map(r => ({ day: r.day, microusd: Math.round(cost(r)), by_provider: r.by_provider, credits_consumed: r.chats * 5 + r.podcasts * 40 })) },
-    // Outside providers (RESILIENCE.md): a steady trickle of throttling, one bad Anthropic day, and (unless quiet) Google's
-    // voices throttled in the last hour with their breaker open.
+    // Outside providers (RESILIENCE.md): a steady trickle of throttling, one bad OpenRouter day, and (unless quiet)
+    // OpenRouter's podcast voices throttled in the last hour with their scoped breaker open.
     providers: {
       daily: window.map((r, k) => ({ day: r.day, by_provider: empty ? {} as Record<string, never> : {
-        anthropic: { calls: r.chats * 3, failed: quiet ? 0 : Math.round(r.chats * (k === window.length - 4 ? 0.06 : 0.004)), throttled: quiet ? 0 : Math.round(r.chats * 0.002), breaker_open: 0 },
-        google: { calls: r.podcasts * 2, failed: 0, throttled: quiet || k < window.length - 1 ? 0 : Math.round(r.podcasts * 0.4), breaker_open: quiet || k < window.length - 1 ? 0 : 6 },
+        openrouter: { calls: r.chats * 3 + r.podcasts * 4, failed: quiet ? 0 : Math.round(r.chats * (k === window.length - 4 ? 0.06 : 0.004)), throttled: quiet || k < window.length - 1 ? 0 : Math.round(r.podcasts * 0.4), breaker_open: quiet || k < window.length - 1 ? 0 : 6 },
+        tavily: { calls: Math.round(r.chats * 0.06), failed: 0, throttled: 0, breaker_open: 0 },
         crossref: { calls: Math.round(r.papers * 0.2), failed: quiet ? 0 : Math.round(r.papers * 0.002), throttled: 0, breaker_open: 0 } } })),
       last_hour: empty ? [] : [
-        { provider: 'anthropic', calls: 412, failed: quiet ? 0 : 3, throttled: quiet ? 0 : 2, breaker_open: 0, latency_ms_avg: 2_400 },
+        { provider: 'openrouter', calls: 443, failed: quiet ? 0 : 3, throttled: quiet ? 0 : 9, breaker_open: quiet ? 0 : 6, latency_ms_avg: 2_400 },
         { provider: 'crossref', calls: 38, failed: 0, throttled: 0, breaker_open: 0, latency_ms_avg: 310 },
-        { provider: 'google', calls: quiet ? 9 : 31, failed: 0, throttled: quiet ? 0 : 7, breaker_open: quiet ? 0 : 6, latency_ms_avg: 21_000 }],
-      breakers: quiet || empty ? [] : [{ provider: 'google', state: 'open', reopen_at: new Date(Date.now() + 120_000).toISOString() }],
+        { provider: 'tavily', calls: quiet ? 4 : 11, failed: 0, throttled: 0, breaker_open: 0, latency_ms_avg: 1_900 }],
+      breakers: quiet || empty ? [] : [{ provider: 'openrouter', scope: 'podcast_speech', state: 'open', reopen_at: new Date(Date.now() + 120_000).toISOString() }],
     },
     // Migration 079: one chat answer over its ceiling today (recorded, not paused), and one account with many unpaid
     // early endings (unless quiet); about 3 % of answers end early, Gradstep paying for them.
@@ -340,5 +342,72 @@ export function HealthFixture() {
   return <Shell tabs={['Health', 'Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Health" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Health load={load} budget={state === 'empty' ? null : budget} reloadKey={reloads} days={days} onDays={setDays} />
+  </Shell>;
+}
+
+// `?fixture=costs` (`&state=empty`): the Costs tab (migration 0141) for a small beta. Amounts in micro-USD.
+const costWindow = (cost: number, extra: Partial<CostWindow> = {}): CostWindow => ({ cost_microusd: cost, reported_microusd: cost - (extra.estimated_microusd ?? 0),
+  estimated_microusd: 0, held_microusd: 0, attempts: Math.max(1, Math.round(cost / 6_000)), searches: 0, search_list_microusd: 0, legacy_microusd: 0, ...extra });
+const costAccount = (n: number, email: string | null, month: number, d30: number, extra: Partial<AccountCost> = {}, details: Partial<CostWindow> = {}): AccountCost => {
+  const id = `${(0x7c00a000 + n).toString(16)}-1f2e-4d3c-8b4a-${n.toString(16).padStart(12, '0')}`;
+  const chat = Math.round(d30 * 0.62), figures = Math.round(d30 * 0.14), equations = Math.round(d30 * 0.06), podcasts = d30 - chat - figures - equations;
+  return { account_id: id, email, synthetic: false, test: false, closed: false,
+    month: costWindow(month, { searches: 6, search_list_microusd: 48_000, ...details, credits_charged: Math.round(month / 2_500) }),
+    last_30_days: costWindow(d30, { searches: 9, search_list_microusd: 72_000, ...details, credits_charged: Math.round(d30 / 2_500) }),
+    by_feature: [
+      { feature: 'chat', month: costWindow(Math.round(month * 0.62), details), last_30_days: costWindow(chat, details) },
+      { feature: 'figure_explainer', month: costWindow(Math.round(month * 0.14)), last_30_days: costWindow(figures) },
+      { feature: 'equation_explainer', month: costWindow(Math.round(month * 0.06)), last_30_days: costWindow(equations) },
+      { feature: 'podcasts', month: costWindow(month - Math.round(month * 0.82)), last_30_days: costWindow(podcasts) },
+      { feature: 'search', month: costWindow(0, { attempts: 6, searches: 6, search_list_microusd: 48_000 }), last_30_days: costWindow(0, { attempts: 9, searches: 9, search_list_microusd: 72_000 }) },
+    ],
+    by_model: [
+      { provider: 'openrouter', model: 'gemini-3.8-flash', legacy: false, month: costWindow(Math.round(month * 0.55)), last_30_days: costWindow(Math.round(d30 * 0.55)) },
+      { provider: 'openrouter', model: 'anthropic/claude-sonnet-5.5', legacy: false, month: costWindow(Math.round(month * 0.3), details), last_30_days: costWindow(Math.round(d30 * 0.3), details) },
+      { provider: 'openrouter', model: 'anthropic/claude-haiku-5.5', legacy: false, month: costWindow(Math.round(month * 0.15)), last_30_days: costWindow(d30 - Math.round(d30 * 0.85)) },
+      { provider: 'tavily', model: 'search-basic', legacy: false, month: costWindow(0, { attempts: 6, searches: 6, search_list_microusd: 48_000 }), last_30_days: costWindow(0, { attempts: 9, searches: 9, search_list_microusd: 72_000 }) },
+    ], ...extra };
+};
+const COST_ACCOUNTS: AccountCost[] = [
+  costAccount(1, 'owner@example.com', 4_210_000, 6_870_000, {}, { held_microusd: 88_000 }),
+  costAccount(2, 'alex.reader@example.org', 1_340_000, 2_115_000),
+  costAccount(3, 'sam@example.edu', 612_000, 1_480_000, {}, { estimated_microusd: 21_000 }),
+  costAccount(4, 'gradstep-check-chat-41b9d7c3@example.invalid', 48_000, 96_000, { synthetic: true, test: true }),
+  costAccount(5, null, 0, 310_000, { closed: true }),
+  { ...costAccount(6, 'early-tester@example.org', 0, 138, {}, { legacy_microusd: 138 }), by_feature: [{ feature: 'chat', month: costWindow(0, { attempts: 0 }),
+    last_30_days: costWindow(138, { attempts: 1, legacy_microusd: 138 }) }], by_model: [{ provider: 'anthropic', model: 'claude-sonnet-5-5', legacy: true,
+    month: costWindow(0, { attempts: 0 }), last_30_days: costWindow(138, { attempts: 1, legacy_microusd: 138 }) }] },
+];
+function costTotals(accounts: AccountCost[], key: 'month' | 'last_30_days'): CostWindow {
+  const sum = (f: (w: CostWindow) => number) => accounts.reduce((n, a) => n + f(a[key]), 0);
+  return { cost_microusd: sum(w => w.cost_microusd), reported_microusd: sum(w => w.reported_microusd), estimated_microusd: sum(w => w.estimated_microusd),
+    held_microusd: sum(w => w.held_microusd), attempts: sum(w => w.attempts), searches: sum(w => w.searches), search_list_microusd: sum(w => w.search_list_microusd),
+    legacy_microusd: sum(w => w.legacy_microusd), credits_charged: sum(w => w.credits_charged ?? 0) };
+}
+function groupBreakdown<T extends { month: CostWindow; last_30_days: CostWindow }>(rows: T[], key: (row: T) => string): T[] {
+  const groups = new Map<string, T>();
+  for (const row of rows) {
+    const k = key(row), seen = groups.get(k);
+    if (!seen) { groups.set(k, { ...row, month: { ...row.month }, last_30_days: { ...row.last_30_days } }); continue; }
+    for (const w of ['month', 'last_30_days'] as const) for (const field of Object.keys(row[w]) as (keyof CostWindow)[]) {
+      (seen[w][field] as number) = ((seen[w][field] as number | undefined) ?? 0) + ((row[w][field] as number | undefined) ?? 0);
+    }
+  }
+  return [...groups.values()];
+}
+export function CostsFixture() {
+  const [reloads, setReloads] = useState(0);
+  const empty = new URLSearchParams(location.search).get('state') === 'empty';
+  const api = useMemo(() => ({ load: () => new Promise<AccountCosts>(resolve => setTimeout(() => {
+    const accounts = empty ? [] : COST_ACCOUNTS, now = new Date();
+    resolve({ generated_at: now.toISOString(), month_start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
+      since: new Date(now.getTime() - 29 * DAY).toISOString(), limit: 500, accounts_with_activity: accounts.length, truncated: false, accounts,
+      totals: { month: costTotals(accounts, 'month'), last_30_days: costTotals(accounts, 'last_30_days'),
+        by_feature: groupBreakdown(accounts.flatMap(a => a.by_feature), f => f.feature),
+        by_model: groupBreakdown(accounts.flatMap(a => a.by_model), m => m.provider + ':' + m.model) } });
+  }, 120)) }), [empty]);
+  return <Shell tabs={['Health', 'Overview', 'Spending', 'Costs', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Costs" onTab={() => undefined}
+    counts={{ Support: 2 }} email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
+    <Costs api={api} reloadKey={reloads} />
   </Shell>;
 }

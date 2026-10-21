@@ -106,7 +106,8 @@ parser.add_argument('--server-add-only', action='store_true', help='Run the serv
 args = parser.parse_args()
 # Review 2026-10-21 (docs/reviews/WEB_SERVER_REVIEW_20261021.md): spending, budget and reconciliation fixes, in
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
-SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql', 'openrouter_auto_reconcile.sql', 'budget_pauses_persist.sql', 'owner_budget_limit.sql', 'testing_allowance_safeguards.sql', 'scoped_provider_breakers.sql', 'openrouter_admit_and_dispatch.sql', 'sql_hot_paths.sql']]
+# OpenRouter-only reporting (0140) and the owner's per-account costs (0141) follow them (owner, 2026-10-21).
+SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql', 'openrouter_auto_reconcile.sql', 'budget_pauses_persist.sql', 'owner_budget_limit.sql', 'testing_allowance_safeguards.sql', 'scoped_provider_breakers.sql', 'openrouter_admit_and_dispatch.sql', 'sql_hot_paths.sql', 'openrouter_only_reporting.sql', 'account_costs.sql']]
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
 fence = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql'
 if args.reader_issuer_fence_candidate:
@@ -125,7 +126,7 @@ if args.note_assets_only:
     phase([*all_migrations, ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql'], ['note_assets_concurrency'])
     raise SystemExit(0)
 if args.server_add_only:
-    phase([*all_migrations, ROOT / 'tests/database/server_add_once.sql'], [])
+    phase([*all_migrations, ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql'], [])
     raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/beta_admission_revocation.sql'], [])
@@ -160,7 +161,7 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 
 # Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
 # function's anon/authenticated reach. First in its phase, before any fixture creates objects.
-phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', *SPENDING_FIXES], ['testing_allowance_concurrency', 'note_assets_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES], ['testing_allowance_concurrency', 'note_assets_concurrency'])
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.

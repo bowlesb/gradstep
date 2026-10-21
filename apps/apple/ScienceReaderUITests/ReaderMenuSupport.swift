@@ -40,6 +40,11 @@ extension XCUIApplication {
 /// wide one uses its mode control, where the paper's chat sits beside the paper in Reader.
 extension XCUIApplication {
     func show(_ place: String) {
+        // Phone width (owner, 2026-10-20): Notes took Settings' tab; Settings is the last section of every ⋯ menu.
+        if place == "settings", buttons["tab.notes"].waitForExistence(timeout: 2) {
+            openSettingsFromMenu()
+            return
+        }
         let tab = buttons["tab.\(place)"]
         if tab.waitForExistence(timeout: 2) { tab.tap(); return }
         // The wide layout's mode control by its identifier: the Library's search switch also has a "Library" segment.
@@ -57,9 +62,27 @@ extension XCUIApplication {
             // The paper's chat when a paper is open (beside it), else the general chat.
             modes["Reader"].tap()
             if !descendants(matching: .any)["chat.composer"].waitForExistence(timeout: 2) { modes["General Chat"].tap() }
+        case "notes": modes["Notes"].tap()
         case "settings": (buttons["Settings"].exists ? buttons["Settings"] : buttons["settings.open"]).tap()
         default: XCTFail("No place named \(place)")
         }
+    }
+
+    /// The ⋯ menu of whichever screen shows (by its accessibility label).
+    var screenOptions: XCUIElement {
+        let labels = ["Library options", "Feed options", "Listen options", "Paper options", "Chat options", "Notes options", "Note options"]
+        return buttons.matching(NSPredicate(format: "label IN %@", labels)).allElementsBoundByIndex.first { $0.isHittable }
+            ?? buttons.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
+    }
+
+    /// Settings from the current screen's ⋯ menu (its last section), over that screen.
+    func openSettingsFromMenu(file: StaticString = #filePath, line: UInt = #line) {
+        let options = screenOptions
+        XCTAssertTrue(options.waitForExistence(timeout: 5), "The screen has a ⋯ menu", file: file, line: line)
+        options.tap()
+        let settings = buttons["menu.settings"].exists ? buttons["menu.settings"] : buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5), "Settings is in the ⋯ menu", file: file, line: line)
+        settings.tap()
     }
 }
 

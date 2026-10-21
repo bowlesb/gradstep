@@ -95,7 +95,7 @@ test('answers map to the vocabulary: case, duplicates and unknown names, at most
 });
 
 const attribution = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', operationID: 'bbbbbbbb-0000-4000-8000-000000000001', attemptID: 'cccccccc-0000-4000-8000-000000000001', feature: 'catalog_tags', caller: 'catalog', dispatch: async () => true };
-function fakeAnthropic(handler: (body: Record<string, unknown>) => Response | Promise<Response>) {
+function fakeRouter(handler: (body: Record<string, unknown>) => Response | Promise<Response>) {
   const calls: Record<string, unknown>[] = [];
   const client = createTagClient('test-key', (async (_input: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body)); calls.push(body);
@@ -109,7 +109,7 @@ const message = (text: string, stop = 'end_turn') => new Response('data: ' + JSO
 
 test('a classification is priced from usage; refusals, bad output and errors fall back with what is known about billing', async () => {
   const input = { title: 'Direct Preference Optimization', abstract: 'We fine-tune language models from preferences.', categories: ['cs.LG'] };
-  const ok = fakeAnthropic(() => message('{"tags":["Machine learning","Preference optimization","Alignment","Large language models"]}'));
+  const ok = fakeRouter(() => message('{"tags":["Machine learning","Preference optimization","Alignment","Large language models"]}'));
   const done = await classifyPaper(ok.client, input, attribution);
   assert.deepEqual(done, { status: 'complete', tags: ['Machine learning', 'Preference optimization', 'Alignment', 'Large language models'],
     messageID: 'msg_tags_1', model: 'anthropic/claude-haiku-5.5', usage: { input_tokens: 2900, output_tokens: 40 }, microusd: 341 });
@@ -117,18 +117,18 @@ test('a classification is priced from usage; refusals, bad output and errors fal
   assert.equal((ok.calls[0].response_format as { type: string }).type, 'json_schema');
   assert.ok(!JSON.stringify(ok.calls[0]).includes('test-key'));
 
-  const refused = await classifyPaper(fakeAnthropic(() => message('', 'refusal')).client, input, attribution);
+  const refused = await classifyPaper(fakeRouter(() => message('', 'refusal')).client, input, attribution);
   assert.equal(refused.status, 'failed');
   assert.equal(refused.status === 'failed' && refused.code, 'provider_refused');
   assert.equal(refused.messageID, 'msg_tags_1');
   assert.equal(refused.microusd, 341, 'a refused message is still billed');
-  const invalid = await classifyPaper(fakeAnthropic(() => message('{"tags":["Not a tag"]}')).client, input, attribution);
+  const invalid = await classifyPaper(fakeRouter(() => message('{"tags":["Not a tag"]}')).client, input, attribution);
   assert.equal(invalid.status === 'failed' && invalid.code, 'invalid_output');
 
-  const rejected = await classifyPaper(fakeAnthropic(() => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'x' } }),
+  const rejected = await classifyPaper(fakeRouter(() => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'x' } }),
     { status: 400, headers: { 'content-type': 'application/json' } })).client, input, attribution);
   assert.deepEqual(rejected, { status: 'failed', code: 'provider_rejected', messageID: null, model: null, usage: null, microusd: 0 });
-  const lost = await classifyPaper(fakeAnthropic(() => { throw new TypeError('socket hang up'); }).client, input, attribution);
+  const lost = await classifyPaper(fakeRouter(() => { throw new TypeError('socket hang up'); }).client, input, attribution);
   assert.equal(lost.status === 'failed' && lost.code, 'provider_transport');
   assert.equal(lost.microusd, estimateMicrousd(tagRequest(input)), 'a lost call is charged its upper bound');
   assert.ok(lost.microusd > 1_000 && lost.microusd < 5_000, `${lost.microusd} µ$ conservative byte bound fits the revised hold`);

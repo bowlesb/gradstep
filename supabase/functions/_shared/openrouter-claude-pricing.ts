@@ -1,4 +1,4 @@
-// Reviewed OpenRouter Google Vertex US endpoint rates, 2026-10-17. Independent of direct Anthropic's rate card.
+// Reviewed OpenRouter Google Vertex US endpoint rates for Claude 5.5, 2026-10-17 (the only route Claude is served on).
 export const ROUTER_CLAUDE_ENDPOINT = 'google-vertex/us';
 export const ROUTER_CLAUDE_TARIFF = 'openrouter-claude-vertex-us-20261017';
 const MODELS: Readonly<Record<string, string>> = Object.freeze({
