@@ -58,6 +58,30 @@ export function ChoicePicker({ table, choice, onChange, autoFocus = false }: {
   </div>;
 }
 
+/** An explainer's first step (B7; AIChoiceView on the apps): Default (its model) or Choose model, whose model and length
+ * pickers end in "Use ‹model›". Nothing is asked until one is chosen. */
+export function ExplainerModelDialog({ open, table, defaultChoice, onUse, onClose, onRetry }: {
+  open: boolean; table: ProfileTable | null; defaultChoice: ProfileChoice; onUse: (choice: ProfileChoice) => void; onClose: () => void; onRetry: () => Promise<void>;
+}) {
+  const [choosing, setChoosing] = useState(false), [choice, setChoice] = useState(defaultChoice);
+  useEffect(() => { if (open) { setChoosing(false); setChoice(defaultChoice); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <Dialog open={open} onClose={onClose} title="AI model" className="answer-options explainer-model">
+    <div className="answer-options-body" data-testid="explainer-model">
+      <div className="profile-panel-heading"><h2>{choosing ? 'Choose model' : 'AI model'}</h2>
+        <button type="button" className="icon-button" aria-label="Cancel" onClick={onClose}><Icon name="close" size={14} /></button></div>
+      {!choosing ? <div className="explainer-model-rows">
+        <button type="button" className="primary" disabled={!table} onClick={() => onUse(defaultChoice)} data-testid="explainer-default">Default ({modelOption(table, defaultChoice.model).label})</button>
+        {!table && <p className="fine">Cloud models couldn’t load. Choose a model to retry. <RetryOptions onRetry={onRetry} /></p>}
+        <button type="button" className="secondary" onClick={() => setChoosing(true)} data-testid="explainer-choose">Choose model</button>
+      </div> : <>
+        <ChoicePicker table={table} choice={choice} onChange={setChoice} autoFocus />
+        <div className="dialog-actions"><button type="button" className="secondary" onClick={() => setChoosing(false)}>Back</button>
+          <button type="button" className="primary" disabled={!table} onClick={() => onUse(choice)} data-testid="explainer-use">Use {modelOption(table, choice.model).label}</button></div>
+      </>}
+    </div>
+  </Dialog>;
+}
+
 /** The chat's ⋯ › Answer options: Model, Length, Use for new chats and the link to About AI chat options. Nothing else. */
 export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoice, onChange, onMakeDefault, onRetry, onAbout, reason, activity = 'chats' }: {
   open: boolean; onClose: () => void; table: ProfileTable | null; choice: ProfileChoice; defaultChoice: ProfileChoice; reason?:string;

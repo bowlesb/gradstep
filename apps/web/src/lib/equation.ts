@@ -9,7 +9,8 @@ export const isEquationAction = (action: string | null | undefined): action is E
 export interface EquationSymbol { symbol: string; latex?: string; meaning: string; source: 'paper' | 'general'; paragraph?: number }
 export interface EquationSymbols { format: typeof EQUATION_FORMAT; summary: string; symbols: EquationSymbol[] }
 /** What the view shows for one request: the symbols (or, without usable JSON, the model's words), the credits used. */
-export interface EquationResult { phase: 'loading' | 'done' | 'failed'; symbols: EquationSymbols | null; text: string; credits: number | null; issue: string | null }
+export interface EquationResult { phase: 'loading' | 'done' | 'failed'; symbols: EquationSymbols | null; text: string; credits: number | null; issue: string | null;
+  /** The model that answered, when the server named it (shown under the explanation, B7). */ model?: string }
 export const MAX_SYMBOLS = 24;
 
 const clean = (value: unknown, limit: number) => typeof value === 'string'

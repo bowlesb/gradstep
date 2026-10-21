@@ -27,7 +27,7 @@ export interface FigureResult {
   image: SentFigure | null;
   /** From `done`/`error` (CHAT.md "When an answer stops early"): whether the reader paid, and if not, why. Never shown as a count. */
   credits: number | null; charged?: boolean; reason?: string;
-}
+  /** The model that answered, when the server named it (B7). */ model?: string }
 export const MAX_SECTIONS = 12, MAX_BOXES = 12, MIN_BOX_SIDE = 0.04;
 
 const clean = (value: unknown, limit: number) => typeof value === 'string'

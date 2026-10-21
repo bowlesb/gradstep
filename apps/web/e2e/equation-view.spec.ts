@@ -60,7 +60,9 @@ test('equation explanation, model choice and follow-up remain together with encr
  await context.getByTestId('composer-model').click();
  const options=page.getByRole('dialog',{name:'Answer options',exact:true});
  await options.getByRole('radio',{name:'Haiku',exact:true}).click(); await options.getByRole('button',{name:'Close',exact:true}).click();
- await view.getByTestId('equation-explain').click();await view.getByRole('button',{name:'Allow and explain'}).click();
+ // AI Explainer asks which model first (B7): Default is this equation's chat choice, Haiku.
+ await view.getByTestId('equation-explain').click();await expect(page.getByTestId('explainer-default')).toHaveText('Default (Haiku)');await page.getByTestId('explainer-default').click();
+ await view.getByRole('button',{name:'Allow and explain'}).click();
  await expect(view.getByTestId('equation-summary')).toHaveText('It squares x: the value multiplied by itself.');
  expect((await chats())[0].profile.model).toBe('haiku');
  await view.getByTestId('equation-more').click();await expect(view.getByTestId('equation-background')).toContainText('That symmetry is why the paper uses it.');
@@ -214,6 +216,7 @@ test('a wide equation fits at 100 percent and automatically pans when enlarged',
  await frame.locator('.reader-display[data-reader-equation]').nth(1).click();
  await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
+ await page.getByRole('dialog',{name:'AI model'}).getByRole('button',{name:'Cancel'}).click(); // AI Explainer's model choice (B7), not needed here
  await expect(view.getByRole('heading',{name:'Equation (2)'})).toBeVisible();
  const box=view.frameLocator('[data-testid=equation-frame]').locator('#eq-box');
  await expect(box.locator('math')).toBeVisible();

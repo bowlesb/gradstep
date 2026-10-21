@@ -667,7 +667,7 @@ export class ChatSession {
         if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
         else if (event.type === 'equation') { result = { ...result, symbols: event.symbols }; update(result); }
         else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null }; finish(event.code); break; }
-        else if (event.type === 'done') { result = { ...result, credits: event.credits }; finish(result.symbols || result.text.trim() ? null : 'provider_unavailable'); break; }
+        else if (event.type === 'done') { result = { ...result, credits: event.credits, ...(event.model ? { model: event.model } : {}) }; finish(result.symbols || result.text.trim() ? null : 'provider_unavailable'); break; }
       }
       if (result.phase === 'loading') finish('transport');
     } catch (error) {
@@ -735,7 +735,7 @@ export class ChatSession {
         else if (event.type === 'figure_detail') { result = { ...result, detail: event.detail }; update(result); }
         else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
         else if (event.type === 'done') {
-          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason };
+          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason, ...(event.model ? { model: event.model } : {}) };
           finish(result.walkthrough || result.detail || result.text.trim() ? null : 'provider_unavailable'); break;
         }
       }

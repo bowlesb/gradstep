@@ -111,13 +111,15 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
  // An equation explained (AI Explainer from its menu, after the consent), then a figure.
  await display.click();await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
+ // AI Explainer asks which model first (B7): Default.
+ await expect(page.getByRole('dialog',{name:'AI model'})).toBeVisible();await page.getByTestId('explainer-default').click();
  await view.getByRole('button',{name:'Allow and explain'}).click();
  await expect(view.getByTestId('equation-summary')).toBeVisible();
  await view.getByTestId('equation-close').click();await expect(view).toBeHidden();
  await page.getByTestId('figures').click();
  const viewer=page.getByRole('dialog',{name:'Figures'});
  await viewer.getByRole('list',{name:'Figures'}).getByRole('button').first().click();
- await viewer.getByTestId('figure-explain').click();
+ await viewer.getByTestId('figure-explain').click();await page.getByTestId('explainer-default').click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await viewer.getByTestId('figure-close').click();await expect(viewer).toBeHidden();
  expect(await chats()).toHaveLength(2);

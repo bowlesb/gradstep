@@ -5,7 +5,8 @@
 // symbol described with where that comes from, after which More background is offered; chosen from the equation's own
 // menu it asks at once (consent first), while an equation switched to from the heading waits for it. No credit counts
 // are shown here (owner, build 59). Loaded only when opened (it brings the math typesetter with it).
-import type { ProfileChoice } from '../lib/chat-profiles';
+import { STANDARD_PROFILE, modelName, modelOption, type ProfileChoice } from '../lib/chat-profiles';
+import { ExplainerModelDialog } from './ChatProfile';
 import { ContextualChat, useContextualChat, promoteContextual, type ContextualHost } from './ContextualChat';
 import { citedMarker } from '../lib/passage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -49,7 +50,10 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const latex = useMemo(() => equationLatex(bundle, equationID), [bundle, equationID]);
   const title = number ? `Equation ${number}` : 'Equation';
   const context = useContextualChat(host?.context, bundle.manifestSHA256, equationID, title, latex ?? '');
-  const profile = context?.profile, profileKey = JSON.stringify(profile);
+  // AI Explainer asks which model first (B7, AIChoiceView): Default or Choose model; that choice answers here.
+  const [chosen, setChosen] = useState<ProfileChoice | null>(null), [choosing, setChoosing] = useState(false), [pending, setPending] = useState(false);
+  const profile = chosen ?? context?.profile, profileKey = JSON.stringify(profile);
+  const table = host?.context?.chat.profileTable ?? null;
   const [view, setView] = useState(readView);
   const viewRef = useRef(view); viewRef.current = view;
   const [doc, setDoc] = useState<string | null>(null);
@@ -101,9 +105,19 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const loading: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null };
   const explain = () => {
     if (!host || symbols) return;
+    if (!chosen) { setChoosing(true); return; }
     if (!consented && !host.consented()) { setAsking(true); return; }
     setConsented(true); setAsking(false); setSymbols(loading); run('equation');
   };
+  // After the model is chosen (its profile now in force): its kept answer, else the consent or the request.
+  useEffect(() => {
+    if (!pending || !host) return;
+    setPending(false);
+    const saved = host.saved(bundle.manifestSHA256, equationID, 'equation', profile);
+    if (saved) { setSymbols(saved); return; }
+    if (!consented && !host.consented()) { setAsking(true); return; }
+    setConsented(true); setAsking(false); setSymbols(loading); run('equation');
+  }, [pending, profileKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const allow = () => { if (host?.accept()) { setConsented(true); setAsking(false); setSymbols(loading); run('equation'); } };
   const autoAsked = useRef(false);
   useEffect(() => { if (autoExplain && !autoAsked.current) { autoAsked.current = true; explain(); } }); // eslint-disable-line react-hooks/exhaustive-deps
@@ -165,7 +179,8 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
         <section className="equation-section" aria-labelledby="equation-symbols">
           <h3 id="equation-symbols">Symbols</h3>
           {symbols?.phase === 'failed' ? <div className="equation-issue" role="alert"><p>{failureText(symbols.issue ?? 'provider_unavailable')}</p>
-            {symbols.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('equation')}>Try again</button>}</div>
+            {symbols.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('equation')}>Try again</button>}
+            <button className="secondary small" onClick={() => setChoosing(true)} data-testid="explainer-change">Change AI</button></div>
             : symbols?.symbols?.symbols.length ? <ul className="equation-symbols" data-testid="equation-symbols">{symbols.symbols.symbols.map((s, i) => <li key={i}>
                 <span className="equation-symbol" aria-label={s.symbol}>{(() => { const math = symbolMath(s); return math ? <span dangerouslySetInnerHTML={{ __html: math }} /> : s.symbol; })()}</span>
                 <div><p>{s.meaning}</p>{s.source === 'paper' && s.paragraph
@@ -174,6 +189,8 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
             : symbols?.phase === 'done' ? <p className="fine">No symbols were listed for this equation.</p>
             : <ul className="equation-symbols loading" aria-hidden="true">{[0, 1, 2].map(i => <li key={i}><span className="equation-symbol" /><div><p /></div></li>)}</ul>}
         </section>
+        {/* Which model explained it (the apps' caption): the one that answered, else the one asked. */}
+        {(symbols.model || profile) && <p className="fine answer-by" data-testid="explainer-model-name">{symbols.model ? modelName(symbols.model) : modelOption(table, profile!.model).label}</p>}
         {symbols.phase === 'done' && <section ref={backgroundSection} className="equation-section equation-background-section" aria-labelledby="equation-background">
           <h3 id="equation-background">Background</h3>
           {!background ? <button className="secondary" onClick={() => { shownBackground.current = false; run('equation_background'); }} data-testid="equation-more">More background</button>
@@ -183,6 +200,9 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
                 {background.text ? <Answer text={background.text} streaming={background.phase === 'loading'} /> : <p className="fine" role="status">Writing background…</p>}</div>}
         </section>}
       </>}
+      {host && <ExplainerModelDialog open={choosing} table={table} defaultChoice={context?.profile ?? STANDARD_PROFILE} onClose={() => setChoosing(false)}
+        onRetry={() => host.context?.chat.reloadProfiles() ?? Promise.resolve()}
+        onUse={choice => { setChoosing(false); setChosen({ ...choice }); setPending(true); }} />}
       <ContextualChat context={context} explanation={[symbols?.symbols?.summary ?? symbols?.text, background?.text].filter(Boolean).join('\n')} onCite={anchor => { const n = citedMarker(anchor); if (n) onCite(n); }} />
       {link && <div className="equation-link" role="group" aria-label="Open source"><p className="source-address">{link}</p>
         <button className="secondary small" onClick={() => setLink(null)}>Cancel</button>
