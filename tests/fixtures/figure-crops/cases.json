@@ -1,0 +1,352 @@
+{
+ "format": "figure-crop-fixtures-v1",
+ "reference": "scripts/subfigure-detector/app_crops.py (policy.complete with the app options)",
+ "parameters": {
+  "inkThreshold": 235,
+  "radiusFraction": 0.003,
+  "maxIterations": 4,
+  "tileMinCover": 0.7,
+  "orphanMaxFraction": 0.5,
+  "figureWideFraction": 0.5,
+  "otherOwnerFraction": 0.5,
+  "paddingFraction": 0.02,
+  "paddingMinimum": 8
+ },
+ "tolerancePixels": 1,
+ "cases": [
+  {
+   "name": "clipped-axis-labels",
+   "about": "Two boxes on the plotting areas clip titles, tick labels and axis titles: each grows over them.",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "boxes": [
+    [
+     0.06,
+     0.07,
+     0.48,
+     0.86
+    ],
+    [
+     0.55,
+     0.07,
+     0.99,
+     0.86
+    ]
+   ],
+   "expect": {
+    "components": 44,
+    "inkPixels": 71521,
+    "componentDigest": "b8e2da0b3d7ab5d564d52d0d14dd2c4c374a63db1dcc492316d2437d014b2df4",
+    "tiled": true,
+    "crops": [
+     [
+      8,
+      8,
+      672,
+      492
+     ],
+     [
+      704,
+      16,
+      1352,
+      496
+     ]
+    ],
+    "inkCoverage": 1.0,
+    "padding": 10
+   }
+  },
+  {
+   "name": "stray-letters-shared-legend",
+   "about": "Four boxes tile the figure: the panel letters outside the axes attach to their panels; the legend shared by the bottom row would swallow a panel, so it (with its swatches) stays uncovered and the coverage is below 1.",
+   "image": "letters-shared-legend.png",
+   "width": 990,
+   "height": 726,
+   "boxes": [
+    [
+     0.1,
+     0.07,
+     0.475,
+     0.38
+    ],
+    [
+     0.59,
+     0.07,
+     0.97,
+     0.38
+    ],
+    [
+     0.1,
+     0.52,
+     0.475,
+     0.83
+    ],
+    [
+     0.59,
+     0.52,
+     0.97,
+     0.83
+    ]
+   ],
+   "expect": {
+    "components": 39,
+    "inkPixels": 48016,
+    "componentDigest": "a5074379ef93ff94156923f5002eec1c6c5a21040eca64414b3ed54be4415b8d",
+    "tiled": true,
+    "crops": [
+     [
+      27,
+      9,
+      472,
+      320
+     ],
+     [
+      517,
+      9,
+      962,
+      320
+     ],
+     [
+      27,
+      339,
+      472,
+      650
+     ],
+     [
+      517,
+      339,
+      962,
+      646
+     ]
+    ],
+    "inkCoverage": 0.939541,
+    "padding": 15
+   }
+  },
+  {
+   "name": "partial-set-no-orphans",
+   "about": "Two of four panels boxed: the boxes do not tile the figure, so nothing unowned is attached to them.",
+   "image": "letters-shared-legend.png",
+   "width": 990,
+   "height": 726,
+   "boxes": [
+    [
+     0.1,
+     0.07,
+     0.475,
+     0.38
+    ],
+    [
+     0.59,
+     0.52,
+     0.97,
+     0.83
+    ]
+   ],
+   "expect": {
+    "components": 39,
+    "inkPixels": 48016,
+    "componentDigest": "a5074379ef93ff94156923f5002eec1c6c5a21040eca64414b3ed54be4415b8d",
+    "tiled": false,
+    "crops": [
+     [
+      53,
+      28,
+      472,
+      296
+     ],
+     [
+      517,
+      339,
+      962,
+      625
+     ]
+    ],
+    "inkCoverage": 0.450766,
+    "padding": 15
+   }
+  },
+  {
+   "name": "cannot-complete",
+   "about": "The first box cuts its own panel and growing would take 8% of the other box: that card shows the whole figure.",
+   "image": "dpo-figure-4.png",
+   "width": 1345,
+   "height": 492,
+   "boxes": [
+    [
+     0.0,
+     0.0,
+     0.42,
+     1.0
+    ],
+    [
+     0.42,
+     0.0,
+     1.0,
+     1.0
+    ]
+   ],
+   "expect": {
+    "components": 12,
+    "inkPixels": 64753,
+    "componentDigest": "636ba753f5a001ef6b1de2aff5c85f0ca15545070a52bceb142c82018bde1851",
+    "tiled": true,
+    "crops": [
+     null,
+     [
+      564,
+      0,
+      1345,
+      492
+     ]
+    ],
+    "inkCoverage": 1.0,
+    "padding": 10
+   }
+  },
+  {
+   "name": "detail-slice-falls-back",
+   "about": "One detail box over part of a legend inside a plot: it cuts the plot it lies in, so the whole figure is shown.",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "boxes": [
+    [
+     0.7,
+     0.09,
+     0.93,
+     0.18
+    ]
+   ],
+   "expect": {
+    "components": 44,
+    "inkPixels": 71521,
+    "componentDigest": "b8e2da0b3d7ab5d564d52d0d14dd2c4c374a63db1dcc492316d2437d014b2df4",
+    "tiled": false,
+    "crops": [
+     null
+    ],
+    "inkCoverage": 1.0,
+    "padding": 10
+   }
+  },
+  {
+   "name": "halves",
+   "about": "Left and right halves (the journey fixture boxes) of a two-plot figure: both complete as they are.",
+   "image": "dpo-figure-4.png",
+   "width": 1345,
+   "height": 492,
+   "boxes": [
+    [
+     0.0,
+     0.0,
+     0.5,
+     1.0
+    ],
+    [
+     0.5,
+     0.0,
+     1.0,
+     1.0
+    ]
+   ],
+   "expect": {
+    "components": 12,
+    "inkPixels": 64753,
+    "componentDigest": "636ba753f5a001ef6b1de2aff5c85f0ca15545070a52bceb142c82018bde1851",
+    "tiled": true,
+    "crops": [
+     [
+      0,
+      0,
+      673,
+      492
+     ],
+     [
+      672,
+      0,
+      1345,
+      492
+     ]
+    ],
+    "inkCoverage": 1.0,
+    "padding": 10
+   }
+  },
+  {
+   "name": "filled-frames",
+   "about": "Boxes inside two filled, rounded panels grow to the whole panels.",
+   "image": "dpo-figure-1.png",
+   "width": 1376,
+   "height": 275,
+   "boxes": [
+    [
+     0.02,
+     0.05,
+     0.55,
+     0.9
+    ],
+    [
+     0.62,
+     0.05,
+     0.97,
+     0.9
+    ]
+   ],
+   "expect": {
+    "components": 2,
+    "inkPixels": 341681,
+    "componentDigest": "9fdbfb3b37b58bf9bc891f886c2e240113997ed0e8b73d1bb5eb1d2675f98b1d",
+    "tiled": true,
+    "crops": [
+     [
+      4,
+      3,
+      817,
+      269
+     ],
+     [
+      840,
+      4,
+      1374,
+      268
+     ]
+    ],
+    "inkCoverage": 1.0,
+    "padding": 8
+   }
+  },
+  {
+   "name": "detail-inside-filled-panel",
+   "about": "Known limit: a filled panel background is one figure-wide ink component, so a box inside it is left as is.",
+   "image": "dpo-figure-1.png",
+   "width": 1376,
+   "height": 275,
+   "boxes": [
+    [
+     0.25,
+     0.3,
+     0.42,
+     0.6
+    ]
+   ],
+   "expect": {
+    "components": 2,
+    "inkPixels": 341681,
+    "componentDigest": "9fdbfb3b37b58bf9bc891f886c2e240113997ed0e8b73d1bb5eb1d2675f98b1d",
+    "tiled": false,
+    "crops": [
+     [
+      344,
+      82,
+      578,
+      165
+     ]
+    ],
+    "inkCoverage": 0.054369,
+    "padding": 8
+   }
+  }
+ ]
+}

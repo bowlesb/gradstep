@@ -74,8 +74,13 @@ def suppress(boxes, iou_thr=0.5, contain_thr=0.85):
     return kept
 
 
-def complete(crops, mask, comps=None, attach_orphans=True, max_iter=4):
-    """Grow crops to whole ink components; attach unowned ink so the crops cover all ink."""
+def complete(crops, mask, comps=None, attach_orphans=True, max_iter=4, orphan_max_frac=None, hold_contained=False):
+    """Grow crops to whole ink components; attach unowned ink so the crops cover all ink.
+
+    App options (`app_crops.py`; the defaults are the research behaviour): `orphan_max_frac` — an orphan larger than
+    this share of a receiving crop's original box is not attached to it (a whole panel the AI did not box is not
+    context); `hold_contained` — an orphan inside the box of an earlier orphan that could not be attached stays with
+    it (a shared legend's swatches stay with the legend instead of pulling one crop into it)."""
     if comps is None:
         comps = ink_components(mask)
     H, W = mask.shape
@@ -122,9 +127,12 @@ def complete(crops, mask, comps=None, attach_orphans=True, max_iter=4):
         if not changed:
             break
     if attach_orphans and boxes:
+        held = []
         for ci, c in enumerate(comps):
             cb = c[:4]
             if any(area(inter(cb, b)) >= 0.999 * area(cb) for b in boxes):
+                continue
+            if hold_contained and any(area(inter(cb, h)) >= 0.999 * area(cb) for h in held):
                 continue
             if any(area(inter(cb, b)) > 0 for b in boxes) and area(cb) > 0.5 * W * H:
                 continue  # a figure-wide frame/connector touching crops: not an orphan to attach
@@ -134,11 +142,17 @@ def complete(crops, mask, comps=None, attach_orphans=True, max_iter=4):
             for dist, k in d[1:]:
                 if dist <= d[0][0] * 1.15 + 2:
                     near.append(k)
+            attached = False
             for k in near:
+                if orphan_max_frac is not None and area(cb) > orphan_max_frac * area(orig[k]):
+                    continue
                 nb = union(boxes[k], cb)
                 if any(j != k and area(inter(nb, orig[j])) - area(inter(boxes[k], orig[j])) > 0.08 * area(orig[j]) for j in range(len(orig))):
                     continue  # attaching would swallow another panel: leave it as uncovered shared context
                 boxes[k] = nb
+                attached = True
+            if not attached:
+                held.append(cb)
     return [[max(0.0, b[0]), max(0.0, b[1]), min(float(W), b[2]), min(float(H), b[3])] for b in boxes]
 
 
