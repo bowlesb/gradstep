@@ -2,6 +2,27 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## AI recommendations (owner, 2026-10-21; decisions delegated; implemented on a branch, not deployed)
+
+Owner, TestFlight 78: "I want two more features: an AI recommendations, it uses AI with our server to search for the
+most similar papers and just adds them, users should have the option of requesting 1, 3 or 5." On the proposal's open
+questions: "For your similar papers, just take your best judgement, and try to create a good experience out of it."
+Decided by the agent under that delegation (reversible; reasons in [AI recommendations](architecture/AI_RECOMMENDATIONS.md)):
+
+- **Adds at once** (as asked), then a sheet shows each paper as it is added with a one-line reason, a Remove on each and
+  Undo for all. No review step.
+- **1, 3 or 5**, a submenu directly under Find similar papers (Library row, Paper ⋯, Mac's Paper menu, browser ⋯), and
+  **Recommend for this catalog** in the Library's ⋯ (up to 8 of the catalog's newest papers as seeds).
+- **1 credit per request**, whatever the count, charged only when at least one paper was added; shown before and after.
+  Undo does not refund. **20 requests per account per day** and 30 an hour, enforced in the database and at the request
+  gate; the platform budget, holds and testing caps apply unchanged.
+- **Claude Haiku 5.5 through OpenRouter** (Vertex US, already priced and admitted), one call that can only choose among
+  candidates found without a model: DataCite searches from the paper's keywords plus the Feed pool's full-text index.
+  Our servers still never contact arXiv. Everything the reader has or had, and Feed "Not interested" papers, is excluded.
+- Added to **the catalog being viewed**; no separate "Recommended" catalog. No new consent: only public titles,
+  authors and abstracts are sent, like catalog tags. Local PDFs never seed a request.
+- "Chat about this paper" (the proposal's second part) is not covered by the answer and is not built.
+
 ## OpenRouter exclusively; cost per account (owner, 2026-10-21; implemented locally, not deployed)
 
 Owner, verbatim: "I don't think Anthropic API should even be part of deploy check. I want to double down and

@@ -23,6 +23,7 @@ import { type Mark, importStep, progressView, retryingAutomatically } from '../l
 import { Dialog, MenuButton, dateLines, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
+import { CatalogRecommendButton, type Recommender } from './Recommend';
 import { useLibraryColumns } from './prefs';
 import type { useLibrary } from './useLibrary';
 import { LibraryRows, type LibraryRowsCommands, type LibraryViewport, WINDOW_THRESHOLD } from './LibraryRows';
@@ -286,13 +287,13 @@ function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTM
   </div>;
 }
 
-export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar, onSearchTag, chatCount }: {
+export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar, recommender, onSearchTag, chatCount }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
   /** Saved chats about a paper (the Chats column, B9). */
   chatCount?: (entry: ClientEntry) => number;
   /** Whether this tab has the paper prepared (the row's check); without it every paper shows as still to download. */
   prepared?: (entry: ClientEntry) => boolean;
-  currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void; onSimilar?:(item:LibraryPaper)=>void;
+  currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void; onSimilar?:(item:LibraryPaper)=>void; recommender?: Recommender;
   /** ML paper search for a tag (the Tags menu's first entry). */
   onSearchTag?: (tag: string) => void;
 }) {
@@ -306,7 +307,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
   const showAll = useCallback(() => model.setWindowed(false), [model.setWindowed]);
   const rowCommands = useRef<LibraryRowsCommands | null>(null);
   const prepareMenuTab = useCallback(() => rowCommands.current?.beforeSequentialNavigation(), []);
-  const actions = useLibraryActions(library, prepareMenuTab, undefined, onSimilar);
+  const actions = useLibraryActions(library, prepareMenuTab, undefined, onSimilar, recommender);
   const [printing, setPrinting] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const tableHeader = useRef<HTMLTableSectionElement>(null);
@@ -351,6 +352,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
         {(describe.length > 0) && <button className="link small-link" onClick={() => setView(q => ({ ...q, filter: 'all', tag: '', query: '' }))}>Clear filters</button>}
         <div className="library-table-tools">
           <button className="secondary small" onClick={() => setShowCatalogs(true)} aria-haspopup="dialog">Catalogs</button>
+          <CatalogRecommendButton recommender={recommender} />
           <ColumnScrollControls scroller={scroller} available={all.length > 0} />
           <button className="secondary small columns-button" aria-haspopup="dialog" aria-expanded={choosingColumns} onClick={() => setChoosingColumns(true)}>Columns</button>
         </div>
@@ -504,11 +506,11 @@ function TableDate({ ms }: { ms: number | null }) {
 }
 
 /** Beside an open paper (the legacy Browse view): the same library, compact. */
-export function CompactLibrary({ model, activity, currentID, onOpen, query, prepared, onSimilar }: {
-  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: LibraryPaper) => void; query: string; prepared?: (entry: ClientEntry) => boolean; onSimilar?:(item:LibraryPaper)=>void;
+export function CompactLibrary({ model, activity, currentID, onOpen, query, prepared, onSimilar, recommender }: {
+  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: LibraryPaper) => void; query: string; prepared?: (entry: ClientEntry) => boolean; onSimilar?:(item:LibraryPaper)=>void; recommender?: Recommender;
 }) {
   const list = useRef<HTMLUListElement>(null);
-  const actions = useLibraryActions(model.library,undefined,undefined,onSimilar);
+  const actions = useLibraryActions(model.library,undefined,undefined,onSimilar,recommender);
   useEffect(() => { list.current?.querySelector('.current')?.scrollIntoView({ block: 'nearest' }); }, []);
   return (
     <div className="compact-library">

@@ -20,8 +20,8 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         route(self)
     }
     override func stopLoading() { }
-    func respond(_ data: Data, status: Int = 200) {
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+    func respond(_ data: Data, status: Int = 200, contentType: String = "application/json") {
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": contentType])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)

@@ -4,7 +4,11 @@ Owner, TestFlight 78 (`ALsQuX0_-_YLhsw7YkcwwYM`, 15:14, on the Library's paper m
 recommendations, it uses AI with our server to search for the most similar papers and just adds them, users should have
 the option of requesting 1, 3 or 5. Additionally a Chat option where they [go] to a general chat about this paper."
 
-Nothing here is built. It needs your yes on the decisions in the last section.
+**Status, 2026-10-21: decided and built for part 1 (AI recommendations).** The owner answered: "For your similar papers,
+just take your best judgement, and try to create a good experience out of it." The design as built, with each decision
+and its reason, is [docs/architecture/AI_RECOMMENDATIONS.md](../architecture/AI_RECOMMENDATIONS.md); the answers to the
+questions below are at the end of this file. Part 2 ("Chat about this paper") was not covered by that answer and is not
+built. The text below is the proposal as written, kept for the record.
 
 ## What exists today (and why it isn't enough)
 
@@ -95,3 +99,21 @@ Nothing here is built. It needs your yes on the decisions in the last section.
 3. Model: Haiku 5.5 (cheapest, already used for tags) — or DeepSeek Flash?
 4. "Chat about this paper": General chat with title + abstract (proposed), or Paper chat with the full text?
 5. Names: "Recommend similar papers" › "Add 1 / 3 / 5", and "Chat about this paper".
+
+## Answers (agent, under the owner's delegation, 2026-10-21)
+
+1. **Add without review**, as asked, then a sheet lists each paper as it is added with its reason, a Remove on each and
+   Undo for all (the banner of the proposal became that sheet, so the reasons are visible at the moment of change).
+2. **1 credit per request, free when nothing is added; 20 a day** (plus 30 an hour at the request gate). Undo does not
+   refund: the model work is done, the amount is $0.005, and a refund would need the server to tie library removals to
+   a request.
+3. **Haiku 5.5** through OpenRouter (Vertex US): already priced, admitted and used for tags; it may only choose among
+   the candidates (a JSON enum of their ids).
+4. Not decided here ("Chat about this paper" is outside the answer); not built.
+5. **"Recommend similar papers" › "Add 1 paper / Add 3 papers / Add 5 papers"**, with the price and the destination
+   catalog as the submenu's note. Also **"Recommend for this catalog"** in the Library's ⋯ (proposed above as "Later").
+
+Changes from the proposal: candidates come from up to three DataCite searches built from the keywords the reader sees
+(as Find similar papers searches) plus the Feed pool's full-text index (not "first author"); everything the reader
+has or had and Feed "Not interested" papers are excluded; the reasons are kept with the request on the server but are
+shown only in the sheet for now ("Why recommended" in Paper ⋯ is a follow-up).

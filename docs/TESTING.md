@@ -1,5 +1,13 @@
 # Fast and slow tests
 
+## AI recommendations — October 21 UTC
+
+Fast: `node --test tests/backend/recommend.test.ts` (in `npm test`), browser `tests/recommend.test.ts`. Database:
+`python3 scripts/test-database.py --recommendations-only` (also in the final phase). Slow, opt-in: Playwright
+`e2e/recommend.spec.ts` (fixture route `recommend` with `/__recommend-fixture` modes); native UI
+`RecommendationJourneyTests` with `--recommend-fixture[ --recommend-fixture-mode=none|daily_limit|insufficient_credits|error]`.
+Paid, explicit, after deploying: `node scripts/workflow-checks.mjs --only=recommend.smoke --record` (one Haiku call).
+
 ## October 20 platform parity
 
 The focused record is [the platform parity review](reviews/PLATFORM_PARITY_20261020.md). Browser catalog, draft

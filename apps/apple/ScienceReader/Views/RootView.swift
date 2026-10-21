@@ -487,6 +487,7 @@ struct LibraryView: View {
             }
             Section {
                 MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
+                RecommendCatalogMenu(model: model)
             }
             Section {
                 Menu {

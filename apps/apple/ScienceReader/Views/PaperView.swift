@@ -463,6 +463,7 @@ struct PaperView: View {
                             PodcastListenMenuRow(model: model, paper: paper)
                             PaperShareMenu(paper: paper)
                             Button("Find similar papers", systemImage: "doc.text.magnifyingglass") { model.findSimilarPapers(paper) }
+                            RecommendSimilarMenu(model: model, paper: paper)
                         }
                         // Its saved chats (owner request 2026-10-07: "a paper's own conversations when you open it").
                         if let paper = model.selectedPaper, let count = model.paperChatCounts[paper.id], count > 0 {

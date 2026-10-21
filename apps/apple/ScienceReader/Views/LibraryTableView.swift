@@ -444,6 +444,7 @@ struct LibraryRowActions: View {
         switch entry {
         case .paper(let paper):
             Button("Find similar papers", systemImage: "doc.text.magnifyingglass") { model.findSimilarPapers(paper) }
+            RecommendSimilarMenu(model: model, paper: paper)
             PaperShareMenu(paper: paper)
             if model.deviceCopy(for: paper) == .cloud {
                 if model.isPreparingOnDevice(paper) {

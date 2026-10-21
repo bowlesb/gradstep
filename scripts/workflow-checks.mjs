@@ -1025,6 +1025,78 @@ check('chat.profiles-max', { title: 'The largest profile (Opus · High · Detail
     + `first text ${r.m.first_token_s?.toFixed(1) ?? '–'} s, total ${r.m.total_s.toFixed(0)} s`, metrics);
 });
 
+// AI recommendations (docs/architecture/AI_RECOMMENDATIONS.md; migration 0143, function `recommend`). Explicit only (one
+// Haiku call through OpenRouter, ~$0.001 estimated): run after deploying, `--only=recommend.smoke`. A synthetic account adds DPO,
+// waits for its DataCite record, asks for 1 similar paper and requires: the stream's phases in order, one paper added
+// with a reason, `done` charged exactly 1 credit, a replay of the same operation returning the same paper without a
+// second charge or model call, the provider attempt recorded as feature `recommend` on Haiku 5.5, and nothing from arXiv.
+// The added paper is removed again (cancelled), so the account ends as it began apart from the credit.
+async function recommend(acct, body, signal) {
+  const started = Date.now();
+  const response = await fetch(`${env.SUPABASE_URL}/functions/v1/recommend`, { method: 'POST', redirect: 'error',
+    headers: { ...anonHeaders(await acct.token()), 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify(body), signal: AbortSignal.any([AbortSignal.timeout(120_000), signal]) });
+  acct.touched = true;
+  const result = { status: response.status, events: [], ms: 0, firstPaperMs: null };
+  if (response.status !== 200) { result.events.push({ type: 'error', code: (await response.json().catch(() => ({}))).code ?? `http_${response.status}` }); return result; }
+  const decoder = new TextDecoder(); let buffer = '';
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf('\n\n')) >= 0) {
+      const data = /^data: (.*)$/m.exec(buffer.slice(0, cut))?.[1]; buffer = buffer.slice(cut + 2);
+      if (!data) continue;
+      const event = JSON.parse(data); result.events.push(event);
+      if (event.type === 'paper') result.firstPaperMs ??= Date.now() - started;
+    }
+  }
+  result.ms = Date.now() - started;
+  return result;
+}
+check('recommend.smoke', { title: 'Recommend 1 similar paper: streamed, added with a reason, 1 credit, replay free', suites: [], timeout: 300, costUSD: 0.01 }, async ({ signal }) => {
+  const acct = await account('recommend', 20), source = '2305.18290';
+  let seed = (await acct.entries(signal)).entries.find(e => e.kind === 'import' && e.source_id === source && e.visible && e.phase === 'source_only');
+  if (!seed) {
+    await beginImport(acct, source, signal);
+    for (let n = 0; n < 60 && !seed; n++) {
+      seed = (await acct.entries(signal)).entries.find(e => e.kind === 'import' && e.source_id === source && e.phase === 'source_only' && e.metadata?.title);
+      if (!seed) await sleep(3000, signal);
+    }
+    if (!seed) return fail('the seed paper (DPO) did not get its DataCite record in 3 minutes');
+  }
+  const before = await acct.balance();
+  const body = { operation_id: randomUUID(), count: 1, scope: 'paper', seeds: [{ source_id: source, keywords: ['Preference optimization', 'Reward modeling'] }] };
+  const r = await recommend(acct, body, signal);
+  const kinds = r.events.map(e => e.type === 'status' ? e.phase : e.type);
+  const done = r.events.find(e => e.type === 'done'), error = r.events.find(e => e.type === 'error');
+  const papers = r.events.filter(e => e.type === 'paper').map(e => e.paper);
+  const metrics = { total_s: r.ms / 1000, first_paper_s: r.firstPaperMs && r.firstPaperMs / 1000, added: done?.added ?? 0, credits: done?.credits ?? 0 };
+  if (error || !done) return fail(`ended with ${error ? `error ${error.code}` : 'no done'} (${kinds.join(' → ')})`, metrics);
+  if (kinds.slice(0, 2).join(',') !== 'searching,choosing') return fail(`phases out of order: ${kinds.join(' → ')}`, metrics);
+  if (done.added !== 1 || papers.length !== 1 || papers[0].status !== 'added' || !papers[0].reason || !papers[0].import_id) return fail(`expected one added paper with a reason: ${JSON.stringify(done)}`, metrics);
+  if (done.credits !== 1 || !done.charged) return fail(`expected 1 credit charged, got ${done.credits}`, metrics);
+  const after = await acct.balance();
+  const replay = await recommend(acct, body, signal);
+  const replayDone = replay.events.find(e => e.type === 'done'), replayPaper = replay.events.find(e => e.type === 'paper')?.paper;
+  const afterReplay = await acct.balance();
+  const problems = [];
+  if (before.available - after.available !== 1) problems.push(`balance moved ${before.available - after.available}, not 1`);
+  if (!replayDone || replayPaper?.source_id !== papers[0].source_id || afterReplay.available !== after.available) problems.push('the replay was not free or not the same paper');
+  if (replay.events.some(e => e.type === 'status')) problems.push('the replay searched again');
+  if (management) {
+    const attempts = await management.sql(`select model,route,state,transport_metadata->>'feature' feature,actual_microusd from app_private.provider_attempts
+      where operation_id='${body.operation_id}' and account_id='${acct.id}'`);
+    if (attempts.length !== 1 || attempts[0].feature !== 'recommend' || attempts[0].model !== 'anthropic/claude-haiku-5.5' || attempts[0].state !== 'succeeded')
+      problems.push(`provider attempts: ${JSON.stringify(attempts)}`);
+    else metrics.cost_microusd = Number(attempts[0].actual_microusd);
+  }
+  const added = (await acct.entries(signal)).entries.find(e => e.kind === 'import' && e.id === papers[0].import_id);
+  if (!added) problems.push('the added paper is not in the library');
+  else await acct.rpc('v2_cancel_import', { p_operation_id: randomUUID(), p_import_id: added.id, p_expected_revision: added.intent_revision }, signal).catch(() => {});
+  const text = `${papers[0].source_id} added ("${papers[0].reason.slice(0, 80)}"), 1 credit, first paper ${(r.firstPaperMs / 1000).toFixed(1)} s, total ${(r.ms / 1000).toFixed(1)} s${metrics.cost_microusd != null ? `, provider $${(metrics.cost_microusd / 1e6).toFixed(4)}` : ''}; replay free`;
+  return problems.length ? fail(`${problems.join('; ')} — ${text}`, metrics) : pass(text, metrics);
+});
+
 // The Add paper (Ingest) corpus. `after`: what a queued import must do in this suite —
 // 'ready' (free shared conversions, or cheap private ones), or 'cancel' at once (private OCR
 // that only the weekly suite pays for). The weekly suite takes every queued import to ready.

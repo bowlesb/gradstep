@@ -65,7 +65,10 @@ private final class LibraryModelServer: @unchecked Sendable {
     private var privateEvents: [[String: Any]] = []
     private var privateCalls: [String] = []
     private var endpoints: [String] = []
+    private var recommendBodies: [Data] = []
     func requestedEndpoints() -> [String] { lock.withLock { endpoints } }
+    /// Requests to functions/v1/recommend (AI recommendations), as sent.
+    func recommendRequests() -> [Data] { lock.withLock { recommendBodies } }
     /// The catalog's topic tags on the item entry (migration 030); none by default (no `tags` key).
     var catalogTags: [String] = []
     var metadataTitle = "A paper about equation handling"
@@ -188,6 +191,20 @@ private final class LibraryModelServer: @unchecked Sendable {
                     request.respond(bytes(sequence))
                 } else { request.respond(Data("{}".utf8), status: 400) }
             case "v1_acknowledge_cursor": privateCalls.append("ack"); request.respond(Data(), status: 204)
+            case "recommend":
+                // functions/v1/recommend (docs/architecture/AI_RECOMMENDATIONS.md): the stream as the function writes it,
+                // keep-alive comments included; one paper added, a second already in the library.
+                recommendBodies.append(body(request.request))
+                func paper(_ id: String, _ status: String, _ importID: String?) -> String {
+                    let importValue = importID.map { "\"\($0)\"" } ?? "null"
+                    return "{\"type\":\"paper\",\"ordinal\":1,\"paper\":{\"source_id\":\"\(id)\",\"revision\":1,\"title\":\"Paper \(id)\",\"authors\":[\"A. Author\"],\"year\":2025,\"reason\":\"Same method\",\"status\":\"\(status)\",\"import_id\":\(importValue)}}"
+                }
+                let stream = ": open\n\ndata: {\"type\":\"status\",\"phase\":\"searching\"}\n\n: ping\n\n"
+                    + "data: {\"type\":\"status\",\"phase\":\"choosing\",\"candidates\":12}\n\n"
+                    + "data: \(paper("2410.00001", "added", "0f7a1f2e-1111-4222-8333-444455556666"))\n\n"
+                    + "data: \(paper("2410.00002", "present", nil))\n\n"
+                    + "data: {\"type\":\"done\",\"added\":1,\"requested\":3,\"credits\":1,\"charged\":true}\n\n"
+                request.respond(Data(stream.utf8), contentType: "text/event-stream; charset=utf-8")
             case "add-paper":
                 // functions/v1/add-paper: a DOI the server resolved to an open-access web paper and queued.
                 request.respond(bytes(["status": "added", "route": "doi", "paper": ["title": "An Open-Access Paper", "year": 2024,
@@ -809,6 +826,37 @@ final class LibraryModelTests: XCTestCase {
         let again = await model.addPaperOutcome("10.1234/open-access")
         XCTAssertEqual(again?.kind, .added, "The server added it; the catalog write failing doesn't make it a failure")
         XCTAssertEqual(model.libraryCatalogs.catalogID(for: "source:openalex:W2741809807"), thesis)
+    }
+
+    /// AI recommendations through the real transport: the request names the paper and its keywords, the stream is read
+    /// as the function writes it, and an added paper is filed in the catalog the reader was viewing, even with the sheet
+    /// closed and another catalog selected before it arrives.
+    func testRecommendationsStreamAndFileAddedPapersWhereTheReaderAsked() async throws {
+        let server = LibraryModelServer(activated: true), f = try fixture(server), model = f.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        let thesis = try await model.createCatalog("Thesis")
+        XCTAssertEqual(model.currentCatalog.id, thesis)
+        let paper = try XCTUnwrap(model.papers.first { $0.sourceID == "2404.00001" })
+        XCTAssertTrue(model.canRecommend(paper))
+        XCTAssertEqual(model.recommendationCreditNote, "1 credit · added to Thesis")
+        model.recommendSimilar(paper, count: 3)
+        let run = try XCTUnwrap(model.recommendation)
+        model.showRecommendations = false
+        model.selectCatalog(LibraryCatalogBatch.initialCatalogID)
+        await run.task?.value
+        XCTAssertEqual(run.rows.map(\.state), [.added, .present])
+        XCTAssertEqual(run.rows.first?.paper.importID, UUID(uuidString: "0f7a1f2e-1111-4222-8333-444455556666"))
+        XCTAssertEqual(run.outcome, "Added 1 paper to Thesis · 1 credit")
+        XCTAssertEqual(model.libraryCatalogs.catalogID(for: "arxiv:2410.00001"), thesis, "Filed where the reader asked")
+        XCTAssertFalse(model.libraryCatalogs.isAssigned("arxiv:2410.00002"), "A paper already there is never moved")
+        let sent = try XCTUnwrap(server.recommendRequests().last)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: sent) as? [String: Any])
+        XCTAssertEqual(json["scope"] as? String, "paper"); XCTAssertEqual(json["count"] as? Int, 3)
+        let seeds = try XCTUnwrap(json["seeds"] as? [[String: Any]])
+        XCTAssertEqual(seeds.first?["source_id"] as? String, "2404.00001")
+        XCTAssertEqual(seeds.first?["keywords"] as? [String], Recommendations.keywords(LibraryTags.tags(for: paper), limit: 6))
+        XCTAssertEqual(json["operation_id"] as? String, run.body.operationID.uuidString.lowercased())
     }
 
     /// A4: signing out cancels the account's background downloads and clears their progress, so no row stays

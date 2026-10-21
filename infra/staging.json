@@ -83,6 +83,7 @@
     "podcast",
     "podcast-member",
     "note-assets",
+    "recommend",
     "feed-refresh"
   ],
   "pipeline_schedule": "* * * * *",

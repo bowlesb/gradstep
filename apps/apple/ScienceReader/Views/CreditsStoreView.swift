@@ -168,6 +168,7 @@ private struct CreditUsageView: View {
             Section {
                 LabeledContent("Chat", value: "Usually 4–24 credits")
                 LabeledContent("Web search", value: "About 1–2 credits / search")
+                LabeledContent("Recommendations", value: "1 credit per request that adds papers")
             } header: { Text("Typical costs") } footer: {
                 Text("The chat composer shows the estimate and maximum for the selected profile before you send.")
             }

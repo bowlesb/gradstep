@@ -1,3 +1,4 @@
+import ScienceReaderCore
 import SwiftUI
 
 /// What the open paper offers the menu bar (published by PaperView). nil members are unavailable now.
@@ -194,6 +195,15 @@ struct GradstepCommands: Commands {
                 .disabled(model.selectedPaper.map { !model.podcasts.canListen(to: $0) } ?? true)
             Button("Find Similar Papers") { if let paper = model.selectedPaper { model.findSimilarPapers(paper) } }
                 .disabled(model.selectedPaper == nil)
+            // AI recommendations (docs/architecture/AI_RECOMMENDATIONS.md): 1 credit, added to the current catalog.
+            Menu("Recommend Similar Papers") {
+                Section(model.recommendationCreditNote) {
+                    ForEach(RecommendRequestBody.counts, id: \.self) { count in
+                        Button(count == 1 ? "Add 1 Paper" : "Add \(count) Papers") { if let paper = model.selectedPaper { model.recommendSimilar(paper, count: count) } }
+                    }
+                }
+            }
+            .disabled(model.selectedPaper.map { !model.canRecommend($0) } ?? true)
             Button("Chats About This Paper") { if let paper = model.selectedPaper { model.openAllChats(paper: paper.id, thisPaper: true) } }
                 .disabled(model.selectedPaper.map { (model.paperChatCounts[$0.id] ?? 0) == 0 } ?? true)
             Button("Edit Tags…") { if let paper = model.selectedPaper { model.editTags(for: paper) } }

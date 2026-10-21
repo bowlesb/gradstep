@@ -113,6 +113,11 @@ verify_jwt = false
 # before the append-only evidence RPC. Browser preflights carry no token.
 verify_jwt = false
 
+[functions.recommend]
+# AI recommendations (docs/architecture/AI_RECOMMENDATIONS.md). Auth.getUser inside the handler before the body is read,
+# as add-paper; browser preflights carry no token.
+verify_jwt = false
+
 [functions.note-assets]
 # Encrypted note images (migration 095). Auth.getUser and the open-account check inside the handler, as
 # support-assets; browser preflights carry no token.

@@ -13,6 +13,7 @@ import { CommandRefreshError, type CommandResponse, type Item } from '../lib/lib
 import { effectiveTags, allowedKeyword, distinctiveKeyword } from '../lib/paper';
 import { containsTag, editedTags, MAX_OWN_TAGS, normalizeTag, ownTagsInLibrary, tagSuggestions } from '../lib/paper-tags';
 import type { useLibrary } from './useLibrary';
+import { RecommendChoices, type Recommender } from './Recommend';
 import './library-actions.css';
 
 type Library = ReturnType<typeof useLibrary>;
@@ -28,7 +29,8 @@ export interface ExtraAction { label: string; testID: string; applies: (item: Li
 /** Whether the library manages this paper (tags, archive, remove): every visible paper but a legacy item outside the shared catalog. */
 const managed = (item: LibraryPaper) => !(item.kind === 'item' && item.scope !== 'shared_catalog');
 
-export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void, extraActions?: ExtraAction | readonly ExtraAction[], onSimilar?: (paper:LibraryPaper)=>void) {
+export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void, extraActions?: ExtraAction | readonly ExtraAction[], onSimilar?: (paper:LibraryPaper)=>void,
+  /** Recommend similar papers (AI_RECOMMENDATIONS.md), directly under Find similar papers. */ recommender?: Recommender) {
   const extra = useMemo(() => !extraActions ? [] : Array.isArray(extraActions) ? extraActions as readonly ExtraAction[] : [extraActions as ExtraAction], [extraActions]);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export function useLibraryActions(library: Library, beforeSequentialNavigation?:
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
     setSelection({ item, trigger, region: null, action: 'tags', last: false, keyword });
   };
-  return { library, selection, notice, open, close, choose, editTags, beforeSequentialNavigation, extra, onSimilar, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
+  return { library, selection, notice, open, close, choose, editTags, beforeSequentialNavigation, extra, onSimilar, recommender, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
 }
 type Actions = ReturnType<typeof useLibraryActions>;
 
@@ -90,10 +92,16 @@ export function LibraryActionSurface({ actions }: { actions: Actions }) {
 }
 
 function PaperMenu({ selection, actions }: { selection: Selection; actions: Actions }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null), placeRef = useRef<() => void>(() => {});
+  // Recommend similar papers › its three choices, shown inline under it (keyboard: Enter or → opens, Esc or ← closes).
+  const [recommending, setRecommending] = useState(false);
+  useLayoutEffect(() => {
+    placeRef.current();
+    if (recommending) ref.current?.querySelector<HTMLElement>('[data-testid=recommend-add-1]')?.focus();
+  }, [recommending]);
   useLayoutEffect(() => {
     const menu = ref.current!;
-    const place = () => {
+    const place = placeRef.current = () => {
       const rect = selection.trigger.getBoundingClientRect();
       menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, rect.right - menu.offsetWidth))}px`;
       menu.style.top = `${Math.max(8, Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 4))}px`;
@@ -118,6 +126,11 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault(); event.stopPropagation();
       buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+    } else if ((event.key === 'Escape' || event.key === 'ArrowLeft') && recommending && (document.activeElement as HTMLElement | null)?.closest('.paper-action-submenu')) {
+      event.preventDefault(); event.stopPropagation(); setRecommending(false);
+      event.currentTarget.querySelector<HTMLElement>('[data-testid=recommend-menu]')?.focus();
+    } else if (event.key === 'ArrowRight' && (document.activeElement as HTMLElement | null)?.dataset.testid === 'recommend-menu') {
+      event.preventDefault(); event.stopPropagation(); setRecommending(true);
     } else if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation(); actions.close(selection);
     } else if (event.key === 'Tab') {
@@ -134,6 +147,13 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
   const share=async(url:string)=>{try{await sharePublicURL(url);actions.close(selection,typeof navigator.share==='function'?undefined:'Link copied');}catch(e){if((e as Error).name!=='AbortError')actions.close(selection,'Couldn’t share the link. Try again.');}};
   return <div ref={ref} role="menu" aria-label="Paper actions" className="paper-action-menu" data-library-row-owner={`${selection.item.kind}:${selection.item.id}`} onKeyDown={move}>
     {actions.onSimilar && <button type="button" role="menuitem" onClick={()=>{actions.close(selection,undefined,false);actions.onSimilar?.(selection.item);}}>Find similar papers</button>}
+    {actions.recommender?.eligible(selection.item) && <>
+      <button type="button" role="menuitem" className="submenu-trigger" aria-haspopup="menu" aria-expanded={recommending} data-testid="recommend-menu"
+        onClick={() => setRecommending(open => !open)}>Recommend similar papers<span className="chevron" aria-hidden="true">›</span></button>
+      {recommending && <div className="paper-action-submenu" role="group" aria-label="Recommend similar papers">
+        <RecommendChoices note={actions.recommender.note} onChoose={count => { const r = actions.recommender!; actions.close(selection, undefined, false); r.paper(selection.item, count); }} />
+      </div>}
+    </>}
     {links.source && <button type="button" role="menuitem" onClick={()=>void share(links.source!)}>Share Source URL</button>}
     {links.gradstep && <button type="button" role="menuitem" onClick={()=>void share(links.gradstep!)}>Share Gradstep link</button>}
     {extra.filter(x => x.applies(selection.item)).map(x => <button key={x.testID} type="button" role="menuitem" data-testid={x.testID} onClick={() => { actions.close(selection, undefined, false); x.run(selection.item); }}>{x.label}</button>)}

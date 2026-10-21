@@ -27,7 +27,7 @@ export const liveCostsApi: CostsApi = { load: () => rpc<AccountCosts>('v1_admin_
 type WindowKey = 'month' | 'last_30_days';
 type SortKey = 'account' | 'month' | 'last_30_days' | 'held' | 'attempts' | 'charged';
 const FEATURES: Record<string, string> = { chat: 'Chat', figure_explainer: 'Figure explainer', equation_explainer: 'Equation explainer',
-  tags: 'Tags', podcasts: 'Podcasts', search: 'Web search', ocr: 'OCR (retired)', other: 'Other' };
+  tags: 'Tags', podcasts: 'Podcasts', search: 'Web search', recommendations: 'Recommendations', ocr: 'OCR (retired)', other: 'Other' };
 const featureName = (f: string) => FEATURES[f] ?? f;
 const PROVIDERS: Record<string, string> = { openrouter: 'OpenRouter', tavily: 'Tavily', anthropic: 'Anthropic direct (legacy)',
   deepseek: 'DeepSeek direct (legacy)', google: 'Google direct (legacy)', mathpix: 'Mathpix (legacy)' };

@@ -340,6 +340,14 @@ createServer(async (request, response) => {
     if (p?.profiles === false || p?.profiles === 'v1') a.chatProfiles = p.profiles; else if (p?.profiles === 'gemini') a.chatProfiles = 'gemini'; else if (p?.profiles === true || p?.profiles === 'auto') a.chatProfiles = 'auto';
     return send(response, 200, { ok: true });
   }
+  // AI recommendations (functions/v1/recommend): `mode` normal (scripted papers, added as imports), none_related,
+  // daily_limit or in_progress (answered once, then normal); `delay` between events (ms).
+  if (url.pathname === '/__recommend-fixture' && request.method === 'POST') {
+    const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
+    if (['normal', 'none_related', 'daily_limit', 'in_progress'].includes(p?.mode)) a.recommendMode = p.mode;
+    if (Number.isInteger(p?.delay) && p.delay >= 0 && p.delay <= 5000) a.recommendDelay = p.delay;
+    return send(response, 200, { ok: true, requests: a.recommendRequests ?? [] });
+  }
   if (url.pathname === '/__device-search' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
     a.deviceSearch = p?.enabled === true; a.serverSearches = [];
@@ -714,6 +722,40 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
         abstract: 'We study how sparse attention patterns scale with context length and compute budget, and find a simple recipe that matches dense attention.', categories: [category] },
       { source_id: '2604.01002', revision: 1, title: `New in ${category}: evaluation under distribution shift`, authors: ['Alan Fixture'], year: 2026, abstract: null, categories: [category] },
     ] });
+  }
+  // AI recommendations: the server's stream (supabase/functions/_shared/recommend.ts), scripted. Each added paper is a new
+  // import of this account, as v2_add_paper_once makes it, so Remove and Undo use the ordinary library commands.
+  if (url.pathname === '/functions/v1/recommend' && request.method === 'POST') {
+    const body = await read(request);
+    if (!/^[0-9a-f-]{36}$/.test(body?.operation_id ?? '') || ![1, 3, 5].includes(body?.count) || !['paper', 'catalog'].includes(body?.scope)
+      || !Array.isArray(body?.seeds) || !body.seeds.length || body.seeds.length > (body.scope === 'paper' ? 1 : 8)
+      || body.seeds.some(seed => typeof seed?.source_id !== 'string' || !Array.isArray(seed.keywords) || seed.keywords.length > 6)) return send(response, 400, { code: 'invalid_request' });
+    (a.recommendRequests ??= []).push(body);
+    response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' });
+    response.write(': open\n\n');
+    const event = value => response.write(`data: ${JSON.stringify(value)}\n\n`);
+    const mode = a.recommendMode ?? 'normal', delay = a.recommendDelay ?? 250;
+    if (mode === 'daily_limit') { event({ type: 'error', code: 'daily_limit', charged: false }); return response.end(); }
+    if (mode === 'in_progress') { a.recommendMode = 'normal'; event({ type: 'error', code: 'in_progress', charged: false, retry_after: 1 }); return response.end(); }
+    const picks = [
+      ['2410.01001', 'Generative Retrieval with Learned Document Codes', ['Ines Fixture', 'Tomás Example'], 'Same task; learns the document codes instead of fixing them'],
+      ['2410.01002', 'Semantic Identifiers for Dense Retrieval at Scale', ['Mei Sample'], 'Dense counterpart of its semantic index'],
+      ['2410.01003', 'Continual Learning for Generative Retrieval Indexes', ['Ravi Placeholder', 'Ana Stub', 'Lee Mock'], 'Keeps the index current as new documents arrive'],
+      ['2410.01004', 'A Benchmark for Corpus Updates in Retrieval', ['Jo Fixture'], 'The benchmark its evaluation builds on'],
+      ['2410.01005', 'Prefix Trees for Constrained Decoding', ['Kim Example'], 'The decoding constraint it relies on'],
+    ].filter(([source]) => ![...a.entries.values()].some(e => e.visible && e.source_id === source)).slice(0, mode === 'none_related' ? 0 : body.count);
+    const steps = [() => event({ type: 'status', phase: 'searching' }), () => event({ type: 'status', phase: 'choosing', candidates: 34 })];
+    picks.forEach(([source, title, authors, reason], i) => steps.push(() => {
+      const imp = { kind: 'import', id: randomUUID(), intent_revision: 1, visible: true, phase: 'accepted', source: 'arxiv', source_id: source, requested_revision: null,
+        source_url: `https://arxiv.org/abs/${source}`, retryable: false, progress: 'finding', progress_detail: { step: 'finding', percent: 2, eta_seconds: 50 } };
+      emit(a, [imp]); scheduleImport(a, a.entries.get('import:' + imp.id), { ...ATTENTION, title, authors, published_at: '2026-10-01', categories: ['cs.IR'] });
+      event({ type: 'paper', ordinal: i + 1, paper: { source_id: source, revision: 1, title, authors, year: 2026, reason, status: 'added', import_id: imp.id } });
+    }));
+    steps.push(() => { event(picks.length ? { type: 'done', added: picks.length, requested: body.count, credits: 1, charged: true }
+      : { type: 'done', added: 0, requested: body.count, credits: 0, charged: false, reason: 'none_related' }); response.end(); });
+    const next = () => { const step = steps.shift(); if (!step) return; step(); if (steps.length) a.timers.push(setTimeout(next, delay)); };
+    next();
+    return;
   }
   // Add by DOI or link (add-paper): a DOI is identified and queued as an arXiv import; a publisher link is blocked.
   if (url.pathname === '/functions/v1/add-paper' && request.method === 'POST') {
