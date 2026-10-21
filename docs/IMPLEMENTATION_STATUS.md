@@ -29,6 +29,15 @@ framed-by-confidence journeys; app units `FigureViewAppTests`, `ChatVisualTests`
 Screenshots (iPhone light/dark, browser desktop/phone light/dark, grouped, expanded): `.artifacts/figure-structure/`.
 Not verified: iPad/Mac journeys (same SwiftUI path), a live model's answer to the structure note, physical device (paused).
 
+## Flaky notes-store eviction test fixed — 2026-10-21 (local source; not released, not deployed)
+
+Cause (product): browser `History.commit` planned against the journal revision, so this tab's own sync writes that add
+no events (snippets marked uploaded, outbox acks, cached downloads, draft checkpoints) during sealing were conflicts;
+three in a row surfaced as `local_storage` on a Save or sent message. Fix: plan against the event count (`expectedEvents`);
+event writes still conflict. Eviction test holds the upload and awaits sync; new deterministic tests fail on old code.
+Evidence: eviction test, 300 runs at 10-way concurrency: 5 `local_storage` failures before, 0 after; full browser tier
+6×4 concurrent + 8 CPU hogs: 24/24 pass (also 0/24 failures before; tier rarely hits it); `npm test` passes.
+
 ## Extract the subfigure removed — 2026-10-21 (local source; not released, not deployed)
 
 Owner: "Let's not do extract the subfigure … consistently create one good product experience in the AI result that comes

@@ -80,6 +80,19 @@ it('opens by reading the events once and counting the partition, not reading it 
   expect(plain.snapshot.events).toHaveLength(1);
 });
 
+it('an append planned against an event count conflicts only when events were written since', async () => {
+  const { journal } = await Journal.open(scope, deps);
+  const planned = journal.eventCount, first = await sealEvent(root(), id(), deviceID, ring);
+  await journal.appendLocal([first]);
+  await expect(journal.appendLocal([await sealEvent(root(), id(), deviceID, ring)], { expectedEvents: planned })).rejects.toMatchObject({ code: 'journal_conflict' });
+  // Writes that add no event move the revision, not the plan.
+  const replanned = journal.eventCount, revision = journal.revision;
+  await journal.checkpointDraft(draft()); await journal.acknowledge([first.id]);
+  expect(journal.revision).toBe(revision + 2);
+  await journal.appendLocal([await sealEvent(root(), id(), deviceID, ring)], { expectedEvents: replanned });
+  expect(journal.eventCount).toBe(replanned + 1);
+});
+
 it('restores sealed drafts, exact local outbox bytes and a complete pull checkpoint', async () => {
   const first = await Journal.open(scope, deps), d = draft();
   await first.journal.checkpointDraft(d);

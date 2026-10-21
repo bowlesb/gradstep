@@ -226,8 +226,13 @@ it('evicts only confirmed copies when the cache is full; unsynced crops stay', a
   const fake = assets(), s = await session(fake);
   const before = { ...LIMITS };
   try {
+    // The crops stay unsynced: their upload is held, and the background sync Save started is finished before the
+    // cache fills, so nothing else commits during the steps below.
+    fake.fail(new (await import('../src/lib/backend')).BackendError('connection'));
     const keep = entryOperation();
     await s.store.saveEntry({ destination: { newTitle: 'Notes' }, kind: 'region', comment: '', capturedAt: 1, source, anchor: null, quote: null, image: image() }, keep);
+    await s.history.sync();
+    expect(s.store.issue).toBe('offline');
     const local = Object.keys(s.journal!.noteBlobs);
     LIMITS.readyBytes = 300;
     for (let i = 0; i < 3; i++) await s.journal!.cacheBlob(crypto.randomUUID(), new Uint8Array(200).fill(i));
@@ -239,4 +244,20 @@ it('evicts only confirmed copies when the cache is full; unsynced crops stay', a
       .rejects.toMatchObject({ code: 'local_capacity' });
     expect(s.store.view().notes.map(n => n.title)).toEqual(['Notes']); // nothing partial was committed
   } finally { Object.assign(LIMITS, before); }
+});
+
+it('saves while this tab\'s own background writes commit during sealing (not reported as a storage error)', async () => {
+  const s = await session(), journal = s.journal!, append = journal.appendLocal.bind(journal);
+  // Before every attempt, a write that adds no event lands, as uploads marked ready, outbox acknowledgements, cached
+  // downloads and draft checkpoints do while a sync runs. Planned against the revision, each attempt conflicted and
+  // the third was reported as `local_storage`.
+  const appends = vi.spyOn(journal, 'appendLocal').mockImplementation(async (envelopes, options) => {
+    await journal.cacheBlob(crypto.randomUUID(), new Uint8Array(64).fill(appends.mock.calls.length));
+    return append(envelopes, options);
+  });
+  const op = entryOperation();
+  await s.store.saveEntry({ destination: { newTitle: 'Notes' }, kind: 'region', comment: '', capturedAt: 1, source, anchor: null, quote: null, image: image() }, op);
+  expect(appends).toHaveBeenCalledTimes(1);
+  expect(s.store.note(op.noteID)!.entries).toHaveLength(1);
+  expect(Object.values(journal.noteBlobs).filter(b => b.state === 'local')).toHaveLength(2);
 });
