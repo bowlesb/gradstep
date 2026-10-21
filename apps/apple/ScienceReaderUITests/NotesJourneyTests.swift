@@ -218,7 +218,9 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 10), "The figure page offers Add to note")
         add.tap()
         let use = app.buttons["capture.use"]
-        XCTAssertTrue(use.waitForExistence(timeout: 10))
+        let shown = use.waitForExistence(timeout: 10)
+        if !shown { capture("Figure page after Add to note"); print(app.debugDescription) }
+        XCTAssertTrue(shown)
         waitFor("The whole figure is already chosen") { use.isEnabled }
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Drag corners")).firstMatch.exists)
         capture("Figure page: whole figure chosen")
@@ -282,7 +284,8 @@ final class NotesJourneyTests: XCTestCase {
     /// iPad (wide) and Mac: Notes is a destination beside Feed, Library, Reader, Browse and General Chat, with the list and
     /// the open note side by side; capture works from the reader with its chat column; Escape cancels drawing.
     func testNotesInTheWideLayout() throws {
-        let app = launch()
+        // `TEST_RUNNER_NOTES_APPEARANCE=dark|light` for the visual review's other theme.
+        let app = launch(appearance: ProcessInfo.processInfo.environment["NOTES_APPEARANCE"])
         let notesMode = app.wideMode("Notes")
         try XCTSkipUnless(notesMode.waitForExistence(timeout: 5), "The wide layout (a 13-inch iPad, the Mac)")
         notesMode.tap()
