@@ -59,6 +59,8 @@ struct PodcastGeneration: Identifiable, Equatable {
     var selected: String
     /// The chosen writer (`anthropic`, `deepseek`; 2026-10-14), nil when the server lists none: the policy's default.
     var selectedWriter: String?
+    /// Settings › AI defaults › Podcasts (2026-10-21): preselected whenever the chosen length offers it.
+    var preferredWriter: String?
     /// Idempotency keys: one quote request per length and one start request per quote, so a retried quote or start is
     /// the same request, never a second quote or charge.
     var quoteRequestIDs: [String: UUID] = [:]
@@ -69,7 +71,7 @@ struct PodcastGeneration: Identifiable, Equatable {
     var deviceTextSHA256: String?
 
     init(paperTitle: String, itemID: UUID, documentID: UUID, phase: Phase, capabilities: PodcastCapabilities?,
-         ready: [PodcastEpisode] = [], selected: String? = nil) {
+         ready: [PodcastEpisode] = [], selected: String? = nil, preferredWriter: String? = nil) {
         self.paperTitle = paperTitle; self.itemID = itemID; self.documentID = documentID; self.phase = phase
         let offered = capabilities?.lengths ?? []
         let lengths = offered.isEmpty ? [PodcastLength(profile: PodcastLength.defaultProfile, label: "5 min", targetSeconds: capabilities?.targetSeconds ?? 300,
@@ -82,7 +84,16 @@ struct PodcastGeneration: Identifiable, Equatable {
             ?? (fresh.first { $0.targetSeconds > 300 } ?? fresh.first)?.profile
             ?? lengths.first { $0.profile == PodcastLength.defaultProfile }?.profile ?? lengths[0].profile
         self.lengths = lengths; self.ready = playable; self.selected = chosen
-        self.selectedWriter = lengths.first { $0.profile == chosen }?.writers.first?.writer
+        self.preferredWriter = preferredWriter
+        self.selectedWriter = lengths.first { $0.profile == chosen }?.writer(preferring: preferredWriter)
+    }
+
+    /// A different length: the chosen writer stays when that length offers it, else the default writer from Settings,
+    /// else the server's default.
+    mutating func choose(length profile: String) {
+        selected = profile
+        guard let length = selectedLength else { return }
+        selectedWriter = length.writers.contains { $0.writer == selectedWriter } ? selectedWriter : length.writer(preferring: preferredWriter)
     }
 
     /// After a request finishes the server deletes the text it was made from (migration 076): a new request sends it
@@ -234,7 +245,7 @@ final class PodcastCenter {
         // Quick visual checks (`simctl launch … --podcast-fixture --podcast-listen`): open on the Listen filter.
         if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-listen") { listenSelected = true }
         // A reset fixture starts at 1×: the saved speed is a device preference the journeys must not inherit.
-        if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--reset-podcast-fixture") { player.resetRatePreference() }
+        if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--reset-podcast-fixture") { player.resetRatePreference(); defaultWriter = nil }
         // Autoplay needs the catalog, whichever tab the check opens on.
         if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-autoplay") {
             Task { [weak self] in self?.loadCatalog() }
@@ -254,6 +265,27 @@ final class PodcastCenter {
         }
     }
     #endif
+
+    /// Settings › AI defaults by activity › Podcasts (owner, 2026-10-21: "Podcasts is missing from defaults in model
+    /// settings"): the writer each new episode request starts with, on this device. nil follows the server's default.
+    /// Sent as the quote's `writer` only when the chosen length offers it (`PodcastLength.writer(preferring:)`).
+    var defaultWriter: String? = UserDefaults.standard.string(forKey: PodcastCenter.defaultWriterKey) {
+        didSet { UserDefaults.standard.set(defaultWriter, forKey: Self.defaultWriterKey) }
+    }
+    static let defaultWriterKey = "ai.podcastWriter"
+    /// The writers Settings may offer: every writer the server lists for any length, the default first.
+    var offeredWriters: [PodcastWriter] { capabilities?.offeredWriters ?? [] }
+    /// The writer new requests start with, as Settings shows it: the saved default while the server offers it, else
+    /// the server's default.
+    var effectiveDefaultWriter: PodcastWriter? {
+        offeredWriters.first { $0.writer == defaultWriter } ?? offeredWriters.first
+    }
+    /// Settings › Podcasts is shown while this account could make episodes: before the server has said (the row then
+    /// loads what it offers) or when it offers generation.
+    var writerSettingAvailable: Bool {
+        guard host?.podcastAccount != nil || fixtureEnabled else { return false }
+        return capabilities?.generation ?? true
+    }
 
     /// The Listen chip is offered when listening could work for this account (or the fixture).
     var listenAvailable: Bool {
@@ -770,12 +802,14 @@ final class PodcastCenter {
                     play(resolve(episode, fallback: paper.title))
                 } else if let job = lookup.job, job.state.isActive {
                     generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .running(job),
-                                                   capabilities: lookup.capabilities ?? capabilities, ready: ready, selected: job.profile)
+                                                   capabilities: lookup.capabilities ?? capabilities, ready: ready, selected: job.profile,
+                                                   preferredWriter: defaultWriter)
                     generation?.deviceSource = deviceSource
                     poll(job.requestID)
                 } else if lookup.capabilities?.generation == true {
                     generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .offer,
-                                                   capabilities: lookup.capabilities, ready: ready, selected: profile)
+                                                   capabilities: lookup.capabilities, ready: ready, selected: profile,
+                                                   preferredWriter: defaultWriter)
                     generation?.deviceSource = deviceSource
                     // One confirm step: the chosen length's estimate is fetched at once (a quote holds nothing).
                     quoteIfWanted()
@@ -858,7 +892,7 @@ final class PodcastCenter {
         case .finished(let job) where job.state == .failed: current.forgetFinishedRequest()
         default: return
         }
-        current.selected = profile
+        current.choose(length: profile)
         current.phase = .offer
         generation = current
         quoteIfWanted()

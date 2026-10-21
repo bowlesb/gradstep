@@ -245,6 +245,49 @@ test('Listen offers every length and both writers compactly, prices the chosen o
   await expect(page.getByTestId('podcast-confirm')).toHaveText('Make an episode');
 });
 
+// Owner, 2026-10-21: "Podcasts is missing from defaults in model settings"; and the explainer for each activity.
+test('AI chat options sets who writes new episodes; Listen preselects it and asks for it', async ({ page }, info) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
+  const f = await fixture(page, { lengths: true }); await signIn(page);
+  await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();
+  const settings = page.getByRole('dialog', { name: 'AI chat options' });
+  const activity = settings.getByRole('combobox', { name: 'Activity' });
+  await expect(activity.locator('option')).toHaveText(['General chat', 'Paper chat', 'Equation explanations', 'Figures and tables', 'Podcasts']);
+  // Each activity's ⓘ: what it does, cost against quality and speed, and when to change it.
+  await activity.selectOption('figures');
+  await settings.getByTestId('activity-guide').click();
+  await expect(settings.locator('.info-tip-text.open')).toContainText('must read images');
+  await expect(settings.locator('.info-tip-text.open')).toContainText('if credits run low (a cheaper one)');
+  await page.screenshot({ path: `../../.artifacts/web-podcast-workspace/${info.project.name}-activity-guide.png` });
+  await settings.getByTestId('activity-guide').press('Escape');
+  await expect(settings.locator('.info-tip-text.open')).toHaveCount(0);
+  await activity.selectOption('podcasts');
+  // Only the writers the server lists for podcasts, its default first and chosen until the reader changes it.
+  const writers = settings.getByTestId('podcast-writer-default').getByRole('radio');
+  await expect(writers).toHaveText(['Anthropic', 'DeepSeek']);
+  await expect(writers.first()).toHaveAttribute('aria-checked', 'true');
+  await expect(settings.getByRole('radio', { name: 'Sonnet', exact: true })).toHaveCount(0);
+  await settings.getByRole('radio', { name: 'DeepSeek' }).click();
+  await expect(settings.getByRole('radio', { name: 'DeepSeek' })).toHaveAttribute('aria-checked', 'true');
+  await settings.getByTestId('activity-guide').click();
+  await expect(settings.locator('.info-tip-text.open')).toContainText('a long output, so its cost adds up');
+  await page.screenshot({ path: `../../.artifacts/web-podcast-workspace/${info.project.name}-podcast-default.png` });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: `../../.artifacts/web-podcast-workspace/${info.project.name}-podcast-default-dark.png` });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await settings.getByTestId('activity-guide').press('Escape');
+  await settings.getByRole('button', { name: 'Done', exact: true }).click();
+  // Make an episode starts with that writer and asks for it.
+  await page.getByTestId('back-to-library').click(); await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
+  await page.getByTestId('podcast-paper-listen').click();
+  const dialog = page.getByRole('dialog', { name: 'Listen to this paper' });
+  await expect(dialog.getByTestId('podcast-writers').getByRole('radio', { name: 'DeepSeek' })).toBeChecked();
+  await expect(dialog.getByTestId('podcast-price')).toContainText('Up to 50 credits.');
+  await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
+  expect(f.calls.filter(c => c.action === 'quote').at(-1)!.body).toMatchObject({ profile: 'podcast-5min-v1', writer: 'deepseek' });
+  expect(f.calls.filter(c => c.action === 'start')).toHaveLength(0);
+});
+
 test('a paper whose text isn’t on this device yet says to open it first', async ({ page }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
   await fixture(page, { sourceUnavailable: true }); await signIn(page);

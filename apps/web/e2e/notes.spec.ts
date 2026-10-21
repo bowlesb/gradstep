@@ -259,3 +259,80 @@ test('notes: figure and equation pages add their item; Escape cancels drawing an
   await expect(page.getByTestId('note-entry')).toHaveCount(2);
   await shot(page, 'light-figures-note');
 });
+
+// Owner, 2026-10-21: "In the snippet options when viewing it in a figure, there should be a Chat option to launch and talk
+// about the snippet." ⋯ › Chat and the full-size view's Chat: the paper's chat with the crop attached and the comment as the
+// draft, nothing sent; the question carries the crop as a figure (F3); Back to note returns.
+test('notes: a snippet’s Chat attaches its crop to the paper’s chat and returns to the note', async ({ page, request }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279).');
+  await signIn(page);
+  await openPaper(page);
+  await drawBox(page);
+  await page.getByTestId('snippet-use').click();
+  const draw = page.getByRole('dialog', { name: 'Add to note' });
+  await expect(draw.getByTestId('composer-image')).toBeVisible();
+  await draw.getByTestId('composer-comment').fill('Why does it level off?');
+  await draw.getByTestId('composer-save').click();
+  await page.getByTestId('open-saved-note').click();
+  const entry = page.getByTestId('note-entry').first();
+  await expect(entry.getByTestId('snippet-image').locator('img')).toBeVisible();
+  const before = (await (await request.get(`${API}/__chat-evidence`)).json()).requests.length;
+
+  await entry.getByTestId('entry-menu').click();
+  await expect(page.getByTestId('entry-chat')).toBeVisible();
+  await shot(page, 'light-snippet-options');
+  await page.getByTestId('entry-chat').click();
+  const context = page.getByTestId('promoted-context').filter({ visible: true });
+  await expect(context.getByTestId('promoted-image')).toBeVisible();
+  await expect(context.getByTestId('promoted-image-note')).toHaveText('This picture goes with your questions in this chat.');
+  const message = page.getByRole('textbox', { name: 'Message', exact: true });
+  await expect(message).toHaveValue('Why does it level off?');
+  expect((await (await request.get(`${API}/__chat-evidence`)).json()).requests.length).toBe(before); // nothing sent
+  await shot(page, 'light-snippet-chat');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: 'Allow and get answer' }).click();
+  await expect.poll(async () => (await (await request.get(`${API}/__chat-evidence`)).json()).requests.length).toBe(before + 1);
+  const asked = (await (await request.get(`${API}/__chat-evidence`)).json()).requests.at(-1);
+  expect(asked.mode).toBe('paper');
+  expect(asked.figures.map((f: { id: string }) => f.id)).toContain('F3');
+  expect(asked.selection.quote).toContain('A snippet the reader drew from');
+
+  await context.getByTestId('back-to-note').click();
+  await expect(page).toHaveURL(/\/notes\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('note-entry').first()).toBeVisible();
+  // The full-size view's Chat.
+  await page.getByTestId('note-entry').first().getByTestId('snippet-image').click();
+  await page.getByRole('dialog', { name: 'Snippet' }).getByTestId('zoom-chat').click();
+  await expect(page.getByTestId('promoted-context').filter({ visible: true }).getByTestId('promoted-image')).toBeVisible();
+});
+
+// Owner, 2026-10-21: "In the notes list each needs a very pleasant border around it, so it looks like a bunch of cards."
+test('notes: the list shows each note as a card, apart from the next, in light and dark', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279).');
+  await signIn(page);
+  await page.getByTestId('nav-notes').click();
+  for (const [name, writing] of [['Preference learning', 'Compare the DPO loss with IPO next.'], ['Reading group: alignment', 'Bring the reward-model plot.'],
+    ['Open questions', 'Why does beta matter so much?']]) {
+    await page.getByTestId('new-note').first().click();
+    await page.getByTestId('note-name').fill(name); await page.getByTestId('note-name-save').click();
+    await expect(page.getByTestId('note-title')).toHaveText(name);
+    await page.getByTestId('add-text').click(); await page.getByTestId('composer-comment').fill(writing); await page.getByTestId('composer-save').click();
+    await expect(page.getByTestId('note-entry')).toHaveCount(1);
+    if (await page.getByTestId('notes-back').isVisible()) await page.getByTestId('notes-back').click();
+  }
+  if (phone()) await page.getByTestId('nav-notes').click();
+  const rows = page.getByTestId('note-row');
+  await expect(rows).toHaveCount(3);
+  // A card: rounded, a whole hairline edge (not the old bottom rule), and a gap before the next card.
+  const look = await rows.evaluateAll(all => all.map(row => { const s = getComputedStyle(row), r = row.getBoundingClientRect();
+    return { radius: parseFloat(s.borderTopLeftRadius), top: parseFloat(s.borderTopWidth), bottom: parseFloat(s.borderBottomWidth), left: parseFloat(s.borderLeftWidth), y: r.top, bottomY: r.bottom }; }));
+  for (const card of look) { expect(card.radius).toBeGreaterThanOrEqual(12); expect([card.top, card.bottom, card.left]).toEqual([1, 1, 1]); }
+  for (let i = 1; i < look.length; i++) expect(look[i].y - look[i - 1].bottomY).toBeGreaterThanOrEqual(8);
+  await expect(rows.first()).toContainText('1 entry');
+  await shot(page, 'light-cards');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await shot(page, 'dark-cards');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await rows.filter({ hasText: 'Open questions' }).click();
+  await expect(page.getByTestId('note-title')).toHaveText('Open questions');
+});

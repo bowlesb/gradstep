@@ -175,14 +175,7 @@ extension ReaderModel {
 
     /// Notes › an entry's Open in paper: the paper when it is in the library, at the captured passage where it can be found.
     func openNoteSource(_ entry: NoteEntryRecord) -> Bool {
-        guard let source = entry.source else { return false }
-        let paper = papers.first { paper in
-            if let membership = source.membershipID, paper.sourceMembership?.membershipID == membership { return true }
-            if let id = source.sourceID, paper.sourceID == id, source.kind == .arxiv { return true }
-            if source.kind == .document, let id = source.sourceID.flatMap(UUID.init(uuidString:)), paper.id == id { return true }
-            return false
-        }
-        guard let paper else { return false }
+        guard let source = entry.source, let paper = notePaper(for: source) else { return false }
         if selectedPaper?.id != paper.id || selectedPaper?.artifactID != paper.artifactID { select(paper) }
         referenceNotice = nil
         // The captured passage, as Go to passage finds a chat's: its quote, else its first block on the same reader copy.
@@ -211,6 +204,18 @@ extension ReaderModel {
     func closeSettings() {
         if settingsPresented { settingsPresented = false }
         if tab == .settings { showWideMode(wideMode) }
+    }
+
+    /// A note entry's ⋯ › Chat: a region's full image first (decrypted on this device), then its chat; without the image
+    /// (not downloaded, or a check failed) the chat still starts from its source.
+    func chatAboutNoteEntryLoadingImage(_ entry: NotesState.Entry) {
+        guard entry.record.kind == .region, let media = entry.record.media?.full else {
+            chatAboutNoteEntry(entry, image: nil); return
+        }
+        Task { [weak self] in
+            let image = try? await self?.noteImage(media)
+            self?.chatAboutNoteEntry(entry, image: image?.cgImage)
+        }
     }
 
     /// Notes › Open note after a save, or a note chosen from the list.

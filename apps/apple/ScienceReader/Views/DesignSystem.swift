@@ -259,3 +259,40 @@ private struct InfoBubbleDimming: ViewModifier {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: dimmed)
     }
 }
+
+/// An item shown as a card (DESIGN.md "Cards"; owner, 2026-10-21, the Notes list: "each needs a very pleasant border
+/// around it, so it looks like a bunch of cards"): 16 pt continuous corners, the grouped secondary surface, a hairline
+/// edge and, in light mode, a soft shadow; 14/12 pt padding inside. Selected (the note open beside the list): a light
+/// accent fill and an accent edge; Mac pointer hover: a quiet fill. Solid in every mode, so Reduce Transparency needs
+/// nothing different; Increase Contrast draws an opaque edge.
+struct ContentCard: ViewModifier {
+    var selected = false
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        content
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background {
+                shape.fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .overlay { if selected { shape.fill(Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.08)) }
+                               else if hovered { shape.fill(Color.primary.opacity(0.04)) } }
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0 : 0.05), radius: 6, x: 0, y: 2)
+            }
+            .overlay {
+                shape.strokeBorder(selected ? Color.accentColor.opacity(0.55)
+                                   : Color(uiColor: contrast == .increased ? .opaqueSeparator : .separator),
+                                   lineWidth: selected ? 1.5 : 1)
+            }
+            .contentShape(shape)
+            #if targetEnvironment(macCatalyst)
+            .onHover { hovered = $0 }
+            #endif
+    }
+}
+
+extension View {
+    func contentCard(selected: Bool = false) -> some View { modifier(ContentCard(selected: selected)) }
+}

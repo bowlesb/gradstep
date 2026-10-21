@@ -76,11 +76,14 @@ function PreparedImage({ image, label }: { image: PreparedSnippetImage['full']; 
 }
 
 /** The full-size crop with zoom (a slider and the keyboard), scrollable when enlarged. */
-export function ZoomView({ store, media, label, detail, onClose }: { store: NotesStore; media: MediaDescriptor; label: string; detail: string; onClose: () => void }) {
+export function ZoomView({ store, media, label, detail, onClose, onChat }: { store: NotesStore; media: MediaDescriptor; label: string; detail: string; onClose: () => void;
+  /** Chat about this snippet (owner, 2026-10-21), as a figure's Chat about Figure: nothing is sent. */ onChat?: () => void }) {
   const [url, setURL] = useState<string | null>(null), [failed, setFailed] = useState(false), [zoom, setZoom] = useState(1);
   useEffect(() => { let live = true; store.image(media).then(u => { if (live) setURL(u); }, () => { if (live) setFailed(true); }); return () => { live = false; }; }, [store, media]);
   return <Dialog open onClose={onClose} title="Snippet" wide className="snippet-zoom">
-    <div className="dialog-heading"><h2>Snippet</h2><button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></div>
+    <div className="dialog-heading"><h2>Snippet</h2>
+      {onChat && <button type="button" className="secondary small zoom-chat" onClick={() => { onClose(); onChat(); }} data-testid="zoom-chat"><Icon name="chat" size={14} /> Chat</button>}
+      <button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></div>
     <div className="zoom-stage" tabIndex={0} aria-label={label} data-testid="zoom-stage">
       {failed ? <p className="issue" role="alert">This image couldn’t be shown. It may not have downloaded yet.</p>
         : url ? <img src={url} alt={label} style={{ width: `${zoom * 100}%`, maxWidth: zoom === 1 ? '100%' : 'none' }} /> : <div className="snippet-loading" role="status" aria-label="Loading image" />}
@@ -135,8 +138,9 @@ function SyncIssue({ store }: { store: NotesStore }) {
 type Editing = { kind: 'rename' } | { kind: 'delete-note' } | { kind: 'comment'; entry: EntryView } | { kind: 'delete-entry'; entry: EntryView }
   | { kind: 'entry-versions'; entry: EntryView } | { kind: 'title-versions' } | { kind: 'zoom'; entry: EntryView };
 
-export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, back }: {
+export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, back, onChat }: {
   store: NotesStore; noteID: string; onBack: () => void; onAddText: (noteID: string) => void;
+  /** A snippet's or quotation's Chat (owner, 2026-10-21): a chat about it, nothing sent. */ onChat?: (entry: EntryView) => void;
   /** Open in paper: false when the paper isn't available here (the message explains why). */ onOpenSource: (entry: EntryView) => string | null;
   /** The list isn't beside the note (narrow windows): a Back to Notes control. */ back: boolean;
 }) {
@@ -167,7 +171,8 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
       {note.entries.length ? note.entries.map((entry, index) => {
         const d = dayLabel(entry.record.capturedAt), divider = d !== day ? <div className="note-day" key={`day-${entry.id}`}>{d}</div> : null;
         day = d;
-        return [divider, <Entry key={entry.id} store={store} entry={entry} index={index} onEdit={setEditing} onOpenSource={() => { const issue = onOpenSource(entry); if (issue) setNotice(issue); }} />];
+        return [divider, <Entry key={entry.id} store={store} entry={entry} index={index} onEdit={setEditing} onOpenSource={() => { const issue = onOpenSource(entry); if (issue) setNotice(issue); }}
+          onChat={onChat ? () => onChat(entry) : undefined} />];
       }) : <div className="notes-empty"><h2>A place for your next idea</h2><p className="muted">Add your own writing, or collect a snippet while reading.</p>
         <button className="primary" onClick={() => onAddText(note.id)} disabled={!store.writable || note.incomplete}>Add text</button></div>}
       {note.entries.length > 0 && <button className="link add-text-link" onClick={() => onAddText(note.id)} disabled={!store.writable || note.incomplete}><Icon name="plus" size={14} /> Add text</button>}
@@ -187,16 +192,17 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
     {editing?.kind === 'title-versions' && <VersionsDialog title="Two versions of this title" versions={note.versions.map(v => ({ id: v.eventID, text: v.record.title, at: v.createdAt }))}
       onClose={() => setEditing(null)} onChoose={id => store.chooseTitle(note.id, id)} />}
     {editing?.kind === 'zoom' && editing.entry.record.media && <ZoomView store={store} media={editing.entry.record.media.full} label={`Snippet ${note.entries.indexOf(editing.entry) + 1}`}
-      detail={sourceLine(editing.entry.record.source) || 'Snippet'} onClose={() => setEditing(null)} />}
+      detail={sourceLine(editing.entry.record.source) || 'Snippet'} onClose={() => setEditing(null)} onChat={onChat ? () => onChat(editing.entry) : undefined} />}
   </div>;
 }
 
-function Entry({ store, entry, index, onEdit, onOpenSource }: { store: NotesStore; entry: EntryView; index: number; onEdit: (e: Editing) => void; onOpenSource: () => void }) {
+function Entry({ store, entry, index, onEdit, onOpenSource, onChat }: { store: NotesStore; entry: EntryView; index: number; onEdit: (e: Editing) => void; onOpenSource: () => void; onChat?: () => void }) {
   const r = entry.record, state = store.entryState(entry), label = `Entry ${index + 1}`;
   return <article className={`note-entry kind-${r.kind}`} aria-label={label} data-testid="note-entry">
     <div className="note-entry-top"><span className="fine">{timeLabel(r.capturedAt)} · {kindLabel(r.kind)}</span>
       <MenuButton icon="more" label={`${label} options`} testID="entry-menu">{close => <>
         <button type="button" role="menuitem" className="menu-item" disabled={!store.writable} onClick={() => { close(false); onEdit({ kind: 'comment', entry }); }}><Icon name="pencil" size={14} /> {r.kind === 'text' ? 'Edit writing' : 'Edit comment'}</button>
+        {onChat && r.kind !== 'text' && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onChat(); }} data-testid="entry-chat"><Icon name="chat" size={14} /> Chat</button>}
         {r.source && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onOpenSource(); }}><Icon name="book" size={14} /> Open in paper</button>}
         <button type="button" role="menuitem" className="menu-item danger" disabled={!store.writable} onClick={() => { close(false); onEdit({ kind: 'delete-entry', entry }); }}><Icon name="trash" size={14} /> Delete snippet</button>
       </>}</MenuButton></div>

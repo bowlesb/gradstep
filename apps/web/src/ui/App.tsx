@@ -20,8 +20,9 @@ import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext, summaryTitle, useChatUpdates } from './ChatPane';
 import { ChatOptionsDialog, type ChatOptionsView } from './ChatProfile';
-import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
-import type { ChatSession, Explanation, AIUseCase } from '../lib/chat-session';
+import { AI_USE_CASE_TITLES, aiDefaultsGuide, readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
+import { prepareImageURL, type ChatFigureImage } from '../lib/chat-figures';
+import type { ChatSession, Explanation, AIActivity } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
@@ -30,7 +31,7 @@ import { DiagramsDialog } from './DiagramsDialog';
 import { ExplanationsDialog } from './ExplanationsDialog';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { PaperSearchView, usePaperSearch } from './PaperSearch';
-import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
+import { ListenView, PaperListen, PodcastDock, PodcastWriterDefault, usePodcasts, usePodcastPlayer } from './Podcast';
 import type { MineRequest } from '../lib/podcast';
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
@@ -613,6 +614,46 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     void openReader(paper, a?.manifestSHA256 && (block || entry.record.quote) ? { manifestSHA256: a.manifestSHA256, quote: entry.record.quote ?? '', prefix: '', suffix: '', elementID: block } : undefined);
     return null;
   };
+  // A snippet's or quotation's Chat (owner, 2026-10-21: "a Chat option to launch and talk about the snippet";
+  // NOTES_AND_SNIPPETS.md "Chat about a snippet"): a new chat, nothing sent, as Chat about Figure. A paper readable here:
+  // its chat, with the drawn crop attached to every question as a named figure's image is (consent v3+, paper chats only)
+  // and its source as the passage; a quotation is the passage itself. Otherwise a general chat with the source line as
+  // context (the server takes images only in a paper's chat). The comment is the draft; Back to note returns.
+  const chatAboutEntry = async (entry: EntryView) => {
+    if (!chat || chat.storageRetired || !notes) return;
+    const r = entry.record, s = r.source;
+    if (r.kind === 'text') return;
+    const papers = library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible);
+    const paper = s ? papers.find(e => !!s.membershipID && e.id === s.membershipID)
+      ?? papers.find(e => s.kind === 'arxiv' && !!s.sourceID && e.source_id === s.sourceID && (!s.revision || e.source_revision === s.revision)) : undefined;
+    const documentID = paper && chat.readsPaper(paperIdentity(paper)) ? paperIdentity(paper) : null;
+    const place = [s?.label ?? s?.section, s?.page ? `page ${s.page}` : null].filter(Boolean).join(', ');
+    const title = s ? `“${s.title || 'Untitled paper'}”${place ? ` (${place})` : ''}` : 'a paper';
+    const label = r.kind === 'region' ? `Snippet · ${s?.label ?? s?.section ?? s?.title ?? 'Notes'}` : `Quote · ${s?.title || 'Notes'}`;
+    const block = r.anchor?.blockIDs[0];
+    const paragraph = documentID ? await chat.noteParagraph(documentID, r.anchor?.manifestSHA256 ?? null, block) : null;
+    let image: string | undefined, attachment: ChatFigureImage | undefined;
+    if (r.kind === 'region' && r.media) {
+      const prepared = await notes.image(r.media.full).then(prepareImageURL).catch(() => null);
+      if (prepared) {
+        image = `data:image/jpeg;base64,${prepared.data}`;
+        // F3: the paper's own named figures take F1 and F2 (chatFigureImages, at most two).
+        if (documentID) attachment = { id: 'F3', paragraph: paragraph ?? 1, caption: `A snippet the reader drew from ${title}`, mediaType: 'image/jpeg', data: prepared.data,
+          width: prepared.width, height: prepared.height, blockID: '', assetPath: '', assetPaths: [] };
+      }
+    }
+    const quote = [...(r.kind === 'quote' ? r.quote ?? '' : `A snippet the reader drew from ${title}${paragraph ? ` [¶${paragraph}]` : ''}.`
+      + (attachment ? ' Its image is attached.' : ' Only its source is known here; the image stays on the reader’s device.'))].slice(0, 4000).join('');
+    const anchor = documentID && r.anchor?.manifestSHA256 && block && (r.anchor.quote ?? r.quote)
+      ? { manifestSHA256: r.anchor.manifestSHA256, quote: (r.anchor.quote ?? r.quote)!, prefix: '', suffix: '', elementID: block } : undefined;
+    const visible = chat.current(chatMode === 'paper' && paperContext ? paperContext.documentID : null);
+    const composer = chat.newChat(documentID, chat.profileFor(visible));
+    chat.promoteContextual(composer, { label, quote, anchor, image, attachment, noteReturn: { noteID: r.noteID, entryID: entry.id }, imageSent: !!attachment });
+    if (r.comment) chat.edit(composer, r.comment);
+    if (documentID && paper) { if (!await openPaper(paper)) return; setChatMode('paper'); } else setChatMode('general');
+    latest.current.ws.show('right');
+    requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(`textarea[data-composer-id="${composer.id}"]`)?.focus()));
+  };
   const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => {
     if (!chat || chat.storageRetired || !item) return; // the storage notice explains why nothing is sent
     // The new conversation answers with the model, effort and length the chat pane shows right now.
@@ -726,7 +767,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   } else if (route === 'notes') {
     const listBeside = ws.left.open && ws.left.inline;
     center = !notes ? <div className="empty" role="status"><div className="spinner" /><p>Opening your notes…</p></div>
-      : noteID ? <NoteDetail key={noteID} store={notes} noteID={noteID} back={!listBeside} onBack={() => navigate('/notes')} onOpenSource={openSource}
+      : noteID ? <NoteDetail key={noteID} store={notes} noteID={noteID} back={!listBeside} onBack={() => navigate('/notes')} onOpenSource={openSource} onChat={entry => void chatAboutEntry(entry)}
         onAddText={id => setComposer({ draft: { kind: 'text', source: null, anchor: null, capturedAt: Date.now(), destination: id } })} />
       : listBeside ? <div className="empty notes-choose"><Icon name="notes" size={28} /><p className="muted">Choose a note, or start a new one.</p>
         <button className="secondary" onClick={() => setNewNote(true)} disabled={!notes.writable}>New note</button></div>
@@ -825,7 +866,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : route === 'notes' ? 'Notes' : 'The library'}
           resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}:${noteID ?? ''}`} onReport={report}>{center}</RegionBoundary>}
         right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
-          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} papers={answerPapers} />
+          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} papers={answerPapers}
+            onBackToNote={(noteID, entryID) => { void navigate(`/notes/${noteID}`); void entryID; if (!latest.current.ws.right.inline) latest.current.ws.show('right', false); }} />
         </RegionBoundary>} />
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
       <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} onReport={report} /></RegionBoundary>
@@ -845,7 +887,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
         <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} topics={paperTopics} />
       </RegionBoundary>
-      {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
+      {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} account={account} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
       {chat && <RegionBoundary region="diagrams" label="All diagrams" compact resetKey={diagramsOpen} onReport={report}><DiagramsDialog chat={chat} open={diagramsOpen} onClose={() => setDiagramsOpen(false)} /></RegionBoundary>}
       {chat && explanationsOpen && <RegionBoundary region="explanations" label="Explanations" compact onReport={report}><ExplanationsDialog chat={chat} kind={explanationsOpen}
         onClose={() => setExplanationsOpen(null)}
@@ -911,11 +953,20 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   );
 }
 
-function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view: false | ChatOptionsView; onView: (view: ChatOptionsView) => void; onClose: () => void }) {
+function ChatDefaults({ chat, account, view, onView, onClose }: { chat: ChatSession; account: string; view: false | ChatOptionsView; onView: (view: ChatOptionsView) => void; onClose: () => void }) {
   useChatUpdates(chat);
   const [visualAnswers, setVisualAnswers] = useState(() => readVisualAnswers());
-  const [scenario,setScenario] = useState<AIUseCase>('general');
-  return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.scenarioProfile(scenario)} onChange={next => chat.setScenarioProfile(scenario,next)} scenarioControl={<label>Activity <select value={scenario} onChange={e=>setScenario(e.target.value as AIUseCase)}><option value="general">General chat</option><option value="paper">Paper chat</option><option value="equations">Equation explanations</option><option value="figures">Figures and tables</option></select></label>} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
+  const [scenario,setScenario] = useState<AIActivity>('general');
+  const chatScenario = scenario === 'podcasts' ? 'general' : scenario;
+  // Each activity's ⓘ says what to weigh and when to change it (owner, 2026-10-21; the apps' AIDefaultsGuide). Podcasts
+  // chooses who writes new episodes (owner, 2026-10-21: "Podcasts is missing from defaults in model settings").
+  const activity = <div className="activity-field">
+    <span className="with-info"><label htmlFor="chat-activity">Activity</label><InfoTip text={aiDefaultsGuide(scenario)} testID="activity-guide" /></span>
+    <select id="chat-activity" value={scenario} onChange={e=>setScenario(e.target.value as AIActivity)}>
+      {Object.entries(AI_USE_CASE_TITLES).map(([value, title]) => <option key={value} value={value}>{title}</option>)}<option value="podcasts">Podcasts</option></select></div>;
+  return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.scenarioProfile(chatScenario)} onChange={next => chat.setScenarioProfile(chatScenario,next)}
+    scenarioControl={activity} picker={scenario === 'podcasts' ? <PodcastWriterDefault account={account} /> : undefined}
+    visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
 /** Phone widths (owner direction for Notes, matching the apps): Feed · Library · Paper · Chat · Notes, in that order. */

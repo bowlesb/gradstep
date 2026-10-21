@@ -246,9 +246,16 @@ final class PodcastJourneyTests: XCTestCase {
     private func askForLoRA(_ app: XCUIApplication) {
         let paper = app.buttons[lora]
         XCTAssertTrue(paper.waitForExistence(timeout: 10))
+        #if targetEnvironment(macCatalyst)
+        // The Mac's context menu: a secondary click, its items are menu items.
+        paper.rightClick()
+        let listen = app.windows.menuItems["Listen"].firstMatch
+        XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.click()
+        #else
         paper.press(forDuration: 1.2)
         let listen = app.buttons["Listen"]
         XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
+        #endif
     }
 
     private func price(_ app: XCUIApplication) -> XCUIElement { app.staticTexts["podcast.generate.price"] }
@@ -313,6 +320,76 @@ final class PodcastJourneyTests: XCTestCase {
         waitFor("The ready episode plays") { app.buttons["podcast.player.toggle"].label == "Pause" }
         app.buttons["Done"].tap()
         waitFor("Played: no longer New") { !ready.label.contains("new") }
+    }
+
+    /// Owner, 2026-10-21: "Podcasts is missing from defaults in model settings" and "There should be an explainer saying
+    /// some considerations when choosing the default for each category". Settings › AI defaults by activity › Podcasts
+    /// lists the writers the server offers (its default first); the chosen one is preselected in Make an episode. Each
+    /// activity's ⓘ and the section's ⓘ explain what to weigh. Light and dark screenshots for the visual review.
+    func testSettingsChoosesWhoWritesNewEpisodes() {
+        for appearance in ["light", "dark"] {
+            let app = launch(["--chat-fixture", "--chat-fixture-consented", "-appearance", appearance])
+            app.show("settings")
+            let row = app.buttons["settings.aiScenario.podcasts"]
+            for _ in 0..<10 where !(row.exists && row.isHittable) { app.swipeUp() }
+            XCTAssertTrue(row.waitForExistence(timeout: 10), "Podcasts sits with the other activities")
+            XCTAssertTrue(app.buttons["settings.aiScenario.figures"].exists)
+            waitFor("The row names the server's default writer") { row.label.contains("DeepSeek V4 Pro") }
+            let sectionGuide = app.buttons["settings.aiDefaults.guide"]
+            XCTAssertTrue(sectionGuide.exists, "The section's ⓘ")
+            sectionGuide.tap()
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "if credits run low (a cheaper one)")).firstMatch.waitForExistence(timeout: 5))
+            capture(app, "Settings AI defaults guide \(appearance)")
+            app.otherElements["PopoverDismissRegion"].firstMatch.tap()
+            sleep(1) // the ⓘ bubble's dimming fades
+            capture(app, "Settings AI defaults by activity \(appearance)")
+            row.tap()
+
+            let deepseek = app.buttons["settings.podcastWriter.deepseek"], sonnet = app.buttons["settings.podcastWriter.anthropic"]
+            XCTAssertTrue(deepseek.waitForExistence(timeout: 10), "Only the writers the server lists")
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.podcastWriter.")).count, 3, "two writers and Use recommended default")
+            XCTAssertTrue(deepseek.isSelected, "the server's default until the reader chooses")
+            sonnet.tap()
+            waitFor("Sonnet is the default now") { sonnet.isSelected && !deepseek.isSelected }
+            app.buttons["settings.aiScenario.guide"].tap()
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "a long output, so its cost adds up")).firstMatch.waitForExistence(timeout: 5))
+            capture(app, "Podcasts default guide \(appearance)")
+            app.otherElements["PopoverDismissRegion"].firstMatch.tap()
+            sleep(1)
+            capture(app, "Podcasts default \(appearance)")
+            app.navigationBars["Podcasts"].buttons.firstMatch.tap()
+            waitFor("The row names the chosen writer") { row.label.contains("Claude Sonnet 5.5") }
+            if appearance == "light" {
+                // A chat activity's page has its own ⓘ too.
+                app.buttons["settings.aiScenario.equations"].tap()
+                app.buttons["settings.aiScenario.guide"].tap()
+                XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "reward careful reasoning")).firstMatch.waitForExistence(timeout: 5))
+                capture(app, "Equation explanations guide")
+                app.otherElements["PopoverDismissRegion"].firstMatch.tap()
+                app.navigationBars["Equation explanations"].buttons.firstMatch.tap()
+            }
+            // (The Mac's Settings is a window mode with no Done; the app is relaunched below either way.)
+            if app.navigationBars["Settings"].buttons["Done"].exists { app.navigationBars["Settings"].buttons["Done"].tap() }
+
+            // Make an episode starts with that writer (the chat fixture has its own library: relaunch on the podcast
+            // library, keeping this device's settings).
+            app.terminate()
+            let library = launch(["--library-metadata-fixture", "-appearance", appearance], reset: false)
+            askForLoRA(library)
+            let writer = library.segmentedControls["podcast.writer"]
+            XCTAssertTrue(writer.waitForExistence(timeout: 10))
+            XCTAssertTrue(writer.buttons["Claude Sonnet 5.5"].isSelected, "the default from Settings")
+            let start = makeEpisode(library)
+            waitFor("Priced with that writer", timeout: 10) { start.exists && start.isEnabled }
+            XCTAssertFalse(privacyMentions(library, "DeepSeek"), library.staticTexts["podcast.generate.privacy"].label)
+            capture(library, "Make an episode with the Settings default \(appearance)")
+            library.terminate()
+        }
+    }
+
+    private func privacyMentions(_ app: XCUIApplication, _ provider: String) -> Bool {
+        let privacy = app.staticTexts["podcast.generate.privacy"]
+        return privacy.exists && privacy.label.contains("sent to \(provider)")
     }
 
     /// Lengths: Short · 5 min · 10 min · 20 min, each with its own maximum; the chosen length is priced as soon as it

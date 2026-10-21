@@ -1314,13 +1314,24 @@ struct SettingsView: View {
                     } header: { Text("AI credits") }
                 }
                 if model.chatTransport != nil {
-                    Section("AI defaults by activity") {
+                    Section {
                         ForEach(AIUseCase.allCases) { scenario in
                             NavigationLink { AIScenarioDefaults(model: model, scenario: scenario) } label: {
                                 LabeledContent(scenario.title, value: model.localDefault(for: scenario).map { "\(model.localAI.name($0)) (local)" }
                                     ?? (model.chatProfileTable?.label(model.profileDefault(for: scenario).model) ?? model.profileDefault(for: scenario).model.label))
                             }.accessibilityIdentifier("settings.aiScenario.\(scenario.rawValue)")
                         }
+                        // Owner, 2026-10-21: "Podcasts is missing from defaults in model settings" — who writes new episodes.
+                        if model.podcasts.writerSettingAvailable {
+                            NavigationLink { PodcastWriterDefaults(model: model) } label: {
+                                LabeledContent("Podcasts", value: model.podcasts.effectiveDefaultWriter?.label ?? "Default")
+                            }
+                            .accessibilityIdentifier("settings.aiScenario.podcasts")
+                            .onAppear { model.podcasts.prepareListen() }
+                        }
+                    } header: {
+                        // Owner, 2026-10-21: "an explainer saying some considerations when choosing the default for each category".
+                        AIDefaultsHeader(title: "AI defaults by activity", info: AIDefaultsGuide.section, identifier: "settings.aiDefaults.guide")
                     }
                     // Owner, build 59: "it should say default options for new chats… the actual toggles belong with the
                     // rest of the toggles, all the info can stay in the special info section… accessible with another

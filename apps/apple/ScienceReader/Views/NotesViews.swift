@@ -178,9 +178,14 @@ struct NotesList: View {
                     .accessibilityIdentifier("notes.problems")
             }
             ForEach(notes) { note in
-                Button { model.notes.openNoteID = note.id } label: { NoteRow(model: model, note: note) }
+                // Each note is a card (owner, 2026-10-21: "each needs a very pleasant border around it, so it looks like
+                // a bunch of cards"; DESIGN.md "Cards"), 10 pt apart, inside the 16 pt margins.
+                Button { model.notes.openNoteID = note.id } label: { NoteRow(model: model, note: note).contentCard(selected: note.id == selection) }
                     .buttonStyle(.plain)
                     .tag(note.id)
+                    .listRowInsets(EdgeInsets(top: 5, leading: DesignMetrics.margin, bottom: 5, trailing: DesignMetrics.margin))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                     .accessibilityIdentifier("notes.row.\(note.title)")
                     .contextMenu {
                         Button { actions.rename(note) } label: { Label("Rename", systemImage: "pencil") }
@@ -190,7 +195,6 @@ struct NotesList: View {
                         Button(role: .destructive) { actions.delete(note) } label: { Label("Delete", systemImage: "trash") }
                         Button { actions.rename(note) } label: { Label("Rename", systemImage: "pencil") }.tint(.accentColor)
                     }
-                    .macRowHover()
             }
         }
         .listStyle(.plain)
@@ -259,7 +263,6 @@ struct NoteRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -428,6 +431,11 @@ struct NoteEntryView: View {
                 Menu {
                     MenuRow(record.kind == .text ? "Edit text" : "Edit comment", systemImage: "pencil", action: edit)
                         .accessibilityIdentifier("entry.edit")
+                    // Owner, 2026-10-21: a Chat option to talk about the snippet (nothing is sent until the reader asks).
+                    if record.kind != .text {
+                        MenuRow("Chat", systemImage: "bubble.left.and.text.bubble.right") { model.chatAboutNoteEntryLoadingImage(entry) }
+                            .accessibilityIdentifier("entry.chat")
+                    }
                     if record.source != nil {
                         MenuRow("Open in paper", systemImage: "doc.text") { if !model.openNoteSource(record) { details() } }
                             .accessibilityIdentifier("entry.openInPaper")
@@ -573,7 +581,19 @@ struct SnippetZoomView: View {
                 else { ProgressView() }
             }
             .navigationTitle(entry.record.source?.label ?? "Snippet").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("zoom.done") } }
+            .toolbar {
+                // Chat about this snippet (owner, 2026-10-21), as a figure's Chat about Figure: a chat with it attached, nothing sent.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        let shown = image?.cgImage
+                        dismiss()
+                        if let shown { model.chatAboutNoteEntry(entry, image: shown) } else { model.chatAboutNoteEntryLoadingImage(entry) }
+                    } label: { Text("Chat") }
+                    .accessibilityHint("A chat about this snippet; nothing is sent until you ask.")
+                    .accessibilityIdentifier("zoom.chat")
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("zoom.done") }
+            }
             .task {
                 guard let media = entry.record.media?.full else { return }
                 do { image = try await model.noteImage(media) } catch { failed = NoteImageView.message(error) }

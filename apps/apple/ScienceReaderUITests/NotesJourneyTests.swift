@@ -179,6 +179,51 @@ final class NotesJourneyTests: XCTestCase {
         capture("Notes empty after delete")
     }
 
+    /// Owner, 2026-10-21: "In the snippet options when viewing it in a figure, there should be a Chat option to launch and
+    /// talk about the snippet." The entry's ⋯ › Chat and the full-size view's Chat open the paper's chat with the crop
+    /// attached and the comment as the draft, nothing sent; Back to note returns to the entry.
+    func testSnippetChatAttachesTheCropAndReturnsToTheNote() throws {
+        let app = launch(["--chat-fixture", "--chat-fixture-consented"])
+        try requirePhoneLayout(app)
+        let web = openSample(app)
+        drawSnippet(app, web: web, from: CGVector(dx: 0.08, dy: 0.18), to: CGVector(dx: 0.92, dy: 0.42))
+        let save = app.buttons["composer.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        let comment = app.textFields["composer.comment"].exists ? app.textFields["composer.comment"] : app.textViews["composer.comment"]
+        comment.tap(); comment.typeText("Why does it level off?")
+        waitFor("Save is ready") { save.isEnabled }
+        save.tap()
+        XCTAssertTrue(app.buttons["notes.saved.open"].waitForExistence(timeout: 10)); app.buttons["notes.saved.open"].tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10))
+
+        // ⋯ › Chat.
+        app.buttons["entry.options.1"].tap()
+        let chat = app.buttons["entry.chat"]
+        XCTAssertTrue(chat.waitForExistence(timeout: 5), "The snippet's options offer Chat")
+        capture("Snippet options with Chat")
+        chat.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.promotedImage"].waitForExistence(timeout: 10), "The crop is attached in the chat")
+        XCTAssertTrue(app.staticTexts["chat.promotedImageNote"].label.contains("goes with your questions"), "It is sent with the questions")
+        XCTAssertTrue(app.staticTexts["chat.promotedContext"].label.hasPrefix("Snippet"))
+        let composer = app.descendants(matching: .any)["chat.composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        waitFor("The comment is the draft") { ((composer.value as? String) ?? composer.label).contains("Why does it level off?") }
+        XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.")).count, 0, "Nothing was sent")
+        capture("Snippet chat with the crop attached")
+        app.buttons["chat.backToNote"].tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10), "Back to note returns to the entry")
+
+        // The full-size view's Chat.
+        app.buttons["entry.image.1"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["zoom.image"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["zoom.chat"].exists, "Full size offers Chat")
+        capture("Snippet full size with Chat")
+        app.buttons["zoom.chat"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.promotedImage"].waitForExistence(timeout: 10))
+        app.buttons["chat.backToNote"].tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10))
+    }
+
     /// The selection menu's Add to note keeps the passage as a quotation.
     func testAddSelectionToNote() throws {
         let app = launch()
@@ -363,6 +408,56 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         app.navigationBars["Settings"].buttons["Done"].tap()
         XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10), "Done returns to the note")
+    }
+
+    /// Owner, 2026-10-21: "In the notes list each needs a very pleasant border around it, so it looks like a bunch of
+    /// cards." Three notes as cards, apart from each other, with their swipe and long-press actions still working; light
+    /// and dark screenshots on every layout (the phone's list, the wide layout's list beside the note).
+    func testNotesListShowsCards() throws {
+        for appearance in ["light", "dark"] {
+            let app = launch(appearance: appearance)
+            let wideMode = app.wideMode("Notes")
+            let wide = !app.buttons["tab.notes"].exists
+            if wide { XCTAssertTrue(wideMode.waitForExistence(timeout: 5)); wideMode.tap() } else { app.buttons["tab.notes"].tap() }
+            for title in ["Preference learning", "Reading group: alignment", "Open questions"] {
+                app.buttons["notes.new"].firstMatch.tap()
+                let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch
+                XCTAssertTrue(name.waitForExistence(timeout: 5)); name.typeText(title)
+                (app.alerts.buttons["Create"].exists ? app.alerts.buttons["Create"] : app.buttons["Create"]).tap()
+                XCTAssertTrue(app.buttons["note.empty.addText"].waitForExistence(timeout: 10), "The new note opens")
+                if !wide { app.navigationBars.buttons.firstMatch.tap() }
+            }
+            let rows = ["Preference learning", "Reading group: alignment", "Open questions"].map { app.buttons["notes.row.\($0)"] }
+            for row in rows { XCTAssertTrue(row.waitForExistence(timeout: 10)) }
+            // (A row's accessibility frame is its whole list cell, insets included; the card's edge and gaps are checked
+            // in the screenshots below.)
+            capture("Notes cards \(appearance)\(wide ? " wide" : "")")
+            if appearance == "light" {
+                #if !targetEnvironment(macCatalyst)
+                // Swipe keeps Delete and Rename (phone and iPad).
+                rows[0].swipeLeft()
+                XCTAssertTrue(app.buttons["Delete"].waitForExistence(timeout: 5), "Swipe offers Delete")
+                XCTAssertTrue(app.buttons["Rename"].exists, "and Rename")
+                capture("Notes card swiped")
+                rows[0].swipeRight()
+                #endif
+                // Long-press (the Mac's secondary click) keeps the same actions.
+                #if targetEnvironment(macCatalyst)
+                rows[1].rightClick()
+                #else
+                rows[1].press(forDuration: 1.0)
+                #endif
+                XCTAssertTrue(app.buttons["Rename"].waitForExistence(timeout: 5) || app.menuItems["Rename"].waitForExistence(timeout: 2))
+                capture("Notes card actions")
+                #if targetEnvironment(macCatalyst)
+                app.typeKey(.escape, modifierFlags: [])
+                #else
+                app.otherElements["PopoverDismissRegion"].firstMatch.exists ? app.otherElements["PopoverDismissRegion"].firstMatch.tap()
+                    : app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+                #endif
+            }
+            app.terminate()
+        }
     }
 
     /// Light and dark screenshots of the Notes list, a note and the composer (visual review).
