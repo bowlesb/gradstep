@@ -784,6 +784,45 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(body["p_tags"] as? [String], [], "The stored list, so the server keeps the keywords derived")
     }
 
+    /// A4: signing out cancels the account's background downloads and clears their progress, so no row stays
+    /// "Downloading…" and the next session can prepare the paper again.
+    func testSignOutCancelsBackgroundPreparationAndClearsItsState() async throws {
+        try importNetwork(); try importReplies(delay: 2)
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        let paper = try await importPaper(server, model: model)
+        model.prepareOnDevice(paper)
+        try await renderReady("HTML request started") { !ImportAcceptanceProtocol.requests.isEmpty }
+        XCTAssertTrue(model.isPreparingOnDevice(paper))
+        let session = model.sessionID
+        await model.signOut()
+        XCTAssertNotEqual(model.sessionID, session)
+        XCTAssertFalse(model.isPreparingOnDevice(paper))
+        // The fixture's baseline also has an accepted import of a paper already in the library: clearing the rows at
+        // sign-out once started that paper's download for the old account.
+        XCTAssertTrue(model.devicePreparations.isEmpty, "\(model.devicePreparations)")
+        XCTAssertTrue(model.devicePreparationIssues.isEmpty, "\(model.devicePreparationIssues)")
+        XCTAssertNil(model.deviceModelRun)
+        XCTAssertNil(model.chatProfileTable, "The next account fetches its own profile table")
+    }
+
+    /// A7: opening a paper whose background download is under way joins it: every source is requested once, and the
+    /// open shows the paper when that download installs it.
+    func testOpeningAPaperJoinsItsBackgroundDownloadInsteadOfRestartingIt() async throws {
+        try importNetwork(); try importReplies(delay: 1)
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        let paper = try await importPaper(server, model: model)
+        model.prepareOnDevice(paper)
+        try await renderReady("HTML request started") { !ImportAcceptanceProtocol.requests.isEmpty }
+        model.select(paper)
+        XCTAssertEqual(model.openingPaperID, paper.id)
+        XCTAssertTrue(model.isPreparingOnDevice(paper), "The background download keeps going")
+        try await importOpened(model)
+        let requested = ImportAcceptanceProtocol.requests
+        XCTAssertEqual(requested.count, 11, "One HTML page and ten images")
+        XCTAssertEqual(Set(requested).count, requested.count, "No source was requested twice")
+        XCTAssertEqual(model.deviceCopy(for: paper), .reader)
+    }
+
     func testOfflineImportAbsentHTMLDownloadsAndReopensPDFWithoutUpload() async throws {
         try importNetwork(); try importReplies(htmlStatus: 404)
         let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model

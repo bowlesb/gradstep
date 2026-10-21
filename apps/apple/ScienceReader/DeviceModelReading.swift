@@ -6,6 +6,8 @@ import ScienceReaderCore
 /// A reading by the on-device model in progress (docs/architecture/DEVICE_PDF_ROUTE.md): the layout of every page
 /// first, then the pages in order, each with its formulas.
 struct DeviceModelRun: Equatable {
+    /// This run, apart from a later one of the same paper: a cancelled run's late cleanup must not end the next.
+    let id = UUID()
     let paperID: UUID
     let started: Date
     var pages = 0, layoutPages = 0, pagesRead = 0
@@ -197,7 +199,10 @@ extension ReaderModel {
             if wideMode != .browse { wideMode = .reader }
             generalChat = false
         }
-        deviceModelRun = DeviceModelRun(paperID: paper.id, started: Date())
+        let started = DeviceModelRun(paperID: paper.id, started: Date()), runID = started.id
+        deviceModelRun = started
+        // A cancelled reading still unwinding finishes first, so two model loads never overlap in memory.
+        let unwinding = deviceModelUnwinding
         // The screen stays on while the model reads: auto-lock would pause the app and stop its GPU work.
         // On the Mac, idle sleep would pause it the same way.
         #if !targetEnvironment(macCatalyst)
@@ -208,14 +213,19 @@ extension ReaderModel {
         deviceModelTask = Task { [weak self] in
             guard let self else { return }
             defer {
-                #if !targetEnvironment(macCatalyst)
-                UIApplication.shared.isIdleTimerDisabled = false
-                #else
+                #if targetEnvironment(macCatalyst)
                 ProcessInfo.processInfo.endActivity(awake)
                 #endif
-                if self.sessionID == scope, self.deviceModelRun?.paperID == paper.id { self.deviceModelRun = nil; self.deviceModelTask = nil }
+                // Only this run's own cleanup: a cancelled run unwinding late must not end a newer one.
+                if self.deviceModelRun?.id == runID { self.deviceModelRun = nil; self.deviceModelTask = nil }
+                #if !targetEnvironment(macCatalyst)
+                // A newer run keeps the screen awake.
+                if self.deviceModelRun == nil { UIApplication.shared.isIdleTimerDisabled = false }
+                #endif
             }
+            await unwinding?.value
             do {
+                try Task.checkCancellation()
                 if !again, let modelStore, let kept = await modelStore.record(sourceID: source.sourceID, revision: source.revision) {
                     let bundle = try await modelStore.read(kept.identity)
                     guard self.sessionID == scope else { return }
@@ -225,7 +235,7 @@ extension ReaderModel {
                 let pdf = try await load()
                 let (bundle, summary) = try await DeviceModelEngine.read(pdf: pdf, name: "\(source.sourceID)v\(source.revision).pdf", title: paper.title, source: source) { stage in
                     Task { @MainActor [weak self] in
-                        guard let self, self.sessionID == scope, var run = self.deviceModelRun, run.paperID == paper.id else { return }
+                        guard let self, self.sessionID == scope, var run = self.deviceModelRun, run.id == runID else { return }
                         switch stage {
                         case .layout(let page, let of): run.layoutPages = page; run.pages = of
                         case .reading(let done, let of): run.pagesRead = done; run.pages = of; run.layoutPages = of; run.formulasDone = 0; run.formulasTotal = 0
@@ -260,7 +270,7 @@ extension ReaderModel {
     }
 
     func cancelDeviceModelReading() {
-        deviceModelTask?.cancel(); deviceModelTask = nil; deviceModelRun = nil
+        deviceModelTask?.cancel(); deviceModelUnwinding = deviceModelTask; deviceModelTask = nil; deviceModelRun = nil
         #if !targetEnvironment(macCatalyst)
         UIApplication.shared.isIdleTimerDisabled = false
         #endif

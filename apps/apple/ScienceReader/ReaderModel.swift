@@ -189,12 +189,16 @@ final class ReaderModel {
             // An import this device watched finish is prepared here as soon as its paper appears (owner, build 42: "I
             // press Add… it just sits there… I click on it: it gives me another Downloading screen?").
             let active: Set<LibraryImportPhase> = [.accepted, .resolving, .acquiring]
-            for old in oldValue where active.contains(old.phase) {
-                if let sourceID = old.sourceID, !libraryImports.contains(where: { $0.id == old.id && active.contains($0.phase) }) { finishedImportSources.insert(sourceID) }
-            }
-            // The paper may already be in the library when the import row goes (build 44: LensErase stayed a cloud).
-            for sourceID in finishedImportSources {
-                if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper, automatic: true) } }
+            // Sign-out clears every row (with the account already gone): that is not an import finishing, and must not
+            // start a download for the old account.
+            if accountID != nil {
+                for old in oldValue where active.contains(old.phase) {
+                    if let sourceID = old.sourceID, !libraryImports.contains(where: { $0.id == old.id && active.contains($0.phase) }) { finishedImportSources.insert(sourceID) }
+                }
+                // The paper may already be in the library when the import row goes (build 44: LensErase stayed a cloud).
+                for sourceID in finishedImportSources {
+                    if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper, automatic: true) } }
+                }
             }
             let now = importClock()
             importSteps.observe(libraryImports, now: now)
@@ -275,6 +279,8 @@ final class ReaderModel {
     /// The HTML copy shown before a model reading took its place, to go back to.
     @ObservationIgnored var deviceModelHTMLBundles: [UUID: VerifiedReaderBundle] = [:]
     @ObservationIgnored var deviceModelTask: Task<Void, Never>? = nil
+    /// A cancelled reading still unwinding; the next one waits for it.
+    @ObservationIgnored var deviceModelUnwinding: Task<Void, Never>? = nil
     /// Why a preparation failed, in the reader's words; never source text.
     static func preparationReason(_ error: Error) -> String {
         if let known = error as? ArxivHTMLError { return known.message }
@@ -759,12 +765,12 @@ final class ReaderModel {
     /// Fetches the server's table once per session (again after a failure, when the controls open).
     func refreshChatProfiles(force: Bool = false) {
         guard let transport = chatTransport, let accountID, chatProfileFetch == nil, force || chatProfileTable == nil else { return }
-        let fetch = UUID()
+        let fetch = UUID(), scope = sessionID
         chatProfileFetch = fetch
         chatProfilesRefreshing = true
         Task { [weak self] in
             let table = try? await transport.chatProfiles(accountID: accountID)
-            guard let self, self.chatProfileFetch == fetch else { return }
+            guard let self, self.sessionID == scope, self.chatProfileFetch == fetch else { return }
             self.chatProfileFetch = nil
             self.chatProfilesRefreshing = false
             if let table { self.chatProfileTable = table }
@@ -2114,8 +2120,16 @@ final class ReaderModel {
         let oldBundles = readerBundles; readerBundles = nil
         oldBundles?.close()
         readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil; offlineCacheIssue = nil
-        localReaderTask?.cancel(); localReaderTask = nil; localReaderOpeningID = nil; localReaderRecords = []
+        localReaderTask?.cancel(); localReaderTask = nil; localReaderOpeningID = nil; localReaderRecords = []; openingProgress = nil
         localPaperRecords = []; localPaperDownloads = []; localPaperPresentation = nil
+        // Per-paper work this session started: the tasks' own cleanups are fenced to the session and never run once it
+        // changes, so they are cancelled and their state cleared here (rows would otherwise stay "Downloading…").
+        for task in devicePreparationTasks.values { task.cancel() }
+        devicePreparationTasks = [:]; devicePreparations = [:]; devicePreparationIssues = [:]
+        readerUpdates = [:]; failedHTMLOpens = []; legacyBundleFallback = []; finishedImportSources = []
+        cancelDeviceModelReading(); deviceModelIssue = nil; deviceModelSummaries = [:]; deviceModelHTMLBundles = [:]
+        chatProfileFetch = nil; chatProfilesRefreshing = false; chatProfileTable = nil; chatProfileTableFailed = false
+        pendingChatProfiles = [:]; chatStudyMaps = [:]; chatFollowUps = [:]
         let oldLibrary = libraryService; libraryService = nil; libraryContextAuthenticated = false
         Task { await oldLibrary?.invalidate() }
         libraryImports = []; libraryCreationSequences = [:]; presentedImportIDs = []; libraryPublicationGeneration = 0
@@ -2979,7 +2993,12 @@ final class ReaderModel {
             guard let self else { return }
             defer { if self.sessionID == scope { self.devicePreparations[paper.id] = nil; self.devicePreparationTasks[paper.id] = nil } }
             let report: @Sendable (Double) -> Void = { [weak self] fraction in
-                Task { @MainActor in guard let self, self.sessionID == scope, self.devicePreparationTasks[paper.id] != nil else { return }; self.devicePreparations[paper.id] = fraction }
+                Task { @MainActor in
+                    guard let self, self.sessionID == scope, self.devicePreparationTasks[paper.id] != nil else { return }
+                    self.devicePreparations[paper.id] = fraction
+                    // An open that joined this preparation shows its progress.
+                    if self.localReaderOpeningID == paper.id { self.openingProgress = fraction }
+                }
             }
             do {
                 let sink = await self.sourceMetadataSink(for: paper, source: source)
@@ -3140,11 +3159,14 @@ final class ReaderModel {
         if localReaderOpeningID == paper.id { return }
         if userInitiated { failedHTMLOpens.remove(paper.id) } else if failedHTMLOpens.contains(paper.id) { return }
         localReaderTask?.cancel()
-        // Opening takes over from a background preparation of the same paper.
-        devicePreparationTasks[paper.id]?.cancel(); devicePreparationIssues[paper.id] = nil
+        // Opening joins a background preparation of the same paper (its progress shows here) rather than starting the
+        // download again from zero: twice the arXiv requests, against the device pacing.
+        let background = devicePreparationTasks[paper.id]
+        devicePreparationIssues[paper.id] = nil
         guard !workOwnership.isActivating, !libraryPublicationDeferred, let store = localPersistence.localReaderStore else { return }
         let scope = sessionID, persistence = localPersistence
-        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil
+        localReaderOpeningID = paper.id; openingPaperID = paper.id; readerOpenIssue = nil
+        openingProgress = background == nil ? nil : devicePreparations[paper.id]
         // The same paper, whichever row it is shown from (a legacy item keeps its document identity).
         let same: (Paper) -> Bool = { $0.id == paper.id && $0.sourceMembership == paper.sourceMembership }
         localReaderTask = Task { [weak self] in
@@ -3158,6 +3180,12 @@ final class ReaderModel {
                 Task { @MainActor in guard let self, self.sessionID == scope, self.localReaderOpeningID == paper.id else { return }; self.openingProgress = fraction }
             }
             do {
+                if let background {
+                    await background.value
+                    try Task.checkCancellation()
+                    // It installed the copy (opened below), or failed: then this open, the reader's own action, tries.
+                    if self.sessionID == scope { self.devicePreparationIssues[paper.id] = nil }
+                }
                 let bundle: VerifiedReaderBundle
                 if let record = await store.record(sourceID: source.sourceID, revision: source.revision) {
                     let reopened = try await store.read(record.identity)
