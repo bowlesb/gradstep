@@ -188,6 +188,13 @@ function derive(data: HealthData, budget: Budget | null) {
     const top = Object.entries(data.reliability.podcast_failure_codes).sort((a, b) => b[1] - a[1])[0];
     attention.push({ tone: 'warning', text: `${data.reliability.podcasts_failed} of ${data.use.podcasts_started} podcast episodes failed${top ? `, most often “${codeName(top[0])}”` : ''}.` });
   }
+  // Review A4 (migration 0101): a price card lapsing within six weeks. Chat stops offering its model a day before.
+  for (const t of data.tariffs?.expiring ?? []) {
+    const days = Math.ceil((Date.parse(t.valid_until) - Date.parse(data.generated_at)) / 86_400_000);
+    attention.push({ tone: 'warning', text: days > 0
+      ? `The OpenRouter price card for ${t.model} ends in ${plural(days, 'day')} (${formatDay(t.valid_until.slice(0, 10), dayLong)}). Check the current price, then renew it with scripts/pipeline-ops.py tariff-renew; chat stops offering the model a day before.`
+      : `The OpenRouter price card for ${t.model} has ended: the model is not offered and its requests are refused. Renew it after checking the current price (scripts/pipeline-ops.py tariff-renew).` });
+  }
   // Our servers never contact arXiv (ARXIV_DEVICE_ONLY.md §6.5): any attempt in the last hour, refused or not, is shown.
   const arxiv = (data.providers?.last_hour ?? []).find(r => r.provider === 'arxiv');
   if (arxiv && arxiv.calls > 0) attention.push({ tone: 'warning', text: `Our servers tried to reach arXiv ${arxiv.calls.toLocaleString()} time${arxiv.calls === 1 ? '' : 's'} in the last hour. They must never contact arXiv: find the caller in the logs (event arxiv_egress).` });

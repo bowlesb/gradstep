@@ -185,6 +185,8 @@ export interface Health {
   /** Migration 128 (PRIVACY_AND_SYNC.md, review A22): closed accounts still holding personal rows, a login or files; `stalled`
    * is over 30 days after closing. Counts and one failure code only. Absent on older servers. */
   account_deletions?: { unfinished: number; retrying: number; stalled: number; oldest_closed_at: string | null; top_code: string | null };
+  /** Migration 0101 (review A4): OpenRouter price cards that lapse within `warn_days`. Absent on older servers. */
+  tariffs?: { warn_days: number; soonest_valid_until: string | null; expiring: { model: string; tariff: string; valid_until: string }[] };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

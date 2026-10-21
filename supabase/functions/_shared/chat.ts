@@ -538,6 +538,9 @@ export interface ChatDependencies {
   deepseek?: boolean;
   gemini?: boolean;
   claudeOpenRouter?: boolean;
+  /** Whether an admitted model's reviewed price card stays valid for this answer (A4, migration 0101: the chat function
+   * reads app_private.openrouter_tariffs). Absent: every model is open and admission alone decides. */
+  modelAvailable?: (apiModel: string) => Promise<boolean>;
   sha256Hex(bytes: Uint8Array): Promise<string>;
   log(entry: LogEntry): void;
   now?: () => number;
@@ -629,6 +632,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
   if (profile.model === 'gemini' && deps.gemini !== true) throw new ChatFailure('invalid_request');
   if (profile.model === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
+  // A4: a model whose price card lapses before this answer could finish is unavailable (no hold, no retry loop); the
+  // title, suggestions and map run only while their own model's card holds.
+  if (deps.modelAvailable && !await deps.modelAvailable(profile.apiModel)) throw new ChatFailure('model_unavailable');
+  const sidesAvailable = !deps.modelAvailable || await deps.modelAvailable(routeAux({ model: TITLE_MODEL } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming).model);
   const tavily = await tavilyReady === true;
   // Anthropic's own search tool exists only on Anthropic; DeepSeek searches through our Tavily tool or not at all.
   const nativeSearch = search && deps.nativeSearch === true && profile.provider === 'anthropic';
@@ -713,14 +720,14 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);
   }
   // The topic title is a second, small request in the same operation: its whole ceiling is held too.
-  const titleParams = request.topicTitle ? routeAux(titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null })) : null;
+  const titleParams = request.topicTitle && sidesAvailable ? routeAux(titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null })) : null;
   const titleHold = titleParams ? holdForParams(titleParams) : null;
   if (titleHold) hold.microusd += titleHold.microusd;
   // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
-  const followUpHold = request.followUps && !repair && request.action !== 'ingest' ? holdForParams(routeAux(FOLLOW_UP_HOLD_PARAMS)) : null;
+  const followUpHold = request.followUps && sidesAvailable && !repair && request.action !== 'ingest' ? holdForParams(routeAux(FOLLOW_UP_HOLD_PARAMS)) : null;
   if (followUpHold) hold.microusd += followUpHold.microusd;
   // Study: the knowledge-map request after the answer is held at its largest (a full map, both excerpts at their limits).
-  const studyHold = study ? holdForParams(routeAux(STUDY_HOLD_PARAMS)) : null;
+  const studyHold = study && sidesAvailable ? holdForParams(routeAux(STUDY_HOLD_PARAMS)) : null;
   if (studyHold) hold.microusd += studyHold.microusd;
   hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
@@ -998,6 +1005,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   }
   // An unfunded provider cannot recover by retrying the same request. Keep the operator's billing detail private,
   // but let the reader choose another model instead of repeatedly suggesting a retry. Settlement above is unchanged.
+  // A4: a card that lapsed between the check above and admission: the model is unavailable, not a fault to retry.
+  if (outcome.rejectionReason === 'tariff_expired') {
+    emit({ event: 'error', data: { code: 'model_unavailable', credits: reportedCredits, ...billing } });
+    return;
+  }
   if (ending === 'provider' && outcome.failure === 'provider_billing') {
     emit({ event: 'error', data: { code: 'model_unavailable', credits: reportedCredits, ...billing } });
     return;

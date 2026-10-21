@@ -210,6 +210,8 @@ export interface PublishOptions {
   /** Off/hidden until consent, accounting and the deployed adapter are verified. */
   gemini?: boolean;
   claudeOpenRouter?: boolean;
+  /** Whether a model's reviewed price card stays valid long enough to offer it (A4, migration 0101); absent: all are. */
+  available?: (apiModel: string) => boolean;
 }
 
 /** `GET functions/v1/chat`: the table clients display. Versioned; clients send only `{model, effort, length}`.
@@ -217,7 +219,10 @@ export interface PublishOptions {
  * what they do not know), then DeepSeek's nine, then the `auto` profiles; `efforts` lists `auto` last; models carry
  * their `provider` and required consent. Flash's profiles are appended; updated clients prefer `default_recommended`. */
 export function publishedProfiles(options: PublishOptions = { deepseek: false }) {
-  const models = MODELS.filter(m => (m.provider !== 'deepseek' || options.deepseek) && (m.provider !== 'openrouter' || options.gemini));
+  const servedAs = (m: ModelEntry) => options.claudeOpenRouter ? routedDeepSeekModel(routedClaudeModel(m.apiModel)) : m.apiModel;
+  const models = MODELS.filter(m => (m.provider !== 'deepseek' || options.deepseek) && (m.provider !== 'openrouter' || options.gemini)
+    && options.available?.(servedAs(m)) !== false);
+  const recommendGemini = !!options.gemini && models.some(m => m.id === 'gemini');
   const explicit = (list: readonly ModelEntry[]) => list.flatMap(m => EFFORTS.filter(e => m.id !== 'gemini' || e.id === 'medium').flatMap(e => LENGTHS.map(l => {
     const profile = resolveProfile({ model: m.id, effort: e.id, length: l.id }, options.claudeOpenRouter);
     return { id: profile.id, model: m.id, effort: e.id as EffortRequest, length: l.id, api_model: profile.apiModel,
@@ -235,7 +240,7 @@ export function publishedProfiles(options: PublishOptions = { deepseek: false })
     version: PROFILE_VERSION, rate_version: RATE_VERSION, tariff: TARIFF, microusd_per_credit: MICROUSD_PER_CREDIT,
     default: { ...DEFAULT_CHOICE },
     default_auto: { ...DEFAULT_AUTO_CHOICE },
-    ...(options.gemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
+    ...(recommendGemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
     models: models.map(m => ({ id: m.id, label: m.label, detail: options.claudeOpenRouter ? `${m.detail} · OpenRouter → ${m.provider === 'deepseek' ? 'DeepInfra' : 'Google Vertex'}` : m.detail, api_model: options.claudeOpenRouter ? routedDeepSeekModel(routedClaudeModel(m.apiModel)) : m.apiModel, provider: options.claudeOpenRouter ? 'openrouter' : m.provider,
       ...(m.provider === 'deepseek' ? { consent_version: options.claudeOpenRouter ? ROUTER_CONSENT_VERSION : DEEPSEEK_CONSENT_VERSION } : (m.provider === 'openrouter' || options.claudeOpenRouter) ? { consent_version: GEMINI_CONSENT_VERSION } : {}) })),
     efforts: [...EFFORTS.map(e => ({ id: e.id as EffortRequest, label: e.label, detail: e.detail })), { ...AUTO_EFFORT }],

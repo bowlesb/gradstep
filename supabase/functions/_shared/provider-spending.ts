@@ -92,6 +92,8 @@ export function admittedAnthropic(deps: SpendingDependencies,
     const granted = await admission(deps, attempt, providerForModel(params.model), 'chat', params.model, ceiling,
       { output_tokens: params.max_tokens, web_searches: maxSearches });
     // Not sent: our own bound when the round no longer fits the hold, else our server (a pause, capacity, a lost reply).
+    // A lapsed price card (A4, migration 0101) is the model's unavailability, not a fault to retry.
+    if (!granted.granted && granted.reason === 'tariff_expired') return { ...unavailable(), failure: 'provider_rejected', rejectionReason: 'tariff_expired', cause: 'server' };
     if (!granted.granted) return { ...unavailable(), cause: granted.reason === 'operation_ceiling' ? 'limit' : 'server' };
     let outcome: ProviderOutcome;
     try { outcome = await generate(params, { ...options, attribution: rpcAttribution(deps, attempt.id,

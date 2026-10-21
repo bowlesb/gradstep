@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import { openRouterAttempt, openRouterChat, openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
-import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL, GEMINI_PRICE_EXPIRES } from '../../supabase/functions/_shared/gemini-pricing.ts';
+import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL } from '../../supabase/functions/_shared/gemini-pricing.ts';
+// A fixed clock: card validity is the database's (migration 0101), not a constant in the adapter.
+const NOW = Date.parse('2026-12-01T00:00:00Z');
 import { chatRequestParams, priceAttempts, holdForParams } from '../../supabase/functions/_shared/anthropic.ts';
 import { publishedProfiles, resolveChoice, providerForModel } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { validateChatRequest, runChat, type ChatDependencies, type ChatEvent } from '../../supabase/functions/_shared/chat.ts';
@@ -25,7 +27,7 @@ function response(events: unknown[], done = true) {
 }
 async function run(events: unknown[], done = true) {
   let text = '', sent: Record<string, any> | null = null;
-  const generate = openRouterChat({ apiKey: 'test-key', now: () => GEMINI_PRICE_EXPIRES - 1, fetch: async (_url, options) => {
+  const generate = openRouterChat({ apiKey: 'test-key', now: () => NOW, fetch: async (_url, options) => {
     assert.equal(new Headers(options?.headers).get('X-OpenRouter-Cache'), 'false');
     sent = JSON.parse(String(options?.body)); return response(events, done);
   } });
@@ -125,15 +127,18 @@ test('provider rejection diagnostics expose only a closed category, never echoed
   }
 });
 
-test('pre-inference refusals cost zero, 5xx is uncertain, and expired rates make no request', async () => {
+test('pre-inference refusals cost zero, 5xx is uncertain, and a lapsed card (admission) makes no request', async () => {
   for (const status of [402, 429, 503]) {
     const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => new Response('', { status, headers: { 'retry-after': '2' } }) });
     const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
     assert.equal(outcome.failure, status === 402 ? 'provider_billing' : 'provider_error');
     assert.equal(outcome.exact, status !== 503); assert.equal(outcome.retryAfterMs, 2000);
   }
-  const expired = openRouterChat({ apiKey: 'test-key', now: () => GEMINI_PRICE_EXPIRES, fetch: async () => { throw new Error('must not send'); } });
-  assert.equal((await expired(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1, onText: () => {} })).exact, true);
+  // A4: admission refuses a lapsed card (app_private.openrouter_tariffs) before the adapter runs: the model is unavailable.
+  const refused = admittedAnthropic({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
+    rpc: async () => ({ granted: false, reason: 'tariff_expired' }) }, async () => { throw new Error('must not send'); });
+  const expired = await refused(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1, onText: () => {} });
+  assert.equal(expired.exact, true); assert.equal(expired.rejectionReason, 'tariff_expired'); assert.deepEqual(expired.attempts, []);
   for (const reason of ['length', 'content_filter', 'unexpected']) {
     const { outcome } = await run([final(reason)]);
     assert.equal(outcome.status, reason === 'unexpected' ? 'failed' : 'complete');
@@ -276,7 +281,7 @@ test('A23: an invalid or cut-off tool call is dropped and the streamed answer is
   ];
   for (const [label, events, stopReason, kept] of cases) {
     let text = '';
-    const generate = openRouterChat({ apiKey: 'test-key', now: () => GEMINI_PRICE_EXPIRES - 1, fetch: async () => response(events) });
+    const generate = openRouterChat({ apiKey: 'test-key', now: () => NOW, fetch: async () => response(events) });
     const outcome = await generate(visualParams, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { text += s; } });
     assert.equal(outcome.status, 'complete', label); assert.equal(outcome.stopReason, stopReason, label);
     assert.equal(outcome.toolCalls?.length, kept, label); assert.equal(outcome.exact, true, label);

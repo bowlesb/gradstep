@@ -1,12 +1,12 @@
 import { isRouterDeepSeek, routerDeepSeekRates, ROUTER_DEEPSEEK_ENDPOINT } from "./openrouter-deepseek-pricing.ts";
 import { openRouterPost, OpenRouterNotDispatched } from "./openrouter-transport.ts";
-import { isRouterClaude, routerClaudeRates, ROUTER_CLAUDE_ENDPOINT, ROUTER_CLAUDE_PRICE_EXPIRES } from './openrouter-claude-pricing.ts';
+import { isRouterClaude, routerClaudeRates, ROUTER_CLAUDE_ENDPOINT } from './openrouter-claude-pricing.ts';
 // Gemini Flash on the same pinned OpenRouter -> Google route as the comparison. No SDK retries or alternate routes.
 // Chat orchestration still owns tools, consent, admission and settlement. Content/signatures live only in memory.
 import type Anthropic from '@anthropic-ai/sdk';
 import { emptyUsage, ESTIMATED_OUTPUT_TOKENS_PER_SECOND, holdForParams, type ProviderAttempt, type ProviderOutcome, type StreamOptions } from './anthropic.ts';
 import { lookupGeneration, type GenerationLookupOptions, type GenerationRecord } from './openrouter-generation.ts';
-import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL, GEMINI_ENDPOINT, GEMINI_PRICE_EXPIRES, GEMINI_RATES } from './gemini-pricing.ts';
+import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL, GEMINI_ENDPOINT, GEMINI_RATES } from './gemini-pricing.ts';
 
 type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 type ObjectValue = Record<string, unknown>;
@@ -199,8 +199,8 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
       return failed(true, failure);
     };
     if (stream.signal.aborted) return failed(true, 'aborted');
-    // Reject locally before any network call. Price caps independently reject provider price increases.
-    if (clock() >= (isRouterClaude(params.model) ? ROUTER_CLAUDE_PRICE_EXPIRES : GEMINI_PRICE_EXPIRES)) return { ...failed(true), cause: 'server' };
+    // A card's validity (app_private.openrouter_tariffs, migration 0101) is decided by admission before this adapter
+    // runs; the price caps in every request independently reject a provider price increase.
     let body: ObjectValue;
     try { body = openRouterChatParams(params); } catch { return { ...failed(true), cause: 'server' }; }
     let response: Response;

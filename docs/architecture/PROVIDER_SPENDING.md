@@ -131,6 +131,31 @@ the whole table under the global locks. The 80% warning was computed but never s
   OpenRouter tariff date moved behind `app_private.openrouter_tariff_expires(model)` in the same migration so the
   next one (A4) can make it renewable without another copy of the admission function.
 
+### Tariff validity (A4, migration 0101)
+
+Every reviewed OpenRouter price card was valid until 2027-01-01, a literal in nine copies of the admission function and
+four TypeScript constants (`openrouter-chat.ts` even checked DeepSeek against Gemini's). At that instant every chat,
+tag and podcast call would be refused as `tariff_expired` while chat kept publishing the models, so readers' holds were
+placed, refused as `service_unavailable` with `retry_after: 10` and retried in a loop. Nothing warned beforehand.
+
+- **One table** `app_private.openrouter_tariffs(model, tariff, valid_until, evidence_reference)`: one row per admitted
+  model, seeded with the same date (no price changes). Admission and every pricing snapshot read it through
+  `openrouter_tariff_expires(model)`; a model without a row fails closed. The TypeScript constants are removed; the
+  per-request `max_price` caps still reject a provider price increase.
+- **Renewal without an emergency.** `worker_openrouter_tariff_renew(actor, request, model, valid_until, evidence,
+  reason)` — owner only, at most 183 days ahead, evidence and reason required, audited in `admin_audit_events`
+  (`openrouter_tariff`), replay-safe. It confirms that the reviewed card still holds; a changed price or a new model is
+  a migration and code change. Operator command: `scripts/pipeline-ops.py tariff-renew MODEL --until DATE --actor OWNER
+  --evidence REF --reason TEXT` (`tariffs` lists them).
+- **Stop offering before, not failing after.** The chat function reads the table with its existing policy read
+  (`worker_provider_spending_policy.openrouter_tariffs`): the profile table drops a model whose card lapses within 24
+  hours (and stops recommending Gemini then); a request whose model lapses within 10 minutes is `model_unavailable`
+  before any hold (no `retry_after`); a lapsed side-request model (Haiku) skips the title, suggestions and map. A card
+  that lapses between that check and admission is reported as `model_unavailable` too. Podcast quotes are refused
+  (`podcast_unavailable`) when the script or speech card lapses within a day; reuse of a made episode is unaffected.
+- **Warning six weeks ahead.** `v1_admin_health.tariffs` (Health › Attention names each card, the date and the
+  command) and `worker_budget_health.tariffs_expiring_within_42d` / `soonest_tariff_expiry` for the scheduled check.
+
 ## Service RPC contract
 
 `worker_provider_attempt_begin` takes `p_account_id`, `p_operation_id`, `p_attempt_id` (UUIDs),

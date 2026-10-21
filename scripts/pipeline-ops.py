@@ -6,6 +6,10 @@
   enable | disable            turn the pipeline worker on/off
   grant ACCOUNT CREDITS KEY   recorded operator credit grant (idempotent per KEY)
   kick                        invoke the worker once
+  tariffs                     each OpenRouter price card and when it lapses (read-only SQL)
+  tariff-renew MODEL --until DATE --actor OWNER --evidence REF --reason TEXT
+                              extend a card whose prices were re-checked (audited,
+                              at most 183 days ahead; a changed price needs a migration)
   resolve ATTEMPT (--job ID | --pages N)
                               reconcile an uncertain paid submission: a found
                               Mathpix job resumes polling; otherwise release the
@@ -65,6 +69,12 @@ c.add_argument('attempt'); c.add_argument('--actor', required=True, help='Owner 
 c.add_argument('--microusd', type=int, required=True, help='Actual provider cost in micro-USD (0 when the provider never started it)')
 c.add_argument('--evidence', required=True, help='Where the cost was read: a provider request id, message id or invoice line')
 c.add_argument('--reason', required=True); c.add_argument('--units', default='{}', help='Provider units as JSON (Tavily needs {"credits": n})')
+t = sub.add_parser('tariff-renew', help='Extend an OpenRouter price card after re-checking its prices (audited; at most 183 days ahead)')
+t.add_argument('model'); t.add_argument('--until', required=True, help='UTC date or ISO timestamp, e.g. 2027-03-01')
+t.add_argument('--actor', required=True, help='Owner account id the renewal is audited to')
+t.add_argument('--evidence', required=True, help='Where the unchanged prices were read, e.g. "openrouter endpoints 2026-12-01"')
+t.add_argument('--reason', required=True)
+sub.add_parser('tariffs')
 args = parser.parse_args()
 
 if args.command == 'status':
@@ -96,6 +106,15 @@ elif args.command == 'reconcile':
     import uuid
     print(rpc('worker_provider_attempt_reconcile', {'p_actor_id': args.actor, 'p_request_id': str(uuid.uuid4()), 'p_attempt_id': args.attempt,
         'p_actual_microusd': args.microusd, 'p_actual_units': json.loads(args.units), 'p_evidence_reference': args.evidence, 'p_reason': args.reason}))
+elif args.command == 'tariffs':
+    print(json.dumps(sql("select coalesce(jsonb_agg(jsonb_build_object('model',model,'tariff',tariff,'valid_until',valid_until,'evidence',evidence_reference,"
+        "'days_left',round(extract(epoch from valid_until-now())/86400)) order by valid_until,model),'[]') as tariffs from app_private.openrouter_tariffs")[0]['tariffs'],
+        indent=1, default=str))
+elif args.command == 'tariff-renew':
+    import uuid
+    until = args.until if 'T' in args.until else args.until + 'T00:00:00Z'
+    print(rpc('worker_openrouter_tariff_renew', {'p_actor_id': args.actor, 'p_request_id': str(uuid.uuid4()), 'p_model': args.model,
+        'p_valid_until': until, 'p_evidence_reference': args.evidence, 'p_reason': args.reason}))
 elif args.command == 'kick':
     # The Cloud Run worker (the Edge paper-worker is retired and undeployed).
     worker = json.loads((ROOT / 'infra/staging.json').read_text())['pipeline_worker_url']

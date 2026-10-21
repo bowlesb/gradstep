@@ -43,7 +43,6 @@ export function openRouterSpeechProvider(options: { apiKey: string; fetch?: type
     let requestID: string | null = null;
     const failed = (state: 'unknown' | 'rejected', failure: string) => ({ state, requestID, model: SPEECH_MODEL,
       finishReason: null, audio: null, mimeType: null, usage: null, failure });
-    if (Date.now() >= Date.parse('2027-01-01T00:00:00Z')) return failed('rejected', 'tariff_expired');
     const config = obj(obj(request.body.generationConfig).speechConfig).multiSpeakerVoiceConfig;
     const voices = new Map((obj(config).speakerVoiceConfigs ?? []).map((v: any) => [v.speaker, v.voiceConfig?.voice]));
     const parts = obj((request.body.contents as unknown[])?.[0]).parts;
