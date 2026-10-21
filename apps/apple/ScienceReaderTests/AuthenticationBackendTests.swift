@@ -202,6 +202,73 @@ final class AuthenticationBackendTests: XCTestCase {
         }
     }
 
+    /// A1: a 401 for a token this device still considers valid (slow clock, signing-key rotation) refreshes once and
+    /// replays once; it ends the session only when the refresh itself says so or the fresh token is refused too.
+    func testRefusedTokenRefreshesOnceAndReplaysBeforeEndingTheSession() async throws {
+        let refused = AuthenticationFixture.ok(Data(#"{"code":"PGRST301","message":"JWT expired"}"#.utf8), status: 401)
+        func fresh(_ account: UUID) throws -> AuthenticationTestServer.Step {
+            .ok(try AuthenticationFixture.session(account: account, accessToken: "fresh-access"))
+        }
+        // Refresh succeeds and the replay is accepted: still signed in, new token saved, three requests.
+        do {
+            let account = UUID()
+            let fixture = try AuthenticationFixture([refused, try fresh(account), .ok()], stored: AuthenticationFixture.session(account: account))
+            defer { fixture.close() }
+            var events: [AuthenticationInvalidation] = []
+            await fixture.client.observeSessionInvalidation { events.append($0) }
+            let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse())
+            let requests = fixture.server.requests()
+            XCTAssertEqual(requests.map(\.url.path), ["/rest/v1/rpc/v1_key_state", "/auth/v1/token", "/rest/v1/rpc/v1_key_state"])
+            XCTAssertEqual(requests[0].headers["Authorization"], "Bearer fixture-access")
+            XCTAssertEqual(requests[1].object["refresh_token"] as? String, "fixture-refresh")
+            XCTAssertEqual(requests[2].headers["Authorization"], "Bearer fresh-access")
+            let user = await fixture.client.currentUser(); XCTAssertEqual(user?.id, account)
+            let saved = try JSONDecoder().decode(AuthSession.self, from: XCTUnwrap(fixture.credentials.saved()))
+            XCTAssertEqual(saved.access_token, "fresh-access"); XCTAssertTrue(events.isEmpty)
+        }
+        // The fresh token is refused too: the session ends, once, without a second refresh.
+        do {
+            let account = UUID()
+            let fixture = try AuthenticationFixture([refused, try fresh(account), refused], stored: AuthenticationFixture.session(account: account))
+            defer { fixture.close() }
+            await error(.sessionExpired) { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()) }
+            XCTAssertEqual(fixture.server.requests().count, 3)
+            let user = await fixture.client.currentUser(); XCTAssertNil(user); XCTAssertNil(fixture.credentials.saved())
+        }
+        // The refresh token was revoked: the session ends after the one refresh.
+        do {
+            let fixture = try AuthenticationFixture([refused, .ok(Data(#"{"error_code":"refresh_token_not_found"}"#.utf8), status: 400)],
+                stored: AuthenticationFixture.session())
+            defer { fixture.close() }
+            await error(.sessionExpired) { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()) }
+            XCTAssertEqual(fixture.server.requests().count, 2)
+            let user = await fixture.client.currentUser(); XCTAssertNil(user)
+        }
+        // The refresh couldn't reach the server: the reader stays signed in and the stored session is kept.
+        do {
+            let account = UUID(), stored = try AuthenticationFixture.session(account: account)
+            let fixture = try AuthenticationFixture([refused, .fail(.timedOut)], stored: stored)
+            defer { fixture.close() }
+            await error(.connection) { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()) }
+            let user = await fixture.client.currentUser(); XCTAssertEqual(user?.id, account)
+            XCTAssertEqual(fixture.credentials.saved(), stored)
+        }
+    }
+
+    /// A1: with both `expires_at` (server clock) and `expires_in`, the earlier is kept, so a device clock running slow
+    /// refreshes before the server starts refusing the token.
+    func testSessionExpiryToleratesADeviceClockRunningSlow() async throws {
+        let account = UUID(), now = Date().timeIntervalSince1970
+        let wire: [String: Any] = ["access_token": "fixture-access", "refresh_token": "fixture-refresh", "expires_in": 3_600,
+            "expires_at": now + 3_600 + 600, "token_type": "bearer", "user": ["id": account.uuidString]]
+        let fixture = try AuthenticationFixture([.ok(JSONSerialization.data(withJSONObject: wire))])
+        defer { fixture.close() }
+        _ = try await fixture.client.signIn(email: "fixture", password: "fixture")
+        let saved = try JSONDecoder().decode(AuthSession.self, from: XCTUnwrap(fixture.credentials.saved()))
+        XCTAssertLessThanOrEqual(saved.expires_at, Date().timeIntervalSince1970 + 3_600)
+        XCTAssertGreaterThanOrEqual(saved.expires_at, now + 3_600 - 5)
+    }
+
     func testConcurrentRevokedRefreshNotifiesOnceAndCannotAffectANewLogin() async throws {
         let account = UUID(), nextAccount = UUID()
         let fixture = try AuthenticationFixture([.hold, .ok(AuthenticationFixture.session(account: nextAccount))],

@@ -526,26 +526,39 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         let body = try request.encoded()
         // A paid answer can stream for minutes and the server acts as the user
         // afterwards (Ingest), so start it with a token that outlives it.
-        let token = try await accessToken(validFor: 300)
-        guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+        var token = try await accessToken(validFor: 300)
         guard let url = URL(string: "/functions/v1/chat", relativeTo: config.url)?.absoluteURL,
               url.scheme == "https", url.host == config.url.host else { throw BackendError.unavailable }
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"; urlRequest.httpBody = body
-        // Idle limit between bytes; the function sends a keep-alive every 15 s.
-        urlRequest.timeoutInterval = 90
-        urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
-        urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (bytes, response) = try await network.bytes(for: urlRequest, delegate: LibraryRedirectPolicy())
-        let task = bytes.task
-        guard generation == authGeneration, session?.user.id == expected else { task.cancel(); throw CancellationError() }
-        guard let http = response as? HTTPURLResponse else { task.cancel(); throw BackendError.transport }
+        var replayed = false
+        var opened: URLSession.AsyncBytes, reply: HTTPURLResponse
+        while true {
+            guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+            var urlRequest = URLRequest(url: url)
+            urlRequest.httpMethod = "POST"; urlRequest.httpBody = body
+            // Idle limit between bytes; the function sends a keep-alive every 15 s.
+            urlRequest.timeoutInterval = 90
+            urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+            urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (received, response) = try await network.bytes(for: urlRequest, delegate: LibraryRedirectPolicy())
+            opened = received
+            guard generation == authGeneration, session?.user.id == expected else { opened.task.cancel(); throw CancellationError() }
+            guard let http = response as? HTTPURLResponse else { opened.task.cancel(); throw BackendError.transport }
+            reply = http
+            guard http.statusCode == 401 else { break }
+            opened.task.cancel()
+            // A refused token is not proof that the session ended (a slow device clock, a signing-key rotation): refresh
+            // once and send again. The function refuses before any provider work, so nothing was charged. A fresh token
+            // that is refused too does end the session.
+            if replayed { try await expireSession(generation: generation, accountID: expected) }
+            replayed = true
+            token = try await accessToken(validFor: 300, rejected: token)
+        }
+        let bytes = opened, http = reply, task = bytes.task
         guard (200..<300).contains(http.statusCode) else {
             defer { task.cancel() }
-            if http.statusCode == 401 { try await expireSession(generation: generation, accountID: expected) }
             var data = Data()
             for try await byte in bytes {
                 guard data.count < 4_096 else { break }
@@ -844,28 +857,41 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                             libraryCommandErrors: Bool = false) async throws -> Data {
         let generation = authGeneration
         guard let expected = session?.user.id, accountID == nil || expected == accountID else { throw BackendError.signInRequired }
-        let token = try await accessToken()
-        guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
-        do {
-            let data = try await raw(path: path, body: body, token: token, method: method, mediaType: mediaType,
-                                     maximumResponseBytes: maximumResponseBytes, libraryErrors: libraryErrors,
-                                     libraryCommandErrors: libraryCommandErrors)
+        var token = try await accessToken()
+        var replayed = false
+        while true {
             guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
-            return data
-        } catch {
-            // A late error belongs to the same authentication generation as a
-            // late success; it must not reset or alter the next account session.
-            guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
-            if error as? AuthenticationError == .sessionExpired {
-                try await expireSession(generation: generation, accountID: expected)
+            do {
+                let data = try await raw(path: path, body: body, token: token, method: method, mediaType: mediaType,
+                                         maximumResponseBytes: maximumResponseBytes, libraryErrors: libraryErrors,
+                                         libraryCommandErrors: libraryCommandErrors)
+                guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+                return data
+            } catch is TokenRejected where !replayed {
+                // A 401 says this token wasn't accepted, not that the session ended (a slow device clock, a signing-key
+                // rotation). Refresh once and replay once; only the refresh's own session-ended codes, or a fresh token
+                // that is refused too, end the session.
+                guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+                replayed = true
+                token = try await accessToken(rejected: token)
+            } catch {
+                // A late error belongs to the same authentication generation as a
+                // late success; it must not reset or alter the next account session.
+                guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+                if error is TokenRejected || error as? AuthenticationError == .sessionExpired {
+                    try await expireSession(generation: generation, accountID: expected)
+                }
+                throw error
             }
-            throw error
         }
     }
 
-    private func accessToken(validFor seconds: TimeInterval = 60) async throws -> String {
+    /// `rejected`: the token the server just refused with 401. It is refreshed even if it hasn't expired by this
+    /// device's clock, unless a concurrent request already replaced it.
+    private func accessToken(validFor seconds: TimeInterval = 60, rejected: String? = nil) async throws -> String {
         guard let current = session else { throw BackendError.signInRequired }
-        if current.expires_at > Date().timeIntervalSince1970 + seconds { return current.access_token }
+        let refused = rejected != nil && current.access_token == rejected
+        if !refused, current.expires_at > Date().timeIntervalSince1970 + seconds { return current.access_token }
         let generation = authGeneration
         let task: Task<AuthSession, Error>
         if let existing = refreshTask, existing.generation == generation { task = existing.task }
@@ -963,11 +989,12 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
               wire.user.email.map({ $0.utf8.count <= 320 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }) ?? true
         else { throw AuthenticationError.invalidResponse }
         let expiry: TimeInterval
-        if let absolute = wire.expires_at { expiry = absolute }
-        else if let interval = wire.expires_in, interval.isFinite, interval > 0, interval <= 31_536_000 {
-            // GoTrue REST may send expires_in without the SDK-derived expires_at.
-            expiry = Date().timeIntervalSince1970 + interval
-        } else { throw AuthenticationError.invalidResponse }
+        let relative = wire.expires_in.flatMap { $0.isFinite && $0 > 0 && $0 <= 31_536_000 ? Date().timeIntervalSince1970 + $0 : nil }
+        // GoTrue REST may send expires_in without the SDK-derived expires_at. With both, the earlier wins: expires_at
+        // is on the server's clock, and a device clock running slow would otherwise keep sending an expired token.
+        if let absolute = wire.expires_at { expiry = relative.map { min(absolute, $0) } ?? absolute }
+        else if let relative { expiry = relative }
+        else { throw AuthenticationError.invalidResponse }
         // Expired cached sessions (including epoch zero) may still refresh.
         guard expiry.isFinite, expiry >= 0, expiry <= 253_402_300_799 else { throw AuthenticationError.invalidResponse }
         return AuthSession(access_token: wire.access_token, refresh_token: wire.refresh_token,
@@ -1105,7 +1132,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 || failure?.code == "account_unavailable" || failure?.code == "authentication_required") {
                 throw AuthenticationError.sessionExpired
             }
-            if response.statusCode == 401 { throw AuthenticationError.sessionExpired }
+            if response.statusCode == 401 { throw TokenRejected() }
             let throttled = response.statusCode == 429
                 ? BackendError.throttled(retryAfter: RetryBackoff.retryAfter(header: response.value(forHTTPHeaderField: "Retry-After"), body: failure?.retry_after))
                 : nil
@@ -1120,7 +1147,6 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 throw ReaderCapabilityMissing()
             }
             if libraryCommandErrors {
-                if response.statusCode == 401 { throw BackendError.signInRequired }
                 // library_resync_required: a v5 command observed in a replaced dataset (042).
                 let commandCodes: Set<String> = ["operation_id_conflict", "request_rate_limit", "library_resync_required",
                     "library_account_import_limit", "library_environment_import_limit", "library_active_import_limit",
@@ -1175,6 +1201,10 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 /// Library and auth requests stay on their configured origin. Never follow a
 /// redirect before parsing an error or forward credentials to its target.
 private struct ReaderCapabilityMissing: Error {}
+
+/// HTTP 401 from the API: this access token was refused. `authorized()` refreshes and replays once before treating it
+/// as the end of the session.
+private struct TokenRejected: Error {}
 
 /// Bytes sent of a PDF upload, as a fraction.
 private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {

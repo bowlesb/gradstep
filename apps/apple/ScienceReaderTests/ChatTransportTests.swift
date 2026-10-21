@@ -12,11 +12,22 @@ private final class ChatHTTPProtocol: URLProtocol, @unchecked Sendable {
         var holdOpen = false
     }
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var replies: [String: Reply] = [:]
+    /// Served in order; the last reply repeats.
+    nonisolated(unsafe) private static var replies: [String: [Reply]] = [:]
     nonisolated(unsafe) private static var requests: [String: [(URLRequest, Data)]] = [:]
     nonisolated(unsafe) private static var stopped: [String: Int] = [:]
 
-    static func install(_ host: String, _ reply: Reply) { lock.withLock { replies[host] = reply; requests[host] = []; stopped[host] = 0 } }
+    static func install(_ host: String, _ reply: Reply) { install(host, sequence: [reply]) }
+    static func install(_ host: String, sequence: [Reply]) {
+        lock.withLock { replies[host] = sequence; requests[host] = []; stopped[host] = 0 }
+    }
+    private static func next(_ host: String) -> Reply? {
+        lock.withLock {
+            guard var queue = replies[host], let first = queue.first else { return nil }
+            if queue.count > 1 { queue.removeFirst(); replies[host] = queue }
+            return first
+        }
+    }
     static func remove(_ host: String) { lock.withLock { replies[host] = nil; requests[host] = nil; stopped[host] = nil } }
     static func recorded(_ host: String) -> [(URLRequest, Data)] { lock.withLock { requests[host] ?? [] } }
     static func stops(_ host: String) -> Int { lock.withLock { stopped[host] ?? 0 } }
@@ -24,7 +35,7 @@ private final class ChatHTTPProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        guard let host = request.url?.host, let reply = Self.lock.withLock({ Self.replies[host] }) else {
+        guard let host = request.url?.host, let reply = Self.next(host) else {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost)); return
         }
         var body = request.httpBody ?? Data()
@@ -61,8 +72,10 @@ final class ChatTransportTests: XCTestCase {
     override func setUp() { host = "chat-\(UUID().wire).invalid" }
     override func tearDown() { ChatHTTPProtocol.remove(host) }
 
-    private func client(_ reply: ChatHTTPProtocol.Reply) throws -> BackendClient {
-        ChatHTTPProtocol.install(host, reply)
+    private func client(_ reply: ChatHTTPProtocol.Reply) throws -> BackendClient { try client(sequence: [reply]) }
+
+    private func client(sequence: [ChatHTTPProtocol.Reply]) throws -> BackendClient {
+        ChatHTTPProtocol.install(host, sequence: sequence)
         let settings = URLSessionConfiguration.ephemeral
         settings.protocolClasses = [ChatHTTPProtocol.self]
         let session = try ReaderCrypto.encode(AuthSession(access_token: "fixture-access", refresh_token: "fixture-refresh",
@@ -114,18 +127,42 @@ final class ChatTransportTests: XCTestCase {
     }
 
     func testRejectedChatSessionClearsAuthorityBeforeTheReaderCanTryAnotherCloudAction() async throws {
+        // 403 with the closed-account code ends the session at once; a 401 does after its one refresh is refused
+        // (A1: the body doubles as the refresh's revoked-token reply).
         for status in [401, 403] {
             host = "chat-\(UUID().wire).invalid"
             let client = try client(.init(status: status, contentType: "application/json",
-                chunks: [Data(#"{"code":"authentication_required"}"#.utf8)]))
+                chunks: [Data(#"{"code":"authentication_required","error_code":"refresh_token_not_found"}"#.utf8)]))
             do { _ = try await client.chatStream(try request(), accountID: account); XCTFail("Revoked session accepted") }
             catch AuthenticationError.sessionExpired { }
             let user = await client.currentUser(); XCTAssertNil(user)
             do { _ = try await client.chatStream(try request(), accountID: account); XCTFail("Revoked session retried") }
             catch BackendError.signInRequired { }
-            XCTAssertEqual(ChatHTTPProtocol.recorded(host).count, 1)
+            let recorded = ChatHTTPProtocol.recorded(host).map { $0.0.url?.path }
+            XCTAssertEqual(recorded.filter { $0 == "/functions/v1/chat" }.count, 1)
+            XCTAssertEqual(recorded.filter { $0 == "/auth/v1/token" }.count, status == 401 ? 1 : 0)
             ChatHTTPProtocol.remove(host)
         }
+    }
+
+    /// A1: a chat refused with 401 for a token this device still considers valid refreshes once and sends the same
+    /// question again; the reader stays signed in and gets the answer.
+    func testRefusedChatTokenRefreshesAndSendsTheSameQuestionOnce() async throws {
+        let fresh = try ReaderCrypto.encode(AuthSession(access_token: "fresh-access", refresh_token: "fixture-refresh",
+            expires_at: Date().timeIntervalSince1970 + 3_600, user: .init(id: account, email: nil)))
+        let client = try client(sequence: [
+            .init(status: 401, contentType: "application/json", chunks: [Data(#"{"code":"PGRST301"}"#.utf8)]),
+            .init(status: 200, contentType: "application/json", chunks: [fresh]),
+            .init(chunks: [Data("event: done\ndata: {\"stop_reason\":\"end_turn\",\"credits\":1,\"usage\":{}}\n\n".utf8)])
+        ])
+        let events = try await collect(try await client.chatStream(try request(), accountID: account))
+        XCTAssertEqual(events, [.done(stopReason: "end_turn", credits: 1)])
+        let recorded = ChatHTTPProtocol.recorded(host)
+        XCTAssertEqual(recorded.map { $0.0.url?.path }, ["/functions/v1/chat", "/auth/v1/token", "/functions/v1/chat"])
+        XCTAssertEqual(recorded[0].0.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-access")
+        XCTAssertEqual(recorded[2].0.value(forHTTPHeaderField: "Authorization"), "Bearer fresh-access")
+        XCTAssertEqual(recorded[0].1, recorded[2].1, "The replay carries the same operation and question")
+        let user = await client.currentUser(); XCTAssertEqual(user?.id, account)
     }
 
     func testRejectsNonStreamingSuccessAndOtherAccounts() async throws {

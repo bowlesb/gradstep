@@ -696,7 +696,8 @@ final class LibraryTransportTests: XCTestCase {
             (.init(data: f.bytes(["code": "P0001", "details": "operation_id_conflict"]), status: 400), "request_failed"),
             (.init(data: f.bytes(["code": "P0001", "message": "key_authority_required"]), status: 400), "request_failed")
         ]
-        let server = LibraryHTTPServer(account: account, replies: cases.map(\.0) + [.init(data: Data(), status: 401)])
+        // A1: a 401 refreshes (the server's token route answers) and replays once; the fresh token refused too ends it.
+        let server = LibraryHTTPServer(account: account, replies: cases.map(\.0) + [.init(data: Data(), status: 401), .init(data: Data(), status: 401)])
         let (client, environment, host) = try fixture(server)
         defer { clean(environment, host) }
         let (attempt, directory) = try await command(account: account, host: host)
@@ -709,7 +710,7 @@ final class LibraryTransportTests: XCTestCase {
         }
         do { _ = try await client.libraryCommand(attempt); XCTFail("Expired auth must pause") }
         catch AuthenticationError.sessionExpired { }
-        XCTAssertEqual(server.requests().count, cases.count + 1)
+        XCTAssertEqual(server.requests().count, cases.count + 2)
         let current = await client.currentUser(); XCTAssertNil(current)
     }
 
