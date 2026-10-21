@@ -586,9 +586,22 @@ struct LibraryFilterBar: View {
         }
     }
 
-    /// One chip for tags: "Tags ⌄", or the chosen tag. Most used first.
+    /// One chip for tags: "Tags ⌄", or the chosen tag. Most used first. At the top, ML paper search for the chosen tag,
+    /// or for one of them (owner, build 75: "a Search ML papers for tag at the top… either external or internal": the tag
+    /// rows below are the internal one).
     private func tagMenu(_ summary: LibraryFilterSummary) -> some View {
         Menu {
+            Section {
+                if let tag = model.libraryTagFilter {
+                    Button("Search ML papers for “\(tag)”", systemImage: "magnifyingglass") { model.searchPapers(tag) }
+                        .accessibilityIdentifier("library.tags.search")
+                } else if !summary.tags.isEmpty {
+                    Menu {
+                        ForEach(summary.tags, id: \.tag) { entry in Button(entry.tag) { model.searchPapers(entry.tag) } }
+                    } label: { Label("Search ML papers for a tag", systemImage: "magnifyingglass") }
+                        .accessibilityIdentifier("library.tags.search")
+                }
+            }
             Button { model.libraryTagFilter = nil } label: {
                 if model.libraryTagFilter == nil { Label("All tags", systemImage: "checkmark") } else { Text("All tags") }
             }
