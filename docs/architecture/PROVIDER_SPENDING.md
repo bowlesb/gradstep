@@ -153,8 +153,33 @@ placed, refused as `service_unavailable` with `retry_after: 10` and retried in a
   before any hold (no `retry_after`); a lapsed side-request model (Haiku) skips the title, suggestions and map. A card
   that lapses between that check and admission is reported as `model_unavailable` too. Podcast quotes are refused
   (`podcast_unavailable`) when the script or speech card lapses within a day; reuse of a made episode is unaffected.
-- **Warning six weeks ahead.** `v1_admin_health.tariffs` (Health › Attention names each card, the date and the
+- **Warning six weeks ahead (A4).** `v1_admin_health.tariffs` (Health › Attention names each card, the date and the
   command) and `worker_budget_health.tariffs_expiring_within_42d` / `soonest_tariff_expiry` for the scheduled check.
+
+### Automatic reconciliation (A6, migration 0102)
+
+Every Stop, mid-stream 5xx, timeout or dropped stream that the chat adapter could not settle exactly (A1's bounded
+receipt read missed) kept its whole ceiling reserved against the month until an owner ran
+`scripts/pipeline-ops.py reconcile` by hand. An outage or many Stops could reach `platform_budget_exhausted` and pause AI
+for every tester. DECISIONS.md (2026-10-18) requires actual-cost reconciliation.
+
+- **Who and when.** The Cloud Run pipeline worker, already run every minute by pg_cron, claims at most 10 attempts per
+  run (`worker_openrouter_reconcile_claim`): OpenRouter, dispatched, with a generation id, `unknown` (or `admitted` and
+  abandoned for an hour), older than 2 minutes (never one still streaming) and at most 30 days old. It reads each
+  record with one GET (`lookupGeneration`, the same checks as A1: generation, account, operation, model) within a
+  30-second run budget.
+- **What it writes.** `worker_openrouter_reconcile` records the receipt (the dispatch-time model check), then settles the
+  attempt exactly like an owner's reconciliation: `provider_attempt_apply(..., 'reconciled', cost)` (the ceiling is
+  released, the cost spent, an overrun recorded as an anomaly), a `provider_attempt_adjustments` row with no actor and
+  evidence `openrouter-generation:<id>`, the usage reconciliation row and a `reconciled` event marked `automatic`.
+- **Bounded.** `openrouter_reconcile_queue` backs each attempt off (5 minutes doubling to a day) and gives up after 12
+  tries. Nothing is released without a matching record.
+- **What stays manual, and is named.** Attempts given up, OpenRouter attempts lost before the response named the
+  generation (no id to look up), and older attempts of retired direct providers (for example the 2026-10-17
+  direct-Anthropic attempt with $0.000138 reserved) keep their ceilings and are listed in Health › Attention and
+  `worker_budget_health.reconciliation` (counts and the reserved amount) until an owner reconciles them with evidence.
+- Key: the reconciler reads records with the key that created them (one chat key today; per-feature keys, A13, map by
+  the attempt's recorded `feature`).
 
 ## Service RPC contract
 

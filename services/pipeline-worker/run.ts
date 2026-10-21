@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { runMetadataPipeline, type MetadataDeps } from '../../supabase/functions/_shared/metadata-pipeline.ts';
 import { pipelineService, rpcAdapter, runtimeEnv } from '../../supabase/functions/_shared/pipeline-runtime.ts';
 import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
+import { reconcileOpenRouterAttempts } from '../../supabase/functions/_shared/openrouter-reconcile.ts';
 import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 // No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('pipeline-worker/run');
@@ -50,6 +51,10 @@ export async function runOnce(make: () => MetadataDeps = deps, now: () => number
   let processed = 0;
   // Finish any account deletion left incomplete (cheap when none is).
   await sweepAccountDeletions(pipelineService(), fields => log('account_deletion', fields)).catch(() => {});
+  // Unresolved OpenRouter attempts (a Stop, a broken stream) settle at their generation record's cost: bounded, one GET
+  // each, audited, and backed off in the database (review A6, migration 0102).
+  const routerKey = runtimeEnv('OPENROUTER_CHAT_API_KEY');
+  await reconcileOpenRouterAttempts({ rpc: rpcAdapter(pipelineService()), keyFor: () => routerKey ?? null, log }).catch(() => {});
   // Historical upload/provider attempts retain their liability. This worker
   // never reads their PDFs to reconcile them or collects provider outputs;
   // the server no longer links any PDF, Storage or OCR code.

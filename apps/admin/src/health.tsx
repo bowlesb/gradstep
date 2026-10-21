@@ -195,6 +195,11 @@ function derive(data: HealthData, budget: Budget | null) {
       ? `The OpenRouter price card for ${t.model} ends in ${plural(days, 'day')} (${formatDay(t.valid_until.slice(0, 10), dayLong)}). Check the current price, then renew it with scripts/pipeline-ops.py tariff-renew; chat stops offering the model a day before.`
       : `The OpenRouter price card for ${t.model} has ended: the model is not offered and its requests are refused. Renew it after checking the current price (scripts/pipeline-ops.py tariff-renew).` });
   }
+  // Review A6 (migration 0102): unresolved attempts the automatic reconciler cannot settle keep their ceilings reserved.
+  const r = data.reconciliation, manual = r ? r.gave_up + r.without_generation + r.other_providers : 0;
+  if (r && manual > 0) attention.push({ tone: 'warning', text: `${plural(manual, 'provider attempt')} cannot be reconciled automatically (${[
+    r.gave_up ? `${r.gave_up} without an OpenRouter record after 12 tries` : '', r.without_generation ? `${r.without_generation} lost before OpenRouter named the generation` : '',
+    r.other_providers ? `${r.other_providers} from retired direct providers` : ''].filter(Boolean).join(', ')}) and still reserve ${dollarsShort(r.manual_held_microusd)}. Reconcile each with the provider's evidence (scripts/pipeline-ops.py attempts, then reconcile).` });
   // Our servers never contact arXiv (ARXIV_DEVICE_ONLY.md §6.5): any attempt in the last hour, refused or not, is shown.
   const arxiv = (data.providers?.last_hour ?? []).find(r => r.provider === 'arxiv');
   if (arxiv && arxiv.calls > 0) attention.push({ tone: 'warning', text: `Our servers tried to reach arXiv ${arxiv.calls.toLocaleString()} time${arxiv.calls === 1 ? '' : 's'} in the last hour. They must never contact arXiv: find the caller in the logs (event arxiv_egress).` });

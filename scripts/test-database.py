@@ -106,7 +106,7 @@ parser.add_argument('--server-add-only', action='store_true', help='Run the serv
 args = parser.parse_args()
 # Review 2026-10-21 (docs/reviews/WEB_SERVER_REVIEW_20261021.md): spending, budget and reconciliation fixes, in
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
-SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql']]
+SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql', 'openrouter_auto_reconcile.sql']]
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
 fence = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql'
 if args.reader_issuer_fence_candidate:
