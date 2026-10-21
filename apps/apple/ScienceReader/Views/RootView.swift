@@ -338,6 +338,9 @@ struct LibraryView: View {
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
             }
+            // A search starts from the whole library: an earlier tag filter would hide results without saying so
+            // (build 75: "I somehow got here, I wonder if a search was not escaped").
+            .onChange(of: searching) { _, now in if now { model.libraryTagFilter = nil } }
             // Mac menu bar: Edit › Search Library (⌘F) / Search ML Papers (⇧⌘F).
             .onChange(of: MacCommandRequests.shared.librarySearch, initial: true) { _, request in
                 if request != nil { MacCommandRequests.shared.librarySearch = nil; searchFocused = true }
@@ -410,7 +413,9 @@ struct LibraryView: View {
                     .chromeSurface(Capsule())
                 if searching {
                     Button("Cancel") {
-                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; searchFocused = false
+                        // Back to the whole library: no tag filter is left behind (build 75).
+                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
+                        searchFocused = false
                     }.accessibilityIdentifier("library.search.cancel")
                 } else {
                     Button {

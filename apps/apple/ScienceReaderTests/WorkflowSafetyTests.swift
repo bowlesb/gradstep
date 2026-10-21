@@ -45,6 +45,23 @@ final class WorkflowSafetyTests: XCTestCase {
     }
     #endif
 
+    /// Build 75 (AOog): a tag filter left on never hides search results; a keyword's routes go where they say.
+    func testEveryRouteIntoPaperSearchClearsTheTagFilter() throws {
+        let model = ReaderModel(configuration: nil); model.openSample()
+        let paper = try XCTUnwrap(model.selectedPaper)
+        model.libraryTagFilter = "High-Concurrency"; model.libraryQuery = "left over"
+        model.searchPapers("author:Ada Lovelace")
+        XCTAssertNil(model.libraryTagFilter); XCTAssertEqual(model.libraryQuery, ""); XCTAssertTrue(model.searchExternal)
+        XCTAssertEqual(model.discoveryQuery, "author:Ada Lovelace"); XCTAssertEqual(model.tab, .library)
+        model.libraryTagFilter = "High-Concurrency"; model.findSimilarPapers(paper)
+        XCTAssertNil(model.libraryTagFilter); XCTAssertTrue(model.searchExternal)
+        model.libraryTagFilter = "High-Concurrency"; model.openPaperLink(try XCTUnwrap(URL(string: "https://app.gradstep.ai/p/arxiv/2501.00001")))
+        XCTAssertNil(model.libraryTagFilter)
+        model.libraryFilter = .archived; model.showLibraryPapers(taggedWith: "Tool use")
+        XCTAssertFalse(model.searchExternal); XCTAssertEqual(model.libraryTagFilter, "Tool use"); XCTAssertEqual(model.libraryFilter, .all)
+        XCTAssertEqual(model.discoveryQuery, ""); XCTAssertEqual(model.tab, .library)
+    }
+
     func testChangingArtifactClearsOldReaderActionsWithoutLosingItsLocation() throws {
         let model = ReaderModel(configuration: nil)
         model.openSample()

@@ -480,7 +480,7 @@ struct PaperView: View {
             .confirmationDialog(authorToSearch ?? "Author", isPresented: Binding(get: { authorToSearch != nil }, set: { if !$0 { authorToSearch = nil } }), titleVisibility: .visible) {
             if let name = authorToSearch {
                 Button("Find papers by \(name)") {
-                    model.discoveryQuery = "author:" + name; model.searchExternal = true; model.tab = .library; model.runDiscovery(); authorToSearch = nil
+                    model.searchPapers("author:" + name); authorToSearch = nil
                 }
             }
         }

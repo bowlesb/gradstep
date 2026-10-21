@@ -2297,8 +2297,18 @@ final class ReaderModel {
     /// the results; failures are shown as failures, never as empty results.
     func findSimilarPapers(_ paper: Paper) {
         let tags = LibraryTags.tags(for: paper).prefix(3)
-        discoveryQuery = tags.isEmpty ? paper.title : tags.joined(separator: " ")
-        searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+        searchPapers(tags.isEmpty ? paper.title : tags.joined(separator: " "))
+    }
+    /// ML paper search for `query`: find similar, an author, a shared link, a keyword. A Library tag filter never
+    /// carries into search (build 75: "I somehow got here, I wonder if a search was not escaped").
+    func searchPapers(_ query: String) {
+        libraryTagFilter = nil; libraryQuery = ""
+        discoveryQuery = query; searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+    }
+    /// The Library's papers with this keyword (a keyword's "Show library papers tagged").
+    func showLibraryPapers(taggedWith tag: String) {
+        searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all; libraryTagFilter = tag
+        tab = .library; wideMode = .library
     }
     func runDiscovery() {
         let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
