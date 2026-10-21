@@ -1219,14 +1219,16 @@ behaviour: DATA_HANDLING_AND_COSTS.md "Server paper copies: retired").
   **AI chat options** (per-model detail and provider, credit table, ⓘ explanations); one-pill composer and the new
   placeholders; three seeded starters with icons above it and an accent glow; All chats with search and ≡, All first,
   Last read, the paper only in its column.
-- **Account menu**: who and sync state; About with Privacy &amp; data, Report this screen and My reports for everyone;
+- **Account menu**: who and sync state (corrected 2026-10-21, B11: the menu had no sync state until the browser review
+  fixes added Sync with Sync now); About with Privacy &amp; data, Report this screen and My reports for everyone;
   operator tools in a grey Admin group. **Privacy &amp; data** (new): notes, AI answers (Anthropic or DeepSeek), Papers
   and arXiv (device-only, pacing, terms link, acknowledgement; a PDF opens from arXiv in a new tab), Reports.
 - **Feed / ML search Add**: the Library's spinner from Add until the paper is prepared here (percent under it once
   known; a click shows the Library), then ✓ In library. **Library**: a paper being added reserves two title lines (and
   the authors line when shown under the title), so the row never grows when its details arrive.
 - Not in the browser at that point: Your assets › Diagrams, AI credits / Subscription plan (added below, "Browser:
-  AI credits, Subscription plan and Your assets"); text sizes stay where the reader reads, as on the apps.
+  AI credits, Subscription plan and Your assets"); text sizes stay where the reader reads, as on the apps (corrected
+  2026-10-21, B11: the apps also size chat text separately; the browser's chat ⋯ gained Smaller / Larger text then).
 - Evidence: vitest 433/433; Playwright desktop and phone for the changed journeys (chat-redesign, chat-controls,
   study, owner-58, support-reports, parity, paper-search, layout, library*, chat, podcast-workspace and others).
 

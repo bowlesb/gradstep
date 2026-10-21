@@ -1271,7 +1271,7 @@ Owner: conversations linked to the passage they came from — the paper ↔ chat
 | Tapping a mark | Opens its conversation; several on that spot offer "Chats about this passage". Links, citations, contents rows, figures, references, tags and formulas keep their own taps, and nothing opens while text is selected. A marked formula therefore still selects on tap; its chat is reached from the chat or All chats. |
 | Setting | Settings › Reading › **Underline passages with chats** (on by default; this device only). Cheap, so included. |
 | All chats | With the Paper column shown (iPhone landscape, iPad), an anchored row's muted second line is the passage in quotes (math readable) instead of the newest answer; in iPhone portrait the second line stays the paper's title. The title still reads "Explain · ‹passage›". |
-| Not done | Marks aren't announced by VoiceOver (Go to passage is reachable); the browser reader doesn't show marks yet, and the Mac app shares this code but was only compiled, not run; passages are found again by text only, not by position within a re-rendered artifact. |
+| Not done | Marks aren't announced by VoiceOver (Go to passage is reachable); the browser reader shows marks too (corrected 2026-10-21, B11: it has had them since the passage-link port; several chats on one passage are listed by title and Account › Underline passages with chats turns them off since the browser review fixes), and the Mac app shares this code but was only compiled, not run; passages are found again by text only, not by position within a re-rendered artifact. |
 
 ## Purchase verification runtime deployed (owner approved 2026-10-07 evening)
 
@@ -1401,7 +1401,7 @@ A new browser is approved from the owner's phone instead of typing the recovery 
 | Backend | No migration: `v1_request_enrollment`, `v1_enrollment_requests`, `v1_approve_enrollment` and `v1_key_state` (002) already suffice. Expiry stays server-side (15 minutes); the browser renews for the same recipient, so the number never changes. |
 | QR drawing | `uqr` 0.1.3 (MIT, a port of Nayuki's QR generator, zero dependencies), as an inline SVG; no network or CSP change. |
 | Camera | AVFoundation (works on iPhone, iPad and Mac Catalyst); `NSCameraUsageDescription` and the Mac sandbox `com.apple.security.device.camera` entitlement added. No prompt on a device without a camera. |
-| Not done | A new **Mac or iPad** showing its own QR (the native restore screen still uses the recovery code); approving from the browser; a device name beyond its kind. The browser path needs an iPhone/iPad build with Add a device. |
+| Not done | A new iPad showing its own QR; approving from the browser; a device name beyond its kind. The browser path needs an iPhone/iPad build with Add a device. (Corrected 2026-10-21, B11: a new **Mac** now shows its own QR, MacDeviceApproval.swift.) |
 
 ## Browser reader workspace (owner asked 2026-10-07: "copy the old web UX as a starting point"; agent decisions, reversible)
 

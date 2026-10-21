@@ -155,7 +155,8 @@ Serialize key-changing operations in each account's manager across suspension po
 
 Status 2026-10-07: built for a **new browser** approved by an **iPhone/iPad (or a Mac with a camera)**; verified with
 local fixtures, cross-runtime tests and Simulator UI tests only. Not yet run against staging or on a physical phone, and
-not deployed. A new native Mac/iPad still restores with the recovery code.
+not deployed. A new native iPad still restores with the recovery code; a new Mac now shows its own QR to scan
+(corrected 2026-10-21, B11; MacDeviceApproval.swift).
 
 1. **New device** (browser, `apps/web/src/lib/keys.ts` `requestApproval`): creates or resumes the pending recipient
    (non-extractable X25519 key, device ID, 32-byte challenge, persisted before any request), sends

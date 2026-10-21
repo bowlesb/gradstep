@@ -19,9 +19,10 @@ Activation is established by the later published-table readback and ordinary def
 
 Build 65 feedback (2026-10-17 UTC; browser `91c7d07f`, TestFlight 66): the native Answer options sheet has no title or
 Done row; its drag handle and accessibility escape dismiss it (Mac retains an X). “New chats currently start with
-‹model · length›” always states the saved default. The owner's label “Reset default settings” replaces “Use for new
+‹model · length›” always states the saved default. The owner's label “Reset default settings” replaced “Use for new
 chats”; it saves the visible choices as the new default, is disabled while they match, and becomes accented when
-they differ. Browser uses the same wording and enabled state. Model/length selection and provider consent are
+they differ. Since c4d15d9 the apps read “Use for new ‹activity›” (general chat, paper chat, equation explanations,
+figures and tables); the browser matches since the 2026-10-21 review fixes (B10/B11). Model/length selection and provider consent are
 unchanged. Its existing desktop dialog header/X remain.
 The same feedback batch removes the empty-chat accent glow on both clients; starter positions and actions stay the same.
 
