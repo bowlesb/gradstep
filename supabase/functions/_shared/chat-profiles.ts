@@ -8,7 +8,7 @@ import { isRouterClaude, routedClaudeModel } from './openrouter-claude-pricing.t
 // 2026-10-16 (build 57 feedback, CHAT.md "Chat redesign from build 57 feedback"): the reader sets the model and the
 // length; effort may be `auto`, which the server resolves to low, medium or high from the length and the question
 // (`autoEffort`) before it holds credits, and it holds, quotes and records the resolved profile. DeepSeek V4.1 Flash
-// joins as a fourth model through DeepSeek's Anthropic-compatible API (deepseek.ts). Both are additive to
+// joins as a fourth model (through OpenRouter to DeepInfra since 2026-10-18). Both are additive to
 // `chat-profiles-v1`: builds 57/58 decode only that version, refuse an unknown default, skip unknown model and effort
 // ids and read the first 64 profiles, so the 27 profiles they know stay first and unchanged.
 import { CHAT_EFFORT, CHAT_MAX_TOKENS, CHAT_MODEL, creditsFor, MICROUSD_PER_CREDIT, RATE_VERSION, ratesFor, TARIFF } from './anthropic.ts';

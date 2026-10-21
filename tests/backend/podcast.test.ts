@@ -10,8 +10,8 @@ import { writeFileSync } from 'node:fs';
 import { applyCorrections, checkScript, stripSpokenMarkup, SCRIPT_INSTRUCTIONS, correctionLimit, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript, parseReview, parseScript, rejectPolicy, requestBytes, REVIEW_SCHEMA,
   reviewRequest, scriptCost, scriptDocument, type CheckReport, type ReviewCorrections, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider, stripParagraphMarker } from '../../supabase/functions/_shared/podcast-script.ts';
-import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
-  vertexSpeechProvider, wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
+import { alignSegments, fixtureAudio, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
+  wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { podcastAudioBounds, podcastCheckerBounds, runPodcast, sweepPodcastSources, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { handlePodcast, podcastError, type PodcastAPIDeps } from '../../supabase/functions/_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-delivery.ts';
@@ -360,48 +360,6 @@ const speechResponse = (audio: Uint8Array, usage: unknown = { promptTokenCount: 
   new Response(JSON.stringify({ responseId: 'resp-1', modelVersion: 'gemini-3.8-flash-tts',
     candidates: [{ finishReason: 'STOP', content: { parts: [{ inlineData: { mimeType: 'audio/wav', data: Buffer.from(audio).toString('base64') } }] } }],
     ...(usage ? { usageMetadata: usage } : {}) }), { status: 200, headers: { 'content-type': 'application/json' } });
-
-test('Vertex speech adapter: one POST, usage recorded, rejections free, ambiguous outcomes held', async () => {
-  const checked = checkScript(goodScript(), PAPER);
-  assert.ok(checked.ok);
-  const request = speechRequest(checked.script, { explainer: 'Sadaltager', skeptic: 'Erinome' }, 16_384);
-  const calls: { url: string; init?: RequestInit }[] = [];
-  const make = (respond: () => Response | Promise<Response>) => vertexSpeechProvider({ project: 'gradstep', tokens: async () => 'token-fixture-value',
-    fetch: (async (url: string | URL | Request, init?: RequestInit) => { calls.push({ url: String(url), init }); return respond(); }) as typeof fetch });
-  const ok = await make(() => speechResponse(tone(2)) ).generate(request, new AbortController().signal);
-  assert.equal(ok.state, 'succeeded');
-  assert.deepEqual(ok.usage, { text_input_tokens: 1500, audio_output_tokens: 3750 });
-  assert.equal(ok.finishReason, 'STOP');
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://aiplatform.googleapis.com/v1/projects/gradstep/locations/global/publishers/google/models/gemini-3.8-flash-tts:generateContent');
-  assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, 'Bearer token-fixture-value');
-  assert.equal((await make(() => new Response('{}', { status: 400 })).generate(request, new AbortController().signal)).state, 'rejected');
-  assert.equal((await make(() => new Response('{}', { status: 429 })).generate(request, new AbortController().signal)).state, 'rejected');
-  assert.equal((await make(() => new Response('{}', { status: 503 })).generate(request, new AbortController().signal)).state, 'unknown');
-  assert.equal((await make(() => { throw new Error('reset'); }).generate(request, new AbortController().signal)).state, 'unknown');
-  const noUsage = await make(() => speechResponse(tone(2), null)).generate(request, new AbortController().signal);
-  assert.equal(noUsage.state, 'unknown', 'paid response without usage keeps the liability');
-  assert.equal(noUsage.failure, 'usage_missing');
-  const noToken = await vertexSpeechProvider({ project: 'gradstep', tokens: async () => { throw new Error('no'); },
-    fetch: (async () => { throw new Error('must not send'); }) as typeof fetch }).generate(request, new AbortController().signal);
-  assert.equal(noToken.state, 'rejected', 'no token means no POST and no charge');
-});
-
-test('speech identity: worker identity mints a short-lived token for the dedicated account; no key material', async () => {
-  const calls: { url: string; init?: RequestInit }[] = [];
-  const tokens = impersonatedTokenSource('gradstep-podcast-speech@gradstep.iam.gserviceaccount.com', (async (url: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(url), init });
-    if (String(url).startsWith('http://metadata.google.internal')) return Response.json({ access_token: 'worker-identity-token-value' });
-    return Response.json({ accessToken: 'speech-token-value-1234567890', expireTime: new Date(Date.now() + 300_000).toISOString() });
-  }) as typeof fetch);
-  assert.equal(await tokens(new AbortController().signal), 'speech-token-value-1234567890');
-  assert.equal(await tokens(new AbortController().signal), 'speech-token-value-1234567890');
-  assert.equal(calls.length, 2, 'cached until near expiry');
-  assert.equal((calls[0].init?.headers as Record<string, string>)['Metadata-Flavor'], 'Google');
-  assert.match(calls[1].url, /iamcredentials\.googleapis\.com\/v1\/projects\/-\/serviceAccounts\/gradstep-podcast-speech%40gradstep\.iam\.gserviceaccount\.com:generateAccessToken$/);
-  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { scope: ['https://www.googleapis.com/auth/cloud-platform'], lifetime: '300s' });
-  assert.throws(() => impersonatedTokenSource('not an account'), /speech_account_invalid/);
-});
 
 // ---------------------------------------------------------------------------
 // Worker job against a fake database

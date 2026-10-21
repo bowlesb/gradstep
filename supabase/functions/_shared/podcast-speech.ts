@@ -6,7 +6,6 @@ import type { CheckedScript, CheckedSegment } from './podcast-script.ts';
 import type { OpenRouterAttribution } from './openrouter-transport.ts';
 
 export const SPEECH_MODEL = 'gemini-3.8-flash-tts';
-export const VERTEX_LOCATION = 'global';
 export const SAMPLE_RATE = 24_000;
 /** Speaker labels are request metadata only (speechMetadata), never read aloud. */
 export const SPEECH_SPEAKERS = { explainer: 'Explainer', skeptic: 'Skeptic' } as const;
@@ -171,115 +170,6 @@ export interface SpeechProvider { generate(request: SpeechRequest, signal: Abort
 /** List-price cost (January 2027 rates, even during the 50% promotional credit): reconciled later from invoices. */
 export function speechCost(usage: { text_input_tokens: number; audio_output_tokens: number }, rates: { text_input: number; audio_output: number }): number {
   return Math.ceil(usage.text_input_tokens * rates.text_input + usage.audio_output_tokens * rates.audio_output);
-}
-
-export type TokenSource = (signal: AbortSignal) => Promise<string>;
-
-/**
- * Short-lived access token for a dedicated speech service account. The worker's
- * own Cloud Run identity (metadata server) must hold
- * roles/iam.serviceAccountTokenCreator on that account and nothing broader.
- */
-export function impersonatedTokenSource(serviceAccount: string, fetcher: typeof fetch = fetch): TokenSource {
-  if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$/.test(serviceAccount)) throw new Error('speech_account_invalid');
-  let cached: { token: string; expires: number } | null = null;
-  return async signal => {
-    if (cached && cached.expires - Date.now() > 60_000) return cached.token;
-    const own = await fetcher('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
-      { headers: { 'Metadata-Flavor': 'Google' }, redirect: 'error', signal });
-    if (own.status !== 200) { await own.body?.cancel(); throw new Error('speech_identity_unavailable'); }
-    const ownToken = (await own.json() as { access_token?: unknown }).access_token;
-    if (typeof ownToken !== 'string' || ownToken.length < 20) throw new Error('speech_identity_unavailable');
-    const minted = await fetcher(`https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(serviceAccount)}:generateAccessToken`, {
-      method: 'POST', redirect: 'error', signal,
-      headers: { Authorization: `Bearer ${ownToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: ['https://www.googleapis.com/auth/cloud-platform'], lifetime: '300s' }) });
-    if (minted.status !== 200) { await minted.body?.cancel(); throw new Error('speech_identity_unavailable'); }
-    const value = await minted.json() as { accessToken?: unknown; expireTime?: unknown };
-    if (typeof value.accessToken !== 'string' || typeof value.expireTime !== 'string') throw new Error('speech_identity_unavailable');
-    cached = { token: value.accessToken, expires: Date.parse(value.expireTime) || Date.now() + 240_000 };
-    return cached.token;
-  };
-}
-
-async function boundedJSON(response: Response, maximum: number): Promise<unknown> {
-  const declared = response.headers.get('content-length');
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) { await response.body?.cancel(); throw new Error('speech_response_too_large'); }
-  if (!response.body) throw new Error('speech_response_empty');
-  const reader = response.body.getReader(), parts: Uint8Array[] = []; let size = 0;
-  while (true) {
-    const next = await reader.read(); if (next.done) break;
-    size += next.value.byteLength;
-    if (size > maximum) { await reader.cancel(); throw new Error('speech_response_too_large'); }
-    parts.push(next.value);
-  }
-  const joined = new Uint8Array(size); let offset = 0;
-  for (const part of parts) { joined.set(part, offset); offset += part.byteLength; }
-  return JSON.parse(new TextDecoder().decode(joined));
-}
-
-function base64Bytes(value: string): Uint8Array {
-  const scope = globalThis as { Buffer?: { from(v: string, e: string): Uint8Array } };
-  if (scope.Buffer) return new Uint8Array(scope.Buffer.from(value, 'base64'));
-  const binary = atob(value); const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
-/** One generateContent POST per granted attempt; no client retries. */
-export function vertexSpeechProvider(options: { project: string; tokens: TokenSource; fetch?: typeof fetch; timeoutMs?: number }): SpeechProvider {
-  if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(options.project)) throw new Error('speech_project_invalid');
-  const fetcher = options.fetch ?? fetch;
-  const url = `https://aiplatform.googleapis.com/v1/projects/${options.project}/locations/${VERTEX_LOCATION}/publishers/google/models/${SPEECH_MODEL}:generateContent`;
-  return {
-    async generate(request, signal) {
-      let token: string;
-      // No request has been sent yet: failing to mint a token is a rejection with zero usage.
-      try { token = await options.tokens(signal); }
-      catch { return { state: 'rejected', requestID: null, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure: 'speech_identity_unavailable' }; }
-      const deadline = AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs ?? 300_000)]);
-      let response: Response;
-      try {
-        response = await fetcher(url, { method: 'POST', redirect: 'error', signal: deadline,
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request.body) });
-      } catch {
-        return { state: 'unknown', requestID: null, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure: 'transport_unknown' };
-      }
-      const requestID = response.headers.get('x-goog-request-id') ?? null;
-      // Google does not bill requests failing with a client error; a 5xx or a lost
-      // body keeps the whole ceiling until reconciled from billing evidence.
-      if (response.status >= 400 && response.status < 500 && response.status !== 408) {
-        await response.body?.cancel();
-        return { state: 'rejected', requestID, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure: `http_${response.status}` };
-      }
-      if (response.status !== 200) {
-        await response.body?.cancel();
-        return { state: 'unknown', requestID, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure: `http_${response.status}` };
-      }
-      let value: Record<string, unknown>;
-      try { value = await boundedJSON(response, MAX_SPEECH_RESPONSE_BYTES) as Record<string, unknown>; }
-      catch { return { state: 'unknown', requestID, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure: 'response_unreadable' }; }
-      const candidate = (value.candidates as Record<string, unknown>[] | undefined)?.[0];
-      const part = ((candidate?.content as Record<string, unknown> | undefined)?.parts as Record<string, unknown>[] | undefined)?.[0];
-      const inline = part?.inlineData as { mimeType?: unknown; data?: unknown } | undefined;
-      const usage = value.usageMetadata as Record<string, unknown> | undefined;
-      const audioTokens = (usage?.candidatesTokensDetails as { modality?: unknown; tokenCount?: unknown }[] | undefined)
-        ?.filter(d => d.modality === 'AUDIO').reduce((sum, d) => sum + (Number.isSafeInteger(d.tokenCount) ? d.tokenCount as number : 0), 0)
-        ?? (Number.isSafeInteger(usage?.candidatesTokenCount) ? usage!.candidatesTokenCount as number : null);
-      const textTokens = Number.isSafeInteger(usage?.promptTokenCount) ? usage!.promptTokenCount as number : null;
-      const id = typeof value.responseId === 'string' && /^[A-Za-z0-9._:/-]{1,200}$/.test(value.responseId) ? value.responseId : requestID;
-      const model = typeof value.modelVersion === 'string' ? value.modelVersion.slice(0, 128) : null;
-      const audio = typeof inline?.data === 'string' ? base64Bytes(inline.data) : null;
-      if (textTokens === null || audioTokens === null || !audioTokens) {
-        // Paid response without usage: keep the full liability; never infer usage.
-        return { state: 'unknown', requestID: id, model, finishReason: typeof candidate?.finishReason === 'string' ? candidate.finishReason : null,
-          audio, mimeType: typeof inline?.mimeType === 'string' ? inline.mimeType : null, usage: null, failure: 'usage_missing' };
-      }
-      return { state: 'succeeded', requestID: id, model, finishReason: typeof candidate?.finishReason === 'string' ? candidate.finishReason : null,
-        audio, mimeType: typeof inline?.mimeType === 'string' ? inline.mimeType : null,
-        usage: { text_input_tokens: textTokens, audio_output_tokens: audioTokens }, failure: null };
-    },
-  };
 }
 
 // ----------------------------------------------------------------------------
