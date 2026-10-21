@@ -38,6 +38,7 @@ import { KeySetup } from './Keys';
 import { RegionBoundary } from './ErrorBoundary';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
+import { RecommendDialog, useRecommendations } from './Recommend';
 import { readStored, type Route, type Theme, useMedia, useStored, useTheme, writeStored } from './prefs';
 import { type ComposerDraft, NewNoteDialog, NoteComposer, NoteDetail, NotesList, useNotes } from './Notes';
 import type { EntryView } from '../lib/notes';
@@ -158,6 +159,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const phone = useMedia('(max-width: 640px)');
   const devicePDFs=useDevicePDFs(chat, catalogs);
   const library = useLibrary(account,devicePDFs,catalogs);
+  // AI recommendations (AI_RECOMMENDATIONS.md): one request at a time for the page, outliving its dialog.
+  const recommender = useRecommendations(account, library);
   // The reader has the same paper action surface as Library. Keeping a separate owner avoids
   // two portals competing when a library menu is still closing during navigation.
   // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.
@@ -167,7 +170,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() },
     // Notes: Paper ⋯ › Draw snippet (the always-available entry; NOTES_AND_SNIPPETS.md "Capture entry points"), after
     // the existing first item.
-    { label: 'Draw snippet', testID: 'draw-snippet', applies: (paper: LibraryPaper) => isReaderPaper(paper), run: () => readerCommands.current?.drawSnippet?.() }], []),similar);
+    { label: 'Draw snippet', testID: 'draw-snippet', applies: (paper: LibraryPaper) => isReaderPaper(paper), run: () => readerCommands.current?.drawSnippet?.() }], []),similar,recommender);
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
@@ -716,7 +719,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </span>} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
       <div className="rail-body" role="tabpanel">
         {railTab === 'contents' ? <div ref={setContentsSlot} className="contents-slot"><p className="fine rail-note">The contents appear when the paper opens.</p></div>
-          : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} onSimilar={similar} query={view.query} prepared={prepared} />}
+          : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} onSimilar={similar} recommender={recommender} query={view.query} prepared={prepared} />}
       </div>
     </>
   ) : route === 'notes' ? (
@@ -782,7 +785,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared} onSearchTag={searchPapers}
-      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} chatCount={chatCount} />;
+      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} recommender={recommender} onAdd={() => setAdding(true)} chatCount={chatCount} />;
   }
 
   // Paper (phone): the paper last open in this tab, else the one most recently opened on this device.
@@ -881,6 +884,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onSaved={(id, title) => { const text = composer.draft.kind === 'text'; setComposer(null); if (text || route === 'notes') void navigate(`/notes/${id}`); else setSavedNote({ noteID: id, title, offline: typeof navigator !== 'undefined' && navigator.onLine === false }); }} /></RegionBoundary>}
       {notes && newNote && <NewNoteDialog store={notes} onClose={() => setNewNote(false)} onCreated={id => { setNewNote(false); void navigate(`/notes/${id}`); }} />}
       {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
+      <RegionBoundary region="recommend" label="Recommended papers" compact resetKey={recommender.run} onReport={report}>
+        <RecommendDialog recommender={recommender} />
+      </RegionBoundary>
       <RegionBoundary region="add-paper" label="Add paper" compact resetKey={adding} onReport={report}>
         <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} onOpen={paper => void openPaper(paper)} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
       </RegionBoundary>

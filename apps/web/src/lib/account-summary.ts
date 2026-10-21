@@ -43,5 +43,5 @@ export async function loadAccountSummary(account: string, signal?: AbortSignal):
 }
 
 /** The ⓘ beside each row (native CreditsStoreView's wording). */
-export const CREDITS_INFO = 'Credits pay for AI answers, web searches and podcast episodes; each uses credits based on what it asks for and how long the answer is. Credits are bought in the Gradstep app on iPhone, iPad or Mac.';
+export const CREDITS_INFO = 'Credits pay for AI answers, web searches, podcast episodes and paper recommendations; each uses credits based on what it asks for and how long the answer is. Recommendations use 1 credit per request that adds papers. Credits are bought in the Gradstep app on iPhone, iPad or Mac.';
 export const PLAN_INFO = 'A plan adds credits each month. Plans are chosen and managed in the Gradstep app on iPhone, iPad or Mac.';

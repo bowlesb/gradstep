@@ -1,0 +1,36 @@
+/* AI recommendations: the paper menu's choices and the dialog that shows what was added. */
+.paper-action-menu .submenu-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.paper-action-menu .submenu-trigger .chevron { color: var(--muted); transition: transform .12s; }
+.paper-action-menu .submenu-trigger[aria-expanded=true] .chevron { transform: rotate(90deg); }
+.paper-action-submenu { margin: 0 0 4px 10px; padding-left: 6px; border-left: 2px solid var(--accent-soft); }
+.recommend-note { margin: 4px 10px 2px; color: var(--muted); }
+.paper-action-menu .recommend-choice { padding: 7px 10px; }
+.recommend-catalog > .title-menu-button { margin-left: 0; min-height: 30px; padding: 4px 9px 4px 11px; font-size: 13px; font-weight: 400;
+  background: var(--surface); border-color: var(--line-strong); color: var(--text); }
+.recommend-catalog > .title-menu-button.on { background: var(--accent-soft); }
+.recommend-catalog .popup-menu { min-width: 210px; }
+.recommend-catalog .popup-menu .recommend-note { margin: 4px 10px 4px; }
+
+.recommend-dialog .dialog-body { max-width: 560px; }
+.recommend-dialog h2 { margin: 0; }
+.recommend-subject { margin: 2px 0 0; overflow-wrap: anywhere; }
+.recommend-status { display: flex; align-items: center; gap: 10px; margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.recommend-status .spinner { width: 14px; height: 14px; border-width: 2px; flex: none; }
+.recommend-rows { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.recommend-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); animation: recommend-in .18s ease-out; }
+.recommend-row.removed .recommend-title, .recommend-row.removed .recommend-reason { color: var(--faint); text-decoration: line-through; }
+.recommend-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.recommend-title { font-weight: 600; overflow-wrap: anywhere; }
+.recommend-meta { overflow-wrap: anywhere; }
+.recommend-reason { color: var(--text); font-size: 14px; line-height: 1.4; }
+.recommend-state { color: var(--muted); }
+.recommend-remove { flex: none; width: 30px; height: 30px; font-size: 18px; line-height: 1; color: var(--muted); border-radius: 50%; }
+.recommend-remove:hover, .recommend-remove:focus-visible { background: var(--accent-soft); color: var(--text); }
+.recommend-error { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.recommend-error .issue { margin: 0; }
+.recommend-footer { margin: 4px 0 0; font-weight: 600; }
+.recommend-price { margin: 4px 0 0; }
+.recommend-dialog .dialog-actions { justify-content: flex-end; }
+@keyframes recommend-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .recommend-row { animation: none; } }
+.paper-action-menu:has(.submenu-trigger) { width: 244px; }
