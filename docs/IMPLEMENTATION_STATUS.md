@@ -1,5 +1,17 @@
 # Implementation status
 
+## TestFlight 78 and browser release — 2026-10-21 UTC
+
+iOS build 78 uploaded 12:52 UTC and VALID in App Store Connect; Mac build 78 uploaded 13:01 UTC (processing at the time of
+writing). Browser deployed to https://app.gradstep.ai (Pages 308f1938; association and asset types verified). Contents:
+native and browser Notes and snippets (server `note-assets` live since 06:37 UTC), the native/browser/server review fixes,
+the build 73–76 owner feedback, OpenRouter-only inference with the admin Costs tab, and no import quota (migrations through
+0142 applied; deploy checks 19 passed, 0 failed). Gates: `npm test` passes; import acceptance 15/15 on the uploaded source
+(`.artifacts/import-acceptance/2026-10-21T12-37-09-860Z.log`); Notes 5/5, figure page 3/3 (alone; 0/3 under heavy load,
+"paper is ready" timeouts) and authentication journeys pass on an iPhone 17 Pro Simulator after a fix: a sign-in begun from
+the Settings sheet now returns to Settings. Not verified: a physical device (paused), cross-device Notes sync, Mac UI
+journeys after the final merge. Local store format v7 cannot be opened by builds before 78.
+
 ## Native code review fixes — October 21 UTC (local source; not released)
 
 The [native code review](reviews/NATIVE_REVIEW_20261021.md)'s findings were each re-read against `82c8656` before
