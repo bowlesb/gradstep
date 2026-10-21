@@ -184,10 +184,14 @@ async function setSignIn(service: AdminService, actor: string, request: Extract<
   // unrecorded change. Retrying the same request ID reapplies it without a second row.
   const result = await call<{ auth_user_id: string; disabled: boolean; replayed: boolean }>(service, 'worker_admin_set_sign_in', {
     p_actor_id: actor, p_request_id: request.request_id, p_account_id: request.account_id, p_disabled: request.disabled, p_reason: request.reason });
-  if (typeof result?.auth_user_id !== 'string' || !UUID.test(result.auth_user_id)) throw new PublicError(503, 'service_unavailable');
-  const { error } = await service.auth.admin.updateUserById(result.auth_user_id, { ban_duration: request.disabled ? BAN_DURATION : 'none' });
+  if (typeof result?.auth_user_id !== 'string' || !UUID.test(result.auth_user_id) || typeof result.disabled !== 'boolean') throw new PublicError(503, 'service_unavailable');
+  // A14: Auth follows the database's current state, never the request's intent. A replayed request ID returns the state
+  // now, which a newer change may have reversed; applying the old intent would ban an enabled account (or the reverse).
+  const { error } = await service.auth.admin.updateUserById(result.auth_user_id, { ban_duration: result.disabled ? BAN_DURATION : 'none' });
   if (error) throw new PublicError(503, 'sign_in_change_unconfirmed');
-  return { account_id: request.account_id, disabled: request.disabled, replayed: result.replayed };
+  // A replay whose intent no longer matches: Auth is in step with the database, and the page is told it was superseded.
+  if (result.replayed && result.disabled !== request.disabled) throw new PublicError(409, 'request_superseded');
+  return { account_id: request.account_id, disabled: result.disabled, replayed: result.replayed };
 }
 
 /** Handles one request; `headers` (CORS etc.) are added to every response. */

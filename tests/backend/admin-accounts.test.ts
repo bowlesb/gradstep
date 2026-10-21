@@ -237,6 +237,42 @@ test('disable and enable: audit first, then the Auth ban; owners and failures', 
   assert.deepEqual([failed.status, failed.json], [503, { code: 'sign_in_change_unconfirmed' }]);
 });
 
+test('A14: a replayed sign-in request applies the database\'s current state to Auth, never its old intent', async () => {
+  // disable "spam" (answer lost) -> later enable -> disable "spam" again reuses the old request ID: the database replays
+  // and reports the account enabled now.
+  const h = harness();
+  const service = h.deps.service();
+  const original = service.rpc.bind(service);
+  service.rpc = async (name: string, params: Record<string, unknown> = {}) => name === 'worker_admin_set_sign_in'
+    ? (h.calls.push({ who: 'service', name, params }), { data: { auth_user_id: TESTER, disabled: false, replayed: true }, error: null })
+    : original(name, params);
+  h.deps.service = () => service;
+  const replay = await send(h, signIn({ disabled: true }));
+  assert.deepEqual([replay.status, replay.json], [409, { code: 'request_superseded' }]);
+  assert.deepEqual(h.calls.find(c => c.name === 'updateUserById')!.params, { id: TESTER, ban_duration: 'none' }, 'Auth follows the database: not banned');
+  // A replay that matches the current state is acknowledged as before.
+  const same = harness();
+  const sameService = same.deps.service(), sameOriginal = sameService.rpc.bind(sameService);
+  sameService.rpc = async (name: string, params: Record<string, unknown> = {}) => name === 'worker_admin_set_sign_in'
+    ? { data: { auth_user_id: TESTER, disabled: true, replayed: true }, error: null } : sameOriginal(name, params);
+  same.deps.service = () => sameService;
+  assert.deepEqual((await send(same, signIn())).json, { account_id: TESTER, disabled: true, replayed: true });
+});
+
+import { FinalRequestError, once } from '../../apps/admin/src/retry-key.ts';
+test('A14: the admin retry key survives a lost answer but is cleared by any final answer', async () => {
+  const store = new Map<string, string>();
+  const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); }, removeItem: (k: string) => { store.delete(k); } };
+  const ids: string[] = [];
+  const params = { account_id: TESTER, disabled: true, reason: 'spam' };
+  await assert.rejects(once(OWNER, 'admin-sign-in', params, async id => { ids.push(id); throw new Error('lost'); }, storage));
+  await assert.rejects(once(OWNER, 'admin-sign-in', params, async id => { ids.push(id); throw new FinalRequestError('superseded'); }, storage));
+  assert.equal(ids[0], ids[1], 'an unknown outcome is retried with the same request ID');
+  await once(OWNER, 'admin-sign-in', params, async id => { ids.push(id); return 'ok'; }, storage);
+  assert.notEqual(ids[2], ids[1], 'after a final refusal the same change is a new request');
+  assert.equal(store.size, 0, 'nothing pending after an acknowledged answer');
+});
+
 test('logs carry the action and outcome only', async () => {
   const h = harness();
   await send(h, { action: 'add_tester', email: 'private.person@example.org', credits: 1000 });

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { FinalRequestError } from './retry-key';
 import { spendingReceipt, type SpendingObservationRequest, type SpendingObservationReceipt } from '../../../supabase/functions/_shared/spending-observations.ts';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -34,6 +35,7 @@ const accountErrors: Record<string, string> = {
   owner_cannot_be_disabled: 'Owner accounts cannot be disabled here.',
   request_id_conflict: 'This change conflicts with an earlier one. Reload and try again.',
   sign_in_change_unconfirmed: 'The change was recorded but sign-in could not be updated. Try again.',
+  request_superseded: 'A newer change to this account came after this one. Reload to see its current state.',
 };
 export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T> {
   if (!backend || !url || !key) throw new Error('The backend has not been configured for this build.');
@@ -45,7 +47,11 @@ export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T
       headers: { apikey: key, Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   } catch { throw new Error('The request could not be completed. Your change was not confirmed.'); }
   const json = await response.json().catch(() => null) as { code?: string } | null;
-  if (!response.ok) throw new Error(accountErrors[json?.code ?? ''] ?? 'The request could not be completed. Your change was not confirmed.');
+  if (!response.ok) {
+    const message = accountErrors[json?.code ?? ''] ?? 'The request could not be completed. Your change was not confirmed.';
+    // A14: the server's own refusal of this request (4xx other than a rate limit) is final: the retry key is cleared.
+    throw response.status < 500 && response.status !== 429 ? new FinalRequestError(message) : new Error(message);
+  }
   return json as T;
 }
 
@@ -101,7 +107,9 @@ export async function rpc<T>(name: string, parameters: Record<string, unknown> =
       fixed_build_required: 'Enter the build that contains the fix.',
       budget_not_configured: 'Provider spending has not been configured.',
     };
-    throw new Error(errors[error.message] ?? 'The request could not be completed. Your changes were not confirmed.');
+    const message = errors[error.message] ?? 'The request could not be completed. Your changes were not confirmed.';
+    // A database refusal (it carries a SQLSTATE) is final for this request; a lost answer is not.
+    throw typeof error.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) ? new FinalRequestError(message) : new Error(message);
   }
   return data as T;
 }
