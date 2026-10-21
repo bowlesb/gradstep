@@ -26,6 +26,8 @@ struct PaperContentsSheet: View {
     @State private var tab: Tab = .contents
     @State private var path = NavigationPath()
     @State private var equations: [Equation]? = nil
+    /// The equations are listed by the index alone while the page is still being read for their printed numbers.
+    @State private var readingNumbers = false
     @AppStorage("reader.contents.doubleTapDiscovered") private var doubleTapDiscovered = false
     @ScaledMetric(relativeTo: .body) private var indent = 18.0
 
@@ -53,10 +55,7 @@ struct PaperContentsSheet: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .task(id: tab) {
-                if tab == .equations, equations == nil {
-                    let loaded = await Self.equations(in: bundle)
-                    if !Task.isCancelled { equations = loaded }
-                }
+                if tab == .equations, equations == nil || readingNumbers { await loadEquations() }
             }
             // A figure's own page: the figure, its whole caption, Show in paper (owner, build 59: "get to the entire title
             // without going all the way back to the paper").
@@ -132,7 +131,7 @@ struct PaperContentsSheet: View {
         case .equations:
             if let equations {
                 List {
-                    if !equations.isEmpty {
+                    if !equations.isEmpty, !readingNumbers {
                         NavigationLink(value: Route.equationTiles) { Label("View as tiles", systemImage: "square.grid.2x2") }
                             .accessibilityIdentifier("contents.equationTiles")
                     }
@@ -145,8 +144,37 @@ struct PaperContentsSheet: View {
                 .overlay { if equations.isEmpty { ContentUnavailableView("No equations", systemImage: "function") } }
                 .accessibilityIdentifier("contents.list.equations")
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityIdentifier("contents.equations.loading")
             }
+        }
+    }
+
+    /// The full list (printed numbers read from the page) when it is quick. Otherwise, within 1.5 s, the equations named
+    /// from the index alone, their printed numbers filled in when the page has been read (build 68: "Hanging", a spinner
+    /// that never ended on a long paper). The rows keep their places as the names fill in.
+    private func loadEquations() async {
+        let bundle = bundle
+        let scan = Task { await Self.equations(in: bundle) }
+        let early = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled, equations == nil else { return }
+            equations = Self.indexEquations(in: bundle); readingNumbers = true
+        }
+        let loaded = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel(); early.cancel() }
+        early.cancel()
+        guard !Task.isCancelled else { return }
+        // A scan that found nothing usable keeps the index's names (it never replaces a list with an empty one).
+        if !loaded.isEmpty || equations == nil { equations = loaded }
+        readingNumbers = false
+    }
+
+    /// The display equations named from the index alone (a \tag{…} in the source, else the section): instant, no page scan.
+    nonisolated static func indexEquations(in bundle: VerifiedReaderBundle?) -> [Equation] {
+        guard let index = bundle?.index else { return [] }
+        let sections = Self.sections(of: index)
+        return index.equations.filter(\.display).map { equation in
+            let tag = equation.latex.firstMatch(of: /\\tag\*?\{([^}]{1,12})\}/).map { "(\($0.output.1))" }
+            return Equation(id: equation.id, label: label(number: tag, section: sections[equation.blockID]), markup: nil)
         }
     }
 

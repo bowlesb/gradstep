@@ -25,6 +25,17 @@ final class ContentsEquationLabelTests: XCTestCase {
         XCTAssertEqual(sections["e1"], "1 Intro")
         XCTAssertEqual(sections["e2"], "2 Method")
     }
+
+    /// Build 68 (AG-KC, "Hanging"): the tab lists the same equations at once from the index while the page is read.
+    func testTheIndexAloneListsTheSameEquationsInOrder() async throws {
+        let bundle = try ReaderBundleLoader.sample()
+        let quick = PaperContentsSheet.indexEquations(in: bundle)
+        let full = await PaperContentsSheet.equations(in: bundle)
+        XCTAssertFalse(quick.isEmpty)
+        XCTAssertEqual(quick.map(\.id), full.map(\.id), "rows keep their places when the printed numbers fill in")
+        XCTAssertTrue(quick.allSatisfy { $0.markup == nil && $0.label.hasPrefix("Equation") })
+        XCTAssertEqual(PaperContentsSheet.indexEquations(in: nil), [])
+    }
 }
 
 @MainActor
