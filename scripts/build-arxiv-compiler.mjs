@@ -4,11 +4,18 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const noble = JSON.parse(readFileSync(new URL('../node_modules/@noble/hashes/package.json', import.meta.url), 'utf8'));
 if (noble.version !== '1.8.0') throw Error('Unreviewed device SHA-256 dependency');
+// Packages resolve from the repository's own node_modules only. Deno keeps its own copies in
+// supabase/functions/node_modules (nodeModulesDir), which esbuild would otherwise find first from the reader sources;
+// the bundle then depended on which checkout built it (2026-10-21: "stale" on main, fresh in a clean worktree).
+const rootPackages = { name: 'root-packages', setup(b) {
+  b.onResolve({ filter: /^[^./]/ }, args => args.path.startsWith('node:') || args.pluginData === 'root' ? undefined
+    : b.resolve(args.path, { kind: args.kind, resolveDir: root, importer: args.importer, pluginData: 'root' }));
+} };
 const result = await build({ absWorkingDir: root, entryPoints: ['supabase/functions/_shared/reader/device-compiler.ts'],
   outfile: 'apps/apple/ScienceReader/Resources/arxiv-reader.js', bundle: true, platform: 'browser', target: 'es2022',
   format: 'iife', globalName: 'GradstepArxivReader', minify: true, legalComments: 'eof',
   alias: { 'node:crypto': fileURLToPath(new URL('./arxiv-compiler/crypto.ts', import.meta.url)),
-    'node:zlib': fileURLToPath(new URL('./arxiv-compiler/zlib.ts', import.meta.url)) }, write: false,
+    'node:zlib': fileURLToPath(new URL('./arxiv-compiler/zlib.ts', import.meta.url)) }, write: false, plugins: [rootPackages],
 });
 for (const path of ['apps/apple/ScienceReader/Resources/arxiv-reader.js', 'apps/web/public/arxiv-reader.js']) {
   if (process.argv.includes('--check')) {
@@ -22,7 +29,7 @@ const metadata = await build({ absWorkingDir: root, entryPoints: ['supabase/func
   outfile: 'apps/apple/ScienceReader/Resources/arxiv-source-metadata.js', bundle: true, platform: 'browser', target: 'es2022',
   format: 'iife', globalName: 'GradstepSourceMetadata', minify: true, legalComments: 'eof', write: false,
   alias: { 'node:crypto': fileURLToPath(new URL('./arxiv-compiler/crypto.ts', import.meta.url)),
-    'node:zlib': fileURLToPath(new URL('./arxiv-compiler/zlib.ts', import.meta.url)) } });
+    'node:zlib': fileURLToPath(new URL('./arxiv-compiler/zlib.ts', import.meta.url)) }, plugins: [rootPackages] });
 const metadataPath = 'apps/apple/ScienceReader/Resources/arxiv-source-metadata.js';
 if (process.argv.includes('--check')) {
   let current = null; try { current = readFileSync(root + metadataPath); } catch { current = null; }
