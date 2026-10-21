@@ -1,5 +1,25 @@
 # Owner feedback log
 
+## Build 78 screenshot feedback — October 21 UTC, 14:35–15:14 (implemented on a branch; not released)
+
+iPhone/iPad/Mac and the browser where they apply; no TestFlight upload or browser deploy; the physical phone was not
+used. The three Notes items (rename to Snippets, comment-only text, spacing under dates) were handled separately.
+
+| Report | Outcome |
+|---|---|
+| `AG2UOMMYoJEKid-KGIbvQR4` 14:35 keyword chip menu: "go back to old UX… I just like the edit interface right below" | Done: a keyword chip opens Edit tags again, with **Search ML papers for "X"** and **Show library papers tagged "X"** at its top and the editor right below (dimmed while there are unsaved edits) |
+| `AI-1hjk_J3x1jHLeLIwb150` 14:35 delay after choosing a section in Contents | Fixed: the jump went only after the sheet's dismiss animation (~0.4 s); Contents, the gallery's Show in paper and Go to figure now jump at the tap |
+| `AB61R5PD5QUGc_lZ7G1ztuI` 14:42 figure page: no Report, consistent snippet, words "Snippet, Chat, AI Explainer", no X | Done on figure, table and equation pages: three words, no ⋯ and no X (swipe down; VoiceOver escape; the Mac and the browser keep an X). The after-screenshot "Report this screen" banner is now off unless turned on in Settings |
+| `AD_VNMICSbl1_qQ8zyroMRw` 14:54 "No three dots after manage catalogs" | Done: "Manage catalogs" |
+| `AOi4ChXfF28lJMcIkR6_DdA` 15:04 "Open this paper and prepare its reader…" in a paper chat | Fixed: asking prepares the paper on the device (open copy, stored copy, or arXiv's HTML now) whether or not it is the paper on screen; a failure says why, keeps the question and offers Try again |
+| `AD2-YA9DLtyZtnyCvGUPU3k` 15:05 "No Gradstep keywords" | Fixed: after generic keywords were dropped, a new paper with nothing specific had an empty row. It now falls back to its narrower arXiv subject (cs.IR → Information retrieval; never ML/AI/language/vision), and a paper with none shows **Add keywords**, never a bare heading |
+| `AHQZ-EHxmIL9Wl3ljeZxeHo` 15:07 too much space between sections | Done: about a quarter less above sections (1.4em) and subsections (1.25em), for every paper already prepared |
+| `AAU66bXyWX3UsNAXhAX0_-8` 15:08 "change AI explainer to Focus… should not necessarily assume they need an AI explainer" | Done: a tapped equation offers **Focus**, which opens the equation large and asks nothing; the view's AI Explainer asks |
+| `AD3Vb6DCGpPHzKLxDQ-Pe5E` 15:09 double tap no longer opens Contents (light mode) | Fixed two ways it could stop: a text selection left anywhere swallowed the first tap of every double tap, and a Contents request made while another sheet was closing could leave the double tap and the Contents button ignored until the paper changed. Nothing depended on light mode. The exact moment on the phone wasn't reproduced; please say if it recurs |
+| `AHW5GUnkqgOmyxteJZD9svE` 15:10 tab bar lower | Done: 6 pt lower (14 pt above the edge on phones with a home indicator) |
+| `AJCTv9V1Rk5TSr6xhF0JYD4` 15:11 headers "pushed up just a tad" | **Open**: Paper, Chat and Settings use the system navigation bar; two ways of moving it up had no effect in the Simulator and were removed. Moving it needs an app-drawn header like the Library's; proposed for your yes |
+| `ALsQuX0_-_YLhsw7YkcwwYM` 15:14 AI recommendations (1, 3 or 5) and a general chat about a paper | Proposal only, for your approval: [AI recommendations](proposals/AI_RECOMMENDATIONS.md) |
+
 ## Builds 66–76 open screenshot feedback — October 21 UTC (implemented on a branch; not released)
 
 The open items from the [feedback triage](reviews/FEEDBACK_TRIAGE_20261021.md) are implemented on iPhone/iPad/Mac and

@@ -23,6 +23,37 @@ below) built but its iPhone screenshot was not re-taken: under a load average of
 timed out at "paper is ready" (it passed with the previous 2 pt spacing). `npm test` passed on its second run; the
 first failed once in `notes-store.test.ts` (unchanged code; passes alone). No server, deployment, upload or physical phone.
 
+## Build 78 screenshot feedback — 2026-10-21 (local source; not released, not deployed)
+
+Owner feedback 14:35–15:14 UTC ([log](OWNER_FEEDBACK.md)), one commit per item on `worktree-agent-a61e736ed1dc7b2f7`,
+merged with main (Snippets rename, 2176da36). Changes: keyword chip → Edit tags with its two searches on top (native,
+browser); Contents/gallery/Go to figure jump at the tap (native; the browser already did); "Manage catalogs"; figure,
+table and equation pages' top row = Snippet, Chat, AI Explainer in words, no ⋯/Report/X on touch screens (Mac and
+browser keep the X), after-screenshot report offer off by default; paper chat prepares its paper on the device
+(`readerBundleForChat`) and names a failure's reason (native `reader_unprepared`, browser `reader_no_html` /
+`reader_retrieval` / `reader_unprepared`); keyword fallback to narrower arXiv subjects plus a visible Add keywords chip
+(Swift/server lists compared by `tests/backend/tags.test.ts`; `arxiv-source-metadata.js` rebuilt, reader compiler and
+revision 22 unchanged); section spacing 2em/1.6em → 1.4em/1.25em in the bridge (no revision bump); equation menu
+"Focus" asks nothing; double tap: a selection elsewhere no longer blocks it and a stale Contents flag self-heals; tab bar
+6 pt lower; the offline sample shows no keyword row. Not done: headers higher (system navigation bar did not move with
+negative safe-area padding or a reduced navigation-controller safe area; reverted). Proposal written:
+[AI recommendations](proposals/AI_RECOMMENDATIONS.md).
+
+Evidence (iPhone 17 Pro Simulator, iOS 26.4, run alone): app units PaperTableTests, PaperWebViewTests (the four
+pre-existing "Gradstep Keywords" Contents failures are fixed: the bridge's own heading is no longer a section),
+ChatGenerationTests (arXiv answered by a fixture, no network) and the screenshot-offer test pass, 97 tests, 0 failures;
+UI journeys pass: FigureViewJourneyTests figure walkthrough (Snippet/Chat/AI Explainer row, swipe to close), figure
+gallery, equation view (Focus then AI Explainer), Contents levels/discovery, repeated Contents/paper chat reading place,
+the new `testDoubleTapOpensContentsDeepInThePaperAfterAnEquationMenuAndAFling` (light) and all 9 NotesJourneyTests after
+the merge (including `testAddSelectionToNote`: long-press shows the edit menu with Save snippet; 2 consecutive passes).
+Result bundles and screenshots: `.artifacts/b78/` (`ui-2`, `ui-3`, `ui-4`, `sel-1`, `sel-2`, `unit-2`;
+`review-figure-toprow-light.png`, `review-gallery-figure-dark.png`) and `.artifacts/visual/b78-after/` (paper, library,
+chat, settings, light and dark). Browser: vitest passes (63 files, 566 tests before the merge, plus the new preparation test); Playwright desktop + phone
+`equation-view`, `figure-view`, `build-62` 33 passed (2 load timeouts at 2 workers pass when rerun alone), 1 by-design
+skip. `npm test` passes after the merge (every fast-tier group, including compiler freshness). Section gaps measured on cached real papers (2610.17288v1, 2610.10478v1) at 402 px: 47 → 34
+px above a section, 33 → 27 px above a subsection. Not verified: a physical device (paused), iPad and Mac UI journeys,
+the owner's exact double-tap moment.
+
 ## Complete figure crops and presentation margins — 2026-10-21 (local source; not released, not deployed)
 
 Owner-approved quick win from the [subfigure detector review](reviews/SUBFIGURE_DETECTOR_20261021.md) (integration
