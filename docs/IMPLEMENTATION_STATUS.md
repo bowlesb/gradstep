@@ -150,6 +150,20 @@ Both platform states were read back at **06:07:35 UTC**. Evidence and exact coun
 `catalog-release-verification.json`; archive hashes and acceptance identity are in `release-75-provenance.json`.
 No physical iPhone or paid model call was used.
 
+## Subfigure detector from the PDF corpus — 2026-10-21 (research; not released)
+
+A new app-level evaluation (complete crops as displayed, no false splits, correct counts) on 238 new
+held-out arXiv figures shows the previous best detector correct on only **50.8%** (93.6% on the old frozen
+set). The 17K-paper corpus was turned into a data engine: exact labels from 35,779 figure PDFs' drawing
+operations, caption-verified whitespace labels, 7,000 synthetic compounds/negatives and agreement-filtered
+pseudo-labels. With a new completeness post-processor, caption-count/grouping and two-view agreement, the best
+system reaches **73.5% (95% CI 68–79)** on the new validation set and 95.5% on the old one. It does **not**
+meet the acceptance gates; non-plot compounds (framed diagrams, lettered image grids) remain the main
+failure. The completeness step alone is a cheap, model-free fix for clipped AI crops (simulated: perfect
+splits 43% → 90% at 6% box error). A 235-figure arXiv final test is annotated and locked, not yet scored.
+FP32 Core ML parity holds for a trained two-class checkpoint. $0 model spend; no app code changed.
+Details and integration proposal: [Subfigure detector](reviews/SUBFIGURE_DETECTOR_20261021.md).
+
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 
 Fine-tuning experiments ran in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real
