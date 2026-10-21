@@ -5,7 +5,7 @@ import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
 import { localChatContext, observeArxivSources, prepareArxivReader } from '../lib/arxiv-reader';
 import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
-import { type FocusEvent as ReactFocusEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type FocusEvent as ReactFocusEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
 import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
@@ -39,16 +39,19 @@ import { readStored, type Route, type Theme, useTheme, writeStored } from './pre
 /** The Library's status filter, remembered between visits (per browser, a convenience only). The tag isn't: every visit
  * starts with all tags, as the apps do (B3; owner: an old tag filter came back and the library looked empty). */
 const LIBRARY_FILTER_KEY = 'gradstep.library.filter', OLD_LIBRARY_TAG_KEY = 'gradstep.library.tag';
-import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
+import type { ReaderCache, ReaderCommands } from './Reader';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { useReadingMode } from './ReadingMode';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
-import { ReportDialog, ReportsDialog } from './SupportReports';
-import { HowGradstepWorks } from './HowGradstepWorks';
-import { PrivacyData } from './PrivacyData';
+// Loaded when first needed (C5): the reader with its frame script, and dialogs opened from the account menu.
+const Reader = lazy(() => import('./Reader').then(m => ({ default: m.Reader })));
+const ReportDialog = lazy(() => import('./SupportReports').then(m => ({ default: m.ReportDialog })));
+const ReportsDialog = lazy(() => import('./SupportReports').then(m => ({ default: m.ReportsDialog })));
+const HowGradstepWorks = lazy(() => import('./HowGradstepWorks').then(m => ({ default: m.HowGradstepWorks })));
+const PrivacyData = lazy(() => import('./PrivacyData').then(m => ({ default: m.PrivacyData })));
 import { useLibrary } from './useLibrary';
 import { useCatalogs } from './useCatalogs';
 
@@ -582,7 +585,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // A direct paper URL can finish loading the library before local decryption. Mounting the
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
-      : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} extra={!!readingSource(item)} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
+      : item ? <Suspense fallback={<div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>}><Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} extra={!!readingSource(item)} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
         onAsked={podcasts.asked} openWith={listenAgain?.itemID === item.id ? listenAgain : null} onOpened={() => setListenAgain(null)} deviceSource={readingSource(item) ? async signal => {
         // The paper's own text on this device (migration 066): the verified bundle's numbered context, as the chat sends it.
         // An arXiv paper from before the HTML-first reader sends it too, named by its library item (migration 081: the
@@ -603,7 +606,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
         onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => { setSearchExternal(true); paperSearch.setQuery('author:' + name); navigate('/'); paperSearch.run(); }}
         onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
-        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
+        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} /></Suspense>
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'feed') {
@@ -712,8 +715,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           void openPaper(paper);
           return true;
         }} /></RegionBoundary>}
-      <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
-      <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
+      {reportOpen && <Suspense fallback={null}><ReportDialog open onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} /></Suspense>}
+      {reportsOpen && <Suspense fallback={null}><ReportsDialog open onClose={() => setReportsOpen(false)} account={account} /></Suspense>}
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
         <h2>Keyboard shortcuts</h2>
         <dl className="shortcuts">
@@ -722,8 +725,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <p className="fine">On Windows and Linux, use Ctrl for ⌘.</p>
         <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
-      <HowGradstepWorks open={howGradstepWorks} onClose={() => setHowGradstepWorks(false)} />
-      <PrivacyData open={privacy} onClose={() => setPrivacy(false)} />
+      {howGradstepWorks && <Suspense fallback={null}><HowGradstepWorks open onClose={() => setHowGradstepWorks(false)} /></Suspense>}
+      {privacy && <Suspense fallback={null}><PrivacyData open onClose={() => setPrivacy(false)} /></Suspense>}
       <Dialog open={deletingAccount} onClose={() => { if (!deleteBusy) setDeletingAccount(false); }} title="Delete account" className="delete-account">
         <h2>Delete account</h2>
         <p>This permanently deletes your account:</p>

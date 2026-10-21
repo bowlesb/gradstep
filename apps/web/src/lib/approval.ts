@@ -1,7 +1,6 @@
 // QR device approval, the new device's half (docs/architecture/PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
 // Port of ScienceReaderCore/DeviceApproval.swift; both are checked against its public device-approval-v1.json fixture,
 // which scripts/check-wire.mjs computes independently in Node.
-import { encode } from 'uqr';
 import { type Bytes, concat, sha256, utf8, wireUUID } from './bytes';
 import { WireError } from './wire';
 
@@ -43,10 +42,4 @@ export async function approvalPayload(recipient: ApprovalRecipient): Promise<{ p
   return { payload, code: await comparisonCode(print) };
 }
 
-/** QR modules as one SVG path (dark squares), generated locally: no network, no canvas, no inline script or style. */
-export function qrPath(text: string): { size: number; path: string } {
-  const qr = encode(text, { ecc: 'M', border: 0 });
-  let path = '';
-  qr.data.forEach((row, y) => row.forEach((dark, x) => { if (dark) path += `M${x} ${y}h1v1h-1z`; }));
-  return { size: qr.size, path };
-}
+// The QR's modules: lib/approval-qr.ts (loaded with the approval screen, C5).

@@ -2,7 +2,8 @@
 // unwrap flow against an in-memory server with real WebCrypto keys.
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { accountTag, approvalPayload, comparisonCode, displayCode, qrPath, toBase64Url } from '../src/lib/approval';
+import { accountTag, approvalPayload, comparisonCode, displayCode, toBase64Url } from '../src/lib/approval';
+import { qrPath } from '../src/lib/approval-qr';
 import { fromBase64, fromBytea, fromHex, toBytea, toHex } from '../src/lib/bytes';
 import { type DeviceRecord, checkApproval, prepare, recoverWithCode, requestApproval } from '../src/lib/keys';
 import { generateBundle, generateDeviceKeyPair, generateRecoveryCode, wrapForDevice, wrapRecovery } from '../src/lib/wire';

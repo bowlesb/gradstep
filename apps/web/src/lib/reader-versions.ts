@@ -10,7 +10,7 @@ export interface ReaderVersion { revision: number; date: string; build_sha256: s
 
 /** Every version, newest first. */
 export const READER_VERSIONS: readonly ReaderVersion[] = Object.freeze([...(list.versions as ReaderVersion[])].sort((a, b) => b.revision - a.revision));
-/** The reader this browser runs (the same compiler build as the apps': public/arxiv-reader.js). */
+/** The reader this browser runs (the same compiler build as the apps': src/reader/arxiv-reader.js). */
 export const CURRENT_READER: Readonly<{ revision: number; build_sha256: string; renderer_id: string }> =
   Object.freeze({ revision: shipped.revision, build_sha256: shipped.build_sha256, renderer_id: shipped.renderer_id });
 

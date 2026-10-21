@@ -1,7 +1,8 @@
 // "Approve from your phone": this browser shows a QR code and a comparison code until an approved device adds it.
 // docs/architecture/BROWSER_READER.md#approving-this-browser-from-another-device
 import { useEffect, useMemo, useState } from 'react';
-import { displayCode, qrPath } from '../lib/approval';
+import { displayCode } from '../lib/approval';
+import { qrPath } from '../lib/approval-qr';
 import { BackendError } from '../lib/backend';
 import { type AwaitingApproval, type Preparation, checkApproval, requestApproval } from '../lib/keys';
 

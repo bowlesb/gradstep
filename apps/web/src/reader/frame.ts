@@ -12,8 +12,8 @@ const REMOVE = 'script,base,meta[http-equiv],iframe,frame,frameset,object,embed,
 
 export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | { names: string[]; source: string } | null; paperAuthors?: string[]; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null;
   /** The text column's measure (READING_MODE.md): comfortable, wide or full. */ lineWidth?: LineWidth }
-export type LineWidth = 'comfortable' | 'wide' | 'full';
-export const LINE_WIDTHS: readonly LineWidth[] = ['comfortable', 'wide', 'full'];
+import type { LineWidth } from './line-width';
+export { LINE_WIDTHS, type LineWidth } from './line-width';
 
 /** No bundle scripts, frames, forms or handlers, no script or data URLs; verified images inlined as data URIs. Shared
  * with the equation view's frame (equation-frame.ts). */

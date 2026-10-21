@@ -10,7 +10,7 @@ const result = await build({ absWorkingDir: root, entryPoints: ['supabase/functi
   alias: { 'node:crypto': fileURLToPath(new URL('./arxiv-compiler/crypto.ts', import.meta.url)),
     'node:zlib': fileURLToPath(new URL('./arxiv-compiler/zlib.ts', import.meta.url)) }, write: false,
 });
-for (const path of ['apps/apple/ScienceReader/Resources/arxiv-reader.js', 'apps/web/public/arxiv-reader.js']) {
+for (const path of ['apps/apple/ScienceReader/Resources/arxiv-reader.js', 'apps/web/src/reader/arxiv-reader.js']) {
   if (process.argv.includes('--check')) {
     if (!readFileSync(root + path).equals(Buffer.from(result.outputFiles[0].contents)))
       throw Error(`Stale device compiler: ${path}. Run node scripts/build-arxiv-compiler.mjs.`);

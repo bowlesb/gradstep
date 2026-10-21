@@ -3,7 +3,7 @@
 // mode … that feels like a truly great experience". The measure is applied by the shared reader bridge; reading mode is
 // the app's chrome stepping aside (and the window going full screen when the browser allows it).
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { LINE_WIDTHS, type LineWidth } from '../reader/frame';
+import { LINE_WIDTHS, type LineWidth } from '../reader/line-width';
 import { readStored } from './prefs';
 import type { WorkspaceControls } from './Shell';
 

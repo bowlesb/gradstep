@@ -11,7 +11,7 @@ const root=new URL('../../../',import.meta.url);
 const corpusSet=/^[a-z0-9-]{1,40}$/.test(process.env.READER_CORPUS_SET??'')?process.env.READER_CORPUS_SET:'reader';
 const papers=JSON.parse(readFileSync(new URL(`tests/corpus/${corpusSet}.json`,root),'utf8')).papers;
 const lock=JSON.parse(readFileSync(new URL(`tests/corpus/${corpusSet}-lock.json`,root),'utf8'));
-const script=readFileSync(new URL('apps/web/public/arxiv-reader.js',root),'utf8')+'\n'+readFileSync(new URL('apps/web/src/reader/arxiv-compiler-host.js',root),'utf8');
+const script=readFileSync(new URL('apps/web/src/reader/arxiv-reader.js',root),'utf8')+'\n'+readFileSync(new URL('apps/web/src/reader/arxiv-compiler-host.js',root),'utf8');
 const hash='sha256-'+createHash('sha256').update(script).digest('base64');
 function input(key:string,name:string,record:{bytes:number;sha256:string}) {
  const bytes=readFileSync(new URL(`.artifacts/reader-corpus/${key}/${name}`,root));
