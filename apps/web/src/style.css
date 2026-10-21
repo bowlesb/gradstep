@@ -963,3 +963,15 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .catalog-switch { display: flex; align-items: center; gap: 10px; padding: 8px 20px; }
 .catalog-switch select { max-width: min(28rem, 75vw); }
 .catalog-fields label { display: grid; gap: 6px; margin: 12px 0; }
+/* Papers in this answer (B2): a quiet numbered list under a finished answer. */
+.answer-papers { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
+.answer-papers-heading { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.answer-papers ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.answer-paper { display: flex; gap: 6px; }
+.answer-paper-number { color: var(--muted); min-width: 1.4em; }
+.answer-paper-body { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.answer-paper-title { font-weight: 600; overflow-wrap: anywhere; }
+.answer-paper-details { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.answer-paper-id { display: inline-flex; align-items: center; gap: 3px; }
+.answer-paper-details .link.small { display: inline-flex; align-items: center; gap: 3px; min-height: 24px; }
+.answer-paper-notice { display: inline-flex; align-items: center; gap: 6px; }

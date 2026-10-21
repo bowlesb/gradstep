@@ -7,7 +7,8 @@ import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
 import { type ComponentProps, type FocusEvent as ReactFocusEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib/activity';
-import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
+import { AuthError, type AuthIssue, type Session, auth, config, functionPost, operationsDashboard, operatorRoles } from '../lib/backend';
+import type { AnswerPapers } from './AnswerPapers';
 import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
 import { type DeviceRecord, type Preparation, eraseDeletedAccount, forgetDevice, readDevice } from '../lib/keys';
 import { TYPED_CONFIRMATION, deletionFailure, forgetAccountStorage, noteAccountDeleted, requestAccountDeletion } from '../lib/account-deletion';
@@ -510,6 +511,19 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const railVisible = ws.left.open && ws.left.inline;
   const paperContext = orphanPaper ?? (item ? { documentID: paperIdentity(item), title: item.metadata?.title ?? 'Paper', available: isSourcePaper(item) || !!readingSource(item) || (item.readiness === 'converted_ready' && item.render_availability === 'available') } : null);
   const paperNames = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), e.metadata?.title ?? 'Paper'])), [library.entries]);
+  // Papers an answer names (B2): in the library already (a paper or a visible import), opened or shown there; else added
+  // as the Add paper dialog adds an arXiv ID, or a DOI through the reader's free reference lookup.
+  const answerPapers = useMemo<AnswerPapers>(() => ({
+    has: sourceID => library.entries.some(e => e.visible && e.source_id === sourceID),
+    title: sourceID => library.entries.find(e => e.visible && e.source_id === sourceID)?.metadata?.title ?? null,
+    open: sourceID => {
+      const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID);
+      if (paper && (isSourcePaper(paper) || readingSource(paper))) { void openPaper(paper); return; }
+      setSearchExternal(false); setView({ ...INITIAL_QUERY, query: sourceID }); void navigate('/');
+    },
+    addArxiv: (sourceID, revision) => library.addArxiv(sourceID, revision),
+    addReference: (doi, operationID) => functionPost('add-reference', { operation_id: operationID, reference: doi, capabilities: ['web_import'] }, { account, maximum: 65_536 }),
+  }), [library, openPaper, navigate, setView, account]);
   const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
     if (!documentID) setChatMode('general');
     else {
@@ -708,7 +722,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : 'The library'}
           resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}`} onReport={report}>{center}</RegionBoundary>}
         right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
-          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} />
+          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} papers={answerPapers} />
         </RegionBoundary>} />
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
       <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>

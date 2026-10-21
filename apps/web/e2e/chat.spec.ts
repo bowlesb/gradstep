@@ -38,6 +38,16 @@ test('paper/general, consent, math, safe sources, encrypted reload and cross-bro
   expect(await page.evaluate(() => (window as any).injected)).toBeUndefined();
   await page.getByRole('link', { name: 'Original paper' }).click(); await expect(page.getByRole('dialog', { name: 'Open source' })).toContainText('https://arxiv.org/abs/2305.18290');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // Papers in this answer (B2): the arXiv paper it links, already in the library, so Library rather than Add.
+  const papers = page.getByTestId('answer-papers');
+  await expect(papers).toContainText('Papers in this answer');
+  await expect(papers.getByTestId('answer-paper')).toHaveCount(1);
+  await expect(papers.getByRole('link', { name: 'arXiv 2305.18290' })).toBeVisible();
+  await expect(papers.getByRole('button', { name: 'Open in Library' })).toBeVisible(); await expect(papers.getByTestId('answer-paper-add')).toHaveCount(0);
+  await papers.getByRole('link', { name: 'arXiv 2305.18290' }).click();
+  await expect(page.getByRole('dialog', { name: 'Open source' })).toContainText('https://arxiv.org/abs/2305.18290'); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByTestId('chat-assistant').first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-answer-papers.png` });
   const e = await evidence(request); expect(e.requests[0].eventsBeforeRequest).toBe(2); expect(e.requests[0].mode).toBe('paper'); expect(JSON.stringify(e.events)).not.toContain('private');
   const persisted = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open('gradstep'); r.onsuccess = () => resolve(r.result); });

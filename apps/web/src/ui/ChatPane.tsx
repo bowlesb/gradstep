@@ -19,6 +19,7 @@ import { Icon, iconName } from './icons';
 import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
+import { PapersInAnswer, type AnswerPapers } from './AnswerPapers';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
 import { asOf } from '../lib/retry';
 
@@ -58,17 +59,19 @@ function RenameField({ initial, onSave, onCancel, label }: { initial: string; on
 /** A fresh 32-bit seed for a new empty chat's starter questions. */
 const starterSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
-export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions }: {
+export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, papers }: {
   chat: ChatSession | null; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
   onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
+  /** The library, for each answer's Papers in this answer (B2). */
+  papers?: AnswerPapers;
 }) {
-  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} />
+  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} papers={papers} />
     : <div className="empty" role="status">Opening chats…</div>;
 }
 export interface ContextualConversation { composer: Composer; quote: string; label: string; anchor: TextAnchor; explanation?: string; image?:string }
-export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context: providedContext }: {
+export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context: providedContext, papers }: {
   context?: ContextualConversation; chat: ChatSession; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
-  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
+  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void; papers?: AnswerPapers;
 }) {
   const historyVersion = useChatUpdates(chat);
   const workspace = useWorkspaceControls();
@@ -281,7 +284,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />
-            : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}</>}
+            : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}
+          {/* A finished answer's papers (B2): never while it streams or when it was cut short. */}
+          {papers && m.payload.status === 'complete' && <PapersInAnswer text={stripPartMarkers(m.payload.text ?? '')} papers={papers} />}</>}
         {/* What an early end cost, while this session lasts (2026-10-16); earlier answers keep "Answer interrupted". */}
         {m.payload.status === 'interrupted' && <span className="fine interrupted" data-testid="chat-interrupted">{chat.interruptionNote(m.payload.entityID) ?? 'Answer interrupted'}</span>}
         {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
