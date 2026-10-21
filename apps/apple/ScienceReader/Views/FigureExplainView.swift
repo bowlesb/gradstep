@@ -83,16 +83,10 @@ private struct FigurePageActions: ViewModifier {
                     : nil,
                 noun: context?.label.hasPrefix("Table") == true ? "Table" : "Figure",
                 report: capturing ? nil : host.map { host in { ReportPresenter.present(host.model, sheet: context?.label ?? "Figure", afterMenu: true) } },
+                addToNote: capturing ? nil : host.map { host in { addToNote(host) } },
                 close: capturing ? nil : close)
             .toolbar {
-                if let host {
-                    if capturing { SnippetCaptureToolbar(model: host.model) } else {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button { addToNote(host) } label: { Image(systemName: "note.text.badge.plus") }
-                                .accessibilityLabel("Add to note").accessibilityIdentifier("figureView.addToNote")
-                        }
-                    }
-                }
+                if let host, capturing { SnippetCaptureToolbar(model: host.model) }
             }
             .modifier(OptionalComposerHost(model: host?.model, origin: .figure))
             .onDisappear { if capturing { host?.model.notes.capturing = nil } }
@@ -236,12 +230,14 @@ struct FigureExplainView: View {
     }
 
     private func expandable(_ image: CGImage, label: String, identifier: String) -> some View {
-        ZStack(alignment: .topTrailing) {
-            ZoomableFigureImage(image: image).accessibilityLabel(label).accessibilityIdentifier(identifier)
-                Button { expandedImage = FigureImagePresentation(image: image, whole: session?.image, label: label) } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").padding(12).background(.regularMaterial, in: Circle())
-                }.buttonStyle(.plain).accessibilityLabel("View \(label) fullscreen").accessibilityIdentifier("figureView.fullscreen")
-                    .padding(4)
+        // The fullscreen control sits under the crop, never over it (2026-10-21: the round button hid each crop's title).
+        VStack(alignment: .trailing, spacing: 4) {
+            ZoomableFigureImage(image: image).aspectRatio(CGFloat(image.width) / CGFloat(image.height), contentMode: .fit)
+                .accessibilityLabel(label).accessibilityIdentifier(identifier)
+            Button { expandedImage = FigureImagePresentation(image: image, whole: session?.image, label: label) } label: {
+                Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right").font(.footnote.weight(.medium))
+                    .frame(minHeight: 44).contentShape(Rectangle())
+            }.buttonStyle(.borderless).accessibilityLabel("View \(label) fullscreen").accessibilityIdentifier("figureView.fullscreen")
         }
     }
 
@@ -266,7 +262,7 @@ struct FigureExplainView: View {
             Text("Whole figure").font(.subheadline.weight(.semibold))
             if let image = session.image {
                 // Figures are drawn on white in the paper; keep that in dark mode too.
-                expandable(image, label: context.label, identifier: "figureView.figure").id(context.figureID).aspectRatio(CGFloat(image.width) / CGFloat(image.height), contentMode: .fit)
+                expandable(image, label: context.label, identifier: "figureView.figure").id(context.figureID)
                     // Even a tiny bitmap needs enough room for a two-finger gesture.
                     .frame(maxWidth: max(160, CGFloat(image.width) * 2), maxHeight: min(300, max(160, CGFloat(image.height) * 2)))
                     .padding(8).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -329,7 +325,7 @@ struct FigureExplainView: View {
             if section.cardKind == .panel, section.box != nil, let shown = session.crops[index] {
                 let crop = shown.image
                 expandable(crop, label: shown.whole ? "\(context.label), whole, for \(section.name)" : "Detail of \(context.label): \(section.name)",
-                           identifier: "figureView.section.\(number).crop").aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
+                           identifier: "figureView.section.\(number).crop")
                     .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(260, max(160, CGFloat(crop.height) * 2)))
                     .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
@@ -373,7 +369,7 @@ struct FigureExplainView: View {
             Label("Up close", systemImage: "viewfinder").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             if detail.detail != nil, let shown = session.detailCrops[index] {
                 let crop = shown.image
-                expandable(crop, label: shown.whole ? "\(context.label), whole" : "This part of \(context.label), up close", identifier: "figureView.section.\(number).detailCrop").aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
+                expandable(crop, label: shown.whole ? "\(context.label), whole" : "This part of \(context.label), up close", identifier: "figureView.section.\(number).detailCrop")
                     .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(320, max(160, CGFloat(crop.height) * 2)))
                     .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))

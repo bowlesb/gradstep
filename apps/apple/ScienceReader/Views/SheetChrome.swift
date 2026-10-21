@@ -33,8 +33,9 @@ extension View {
     /// `report`: the sheet's ⋯ with Report this screen (build 77 hardening: the recent feedback was given on these sheets,
     /// which had no ⋯).
     func sheetTopRow(chat: ExplainAction? = nil, explainer: ExplainAction? = nil, openChat: ExplainAction? = nil, noun: String = "Figure",
-                     report: (() -> Void)? = nil, close: (() -> Void)?) -> some View {
-        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, noun: noun, report: report, close: close))
+                     report: (() -> Void)? = nil, addToNote: (() -> Void)? = nil, close: (() -> Void)?) -> some View {
+        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, noun: noun, report: report,
+                                     addToNote: addToNote, close: close))
     }
 }
 
@@ -44,7 +45,10 @@ private struct SheetTopRowModifier: ViewModifier {
     let openChat: ExplainAction?
     let noun: String
     let report: (() -> Void)?
+    /// Notes: Add to note lives in the sheet's ⋯ (2026-10-21: a separate bar button overlapped the two actions).
+    let addToNote: (() -> Void)?
     let close: (() -> Void)?
+    private var hasOptions: Bool { report != nil || addToNote != nil }
 
     func body(content: Content) -> some View {
         content
@@ -55,20 +59,20 @@ private struct SheetTopRowModifier: ViewModifier {
                 if chat != nil || explainer != nil {
                     // With the sheet's "…" beside the X the side groups are wider than the bar allows for: keep clear of both.
                     if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, report == nil ? 0 : 12) }.sharedBackgroundVisibility(.hidden)
+                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, hasOptions ? 12 : 0) }.sharedBackgroundVisibility(.hidden)
                     } else {
-                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, report == nil ? 0 : 12) }
+                        ToolbarItem(placement: .principal) { actions.padding(.horizontal, hasOptions ? 12 : 0) }
                     }
                 }
                 // Nothing on the right (a page drawing a snippet has its own Cancel): no empty glass button there.
-                if openChat != nil || report != nil || close != nil {
+                if openChat != nil || hasOptions || close != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         HStack(spacing: 16) {
                             if let openChat {
                                 Button(action: openChat.action) { Image(systemName: "bubble.left.and.text.bubble.right") }
                                     .accessibilityLabel("Open in Chat").accessibilityHint(openChat.hint).accessibilityIdentifier(openChat.identifier)
                             }
-                            if let report { SheetOptionsMenu(report: report) }
+                            if hasOptions { SheetOptionsMenu(report: report, addToNote: addToNote) }
                             if let close { SheetCloseButton(action: close) }
                         }
                     }
@@ -108,10 +112,14 @@ private struct SheetTopRowModifier: ViewModifier {
 
 /// A sheet's ⋯ (DESIGN.md "Screen options"): Report this screen, the last item as everywhere else.
 struct SheetOptionsMenu: View {
-    let report: () -> Void
+    var report: (() -> Void)? = nil
+    var addToNote: (() -> Void)? = nil
     var body: some View {
         Menu {
-            Section { MenuRow("Report this screen", systemImage: "ladybug", action: report) }
+            if let addToNote {
+                Section { MenuRow("Add to note", systemImage: "note.text.badge.plus", action: addToNote).accessibilityIdentifier("figureView.addToNote") }
+            }
+            if let report { Section { MenuRow("Report this screen", systemImage: "ladybug", action: report) } }
         } label: { Image(systemName: "ellipsis") }
             .accessibilityLabel("Options").accessibilityIdentifier("sheet.options")
     }
