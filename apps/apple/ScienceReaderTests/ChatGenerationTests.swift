@@ -37,6 +37,11 @@ private final class ScriptedChatTransport: ChatTransport, @unchecked Sendable {
         return CreditBalance(available: 120, reserved: 0)
     }
 
+    private var stopCalls = 0
+    /// Stops recorded with the server (the reader's own Stop is charged for the part written).
+    var stops: Int { lock.withLock { stopCalls } }
+    func recordStop(operationID: UUID, accountID: UUID) async throws { lock.withLock { stopCalls += 1 } }
+
     /// The server's profile table; nil behaves like a server from before profiles (GET answers 405).
     var profiles: ChatProfileTable?
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {
@@ -608,6 +613,24 @@ final class ChatGenerationTests: XCTestCase {
         try await waitUntil("asked again") { transport.requests.count == 3 }
         transport.send(.done(stopReason: "end_turn", credits: 0))
         try await waitUntil("finished again") { !model.isAnswering }
+    }
+
+    /// A9: closing an equation/figure sheet while its chat answer arrives isn't the reader's Stop: no Stop is recorded
+    /// (it would be charged for the part written) and the answer finishes and is saved in that conversation.
+    func testClosingAContextualChatLetsItsAnswerFinishWithoutAStop() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        let token = model.beginContextualChat(paperID: sampleID, manifest: String(repeating: "a", count: 64), element: "eq1",
+                                              label: "Equation (1)", quote: "x^2")
+        model.chatInput = "What does it measure?"
+        await model.sendContextualMessage(token, explanation: "")
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        let conversation = try XCTUnwrap(model.activeConversation)
+        model.endContextualChat(token)
+        XCTAssertFalse(model.hasContextualChat)
+        transport.send(.delta("The square of x."), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer saved") { model.privateState.conversationBranches(conversation).first?.messages.count == 2 }
+        XCTAssertEqual(transport.stops, 0, "Closing the sheet records no Stop")
+        XCTAssertEqual(model.privateState.conversationBranches(conversation).first?.messages.last?.payload.status, .complete)
     }
 
     /// A2: a selection action whose question couldn't be saved keeps its quote and action, so Send again asks the

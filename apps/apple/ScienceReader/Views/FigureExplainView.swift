@@ -125,6 +125,10 @@ struct FigureExplainView: View {
             }, close: close)
         .background(Color(uiColor: .systemGroupedBackground))
         .task(id: context.figureID) {
+            // Reappearing after the fullscreen figure (iPhone/iPad cover) keeps this figure's session and whatever is
+            // arriving; only another figure starts a new one.
+            if let session, session.context.figureID == context.figureID,
+               session.context.bundle.manifestSHA256 == context.bundle.manifestSHA256 { return }
             session?.stop()
             chatToken = model.beginContextualChat(paperID: context.paperID, manifest: context.bundle.manifestSHA256,
                 element: context.figureID, label: context.label, quote: context.caption)

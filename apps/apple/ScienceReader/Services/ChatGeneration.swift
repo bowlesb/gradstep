@@ -148,6 +148,8 @@ struct ChatGeneration: Sendable {
     var figureManifest: String?
     /// The request carried choices (the server published its profile table).
     var sentProfile = false
+    /// Nothing sent yet: the question waits for its paper to be prepared on this device (Stop just withdraws it).
+    var waitingForPaper = false
     /// The model and profile the server reported in `done`, saved with the answer.
     var answeredModel: String?
     var answeredProfile: String?
@@ -175,7 +177,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
     var message: String {
         switch code {
         case "local_reader_unavailable": "Open this paper and prepare its reader on this device, then retry your question."
-        case "consent_declined": "Your question is saved. No answer was requested."
+        case "consent_declined", "answer_withdrawn": "Your question is saved. No answer was requested."
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
         case "storage": "The answer couldn’t be saved on this device. Try again saves it; it isn’t asked for again."
         case "diagram_storage": "The answer was saved, but its diagram couldn’t be: this device’s unsynced storage is full."
@@ -185,9 +187,9 @@ struct ChatAnswerIssue: Equatable, Sendable {
     /// A kept answer whose diagram could not be stored is informational; asking
     /// again would be a new paid answer.
     var retryable: Bool {
-        code != "diagram_storage" && (["consent_declined", "consent_unsaved", "storage", "local_reader_unavailable"].contains(code) || ChatFailureText.isRetryable(code))
+        code != "diagram_storage" && (["consent_declined", "answer_withdrawn", "consent_unsaved", "storage", "local_reader_unavailable"].contains(code) || ChatFailureText.isRetryable(code))
     }
-    var actionTitle: String { code == "consent_declined" ? "Get answer" : "Try again" }
+    var actionTitle: String { code == "consent_declined" || code == "answer_withdrawn" ? "Get answer" : "Try again" }
 }
 
 enum ChatGenerationOutcome: Equatable, Sendable {

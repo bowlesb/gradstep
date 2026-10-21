@@ -699,6 +699,13 @@ Builds 57–60 keep working unchanged: they ignore the new fields, already show 
   written"** (or **"Stopped · not charged"** when the server said 0 credits). A `done` with `charged: false` (a
   `max_tokens` answer) is interrupted too. The equation view shows no credit counts at all (owner, build 59).
 
+Native, October 21 (code review A3, A8, A9; local, not released): only the reader's own Stop records a Stop. Closing an
+equation or figure sheet leaves its chat answer running under that sheet's composer, as Chat does when the
+conversation changes, and saves it there. A complete answer whose save on the device fails stays readable; its Try
+again saves that same answer and never asks (or pays) again. A question about a paper still being prepared on the
+device shows "Preparing the paper on this device…" with Stop, which withdraws it before anything is sent (the question
+stays saved, with Get answer).
+
 ### Open items
 
 - **Add paper after settlement** (closed 2026-10-16). Ingest now finds and adds the paper before the settlement (the

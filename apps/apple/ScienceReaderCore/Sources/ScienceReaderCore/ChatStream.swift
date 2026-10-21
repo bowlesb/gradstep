@@ -224,6 +224,8 @@ public struct ChatProgress: Equatable, Sendable {
         case fixingDiagram = "fixing_diagram"
         /// The device's own: the figure the model asked for is attached and the question asked again.
         case lookingAtFigure = "looking_at_figure"
+        /// The device's own: the paper the question is about is being prepared here before the question goes.
+        case preparingPaper = "preparing_paper"
     }
     public static let maximumQueryCharacters = 200
     public let kind: Kind
@@ -248,6 +250,7 @@ public struct ChatProgress: Equatable, Sendable {
         case .addingPaper: "Adding to your library…"
         case .fixingDiagram: "Fixing the diagram…"
         case .lookingAtFigure: query.map { "Looking at \($0)…" } ?? "Looking at the figure…"
+        case .preparingPaper: "Preparing the paper on this device…"
         }
     }
 }

@@ -729,8 +729,23 @@ final class ReaderModel {
     }
     func localDefault(for scenario: AIUseCase) -> String? {
         guard Platform.isMac else { return nil }
-        guard let value = scenarioLocals[scenario.rawValue] else { return localAIDefaultModelID }
-        return value == "cloud" ? nil : value
+        guard let value = scenarioLocals[scenario.rawValue] else { return offeredLocalModel(localAIDefaultModelID) }
+        return value == "cloud" ? nil : offeredLocalModel(value)
+    }
+    /// A local model only while this build offers it: a Mac that chose one now retired (builds 69–71) must not start
+    /// every chat on a model that can't be downloaded.
+    private func offeredLocalModel(_ id: String?) -> String? { id.flatMap { localAI.offers($0) ? $0 : nil } }
+    /// Settings saved with a retired model fall back to cloud (the defaults and each scenario's choice); the first chat
+    /// starts from the general default as it now resolves.
+    private func forgetRetiredLocalModels() {
+        guard Platform.isMac else { return }
+        if localAIDefaultModelID != nil, offeredLocalModel(localAIDefaultModelID) == nil { localAIDefaultModelID = nil }
+        let retired = scenarioLocals.filter { $0.value != "cloud" && offeredLocalModel($0.value) == nil }.map(\.key)
+        if !retired.isEmpty {
+            for scenario in retired { scenarioLocals[scenario] = nil }
+            UserDefaults.standard.set(scenarioLocals, forKey: "ai.scenarioLocals")
+        }
+        localAIModelID = localDefault(for: currentAIUseCase)
     }
     func setLocalDefault(_ id: String?, for scenario: AIUseCase) {
         scenarioLocals[scenario.rawValue] = id ?? "cloud"
@@ -1572,6 +1587,7 @@ final class ReaderModel {
 
     func start() async {
         guard !started else { return }; started = true
+        forgetRetiredLocalModels()
         startStoreUpdates()
         #if DEBUG && FIXTURE_HOST
         resetLibraryPreferencesForFixtures()
@@ -4184,12 +4200,23 @@ final class ReaderModel {
         if let reference = turn.paperReference,
            let paper = papers.first(where: { $0.sourceMembership == reference }), paper.readerBundle == nil {
             if selectedPaper?.id == paper.id { openHTMLReader(paper, userInitiated: true) }
-            let preparation = localReaderTask
-            Task { [weak self] in
-                await preparation?.value
-                guard let self, self.sessionID == turn.sessionID, self.chatGenerations[turn.composerID] == nil else { return }
-                self.startGeneration(turn, transport: transport, state: state ?? self.privateState)
+            // That paper's own preparation: its opening, or its background download. Another paper's never stands in.
+            let preparation: Task<Void, Never>? = localReaderOpeningID == paper.id ? localReaderTask : devicePreparationTasks[paper.id]
+            guard let preparation else { startGeneration(turn, transport: transport, state: state ?? privateState); return }
+            // The question is in flight while it waits (a thinking row, Stop, no second Send), and is asked once the
+            // paper is ready, if it is still the conversation's newest question.
+            var waiting = ChatGeneration(turn: turn)
+            waiting.waitingForPaper = true
+            let placeholder = waiting.id
+            waiting.task = Task { [weak self] in
+                await preparation.value
+                guard let self, !Task.isCancelled, self.sessionID == turn.sessionID,
+                      self.chatGenerations[turn.composerID]?.id == placeholder else { return }
+                self.chatGenerations[turn.composerID] = nil; self.chatStreamProgress[placeholder] = nil
+                self.startGeneration(turn, transport: transport, state: self.privateState)
             }
+            chatGenerations[turn.composerID] = waiting
+            chatStreamProgress[placeholder] = ChatProgress(kind: .preparingPaper)
         } else { startGeneration(turn, transport: transport, state: state ?? privateState) }
     }
 
@@ -4227,6 +4254,13 @@ final class ReaderModel {
     /// Stop keeps any partial text as an explicitly interrupted encrypted turn.
     func stopAnswer() {
         guard let composer = chatComposerID, let generation = chatGenerations[composer], !generation.stopping else { return }
+        if generation.waitingForPaper {
+            // Nothing was asked yet: withdraw it. The question stays saved, with Get answer.
+            generation.task?.cancel()
+            chatGenerations[composer] = nil; chatStreamProgress[generation.id] = nil
+            chatAnswerIssues[composer] = ChatAnswerIssue(turn: generation.turn, code: "answer_withdrawn")
+            return
+        }
         chatGenerations[composer]?.stopping = true
         // The server hears it was the reader's Stop (charged for the part written) before the stream closes; any other
         // early end costs nothing (2026-10-16). At most 3 s, and a failure doesn't hold the Stop up.
@@ -5551,7 +5585,9 @@ extension ReaderModel {
         guard let current = contextualChat, current.token == token else { return }
         contextualChat = nil
         guard current.session == sessionID else { return }
-        if chatComposerID == current.composer { stopAnswer() }
+        // Closing the sheet isn't the reader's Stop (CHAT.md: only a chosen Stop is charged for the part written). The
+        // answer goes on under its own composer, as in Chat when the conversation changes, and is saved there; the
+        // equation or figure shows it when opened again.
         generalChat = current.priorGeneral; chatPaperID = current.priorPaper
         _ = chatWorkspace.selectDraft(current.priorComposer)
         branchSelections.reconcile(with: privateState, observing: activeConversation)

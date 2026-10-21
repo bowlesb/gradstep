@@ -85,6 +85,8 @@ import ScienceReaderCore
         guard jobs.isEmpty else { issue = "Stop the local answer before removing a model."; return }
         do { try await store.remove(model); await refresh() } catch { issue = error.localizedDescription }
     }
+    /// This build's catalog has the model (a retired ID keeps its name, never its choice).
+    func offers(_ id: String) -> Bool { models.contains { $0.id == id } }
     func name(_ id: String?) -> String {
         guard let id else { return "Cloud AI" }
         return models.first { $0.id == id }?.name ?? RetiredLocalModels.entries[id]?.name ?? "Unavailable Mac model"
@@ -209,6 +211,7 @@ import ScienceReaderCore
         Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: root) }
     }
     func refresh() async {}
+    func offers(_ id: String) -> Bool { false }
     func cancelInference() {}
     func name(_ id: String?) -> String { id == nil ? "Cloud AI" : "Mac model" }
     func identity(_ id: String?) -> String? {
