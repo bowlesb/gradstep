@@ -1,5 +1,55 @@
 # Implementation status
 
+## Server, admin and scripts review fixes — October 21 UTC (built and tested locally; not deployed)
+
+Fixes for the verified server/admin/scripts findings of the [2026-10-21 review](reviews/WEB_SERVER_REVIEW_20261021.md)
+(per-finding status and commits there). Nothing was deployed, no hosted or paid check was run, and the browser and
+Apple apps were not touched. Designs: PROVIDER_SPENDING.md "Review fixes — 2026-10-21", SPENDING_CONTROLS.md (pauses
+across months, operator budget command, testing-allowance safeguards, hot paths), RESILIENCE.md (scoped breakers),
+CHAT.md (Stop charging, endings, `done` reporting), and the sections the paper-add, store, podcast and admission fixes
+name.
+
+- **Money:** a Stop charges what was written (OpenRouter's generation record, else the streamed output; never the
+  hold); a finished answer stays charged when the reader leaves during side requests; unresolved OpenRouter attempts
+  reconcile automatically from generation records (pipeline worker, bounded, audited); attempt capacity is a 24-hour
+  window of granted attempts (counter rows); OpenRouter card validity is a renewable table with a six-week warning and
+  chat stops offering a model before its card lapses; pauses hold across months and test accounts cannot trip them;
+  the operator budget command and the testing allowance are owner-attributed and audited, the allowance capped at
+  **$25/month by default** (deploying 0105 applies it to the owner's current allowance). No limit is raised; the
+  $100/month operating budget and the month's provider limit are unchanged.
+- **Migrations (apply in order):** 0100 attempt windows, 0101 tariff validity, 0102 automatic reconciliation, 0103
+  pauses across months, 0104 owner budget limit, 0105 testing-allowance safeguards, 0106 scoped breakers, 0107 admit and
+  dispatch in one call, 0108 hot-path indexes and stale-sweep failures, 0120 server add once, 0125 podcast device-source
+  deletion, 0126 podcast source reservation, 0127 beta-admission revocation, 0128 deletion sweep back-off, 0135 default
+  privileges. Each has a fixture in `tests/database` (`--spending-fixes-only` runs 0100–0108's).
+- **Evidence (this branch, local):** `npm test` all nine steps pass (backend 697/697, browser 495/495, operations Node
+  24/24 and Python 124, Edge `deno check`, admin `tsc`, both compiler-freshness checks); `npm run test:database` passed
+  (815 steps, 150.5 s, PostgreSQL 18); `npm run test:ops` 145 Python + 24 Node tests. A timing test
+  (`reader-flow` "pathological lines stay fast") failed twice only while the database suite ran alongside; it passes
+  alone and was not changed.
+- **Deploy order (for the owner):** (1) migrations as listed, with `scripts/deploy-staging.py` (it runs
+  `migrate-supabase.py`); (2) every routine Edge function — the chat function needs 0101, 0106 and 0107 (until 0107
+  exists every OpenRouter admission is refused), add-paper/add-reference need 0120, podcast needs 0126, admin-accounts
+  needs 0105 and 0127; also account-delete, app-store-notifications, feed-refresh, podcast-member, upload-pdf (D9);
+  (3) the Cloud Run worker (`scripts/deploy-pipeline-worker.py`: reconciler, per-feature keys, deletion sweep);
+  (4) the admin site (`node scripts/deploy-web.mjs admin`).
+- **Live checks (unpaid unless marked):** read-only SQL — `provider_spending_policy` shows 50,000/10,000 per 24 h and
+  `provider_attempt_hours` has rows (A2); `openrouter_tariffs` has 7 rows valid to 2027-01-01 and
+  `scripts/pipeline-ops.py tariffs` lists them (A4); both budget months have the same switch (A7); the owner's
+  `testing_allowances.monthly_cap_microusd` is 25,000,000 (A9; raise it in Accounts if needed); `provider_breakers` has a
+  `scope` column (A13); `stale_sweep_failures` is empty or named in the budget check (C7). Admin: Overview shows this
+  month's spend and the right Pause/Resume (A3); Spending shows `attempt_capacity`; Accounts marks the owner's
+  allowance; Support pages and closes (D10). Drill (`FAULT_INJECTION=on`, test account, no real provider):
+  `node scripts/fault-drill.mjs --mode=stop` and `--mode=midstream` now reach OpenRouter (D4, A1 path), and a throttle on
+  one route leaves another answering (A13). Paid, owner's choice (~$0.05): a Stop a few words into a Sonnet answer on a
+  long paper settles `stopped` with credits near input + written share and the attempt `succeeded` at the generation's
+  cost (A1); if the record was late, within ~5 minutes the attempt is `reconciled` with evidence
+  `openrouter-generation:<id>` (A6). The forks' checks (A5, A8, A15–A17, A21, A22, A24, D5, D9) are in the review's
+  status table notes and their sections.
+- **Not done here:** the browser A18–A20 and parity items; App Store notification-history reconciliation (needs App
+  Store Server API credentials); provisioning the per-feature OpenRouter keys (owner step, RESILIENCE.md); the
+  account-delete body bound (deletion work is another agent's); the Anthropic SDK test transport (review E1).
+
 ## Notes images server — October 21 UTC (staging live)
 
 The server half of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#server-status--blob-api-live-on-staging-2026-10-21-utc)
