@@ -1144,6 +1144,10 @@
       '.sr-flash{position:absolute;z-index:-1;pointer-events:none;border-radius:8px;background:var(--sr-flash);transition:opacity .9s ease}.sr-flash.sr-flash-done{opacity:0}',
       '.sr-paper-line{font-size:.82rem;line-height:1.4;color:#666;margin:-.3em 0 1.2em;-webkit-user-select:none;user-select:none}',
       '@media(prefers-color-scheme:dark){.sr-paper-line{color:#9a9a9a}}@media(prefers-reduced-motion:reduce){.sr-flash{transition:none}}',
+      // Less space above a section (owner, build 78: "The spacing in between sections is a bit too much, eg before
+      // Generative Retrieval"): the bundle's reader.css gives h2 2em and h3–h6 1.6em; here 1.4em and 1.25em, about a
+      // quarter less, for every paper already prepared too (the compiler's own CSS, and so its revision, is unchanged).
+      'h2{margin-top:1.4em}h3,h4,h5,h6{margin-top:1.25em}',
       // Tags: small quiet chips under the paper line; the whole row is one tap target (padding) that opens Edit tags.
       '.sr-paper-tags{display:block;margin:1.5em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
       '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',

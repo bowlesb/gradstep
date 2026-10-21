@@ -114,7 +114,9 @@ final class PaperWebViewTests: XCTestCase {
             const add=document.querySelector('[data-sr-paper-tags] .sr-tag-add');
             const empty={add:add?.textContent??'', visible:!!add&&add.getBoundingClientRect().height>0, chips:document.querySelectorAll('[data-sr-tag]').length};
             add?.click();
-            return {text:document.getElementById('refs').textContent, links, abstractList, indent, empty,
+            const intro=[...document.querySelectorAll('h2')].find(h=>h.textContent==='1 Introduction'), cs=getComputedStyle(intro);
+            const sectionGap=parseFloat(cs.marginTop)/parseFloat(cs.fontSize);
+            return {text:document.getElementById('refs').textContent, links, abstractList, indent, empty, sectionGap,
                     messages:received.filter(m=>m.type==='tag'||m.type==='tags').map(m=>m.type+':'+(m.name??''))};
             """, [:]) as? [String: Any]
         XCTAssertEqual(result?["text"] as? String, original, "the text is unchanged")
@@ -125,6 +127,8 @@ final class PaperWebViewTests: XCTestCase {
         let empty = result?["empty"] as? [String: Any]
         XCTAssertEqual(empty?["add"] as? String, "Add keywords"); XCTAssertEqual(empty?["visible"] as? Bool, true)
         XCTAssertEqual(empty?["chips"] as? Int, 0)
+        // Build 78: "The spacing in between sections is a bit too much": 1.4em above a section, not reader.css's 2em.
+        XCTAssertEqual(result?["sectionGap"] as? Double ?? 0, 1.4, accuracy: 0.01)
     }
 
     func testFindMatchesAcrossInlineMarkupWithoutChangingThePaperOrSelection() async throws {
