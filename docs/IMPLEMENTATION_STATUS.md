@@ -18,7 +18,10 @@ listed — not changed here); UI journeys on fresh iPhone 17 Pro and iPad Pro 13
 Podcasts default and explainer, snippet Chat (iPhone), the wide Snippets layout (iPad, Mac), the main snippet journey,
 Settings from every menu and Your assets (iPhone). `testAddSelectionToNote` fails: the long-press shows no edit menu
 at all on this Simulator. Not done: the figure/equation pages' "Add to note" label (files under parallel change); a
-crop in a general chat (needs the server to accept figures there). No server, deployment, upload or physical phone.
+crop in a general chat (needs the server to accept figures there). The final native date spacing (day label −6 pt
+below) built but its iPhone screenshot was not re-taken: under a load average of ~250 from other work the journey
+timed out at "paper is ready" (it passed with the previous 2 pt spacing). `npm test` passed on its second run; the
+first failed once in `notes-store.test.ts` (unchanged code; passes alone). No server, deployment, upload or physical phone.
 
 ## TestFlight 78 and browser release — 2026-10-21 UTC
 
