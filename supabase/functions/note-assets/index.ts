@@ -6,7 +6,7 @@ import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { boundedStorageDownload } from '../_shared/reader-delivery.ts';
-import { handleNoteAsset, NOTE_ASSET_BUCKET, noteAssetHeaders } from '../_shared/note-assets.ts';
+import { handleNoteAsset, NOTE_ASSET_BUCKET, noteAssetHeaders, releaseBody } from '../_shared/note-assets.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('note-assets');
 
@@ -35,6 +35,7 @@ Deno.serve(async request => {
     }, headers);
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
+    await releaseBody(request);
     return errorResponse(failure, headers);
   }
 });

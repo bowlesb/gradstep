@@ -76,6 +76,24 @@ function reply(failure: PublicError, headers: Record<string, string>): Response 
     { status: failure.status, headers: wait === undefined ? headers : { ...headers, 'Retry-After': String(wait) } });
 }
 
+/** Ends an upload body the handler will not read (an early refusal). Supabase's gateway holds a response to an
+ * unread body of more than a few hundred KiB until it times out (504 after 160 s, measured on staging 2026-10-21);
+ * cancelling the stream lets the refusal through. */
+export async function releaseBody(request: Request, limit = 2 * NOTE_BLOB_MAX_BYTES): Promise<void> {
+  if (!request.body || request.bodyUsed || request.body.locked) return;
+  const reader = request.body.getReader();
+  const deadline = Date.now() + 15_000;
+  try {
+    // Read and discard (never buffered) up to a bound, then cancel whatever remains.
+    for (let read = 0; read <= limit && Date.now() < deadline;) {
+      const next = await Promise.race([reader.read(), new Promise<null>(resolve => setTimeout(() => resolve(null), Math.max(1, deadline - Date.now())))]);
+      if (!next || next.done) break;
+      read += next.value.byteLength;
+    }
+    await reader.cancel();
+  } catch { /* already closed */ } finally { try { reader.releaseLock(); } catch { /* released */ } }
+}
+
 export async function handleNoteAsset(request: Request, deps: NoteAssetDeps, headers: Record<string, string>): Promise<Response> {
   const started = Date.now();
   let bytes = 0;
@@ -137,6 +155,7 @@ export async function handleNoteAsset(request: Request, deps: NoteAssetDeps, hea
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
     const allow = failure.status === 405 ? { ...headers, Allow: 'GET, PUT, OPTIONS' } : headers;
+    await releaseBody(request);
     return finish(reply(failure, allow), failure.code);
   }
 }

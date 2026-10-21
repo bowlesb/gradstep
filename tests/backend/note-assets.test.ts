@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createCipheriv, createDecipheriv, createHash } from 'node:crypto';
-import { handleNoteAsset, NOTE_BLOB_MAX_BYTES, noteAssetHeaders, secondsUntilNextMonth, type NoteAssetDeps } from '../../supabase/functions/_shared/note-assets.ts';
+import { handleNoteAsset, NOTE_BLOB_MAX_BYTES, noteAssetHeaders, releaseBody, secondsUntilNextMonth, type NoteAssetDeps } from '../../supabase/functions/_shared/note-assets.ts';
 import { PublicError } from '../../supabase/functions/_shared/http.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/notes/notes-v1.json', import.meta.url), 'utf8')).blob as {
@@ -295,4 +295,26 @@ test('CORS lets the reader send PUT with its digest header and read the digest b
   assert.match(headers['Access-Control-Expose-Headers'], /X-Content-SHA256/);
   assert.equal(headers['Cache-Control'], 'private, no-store');
   assert.equal(headers['Access-Control-Allow-Origin'], 'https://app.gradstep.ai');
+});
+
+test('an early refusal still consumes the unread upload (the gateway holds the response otherwise), within a bound', async () => {
+  const body = (size: number) => {
+    const state = { pulled: 0, cancelled: false };
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { const n = Math.min(65536, size - state.pulled); if (n <= 0) { controller.close(); return; } state.pulled += n; controller.enqueue(new Uint8Array(n)); },
+      cancel() { state.cancelled = true; },
+    });
+    return { stream, state };
+  };
+  const { stream, state } = body(1024 * 1024);
+  const anonymous = backend();
+  const response = await handleNoteAsset(new Request(url(), { method: 'PUT', body: stream, duplex: 'half',
+    headers: { 'x-content-sha256': fixture.blobSHA256 } } as RequestInit), anonymous.deps, headers);
+  assert.equal(response.status, 401);
+  assert.equal(state.pulled, 1024 * 1024, 'read to the end and discarded');
+  assert.deepEqual(anonymous.calls, []);
+  // A body larger than the bound is read only up to it, then cancelled.
+  const huge = body(64 * 1024 * 1024);
+  await releaseBody(new Request(url(), { method: 'PUT', body: huge.stream, duplex: 'half' } as RequestInit), 1024 * 1024);
+  assert.ok(huge.state.pulled <= 1024 * 1024 + 2 * 65536); assert.ok(huge.state.cancelled);
 });
