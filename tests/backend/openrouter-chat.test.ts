@@ -62,7 +62,9 @@ test('streamed Unicode and authoritative cache-inclusive cost reach settlement o
   const admitted = admittedAnthropic({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
     rpc: async (name, p) => { calls.push({ name, p }); return { granted: true }; } }, async () => outcome);
   await admitted(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {} });
-  assert.equal(calls[0].p.p_provider, 'openrouter'); assert.equal(calls[1].p.p_actual_microusd, 1000);
+  // C6: admission and dispatch are one call (migration 0107), with the model and pinned endpoint it is sent as.
+  assert.equal(calls[0].name, 'worker_openrouter_admit'); assert.deepEqual(calls[0].p.p_metadata, { transport_model: GEMINI_OPENROUTER_MODEL, endpoint: 'google-vertex/us', feature: 'chat', caller: 'chat' });
+  assert.equal(calls[1].p.p_actual_microusd, 1000);
   assert.equal(calls[1].p.p_provider_request_id, 'gen-test'); assert.equal(calls[1].p.p_state, 'succeeded');
   assert.equal((calls[1].p.p_actual_units as Record<string, number>).cache_storage_tokens, 100);
 });
@@ -169,7 +171,7 @@ test('the enabled chat orchestrator quotes Flash and settles the reported cost',
   const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [];
   const rpc: ChatDependencies['rpc'] = async (name, p) => {
     calls.push({ name, p });
-    return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null;
+    return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : null;
   };
   const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000001';
   const sha256Hex = async (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -219,7 +221,7 @@ test('routed Claude plus title and suggestions all admit and settle as OpenRoute
   for (const consent of ['cloud-ai-v4', 'cloud-ai-v5']) {
     const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], models: string[] = [];
     const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
-      return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
+      return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
     const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000002';
     const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
     const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', fetch: async (_url, init) => {
@@ -241,7 +243,7 @@ test('routed Claude plus title and suggestions all admit and settle as OpenRoute
     assert.equal(quote.model, routedClaudeModel('claude-sonnet-5-5'));
     assert.equal(quote.title_model, routedClaudeModel('claude-haiku-5-5'));
     assert.equal(quote.follow_ups_model, quote.title_model);
-    assert.ok(calls.filter(c => c.name === 'worker_provider_attempt_begin').every(c => c.p.p_provider === 'openrouter'));
+    assert.ok(calls.filter(c => c.name === 'worker_openrouter_admit').length === 3 && !calls.some(c => c.name === 'worker_openrouter_dispatch'), 'admitted and dispatched in one call each');
     assert.ok(events.some(e => e.event === 'done' && e.data.model === 'claude-sonnet-5-5'));
   }
 });
@@ -307,7 +309,7 @@ async function stoppedAnswer(options: { record: 'found' | 'missing'; first: unkn
   const client = new AbortController();
   const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
     return name === 'worker_openrouter_dispatch' || name === 'worker_openrouter_receipt' ? true : name === 'worker_reserve_chat' ? { replayed: false }
-      : name === 'worker_provider_attempt_begin' ? { granted: true } : name === 'worker_local_chat_context' ? { title: 'A long paper' }
+      : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : name === 'worker_local_chat_context' ? { title: 'A long paper' }
       : name === 'worker_chat_stop_requested' ? true : null; };
   const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
   const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', now: () => 1_000, sleep: async () => {},

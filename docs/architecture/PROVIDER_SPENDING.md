@@ -181,6 +181,22 @@ for every tester. DECISIONS.md (2026-10-18) requires actual-cost reconciliation.
 - Key: the reconciler reads records with the key that created them (one chat key today; per-feature keys, A13, map by
   the attempt's recorded `feature`).
 
+### One round trip to admit and dispatch (C6, migration 0107)
+
+Before the first token a chat made, in sequence: Auth's token check, the account read, the rate limit, the context
+read, the hold, the attempt's admission, its dispatch record, then the POST; afterwards the receipt was awaited before
+the outcome returned. Now:
+
+- The token check and the account read run together (`userClient`), the account answer used only after Auth accepted
+  the same token and named the same user.
+- `worker_openrouter_admit` runs `worker_provider_attempt_begin` and `worker_openrouter_dispatch` in one transaction with
+  their unchanged checks and closed metadata (transport model and pinned endpoint from `openRouterTransportFor`, the one
+  source the request body also uses). A refused admission dispatches nothing; a dispatch that fails its checks rolls the
+  admission back. The adapter then sends only if the request's own metadata is exactly what was recorded; anything else
+  asks the database, which refuses a second dispatch — the one-shot contract is unchanged.
+- The receipt is written while the attempt's finish is recorded (both awaited together), not before the outcome returns.
+- Deploy migration 0107 before the chat function (until then every OpenRouter admission would be refused).
+
 ## Service RPC contract
 
 `worker_provider_attempt_begin` takes `p_account_id`, `p_operation_id`, `p_attempt_id` (UUIDs),

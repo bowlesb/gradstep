@@ -1,4 +1,5 @@
-import { rpcAttribution } from "./openrouter-transport.ts";
+import { rpcAttribution, type OpenRouterDispatch } from "./openrouter-transport.ts";
+import { openRouterTransportFor } from './openrouter-chat.ts';
 // Durable admission around one provider transport request. No prompts, queries,
 // answers or raw errors are stored/logged; only domain-bound digests and counts.
 import type Anthropic from '@anthropic-ai/sdk';
@@ -32,18 +33,19 @@ async function identity(deps: SpendingDependencies, route: Route, ordinal: numbe
 /** Whether the database granted this send; `reason` is its refusal (`operation_ceiling`: the request no longer fits the
  * operation's hold), null when granted or when the admission itself could not be read. */
 async function admission(deps: SpendingDependencies, attempt: Awaited<ReturnType<typeof identity>>, provider: string,
-  route: Route, model: string, ceiling: number, units: Units): Promise<{ granted: boolean; reason: string | null }> {
+  route: Route, model: string, ceiling: number, units: Units, dispatch?: OpenRouterDispatch): Promise<{ granted: boolean; reason: string | null; dispatched: boolean }> {
+  const begin = { p_account_id: deps.accountID, p_operation_id: deps.operationID, p_attempt_id: attempt.id,
+    p_route: route, p_model: model, p_request_sha256: attempt.requestSHA, p_ceiling_microusd: ceiling, p_reserved_units: units };
   try {
-    const result = await deps.rpc('worker_provider_attempt_begin', {
-      p_account_id: deps.accountID, p_operation_id: deps.operationID, p_attempt_id: attempt.id,
-      p_provider: provider, p_route: route, p_model: model, p_request_sha256: attempt.requestSHA,
-      p_ceiling_microusd: ceiling, p_reserved_units: units,
-    }) as { granted?: unknown; reason?: unknown } | null;
-    return { granted: result?.granted === true, reason: typeof result?.reason === 'string' ? result.reason : null };
+    // C6 (migration 0107): an OpenRouter request is admitted and dispatched in one transaction (one round trip).
+    const result = (dispatch
+      ? await deps.rpc('worker_openrouter_admit', { ...begin, p_metadata: dispatch })
+      : await deps.rpc('worker_provider_attempt_begin', { ...begin, p_provider: provider })) as { granted?: unknown; reason?: unknown; dispatched?: unknown } | null;
+    return { granted: result?.granted === true, reason: typeof result?.reason === 'string' ? result.reason : null, dispatched: result?.dispatched === true };
   } catch {
     // The transaction may have committed. Never retry into another send grant.
     deps.log?.({ event: 'provider_admission_unavailable', operation_id: deps.operationID, attempt_id: attempt.id, provider, route });
-    return { granted: false, reason: null };
+    return { granted: false, reason: null, dispatched: false };
   }
 }
 async function admit(deps: SpendingDependencies, attempt: Awaited<ReturnType<typeof identity>>, provider: string,
@@ -89,15 +91,18 @@ export function admittedAnthropic(deps: SpendingDependencies,
     // The requested model's own hold rule (chat profiles, the title's Haiku request), never a fixed Sonnet card.
     const hold = holdForParams(params);
     const ceiling = hold.microusd + (maxSearches ? webSearchHoldMicrousd(hold.inputTokens, maxSearches, params.model) : 0);
+    const feature = options.purpose ?? (params.tool_choice?.type === 'tool' ? params.tool_choice.name : deps.feature ?? 'chat');
+    const transport = providerForModel(params.model) === 'openrouter' ? openRouterTransportFor(params.model) : null;
+    const dispatch = transport ? { ...transport, feature, caller: 'chat' } : undefined;
     const granted = await admission(deps, attempt, providerForModel(params.model), 'chat', params.model, ceiling,
-      { output_tokens: params.max_tokens, web_searches: maxSearches });
+      { output_tokens: params.max_tokens, web_searches: maxSearches }, dispatch);
     // Not sent: our own bound when the round no longer fits the hold, else our server (a pause, capacity, a lost reply).
     // A lapsed price card (A4, migration 0101) is the model's unavailability, not a fault to retry.
     if (!granted.granted && granted.reason === 'tariff_expired') return { ...unavailable(), failure: 'provider_rejected', rejectionReason: 'tariff_expired', cause: 'server' };
     if (!granted.granted) return { ...unavailable(), cause: granted.reason === 'operation_ceiling' ? 'limit' : 'server' };
     let outcome: ProviderOutcome;
-    try { outcome = await generate(params, { ...options, attribution: rpcAttribution(deps, attempt.id,
-      options.purpose ?? (params.tool_choice?.type === 'tool' ? params.tool_choice.name : deps.feature ?? 'chat'), 'chat') }); }
+    try { outcome = await generate(params, { ...options, attribution: rpcAttribution(deps, attempt.id, feature, 'chat',
+      granted.dispatched ? dispatch : undefined) }); }
     catch {
       await finish(deps, attempt.id, 'unknown', null, null, {}, 'transport_unknown');
       return { ...unavailable(), exact: false, cause: 'server' };
@@ -113,8 +118,9 @@ export function admittedAnthropic(deps: SpendingDependencies,
     if (storage) units.cache_storage_tokens = storage;
     const cost = Math.ceil(priceAttempts(outcome.attempts) + (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD);
     const state: State = !outcome.exact ? 'unknown' : outcome.attempts.length ? 'succeeded' : 'rejected';
-    const recorded = await finish(deps, attempt.id, state, outcome.requestID ?? outcome.messageID, state === 'unknown' ? null : cost,
-      { ...units, web_searches: outcome.webSearches ?? 0, attempts: outcome.attempts.length }, outcome.failure);
+    // The receipt (still being written, C6) and the finish run together; the receipt never decides the outcome.
+    const [recorded] = await Promise.all([finish(deps, attempt.id, state, outcome.requestID ?? outcome.messageID, state === 'unknown' ? null : cost,
+      { ...units, web_searches: outcome.webSearches ?? 0, attempts: outcome.attempts.length }, outcome.failure), outcome.receipt ?? Promise.resolve(true)]);
     // Stop here when the exact result could not be recorded, instead of sending
     // another round under headroom the database cannot know is available.
     return recorded ? outcome : { ...outcome, status: 'failed', failure: 'provider_error', exact: false, cause: 'server' };

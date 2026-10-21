@@ -19,6 +19,18 @@ test('a generation record is believed only for its own generation, account and o
   assert.equal(generationRecord({ data: { ...record, finish_reason: 'Stopped by <script>' } }, 'gen-1', identity)?.finishReason, 'other');
 });
 
+import { rpcAttribution } from '../../supabase/functions/_shared/openrouter-transport.ts';
+test('C6: a dispatch recorded with the admission sends only exactly that metadata, once; anything else asks the database', async () => {
+  const calls: string[] = [];
+  const deps = { accountID: identity.accountID, operationID: identity.operationID, rpc: async (name: string) => { calls.push(name); return false; } };
+  const recorded = { transport_model: 'anthropic/claude-sonnet-5.5', endpoint: 'google-vertex/us', feature: 'chat', caller: 'chat' };
+  const attribution = rpcAttribution(deps, 'cccccccc-0000-4000-8000-000000000001', 'chat', 'chat', recorded);
+  assert.equal(await attribution.dispatch({ ...recorded }), true); assert.deepEqual(calls, [], 'no second round trip');
+  assert.equal(await attribution.dispatch({ ...recorded }), false, 'never twice'); assert.deepEqual(calls, ['worker_openrouter_dispatch']);
+  const other = rpcAttribution(deps, 'cccccccc-0000-4000-8000-000000000002', 'chat', 'chat', recorded);
+  assert.equal(await other.dispatch({ ...recorded, endpoint: 'deepinfra/fp8' }), false, 'a different endpoint is never sent on the recorded dispatch');
+});
+
 test('the lookup waits for a 404 with bounded tries, stops on other errors and never throws', async () => {
   const waits: number[] = [];
   let gets = 0;

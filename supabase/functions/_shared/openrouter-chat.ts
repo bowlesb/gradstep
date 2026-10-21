@@ -55,6 +55,14 @@ function part(value: unknown): ObjectValue {
   throw new Error('unsupported_content');
 }
 
+/** The model and pinned endpoint a chat request is sent as (one source for the request body and its dispatch record). */
+export function openRouterTransportFor(model: string): { transport_model: string; endpoint: string } | null {
+  if (isRouterDeepSeek(model)) return { transport_model: model, endpoint: ROUTER_DEEPSEEK_ENDPOINT };
+  if (isRouterClaude(model)) return { transport_model: model, endpoint: ROUTER_CLAUDE_ENDPOINT };
+  if (model === GEMINI_MODEL) return { transport_model: GEMINI_OPENROUTER_MODEL, endpoint: GEMINI_ENDPOINT };
+  return null;
+}
+
 /** Stable system prefix cached for five minutes; action instructions follow it in the user message. Google caches
  * the entire system message, so keeping the dynamic tail in that message would invalidate it on every action. */
 export function openRouterChatParams(params: Params): ObjectValue {
@@ -285,8 +293,12 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
     }
     // A turn that asked only for calls we drop ends as written (its text, if any); a cut-off call stays a length stop.
     if (finish === 'tool_calls' && !toolCalls.length) finish = 'stop';
-    if (provider && stream.attribution?.receipt) await stream.attribution.receipt({ generation_id: id, provider, model: String(body.model), total_cost_microusd: Math.ceil(attempt.billedMicrousd!) });
-    return { status: 'complete', failure: null, messageID: id, requestID: id, model: params.model,
+    // C6: the receipt is written while the caller records the attempt's finish (provider-spending awaits both), not
+    // before the outcome returns: one round trip fewer between the last token and `done`.
+    const receipt = provider && stream.attribution?.receipt
+      ? stream.attribution.receipt({ generation_id: id, provider, model: String(body.model), total_cost_microusd: Math.ceil(attempt.billedMicrousd!) }).catch(() => false)
+      : undefined;
+    return { status: 'complete', failure: null, messageID: id, requestID: id, model: params.model, ...(receipt ? { receipt } : {}),
       stopReason: finish === 'stop' ? 'end_turn' : finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'refusal',
       refusalCategory: finish === 'content_filter' ? 'provider' : null, attempts: [attempt], exact: true, toolCalls,
       content: [...(reasoning.size ? [{ type: 'openrouter_reasoning', details: [...reasoning.values()] }] : []),

@@ -417,6 +417,8 @@ export interface ProviderOutcome {
    * early"): `server`, our own server (an admission it could not grant or record, a fault in our code); `limit`, our own
    * bound (the next round no longer fits the hold or the search allowance). Absent: the provider failed. */
   cause?: 'server' | 'limit';
+  /** The generation receipt still being written (C6): awaited with the attempt's finish, never before the outcome returns. */
+  receipt?: Promise<boolean>;
 }
 
 /**
