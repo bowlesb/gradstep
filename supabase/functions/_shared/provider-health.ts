@@ -15,9 +15,10 @@
 export const PROVIDERS = ['anthropic', 'deepseek', 'openrouter', 'google', 'tavily', 'crossref', 'datacite', 'openalex', 'huggingface', 'arxiv'] as const;
 export type ProviderName = typeof PROVIDERS[number];
 export type HealthOutcome = 'ok' | 'throttled' | 'overloaded' | 'server_error' | 'timeout' | 'transport' | 'rejected' | 'breaker_open';
-/** `midstream` and `slow` (2026-10-16, migration 079) are streamed answers in the Messages API format (Anthropic and
- * DeepSeek's compatible API): `midstream` fails as overloaded after its first text; `slow` writes for up to a minute, so a
- * drill can press Stop or drop the connection partway. Elsewhere they answer as `error`. */
+/** `midstream` and `slow` (2026-10-16, migration 079) are streamed answers: `midstream` fails after its first text;
+ * `slow` writes for up to a minute, so a drill can press Stop or drop the connection partway. OpenRouter's are in its
+ * chat-completions format (2026-10-21); the Messages API format remains for historical Anthropic/DeepSeek drills.
+ * Elsewhere they answer as `error`. */
 export type FaultMode = 'throttle' | 'overload' | 'error' | 'timeout' | 'malformed' | 'midstream' | 'slow';
 export const FAULT_MODES: readonly FaultMode[] = ['throttle', 'overload', 'error', 'timeout', 'malformed', 'midstream', 'slow'];
 /** `drill`: a fault drill's synthetic answer, counted apart and never moving the breaker. */
@@ -138,9 +139,46 @@ export function syntheticResponse(provider: ProviderName, mode: Exclude<FaultMod
 function requestedModel(body: unknown): string {
   try {
     const model = typeof body === 'string' ? (JSON.parse(body) as { model?: unknown }).model : null;
-    if (typeof model === 'string' && /^[a-z0-9][a-z0-9.-]{0,63}$/.test(model)) return model;
+    if (typeof model === 'string' && /^[a-z0-9][a-z0-9./-]{0,63}$/.test(model)) return model;
   } catch { /* not JSON */ }
   return 'claude-haiku-5-5';
+}
+
+/** A drill's streamed answer in OpenRouter's (OpenAI chat-completions) format (review D4, 2026-10-21): every model goes
+ * through OpenRouter now. `midstream` sends its first words and then an error event; `slow` writes for up to a minute and
+ * finishes with zero-cost usage. The generation id (header and events) starts `drill-`, so the drill reconciles it to
+ * zero afterwards, as with the Messages-format stream below. */
+export function syntheticRouterStream(mode: 'midstream' | 'slow', model: string, signal: AbortSignal | null | undefined, id: string = crypto.randomUUID()): Response {
+  const encoder = new TextEncoder(), generation = `drill-${id}`;
+  const chunk = (fields: Record<string, unknown>) => encoder.encode(`data: ${JSON.stringify({ id: generation, model, provider: 'Gradstep drill', ...fields })}\n\n`);
+  const delta = (content: string) => chunk({ choices: [{ index: 0, delta: { content }, finish_reason: null }] });
+  const wait = (ms: number) => new Promise<boolean>(resolve => {
+    if (signal?.aborted) { resolve(false); return; }
+    const timer = setTimeout(() => resolve(true), ms);
+    signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(false); }, { once: true });
+  });
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        if (mode === 'midstream') {
+          controller.enqueue(delta('This answer comes from a Gradstep fault drill and stops partway'));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: generation, error: { code: 503, message: 'Gradstep fault drill: midstream.' } })}\n\n`));
+          controller.close();
+          return;
+        }
+        let written = 0;
+        for (; written < 240; written++) {
+          if (!await wait(250)) { controller.error(new DOMException('Gradstep fault drill: stopped.', 'AbortError')); return; }
+          controller.enqueue(delta(`Drill sentence ${written + 1}. `));
+        }
+        controller.enqueue(chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 12, completion_tokens: written * 5, prompt_tokens_details: { cached_tokens: 0 }, cost: 0 } }));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      } catch { /* the reader went away */ }
+    },
+  });
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream', 'x-generation-id': generation, 'x-gradstep-synthetic': `fault-${mode}` } });
 }
 
 /** A drill's streamed answer (`midstream` or `slow`). Its request id starts `drill-` (kept as the attempt's provider
@@ -235,10 +273,16 @@ export function providerFetch(inner: Fetch, options: ProviderFetchOptions): Fetc
           record({ provider, route, outcome: 'timeout', latencyMs: now() - started, retryAfterS: null, drill: true });
           throw new DOMException('Gradstep fault drill: timeout.', 'TimeoutError');
         }
-        if ((fault.mode === 'midstream' || fault.mode === 'slow') && (provider === 'anthropic' || provider === 'deepseek')) {
+        if ((fault.mode === 'midstream' || fault.mode === 'slow') && (provider === 'anthropic' || provider === 'deepseek' || provider === 'openrouter')) {
+          const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+          // A drill's generation never existed: a receipt read for it is a quick not-found, never a real request.
+          if (provider === 'openrouter' && (init?.method ?? 'GET').toUpperCase() === 'GET') {
+            return new Response(null, { status: 404, headers: { 'x-gradstep-synthetic': `fault-${fault.mode}` } });
+          }
           // A dropped stream is a transport failure; a slow one is, as far as the provider is concerned, fine.
           record({ provider, route, outcome: fault.mode === 'midstream' ? 'transport' : 'ok', latencyMs: now() - started, retryAfterS: null, drill: true });
-          return syntheticStream(fault.mode, requestedModel(init?.body), init?.signal ?? (input instanceof Request ? input.signal : undefined));
+          return provider === 'openrouter' ? syntheticRouterStream(fault.mode, requestedModel(init?.body), signal)
+            : syntheticStream(fault.mode, requestedModel(init?.body), signal);
         }
         const mode = fault.mode === 'midstream' || fault.mode === 'slow' ? 'error' : fault.mode;
         const response = syntheticResponse(provider, mode, 5);

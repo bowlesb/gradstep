@@ -204,6 +204,29 @@ test('our own 429s and 503s say when to ask again; other errors don\'t', async (
   assert.deepEqual([plain.headers.get('retry-after'), await plain.json()], [null, { code: 'account_unavailable' }]);
 });
 
+// Review D4: drills reach OpenRouter (the only model gateway) with its own stream format, through the real adapter.
+import { openRouterChat } from '../../supabase/functions/_shared/openrouter-chat.ts';
+test('D4: OpenRouter midstream and slow drills stream in its format; a drill generation is never looked up for real', async () => {
+  resetBreakers();
+  const real: string[] = [];
+  const drill = (mode: 'midstream' | 'slow') => providerFetch((async (input: unknown) => { real.push(String(input)); return ok(); }) as typeof fetch, {
+    route: 'chat', account: () => 'test-account', faultsEnabled: () => true, random: () => 0, record: async () => null,
+    faults: async () => [{ provider: 'openrouter', route: null, mode, rate: 1 }] });
+  const attribution = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', operationID: 'bbbbbbbb-0000-4000-8000-000000000001',
+    attemptID: 'cccccccc-0000-4000-8000-000000000001', feature: 'chat', caller: 'chat', dispatch: async () => true };
+  const params = { model: 'anthropic/claude-haiku-5.5', max_tokens: 200, messages: [{ role: 'user' as const, content: 'hi' }] };
+  let text = '';
+  const midstream = await openRouterChat({ apiKey: 'k', fetch: drill('midstream'), sleep: async () => {} })(params,
+    { attribution, signal: new AbortController().signal, inputEstimateTokens: 10, onText: s => { text += s; } });
+  assert.match(text, /fault drill/); assert.equal(midstream.status, 'failed'); assert.equal(midstream.failure, 'provider_error');
+  assert.match(midstream.requestID ?? '', /^drill-/, 'the drill id is kept for reconciliation to zero');
+  const controller = new AbortController(); text = '';
+  const stopped = await openRouterChat({ apiKey: 'k', fetch: drill('slow'), sleep: async () => {} })(params,
+    { attribution, signal: controller.signal, inputEstimateTokens: 10, onText: s => { text += s; if (text.length > 30) controller.abort(); } });
+  assert.equal(stopped.failure, 'aborted'); assert.ok((stopped.attempts[0].readerMicrousd ?? 0) > 0, 'a stopped drill is charged for what it wrote');
+  assert.deepEqual(real, [], 'no request reached OpenRouter, not even a receipt read');
+});
+
 // Review A13 (migration 0106): OpenRouter carries every model, so its breakers are scoped by route and upstream.
 import { breakerScope } from '../../supabase/functions/_shared/provider-health.ts';
 const ROUTER = 'https://openrouter.ai/api/v1/chat/completions';
