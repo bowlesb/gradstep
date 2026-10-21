@@ -5,7 +5,7 @@ import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
 import { localChatContext, observeArxivSources, prepareArxivReader } from '../lib/arxiv-reader';
 import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
-import { type FocusEvent as ReactFocusEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type ComponentProps, type FocusEvent as ReactFocusEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
 import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
@@ -47,7 +47,16 @@ import { useReadingMode } from './ReadingMode';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
 // Loaded when first needed (C5): the reader with its frame script, and dialogs opened from the account menu.
-const Reader = lazy(() => import('./Reader').then(m => ({ default: m.Reader })));
+type ReaderModule = typeof import('./Reader');
+let readerModule: ReaderModule | null = null;
+const loadReader = () => import('./Reader').then(m => (readerModule = m));
+const LazyReader = lazy(() => loadReader().then(m => ({ default: m.Reader })));
+/** The reader, rendered directly once its chunk is here (fetched right after sign-in), so it mounts with the chat pane in
+ * one commit; lazily before that. Chosen once per mount, so a reader never remounts when the chunk arrives. */
+function Reader(props: ComponentProps<ReaderModule['Reader']>) {
+  const [Chosen] = useState(() => readerModule?.Reader ?? LazyReader);
+  return <Chosen {...props} />;
+}
 const ReportDialog = lazy(() => import('./SupportReports').then(m => ({ default: m.ReportDialog })));
 const ReportsDialog = lazy(() => import('./SupportReports').then(m => ({ default: m.ReportsDialog })));
 const HowGradstepWorks = lazy(() => import('./HowGradstepWorks').then(m => ({ default: m.HowGradstepWorks })));
@@ -128,6 +137,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // What this browser reads about a paper it prepares goes to the server only while it asks (ARXIV_DEVICE_ONLY.md §5.3).
   useEffect(() => observeArxivSources(sourceMetadataReporter(account)), [account]);
   const chat = useChat(account, ready);
+  // The reader's chunk is fetched once the signed-in shell is on screen, off the first render's path, so opening a paper
+  // mounts it at once: the reader and the chat's starter questions then share one arXiv request (C5).
+  useEffect(() => { const t = setTimeout(() => { void loadReader().catch(() => {}); }, 0); return () => clearTimeout(t); }, []);
   const catalogs = useCatalogs(chat);
   const devicePDFs=useDevicePDFs(chat, catalogs);
   const library = useLibrary(account,devicePDFs,catalogs);
