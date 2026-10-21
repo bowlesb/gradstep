@@ -3,7 +3,7 @@
 ## Native code review fixes — October 21 UTC (local source; not released)
 
 The [native code review](reviews/NATIVE_REVIEW_20261021.md)'s findings were each re-read against `82c8656` before
-changing them; its status table lists what is fixed (commits `1d0ed71`…`1525782`), what is partly done and what was
+changing them; its status table lists what is fixed (commits `1d0ed71`…`27c9cab`), what is partly done and what was
 left, with reasons. No server, database, deployment, paid model call, release or physical-phone access was involved.
 The browser part of A5/A6 is source only (not deployed). Builds 77/browser `27c45ca0` remain the released clients.
 
@@ -19,9 +19,11 @@ keywords derived (A12, A13); retired Mac local models fall back to cloud (A14). 
 generation re-renders nothing (C1); keyword derivation 15.2–46.7 → 0.37 ms/paper uncached and ~0.002 ms repeated with
 identical output (C2; `-O`, 500 synthetic papers, machine under heavy load); typing re-renders the message box only
 (C6); no per-token observation writes (C7); a bounded cache of composed figure images (C8); the figure view decodes once,
-off the main actor (C9). Parity: the Mac's commands on an iPad keyboard (B1, [Mac app](architecture/MAC_APP.md));
-equation/figure threads use Chat's message row and ⌘Return (B2/B3, partly); author search shows the Library on every
-layout and the chat beside the paper knows it (B4); more menu-bar items (B5, partly). Hygiene: dead code, the resource
+off the main actor (C9). Parity: the Mac's commands were tried on an iPad keyboard and taken back out (B1; the iPad
+keeps its own ⌘F/⇧⌘R; see the review row and [Mac app](architecture/MAC_APP.md)); ⌘Return sends and Escape closes the
+fullscreen figure on iPad too; equation/figure threads use Chat's message row and ⌘Return (B2/B3, partly); author
+search shows the Library on every layout (B4; main's `searchPapers` now does it) and the chat beside the paper knows its
+placement; more menu-bar items (B5, partly), with the Mac's Find in Paper opened through the paper view's checks. Hygiene: dead code, the resource
 probe's SwiftMath dependency, the two Core concurrency warnings (D7, D10, partly).
 
 Evidence (dedicated Simulators, derived data under the worktree's `.artifacts/`; the machine ran at load averages of
@@ -41,6 +43,19 @@ Ask in chat (rerun) and chat default options; two `ChatControlsTests` fail on st
 `LocalAIJourneyTests` local-model cases could not run: the fixture model was disabled by the memory-admission check
 ("1 GB free app memory required") on the saturated machine. Screenshots of the iPhone and Mac message box were
 reviewed (unchanged appearance). Results: `.artifacts/results/`.
+
+After merging main (`66bb4c6`: Notes, the single model control, catalog adds, keyword specificity): ScienceReaderCore
+388 tests in 51 suites pass. `npm test` passes in full, including compiler freshness (main's 5ef1bce fixed it):
+backend 700, browser units 528 in 57 files, and the type checks. The backend's 500 ms timing test failed once under load
+and passed on the rerun. iOS and Mac Catalyst `build-for-testing` succeed. The iPhone unit suites (chat
+generation/transport, authentication, library model/service, workflow safety, figure view) pass, 143 tests; two
+diagram checks timed out under load and passed alone. On an erased iPhone Simulator, the earlier chat-profile failures
+didn't recur: they were settings left by `ChatControlsTests`. iPhone journeys pass for Add (6), catalogs and Find in
+paper. `ChatControlsTests` fails 3 on main's own stale tests: a removed `chat.profile.model` control, profile retry,
+and New chat under main's new Settings sheet (8143fd7). Mac `MacKeyboardTests` pass 5/5. iPad: two of three reading-mode
+journeys pass; the dark one timed out at the self-hiding bar under load, and it passed on the fresh iPad before the
+merge. The iPad ⌘F step of `testTabletReaderHidesAndResizesTheChatColumn` fails on this branch and also on main
+(`9ee4884`, built separately, 2 of 2) on the same Simulator.
 
 ## Notes and snippets, native — October 21 UTC (local; not released)
 

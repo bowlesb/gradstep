@@ -178,9 +178,10 @@ Mac verification. The iOS build settings are unchanged; Mac settings are `[sdk=m
 
 Mac-only code lives in `ScienceReader/Mac/`: `MacSupport.swift` (window, toolbar, platform checks, row hover,
 sheet keys, the reader's web view) and `MacCommands.swift` (menu bar). The menu bar's commands are not attached on
-iPad: tried on October 21 (code review B1), an iPad keyboard's ⌘F then no longer reached the paper's find while the
-paper's web view had focus, also with the system Find menu removed and with no menu item claiming ⌘F, so an iPad
-keeps its own view shortcuts (⌘F, ⇧⌘R) and gains ⌘Return to send and Escape to close the fullscreen figure. Shared views ask `Platform.isMac` /
+iPad. Tried on October 21 (code review B1), the iPad journey's ⌘F didn't open Find with them attached. Main's own build
+also failed that step on the same Simulator, so the cause is unproven, and the iPad keeps its own view shortcuts
+(⌘F, ⇧⌘R) until a reliable keyboard check shows the shared list works. It gained ⌘Return to send and Escape to
+close the fullscreen figure. Shared views ask `Platform.isMac` /
 `Platform.isLargeScreen`; the Mac uses the browser's wide-workspace structure (persistent Library/Feed, Reader
 and Chat panes) while reusing the iPad SwiftUI surfaces and shared model for behavioral parity. Mac-only controls
 and conventions live in the Mac target.

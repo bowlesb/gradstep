@@ -26,8 +26,8 @@ struct ScienceReaderApp: App {
                     PaperWebView.prewarm()
                 }
         }
-        // The Mac menu bar. Not on iPad: with these commands attached, an iPad keyboard's ⌘F no longer reached the
-        // paper's find (iPad journey, 2026-10-21; NATIVE_REVIEW_20261021 B1), so the iPad keeps its own shortcuts.
+        // The Mac menu bar. Not on iPad yet: tried there, the iPad journey's ⌘F didn't open Find (NATIVE_REVIEW_20261021
+        // B1; unproven, as main failed that step on the same Simulator), so the iPad keeps its own shortcuts for now.
         #if targetEnvironment(macCatalyst)
         .commands { GradstepCommands(model: model) }
         #endif

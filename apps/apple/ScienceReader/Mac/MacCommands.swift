@@ -42,7 +42,7 @@ extension View {
 #if targetEnvironment(macCatalyst)
 /// The Mac menu bar. It mirrors each screen's "…" options menu (docs/DESIGN.md) and the header buttons,
 /// so every action has one place on screen and one in the menus; nothing here is Mac-only behavior.
-/// (Not attached on iPad: with these commands an iPad keyboard's ⌘F no longer reached the paper; see ScienceReaderApp.)
+/// (Not attached on iPad yet; see ScienceReaderApp.)
 struct GradstepCommands: Commands {
     @Bindable var model: ReaderModel
     @FocusedValue(\.paperMenuActions) private var paper
