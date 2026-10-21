@@ -1372,6 +1372,15 @@ struct SettingsView: View {
                 Section("Your assets") {
                     openRow("Chats") { model.showAllChats = true }.accessibilityIdentifier("settings.chats")
                     openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams")
+                    // Owner, 2026-10-21: "Needs to be a Notes section in your assets". Opens Notes (closing Settings).
+                    Button {
+                        model.closeSettings(); model.notes.openNoteID = nil; model.tab = .notes
+                        if !model.compactLayout { model.wideMode = .notes }
+                    } label: {
+                        LabeledContent("Notes", value: Self.count(model.notes.shownNotes.count))
+                            .foregroundStyle(Color.primary)
+                    }
+                    .accessibilityIdentifier("settings.notes")
                     // Owner, build 62: "Equation Explanations, and Figure Explanations in the list of your assets".
                     NavigationLink { KeptExplanationsView(model: model, kind: .equations) } label: {
                         LabeledContent("Equation explanations", value: Self.count(model.keptEquationExplanations.count))

@@ -801,7 +801,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <AccountMenu compact={phone} onAdd={library.state === 'ready' ? () => setAdding(true) : null} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
-            onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
+            onNotes={() => void navigate('/notes')} onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -933,11 +933,11 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
   </nav>;
 }
 
-function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks, sync }: {
+function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onNotes, onDiagrams, onExplanations, passageMarks, onPassageMarks, sync }: {
   compact?: boolean;
   /** Add paper, the menu's first row (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
   onAdd: (() => void) | null; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
+  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onNotes: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
   passageMarks: boolean; onPassageMarks: (on: boolean) => void;
   sync?: { label: string; detail: string | null; canSync: boolean; run: () => void } | null }) {
   const [open, setOpen] = useState(false);
@@ -997,6 +997,8 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
           <div className="menu-group" role="group" aria-label="Your assets"><p className="fine menu-heading">Your assets</p>
             <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onChats(); }} data-testid="assets-chats"><Icon name="chats" size={14} /> Chats</button>
             <button role="menuitem" className="menu-item" disabled={!onDiagrams} onClick={() => { setOpen(false); onDiagrams?.(); }} data-testid="assets-diagrams"><Icon name="chart" size={14} /> Diagrams</button>
+            {/* Owner, 2026-10-21: "Needs to be a Notes section in your assets". */}
+            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onNotes(); }} data-testid="assets-notes"><Icon name="notes" size={14} /> Notes</button>
             {/* Owner, build 62: the AI Explainer's answers too (this tab's; the apps keep theirs on the device). */}
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('equation'); }} data-testid="assets-equations"><Icon name="function" size={14} /> Equation explanations</button>
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('figure'); }} data-testid="assets-figures"><Icon name="image" size={14} /> Figure explanations</button>

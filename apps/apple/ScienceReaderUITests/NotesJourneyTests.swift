@@ -236,6 +236,20 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10), "Open note leaves the figure page for the note")
     }
 
+    /// Settings › Your assets lists Notes (owner, 2026-10-21) and the row opens the Notes list.
+    func testYourAssetsListsNotes() throws {
+        let app = launch()
+        try requirePhoneLayout(app)
+        app.openSettingsFromMenu()
+        let row = app.buttons["settings.notes"]
+        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Your assets has a Notes row")
+        capture("Your assets with Notes")
+        row.tap()
+        XCTAssertFalse(app.navigationBars["Settings"].waitForExistence(timeout: 2), "Settings closes")
+        XCTAssertTrue(app.buttons["tab.notes"].isSelected || app.navigationBars["Notes"].waitForExistence(timeout: 5), "Notes is shown")
+    }
+
     /// Settings is the last section of every top-right menu and returns to where it was opened.
     func testSettingsFromEveryMenuReturnsToItsOrigin() throws {
         let app = launch()
