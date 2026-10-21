@@ -160,6 +160,15 @@ Support screenshots and notes are intentionally disclosed content, not encrypted
 
 - Index frequent access paths: account + committed cursor; account + library ID; job state + next attempt; document + work key; account + allowance period; report status + created time.
 - Every mutating RPC takes an authenticated actor and verifies referenced objects' scope. A foreign key alone does not enforce same-owner relationships. Use composite foreign keys/constraints where ownership is duplicated and policy tests for every join.
+- Function and object grants are explicit (2026-10-21, review D5). Supabase's project defaults grant every new
+  `public` table, sequence and function to `anon`, `authenticated` and `service_role`, and PostgreSQL's global default
+  lets PUBLIC execute a new function; migration 001's per-schema revoke of PUBLIC could not remove that global default.
+  Every migration therefore revokes `public, anon, authenticated` on each function it creates and grants
+  `authenticated` only to versioned client RPCs (`v<n>_…`) and owner-checked admin calls, `service_role` to `worker_…`.
+  Migration 135 removes the migrating role's default grants to `anon` and `authenticated` in `public` (functions,
+  tables, sequences), so revoking PUBLIC is enough and a new public table is never readable by clients by default.
+  The local test bootstrap emulates Supabase's defaults, and `tests/database/default_privileges.sql` fails on any
+  public function `anon` can execute or any non-RPC `authenticated` can execute.
 - Avoid `ON DELETE CASCADE` from one user's library into shared articles, monetary audit history, or multi-request processing jobs.
 - Use additive migrations first, explicit backfills, and a documented minimum writer/protocol version before removing old fields. Older TestFlight/App Store clients and devices returning after long offline periods are part of the migration design.
 - Encrypted payload changes need client readers/versioning; a database backfill cannot assume access to plaintext.

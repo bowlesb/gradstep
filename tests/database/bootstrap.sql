@@ -22,3 +22,10 @@ create function auth.jwt() returns jsonb language sql stable as $$
 $$;
 grant usage on schema public,auth to anon,authenticated,service_role;
 grant execute on all functions in schema auth to anon,authenticated,service_role;
+-- Supabase's project defaults (review D5, 2026-10-21): the role that runs migrations grants every new object in
+-- public to anon, authenticated and service_role (PUBLIC keeps PostgreSQL's global EXECUTE default too), so a function
+-- whose migration forgets `revoke ... from public, anon, authenticated` is callable by them on a hosted project.
+-- Emulated here so a forgotten revoke fails the privilege checks locally too (tests/database/default_privileges.sql).
+alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
+alter default privileges in schema public grant all on sequences to anon,authenticated,service_role;
+alter default privileges in schema public grant all on functions to anon,authenticated,service_role;

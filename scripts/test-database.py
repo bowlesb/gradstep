@@ -52,6 +52,48 @@ def phase(sources, checks):
         run('dropdb', [db])
 
 
+# General suites against the current schema (review D5, 2026-10-21). The phase after this runs all 50 general suites in
+# one database, in order, against migrations before 058 only: many test retired behavior (server PDF uploads, downloads
+# and OCR, direct-provider routes) or read an earlier suite's rows and psql variables. These do neither and hold
+# against every migration, so each runs alone in a copy of one migrated template; a suite that does not define the
+# shared helpers itself gets tests/database/general_helpers.sql first. The rest are listed in docs/TESTING.md.
+CURRENT_GENERAL = ['test_feed_topics_popularity', 'test_library_archive', 'test_library_compact', 'test_library_descriptors',
+                   'test_library_query', 'test_library_query_edges', 'test_library_upload_visibility', 'test_library_v5_commands',
+                   'test_owner_accounts', 'test_podcast_profile_v2', 'test_provider_allowance', 'test_reference_add',
+                   'test_reserve_chat_quotes', 'test_sandbox_allowance', 'test_source_waits', 'test_store_account_transactions',
+                   'test_store_purchases', 'test_store_verification_observations', 'test_store_verifier',
+                   'test_store_zero_grant_reason', 'test_uploads', 'test_user_deletion', 'test_workflow_checks']
+
+
+def current_schema_phase(sources, names):
+    template = 'science_reader_test_tpl_' + uuid.uuid4().hex[:8]
+    run('createdb', [template])
+    try:
+        run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', 'postgres', '-c', f'ALTER DATABASE "{template}" SET timezone TO \'UTC\''], capture_output=True)
+        for source in [ROOT / 'tests/database/bootstrap.sql', *sources]:
+            run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', template, '-f', str(source)], capture_output=True, text=True)
+        for name in names:
+            suite = ROOT / f'tests/database/{name}.sql'
+            if not suite.is_file():
+                raise SystemExit(f'Missing current-schema suite {suite.relative_to(ROOT)}')
+            db = 'science_reader_test_' + uuid.uuid4().hex[:12]
+            run('createdb', ['-T', template, db])
+            try:
+                if 'create schema test' not in suite.read_text():
+                    run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', str(ROOT / 'tests/database/general_helpers.sql')],
+                        capture_output=True, text=True)
+                run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', str(suite)], capture_output=True, text=True)
+                print('PASS', suite.relative_to(ROOT), '(current schema)', flush=True)
+            finally:
+                run('dropdb', [db])
+    except subprocess.CalledProcessError as error:
+        print(error.stdout or '')
+        print(error.stderr or '')
+        raise
+    finally:
+        run('dropdb', [template])
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--reader-issuer-fence-candidate', action='store_true',
                     help='Also apply the reviewed pending 045 ACL to the disposable full-suite fixture; no hosted changes.')
@@ -101,4 +143,7 @@ phase([*[p for p in cutover_migrations if p.name < switch.name], ROOT / 'tests/d
 # Retained legacy accounting is verified before the explicit runtime cutover.
 phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT / 'tests/database/chat_follow_up_quotes.sql', ROOT / 'tests/database/admin_health.sql', ROOT / 'tests/database/budget_period.sql', ROOT / 'tests/database/chat_study_quotes.sql', ROOT / 'tests/database/podcast_script_repair.sql', ROOT / 'tests/database/podcast_deepseek_profiles.sql', ROOT / 'tests/database/podcast_writer_choice.sql', ROOT / 'tests/database/podcast_device_sources.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql', ROOT / 'tests/database/device_source_metadata.sql', ROOT / 'tests/database/device_search.sql', ROOT / 'tests/database/provider_resilience.sql', ROOT / 'tests/database/podcast_source_deletion.sql', ROOT / 'tests/database/arxiv_egress_off.sql', ROOT / 'tests/database/chat_deepseek.sql', ROOT / 'tests/database/contained_overruns.sql', ROOT / 'tests/database/figure_view_actions.sql', ROOT / 'tests/database/provider_billing_attention.sql', ROOT / 'tests/database/import_metadata.sql', ROOT / 'tests/database/chat_gemini.sql', ROOT / 'tests/database/chat_claude_openrouter.sql'], [])
 
-phase([*all_migrations, ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql'], ['testing_allowance_concurrency'])
+# Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
+# function's anon/authenticated reach. First in its phase, before any fixture creates objects.
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql'], ['testing_allowance_concurrency'])
+current_schema_phase(all_migrations, CURRENT_GENERAL)

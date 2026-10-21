@@ -228,7 +228,8 @@ Install root and browser dependencies with `npm ci` and `npm ci --prefix apps/we
 
 | Tier | Command | Scope |
 |---|---|---|
-| Fast, default | `npm test` or `npm run test:fast` | Backend contracts, browser units, authored bundle/crypto fixtures, compiled device-reader freshness, web deploy gates and the arXiv acknowledgement/User-Agent check (`tests/operations/`). No browsers, downloads, databases, Simulator, credentials or paid calls. |
+| Fast, default | `npm test` or `npm run test:fast` | Backend contracts, browser units, authored bundle/crypto fixtures, compiled device-reader freshness, every Node operations test in `tests/operations/` (web deploy gates, arXiv acknowledgement/User-Agent, egress scan, packaged workflow runner, account-deletion guard), the Python operations tests that need no database (deploy, readiness, spending, migration ledger/transport, native auth, podcast operators), strict `deno check --frozen` of every Edge entry point and the admin site's `tsc`. No browsers, downloads, databases, Simulator, credentials or paid calls. A step that exits 0 but ran no tests or skipped any fails the tier. |
+| Operations | `npm run test:ops` | Every Python operations test (`scripts/test-ops.py`), including the restore quarantine against the local PostgreSQL server below, and every Node operations test. Fails on zero tests or any skip. Run after a change to a deploy, backup/restore, readiness or operator script. |
 | Fast, targeted | `node --test tests/backend/arxiv-html.test.ts` or `npm run test:fast --prefix apps/web -- tests/bundle.test.ts` | Exactly the selected files. `test:backend` alone runs all backend contracts. |
 | Paid, chat visual | `node scripts/chat-live-smoke.mjs --question="…as a visual I can read on my phone"` | The live chat on staging with a question that invites a visual answer; prints the `visual` event's title, size and elements (about $0.25). Run after a change to the visual tool, its sanitizer or the chat prompt. |
 | Paid, explicit: figure view | `node scripts/chat-live-smoke.mjs --figure-view=1 --warm`, or `--paper=2610.16784v1 --index=<bundle>/reader.json --figure-view=4 --table-view=1` | The figure view's two requests (FIGURE_VIEW.md) on staging from a `figure_view` device: the image prepared as the browser prepares it, the walkthrough's sections and boxes (drawn on the image under `.artifacts/figure-view/`), one part again more simply, credits, seconds and cache use in a JSON record. `--warm` asks a chat question first to show the shared cache; `--table-view` renders a table from the bundle as an image. About $0.25 the first time a paper is cached, $0.05 per figure after. Run after a change to `chat-figure-view.ts` or its instructions. |
@@ -266,8 +267,12 @@ Debug-only account fixtures, but the Swift optimization and compilation mode mat
 pass is insufficient evidence for a reported failure in a distributed build.
 
 The existing full browser `npm run e2e --prefix apps/web`, standalone podcast E2E, Swift Core, complete Xcode,
-database (`test:database`), operations and hosted checks are also **slow / explicit**. They keep their existing
-commands and prerequisites. There is deliberately no default command that launches all infrastructure checks.
+database (`test:database`), operations (`test:ops`) and hosted checks are also **slow / explicit**. They keep their existing
+commands and prerequisites. `test:ops` and `test:database` record their evidence like the other tiers; each tier's
+fingerprint covers what it tests (fast: the browser and admin apps, every Edge function and migration, services, scripts,
+infra and the backend/operations tests; database: migrations, `tests/database/` and its runner), so `npm run test:status`
+reports "source changed" after an edit anywhere that tier reads. The corpus tier also runs the device's source-metadata
+reader over the cached corpus (`tests/corpus/source-metadata.test.ts`; it used to skip silently in the backend suite). There is deliberately no default command that launches all infrastructure checks.
 Hosted or metered checks retain their existing authorization and budget rules; these new suites never call providers.
 
 Live chat acceptance requires a successful terminal event and text or a validated usable tool result. HTTP 200
@@ -278,11 +283,31 @@ answer to name that model. A hidden-route check does not establish that ordinary
 provider-policy or endpoint change, rerun the affected hosted actions and reconcile actual costs/unknown holds;
 earlier green checks for another endpoint do not establish current availability.
 
-The database suite (`npm run test:database`) expects a disposable PostgreSQL 18 server on `127.0.0.1:55431` (binaries
-at `SCIENCE_READER_PG_BIN`). Create the cluster with `initdb -A trust -E UTF8 --locale=C` (a `--no-locale` cluster is
+The database suite (`npm run test:database`, or `python3 scripts/test-database.py` with its selection flags) expects a
+disposable PostgreSQL 18 server on `127.0.0.1:55431`. Its binaries come from `SCIENCE_READER_PG_BIN`, else a PostgreSQL 18
+`psql` on `PATH`, else this Mac's portable PostgreSQL 18.4 tools directory (`scripts/pg_tools.py`; binaries only, never
+another project's files or database); otherwise the scripts stop with that instruction. Create the cluster with `initdb -A trust -E UTF8 --locale=C` (a `--no-locale` cluster is
 SQL_ASCII and migration 032's collation fails) and start it with a short socket directory, e.g. `-k /tmp/srpg` (a long
 path exceeds the macOS socket limit). Post-cutover tests such as `tests/database/chat_follow_up_quotes.sql` run in the
 final phase with migration 058 and later.
+
+Since 2026-10-21 (review D5) `tests/database/bootstrap.sql` reproduces Supabase's project defaults (every new `public`
+table, sequence and function granted to `anon`, `authenticated` and `service_role`), and `default_privileges.sql` runs
+first in the final phase: no public function executable by `anon`, `authenticated` only on `v<n>_…` RPCs and
+`admin_catalog_promote`, and migration 135's defaults. A last **current-schema phase** runs 23 of the 50 general
+`test_*.sql` suites against every migration, each alone in a copy of one migrated template (with
+`general_helpers.sql` when it does not define the shared `test.assert`/`test.reject` itself): feed popularity, library
+archive/compact/descriptors/query/query edges/upload visibility/v5 commands, owner accounts, podcast profile v2, provider
+allowance, reference add, reserve-chat quotes, sandbox allowance, source waits, store account transactions/purchases/
+verification observations/verifier/zero-grant reason, support uploads, user deletion and workflow checks. The other 27
+run only in the pre-058 phase: asset accounting, download retry, invariants, library import, pipeline, pipeline
+reliability, PDF uploads and recovery, podcasts, podcast lengths/seed cap/seed episodes/checker reports, provider
+accounting, reader capabilities, resume credits, rights mode, self healing, spending investigation, tags, web import and
+worker acquisition exercise retired server PDF/download/OCR or direct-provider paths (refused since migrations 058, 077
+and 089); feed, progress, rotation, support and sync limits read an earlier suite's rows, psql variables or policy
+values. `acquisition_concurrency.py` (the 010→011 upgrade and retired server-acquisition races) and
+`library_concurrency.py` (the 009→010 library upgrade and v2 import races) stay unregistered historical proofs; run
+them directly with `python3 tests/database/<name>.py` if those migrations' behavior is ever in question.
 
 ## Corpus setup and boundaries
 

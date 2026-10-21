@@ -17,7 +17,7 @@ PROJECT = 'coxhjvqpflgxkleydati'
 
 class StagingDeploymentTests(unittest.TestCase):
     def run_fixture(self, arguments, *, cleanup=True, health='active', secret=True, migration_fails=False, feed_secret=False,
-                    config_extra=None, providers='ANTHROPIC_API_KEY=secret-fixture\n'):
+                    config_extra=None, providers='OPENROUTER_CHAT_API_KEY=secret-fixture\n'):
         events = []
         self.secret_names = []
         output = io.StringIO()
@@ -105,23 +105,24 @@ class StagingDeploymentTests(unittest.TestCase):
         self.assertEqual(events.index('egress_scan'), 0, 'the block-mode scan runs before any credential, request or deploy')
         self.assertIn('EGRESS_ARXIV', self.secret_names)
 
-    def test_chat_deepseek_switch_and_its_key_reach_the_functions_only_when_on_or_hidden(self):
-        # Off by default: the switch is stated, the key is not deployed.
-        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'],
-                                         providers='ANTHROPIC_API_KEY=secret-fixture\nDEEPSEEK_API_KEY=secret-fixture-ds\n')
+    def test_every_model_route_uses_the_one_openrouter_key_and_never_a_direct_provider_key(self):
+        # Owner, 2026-10-18: all remote inference goes through OpenRouter; no direct-provider fallback.
+        # Retired direct keys in .env.providers never reach the functions.
+        legacy = 'OPENROUTER_CHAT_API_KEY=secret-fixture\nANTHROPIC_API_KEY=secret-fixture-an\nDEEPSEEK_API_KEY=secret-fixture-ds\n'
+        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], providers=legacy)
         self.assertIsNone(error)
-        self.assertIn('CHAT_DEEPSEEK', self.secret_names); self.assertNotIn('DEEPSEEK_API_KEY', self.secret_names)
+        self.assertIn('OPENROUTER_CHAT_API_KEY', self.secret_names)
+        self.assertNotIn('ANTHROPIC_API_KEY', self.secret_names); self.assertNotIn('DEEPSEEK_API_KEY', self.secret_names)
+        self.assertIn('CHAT_DEEPSEEK', self.secret_names)
         for mode in ['hidden', 'on']:
-            events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], config_extra={'chat_deepseek': mode},
-                                             providers='ANTHROPIC_API_KEY=secret-fixture\nDEEPSEEK_API_KEY=secret-fixture-ds\n')
+            events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], config_extra={'chat_deepseek': mode})
             self.assertIsNone(error)
-            self.assertIn('DEEPSEEK_API_KEY', self.secret_names); self.assertIn('CHAT_DEEPSEEK', self.secret_names)
-        # Switched on without a key: refused before any secret is set or function deployed.
-        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], config_extra={'chat_deepseek': 'on'})
-        self.assertIsNotNone(error); self.assertNotIn('function_secrets', events)
-        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat', '--chat-deepseek', 'off'],
-                                         config_extra={'chat_deepseek': 'on'})
-        self.assertIsNone(error); self.assertNotIn('DEEPSEEK_API_KEY', self.secret_names)
+            self.assertIn('CHAT_DEEPSEEK', self.secret_names); self.assertNotIn('DEEPSEEK_API_KEY', self.secret_names)
+        # Without the OpenRouter key nothing is deployed: refused before any secret is set or function deployed.
+        for providers in ['', 'ANTHROPIC_API_KEY=secret-fixture-an\nDEEPSEEK_API_KEY=secret-fixture-ds\n']:
+            events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], providers=providers)
+            self.assertIsInstance(error, SystemExit); self.assertNotIn('function_secrets', events)
+            self.assertFalse(any(isinstance(e, tuple) for e in events))
 
     def test_purchase_cleanup_still_gates_deferred_deploy_after_migration(self):
         events, error = self.run_fixture(['--defer-activation', '--functions', 'store-sync'])

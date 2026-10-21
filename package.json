@@ -13,7 +13,8 @@
     "test:slow:corpus": "node scripts/test-tiers.mjs corpus",
     "test:slow:native": "node scripts/test-tiers.mjs native",
     "test:status": "node scripts/test-tiers.mjs status",
-    "test:database": "python3 scripts/test-database.py",
+    "test:ops": "node scripts/test-tiers.mjs ops",
+    "test:database": "node scripts/test-tiers.mjs database",
     "dev:admin": "vite apps/admin",
     "build:admin": "tsc --noEmit -p apps/admin/tsconfig.json && vite build apps/admin"
   },
