@@ -15,7 +15,7 @@ open questions: "For your similar papers, just take your best judgement, and try
 |---|---|---|---|
 | 1 | Review first, or add at once? | **Add at once**, then show what was added with a reason each, **Remove** on each paper and **Undo** for all. | The owner asked for "just adds them". Showing the picks while they arrive, with one tap to take any back, keeps that speed without the reader wondering what changed in their library. A review step would turn one tap into a second screen and a second decision. |
 | 2 | How many? | **1, 3 or 5** (the owner's numbers), as three rows of one submenu. | No new screen to choose; a count above 5 would flood the library. |
-| 3 | Price | **1 credit per request, whatever the count, charged only when at least one paper was added.** Shown before the tap ("1 credit") and after ("Added 3 papers · 1 credit"). Undo does not refund. | One model call costs the same for 1 or 5 (~$0.002 measured at Haiku's card for the bounded prompt; 1 credit = $0.005). A flat price is easy to state up front. A refund on Undo would need the server to tie library removals back to a request; the amount is a fifth of a cent. |
+| 3 | Price | **1 credit per request, whatever the count, charged only when at least one paper was added.** Shown before the tap ("1 credit") and after ("Added 3 papers · 1 credit"). Undo does not refund. | One model call costs about the same for 1 or 5 (estimated ~$0.001 at Haiku's card for the bounded prompt, not yet measured; 1 credit = $0.005). A flat price is easy to state up front. A refund on Undo would need the server to tie library removals back to a request; the amount is a fifth of a cent. |
 | 4 | Limits | **20 requests per account per rolling 24 h** (database, `recommendation_policy.daily_runs`) and **30 an hour** at the request gate (`api_rate_rules`), plus the existing 3 open operations per account, platform budget and testing caps. | Server-side only, as AGENTS.md requires. 20/day is far above a reader's use and caps a runaway client at ~$0.04/day. |
 | 5 | Model | **Claude Haiku 5.5 through OpenRouter** (Google Vertex US, the route and card catalog tags already use), reasoning off, at most 700 output tokens, structured JSON whose `id` must be one of the candidates. | Cheapest Claude, already priced and admitted (`openrouter_tariffs`), good at short English judgements; it can only choose among real papers, never invent one. |
 | 6 | Where do candidates come from? | **No model**: DataCite searches built from the paper's keywords (as Find similar papers does) plus the shared Feed pool's full-text index, merged, de-duplicated and stripped of everything already in the reader's library, then capped at 40. | Servers never contact arXiv (ARXIV_DEVICE_ONLY.md); DataCite and the pool are the allowed server sources. The model only ranks and explains. |
@@ -95,7 +95,9 @@ when fewer are genuinely related) and how to write the reason (plain, specific, 
 paper (title, ≤3 authors, ≤1,500 characters of abstract) or, for a catalog, up to 8 library papers (title, ≤300
 characters), then up to 40 candidates as `[cN] title (year) — authors` and ≤600 characters of abstract. The hold is
 computed from the actual request (`holdForParams`); candidates are dropped from the end until it fits the operation's
-$0.015 ceiling. Measured size: ~14k input tokens, ~250 output tokens ≈ $0.0017 at Haiku 5.5's Vertex card.
+$0.015 ceiling. Estimated, not measured: 40 candidates make ~31,000 characters (~8k tokens at 4 characters a token)
+and ~250 output tokens ≈ $0.001 at Haiku 5.5's Vertex card; the hold computed for that request is ~$0.005. The paid
+live check below records the real cost.
 
 ## Privacy
 
@@ -106,7 +108,7 @@ catalog names or reading history. No zero-retention claim is made. DataCite rece
 
 ## Budget
 
-At 1,000 requests a month ≈ $2 of the $25 metered-provider allowance inside the $100/month private-beta budget; no
+At 1,000 requests a month ≈ $1–2 (estimated) of the $25 metered-provider allowance inside the $100/month private-beta budget; no
 fixed commitment. The reader pays 1 credit ($0.005) per request that adds papers; the platform absorbs failures.
 
 ## Tests
@@ -120,6 +122,29 @@ fixed commitment. The reader pays 1 credit ($0.005) per request that adds papers
 - Native: `RecommendationsTests` (model: catalog assignment, Undo/Remove, event decoding) and the UI journey
   `RecommendationJourneyTests` with `--recommend-fixture` (no network). Browser: unit tests and `recommend.spec.ts`
   (desktop and phone) against the fixture backend.
+
+## Deploy (not done; the lead runs it)
+
+0. **Order.** Migration 0143 builds on 0101/0102 (`admin_health_extra`), 0108 (`stale_sweep_failures`, the sweep),
+   0120 (`v2_add_paper_once`), 0125 (`worker_delete_account_begin` chain) and 0141 (`cost_feature`).
+   `migrate-supabase.py` applies every pending migration in order and refuses a ledger that is not a prefix of the
+   sources, so merge this branch after any branch adding a migration numbered below 0143 and deploy those first (their
+   own docs say how). Nothing else in 0143 changes existing behavior for current clients.
+1. **Migration and function.** `python3 scripts/deploy-staging.py staging --functions recommend` — applies 0143 (and
+   anything pending before it), sets the function secrets (the function reads `OPENROUTER_CHAT_API_KEY`, already set,
+   and `EGRESS_ARXIV=block`), deploys `recommend` (`verify_jwt = false`, auth in the handler) and runs the free deploy
+   suite, whose `config.edge-functions` now expects `recommend`.
+2. **Admin.** `node scripts/deploy-web.mjs admin` (Costs names "Recommendations"; Health shows the request counts).
+3. **Browser.** `node scripts/deploy-web.mjs app` (the menus and the dialog).
+4. **Native.** The next TestFlight build (iPhone/iPad and Mac) after the mandatory fresh import gate
+   (docs/TESTING.md); the menus appear only in builds that carry them, and older builds are unaffected.
+5. **The one paid live check (estimated ~$0.001, budgeted $0.01):**
+   `node scripts/workflow-checks.mjs --only=recommend.smoke --record` — a synthetic account adds DPO, waits for its
+   DataCite record, asks for 1 similar paper, and requires the phases in order, one paper added with a reason, exactly
+   1 credit, a free replay of the same operation (no second call), the provider attempt recorded as feature
+   `recommend` on Haiku 5.5 (with a management token) and the added paper removable. Then `--only=egress.no-arxiv`
+   (free) confirms no arXiv request. Switch off without a deploy: `update app_private.recommendation_policy set
+   enabled=false` (readers then see "Recommendations are switched off for now", nothing is held).
 
 ## Follow-ups (not built)
 
