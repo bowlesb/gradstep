@@ -1,3 +1,4 @@
+import { openAddPaper } from './device-reader-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
@@ -13,7 +14,8 @@ async function signIn(page: Page) {
   await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
-  await expect(page.getByTestId('add-paper')).toBeEnabled();
+  // The library is ready (Add paper now lives in the far-right menu, build 75; opening it here would add a request).
+  await expect(page.getByTestId('library-table')).toBeVisible();
 }
 
 for (const failRefresh of [false, true]) test(`removing an import needs a complete post-receipt observation${failRefresh ? ' when catch-up fails' : ''}`, async ({ page, request }) => {
@@ -94,7 +96,7 @@ test('Add captures the published cursor while a background change page is incomp
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await held.promise;
     await expect(page.getByText('Unpublished change', { exact: true })).toHaveCount(0);
-    await page.getByTestId('add-paper').click();
+    await openAddPaper(page);
     await page.getByTestId('arxiv-input').fill('1706.03762');
     const sent = page.waitForRequest(r => r.url().endsWith('/rpc/v2_begin_import'));
     const accepted = page.waitForResponse(r => r.url().endsWith('/rpc/v2_begin_import'));
@@ -133,7 +135,7 @@ test('concurrent commands each wait for a boundary begun after their own receipt
     const stopped = page.getByTestId('paper-row').filter({ hasText: 'arXiv 2401.00001' });
     await stopped.getByRole('button', { name: 'Remove' }).click();
     await first.promise; // Remove's fresh read was started before Add existed.
-    await page.getByTestId('add-paper').click();
+    await openAddPaper(page);
     await page.getByTestId('arxiv-input').fill('1706.03762');
     const accepted = page.waitForResponse(r => r.url().endsWith('/rpc/v2_begin_import'));
     await page.getByTestId('arxiv-add').click();
@@ -158,7 +160,7 @@ test('an accepted Add finishes its waiting form after a failed refresh recovers'
   page.on('request', r => { if (r.url().endsWith('/rpc/v2_begin_import')) submissions++; });
   await page.route('**/rpc/v3_library_changes', route => ++reads === 1
     ? route.fulfill({ status: 503, json: { code: 'fixture_read_unavailable' } }) : route.continue());
-  await page.getByTestId('add-paper').click();
+  await openAddPaper(page);
   await page.getByTestId('arxiv-input').fill('1706.03762');
   await page.getByTestId('arxiv-add').click();
   await expect(page.getByRole('alert')).toContainText('Refresh the page');
@@ -168,7 +170,7 @@ test('an accepted Add finishes its waiting form after a failed refresh recovers'
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByTestId('paper-row').filter({ hasText: '1706.03762' })).toBeVisible();
-  await page.getByTestId('add-paper').click();
+  await openAddPaper(page);
   await expect(page.getByTestId('arxiv-input')).toHaveValue('');
   await expect(page.getByRole('alert')).toHaveCount(0);
   expect(submissions).toBe(1);
@@ -194,4 +196,24 @@ for (const failRefresh of [false, true]) test(`a stale Remove reports a revision
   await expect(stopped).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveText('This paper changed since you last saw it. Check its status and try again.');
   expect(submissions).toBe(1);
+});
+
+// Build 75: two "TreeCut" rows from adding the same paper twice. Any version of an arXiv paper already in the library is
+// that paper: Add says so and opens it, and no second import starts (the server's idempotency is separate).
+test('adding an arXiv paper that is already in the library opens it instead of importing it again', async ({ page, request }, info) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
+  await request.post(`${FIXTURE}/__reset`);
+  await signIn(page);
+  let submissions = 0; page.on('request', r => { if (r.url().endsWith('/rpc/v2_begin_import')) submissions++; });
+  const rows = await page.getByTestId('paper-row').count();
+  await openAddPaper(page);
+  await page.getByTestId('arxiv-input').fill('https://arxiv.org/abs/2305.18290v1');
+  await page.getByTestId('arxiv-add').click();
+  await expect(page.getByTestId('add-outcome')).toHaveText(/“Direct Preference Optimization: Your Language Model is Secretly a Reward Model” is already in your library\./);
+  await page.screenshot({ path: `../../.artifacts/feedback-20261021/browser/b9-already-${info.project.name}-light.png` });
+  await page.getByTestId('add-open-existing').click();
+  await expect(page).toHaveURL(/\/paper\//);
+  expect(submissions).toBe(0);
+  await page.getByTestId('back-to-library').click();
+  await expect(page.getByTestId('paper-row')).toHaveCount(rows);
 });

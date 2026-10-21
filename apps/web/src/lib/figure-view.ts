@@ -99,6 +99,9 @@ export function figureTurn(name: string, part?: string): string {
   return label ? `${name} ${label}` : name;
 }
 /** The figure's name from its caption ("Figure 3"); else its place among the paper's figures. */
+/** What a figure page calls its item in "Chat about …": a table's sheet says Table (build 76: tables said "Chat about
+ * Figure"); figures, algorithms and everything else say Figure. */
+export const figureNoun = (label: string): 'Table' | 'Figure' => /^(?:tables?|tabs?\.)(?![a-z])/i.test(label.trim()) ? 'Table' : 'Figure';
 export function figureName(bundle: VerifiedBundle, figureID: string): string {
   const figures = bundle.index.figures, i = figures.findIndex(f => f.id === figureID);
   return figureLabel(figures[i]?.caption ?? '') ?? `Figure ${Math.max(1, i + 1)}`;

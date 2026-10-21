@@ -175,6 +175,8 @@ struct PaperView: View {
     @State private var crashReloads = 0
     @State private var reference: ReaderReference?
     @State private var authorToSearch: String?
+    /// A keyword chip tapped in the paper (builds 73 and 75: "search ML papers based on this keyword").
+    @State private var keywordToSearch: String?
     /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
     @State private var figureReference: ReaderFigureReference?
     /// The figure reference's sheet: half height, the full height for a walkthrough.
@@ -480,8 +482,23 @@ struct PaperView: View {
             .confirmationDialog(authorToSearch ?? "Author", isPresented: Binding(get: { authorToSearch != nil }, set: { if !$0 { authorToSearch = nil } }), titleVisibility: .visible) {
             if let name = authorToSearch {
                 Button("Find papers by \(name)") {
-                    model.discoveryQuery = "author:" + name; model.searchExternal = true; model.tab = .library; model.runDiscovery(); authorToSearch = nil
+                    model.searchPapers("author:" + name); authorToSearch = nil
                 }
+            }
+        }
+            // A keyword: ML paper search for it first (owner: "right at the top"), then the Library's papers with it
+            // ("either external or internal"), then editing the keywords (tapping beside the chips still edits).
+            .confirmationDialog(keywordToSearch.map { "“\($0)”" } ?? "Keyword",
+                                isPresented: Binding(get: { keywordToSearch != nil }, set: { if !$0 { keywordToSearch = nil } }), titleVisibility: .visible) {
+            if let name = keywordToSearch {
+                Button("Search ML papers for “\(name)”") { model.searchPapers(name); keywordToSearch = nil }
+                    .accessibilityIdentifier("paper.keyword.search")
+                Button("Show library papers tagged “\(name)”") { model.showLibraryPapers(taggedWith: name); keywordToSearch = nil }
+                    .accessibilityIdentifier("paper.keyword.library")
+                Button("Edit keywords…") {
+                    keywordToSearch = nil
+                    if let paper = model.selectedPaper { model.editTags(for: paper) }
+                }.accessibilityIdentifier("paper.keyword.edit")
             }
         }
         .sheet(isPresented: $showContents, onDismiss: {
@@ -490,7 +507,8 @@ struct PaperView: View {
                 contentsJump = nil
                 applyFigureOutcome()
             }) {
-                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize) { target, id in
+                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize,
+                                   report: { ReportPresenter.present(model, sheet: "Contents") }) { target, id in
                     contentsJump = (target, id)
                     showContents = false
                 }
@@ -747,6 +765,7 @@ struct PaperView: View {
         hooked.citationDismissID = citationDismissID
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
         hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
+        hooked.onTag = { name in if model.readerDocumentScope == scope { keywordToSearch = name } }
         hooked.onCrash = handleCrash
         hooked.onContentsGesture = {
             guard model.readerDocumentScope == scope, !showContents else { return }
@@ -890,6 +909,8 @@ struct PaperWebView: UIViewRepresentable {
     var onContentsGesture: () -> Void = {}
     var paperAuthors: [String] = []
     var onAuthor: (String) -> Void = { _ in }
+    /// One of `paperTags`, tapped (only these exact names can leave the page).
+    var onTag: (String) -> Void = { _ in }
     /// A new value returns from a citation jump to the reading position.
     var citationReturnID: UUID? = nil
     /// A new value ends the Back offer in the page without going back.
@@ -1124,6 +1145,9 @@ struct PaperWebView: UIViewRepresentable {
             case "tags":
                 guard ready, parent.figureID == nil else { return }
                 parent.onTags()
+            case "tag":
+                guard ready, parent.figureID == nil, let name = body["name"] as? String, parent.paperTags.contains(name) else { return }
+                parent.onTag(name)
             case "contentsGesture":
                 guard ready, parent.figureID == nil, let bundle = parent.bundle,
                       body["manifest_sha256"] as? String == bundle.manifestSHA256 else { return }

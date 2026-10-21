@@ -2,6 +2,7 @@
 // menu (About with Report and My reports for everyone; operator tools in a grey Admin group, see support-reports.spec),
 // Privacy & data with Papers and arXiv and Reports, ⓘ explanations in AI chat options, and a library row that keeps its
 // height while a paper is being added. The Feed's Add spinner is in parity.spec and paper-search.spec. Local fixtures only.
+import { openAddPaper } from './device-reader-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { fixtureOrigin } from './environment';
@@ -25,9 +26,9 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   const menu = page.getByRole('menu');
   // Who and the sync state only; About with Report and My reports beside it; no Admin group for a reader.
   await expect(menu).not.toContainText('Signed in with');
-  // Your assets (Chats, Diagrams, the AI Explainer's explanations) first, as in the apps' Settings (account-assets.spec
-  // covers them and AI credits).
-  await expect(menu.getByRole('menuitem')).toHaveText(['Chats', 'Diagrams', 'Equation explanations', 'Figure explanations', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
+  // Add paper first (owner, build 75: the + as a new row in the menu on the far right), then Your assets (Chats, Diagrams,
+  // the AI Explainer's explanations), as in the apps' Settings (account-assets.spec covers them and AI credits).
+  await expect(menu.getByRole('menuitem')).toHaveText(['Add paper…', 'Chats', 'Diagrams', 'Equation explanations', 'Figure explanations', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
     'My reports', 'Sign out…', 'Delete account…'].map(t => new RegExp(`^\\s*${t.replace(/[.…&]/g, c => `\\${c}`)}$`)));
   await expect(menu.getByRole('group', { name: 'Admin' })).toHaveCount(0);
   // The sync state (B10, RootView's Account › Sync), with Sync now only while something is waiting.
@@ -78,7 +79,7 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
 test('a paper being added keeps its row height when its title and authors arrive', async ({ page }, info) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
   await signIn(page);
-  await page.getByTestId('add-paper').click();
+  await openAddPaper(page);
   await page.getByTestId('arxiv-input').fill('2605.01234');
   await page.getByTestId('arxiv-add').click();
   // The row before the paper's details arrive (the fixture adds them 0.8 s after the import starts).

@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import ImageIO
 import ScienceReaderCore
+import SwiftUI
 import UIKit
 import XCTest
 @testable import ScienceReader
@@ -330,6 +331,59 @@ final class NativeSafetyTests: XCTestCase {
         XCTAssertEqual(Array(pixels[0..<4]), [255,255,255,255])
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]
         XCTAssertNil(properties?[kCGImagePropertyGPSDictionary as String])
+    }
+
+    /// Build 75: a feedback screenshot showed the whole recovery code. Anything marked `hiddenFromReports` is black in the
+    /// app's own report snapshot, wherever it is on screen.
+    func testReportSnapshotCoversTheRecoveryCode() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow, window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let code = "ABCD-EFGH-IJKL-MNOP"
+        window.rootViewController = UIHostingController(rootView: VStack(spacing: 40) {
+            Text("Save your recovery code").font(.title2)
+            Text(code).font(.system(size: 28, design: .monospaced)).padding(24).background(Color.white).hiddenFromReports()
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.white))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(for: .milliseconds(400))
+        let regions = CaptureRedaction.shared.regions
+        XCTAssertEqual(regions.count, 1, "the code registered its frame")
+        let image = try XCTUnwrap(ScreenshotCapture.currentWindow()).cgImage!
+        let region = try XCTUnwrap(regions.first), scale = CGFloat(image.width) / window.bounds.width
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { bytes in
+            let context = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(image, in: CGRect(x: -region.midX * scale, y: -(CGFloat(image.height) - region.midY * scale), width: CGFloat(image.width), height: CGFloat(image.height)))
+        }
+        XCTAssertEqual(Array(pixel.prefix(3)), [0, 0, 0], "the code is covered, not drawn")
+        let attachment = XCTAttachment(image: UIImage(cgImage: image)); attachment.name = "Report snapshot with the code covered"
+        attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    /// A screenshot in Gradstep offers Report this screen in its own window, never over the recovery code, and not when
+    /// turned off in Settings.
+    func testScreenshotOffersReportUnlessOffOrOnTheRecoveryCode() async throws {
+        let defaults = UserDefaults.standard, key = ScreenshotReportPrompt.enabledKey, prior = defaults.object(forKey: key)
+        defer { defaults.set(prior, forKey: key); ScreenshotReportPrompt.shared.dismiss() }
+        let model = ReaderModel(configuration: nil)
+        ScreenshotReportPrompt.shared.start(model)
+        func promptShown() -> Bool {
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+                .contains { !$0.isHidden && $0.windowLevel == .alert + 1 }
+        }
+        defaults.set(true, forKey: key)
+        NotificationCenter.default.post(name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+        XCTAssertTrue(promptShown(), "the offer appears after a screenshot")
+        XCTAssertFalse(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            .contains { $0.windowLevel == .alert + 1 && $0.isKeyWindow }, "it never takes focus from the screen")
+        ScreenshotReportPrompt.shared.dismiss(); XCTAssertFalse(promptShown(), "one tap dismisses it")
+        model.showRecovery = true
+        NotificationCenter.default.post(name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+        XCTAssertFalse(promptShown(), "never over the recovery code")
+        model.showRecovery = false; defaults.set(false, forKey: key)
+        NotificationCenter.default.post(name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+        XCTAssertFalse(promptShown(), "Settings can turn it off")
     }
 
     /// Account deletion erases only that account's local folder and Keychain items.

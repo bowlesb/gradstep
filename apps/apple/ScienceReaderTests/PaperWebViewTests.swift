@@ -89,6 +89,36 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertEqual(result?["links"] as? [String], ["Figure 1", "Table 2", "Equation (4)", "5"])
     }
 
+    /// Build 71 (AIm3) "Sec.2.2" with the name in its own span, Appendix A, §; build 70 (AIW2) the abstract's one-item list
+    /// at full width with no keywords and an h6 heading; builds 73/75 (G2) a keyword chip posts its own name.
+    func testSectionsAppendicesAbstractListsAndKeywordChips() async throws {
+        let original = "As in Sec.\u{00A0}2.2, Appendix A and §3."
+        let harness = try Harness(document: """
+            <h6>Abstract</h6><ul id='abstract'><li>The abstract, wrapped in one list item.</li></ul>
+            <p id='refs'>As in <span class='ltx_text'>Sec.</span>&nbsp;<a href='#s'>2.2</a>, Appendix <a href='#a'>A</a> and §<a href='#t'>3</a>.</p>
+            <h2>1 Introduction</h2><div id='s'></div><div id='a'></div><div id='t'></div>
+            """)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let result = try await script(web, """
+            const received=[];window.webkit.messageHandlers.reader.postMessage=m=>received.push(m);
+            const links=[...document.querySelectorAll('#refs a')].map(a=>a.textContent);
+            const abstractList=document.getElementById('abstract').hasAttribute('data-sr-abstract-list');
+            const indent=getComputedStyle(document.getElementById('abstract')).paddingLeft;
+            window.__scienceReaderSetPaperTags({names:['Tool use','TreeCut'],source:'Gradstep'});
+            const chip=document.querySelector('[data-sr-tag="TreeCut"]');
+            chip.click(); document.querySelector('[data-sr-paper-tags] h2').click();
+            return {text:document.getElementById('refs').textContent, links, abstractList, indent,
+                    messages:received.filter(m=>m.type==='tag'||m.type==='tags').map(m=>m.type+':'+(m.name??''))};
+            """, [:]) as? [String: Any]
+        XCTAssertEqual(result?["text"] as? String, original, "the text is unchanged")
+        XCTAssertEqual(result?["links"] as? [String], ["Sec.\u{00A0}2.2", "Appendix A", "§3"])
+        XCTAssertEqual(result?["abstractList"] as? Bool, true)
+        XCTAssertEqual(result?["indent"] as? String, "0px")
+        XCTAssertEqual(result?["messages"] as? [String], ["tag:TreeCut", "tags:"])
+    }
+
     func testFindMatchesAcrossInlineMarkupWithoutChangingThePaperOrSelection() async throws {
         let harness = try Harness(document: "<h2 id='intro'>Introduction</h2><p>needle <em>across</em> inline</p><div style='height:1200px'></div><h2 id='results'>Results</h2><p>needle across inline again</p>")
         defer { harness.close() }

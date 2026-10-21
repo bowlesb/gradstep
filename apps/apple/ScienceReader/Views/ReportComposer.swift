@@ -5,7 +5,10 @@ import SwiftUI
 
 struct ReportComposer: View {
     @Bindable var model: ReaderModel
-    @Environment(\.dismiss) private var dismiss
+    /// Set when presented over a sheet by `ReportPresenter` (a UIKit presentation); else the sheet's own dismiss.
+    var onClose: (() -> Void)? = nil
+    @Environment(\.dismiss) private var environmentDismiss
+    private func dismiss() { if let onClose { onClose() } else { environmentDismiss() } }
     @State private var reportID = UUID()
     @State private var note = ""
     @State private var title = ""

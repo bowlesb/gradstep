@@ -46,9 +46,11 @@ test('equation explanation, model choice and follow-up remain together with encr
  await expect(display).toBeVisible({timeout:20000});
  // Metadata controls are independent of the verified paper text.
  await expect(frame.getByRole('button',{name:'More papers by A. Author'})).toBeVisible();
- const keywords=frame.locator('[data-sr-paper-tags]'); await expect(keywords).toContainText('Gradstep Keywords'); await expect(keywords).toContainText('HTML');
+ // A specific keyword from the title; the AI/ML categories never (build 70, de722cf; the old expectation was stale).
+ const keywords=frame.locator('[data-sr-paper-tags]'); await expect(keywords).toContainText('HTML'); await expect(keywords).not.toContainText('Machine learning');
  expect(await keywords.evaluate(e=>e.nextElementSibling?.textContent)).toContain('Introduction');
- await keywords.click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
+ // The row's heading edits the keywords; a chip offers its searches first (builds 72, 73 and 75).
+ await keywords.locator('h2').click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
  await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
  await display.click(); const bar=page.getByRole('toolbar',{name:'Selected passage'});
  await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','AI Explainer','Copy as Text','Related','Add to note']); // Copy as Text (B10), Add to note (Notes)
@@ -191,10 +193,49 @@ test('Contents › Tables lists the paper’s HTML tables by caption; a row open
  const detail=page.getByRole('dialog',{name:'Table 1'});
  await expect(detail.frameLocator('iframe.figure-frame').locator('th').first()).toHaveText('Value');
  await expect(detail.frameLocator('iframe.figure-frame').getByText('Table 1: Values.')).toBeVisible();
+ // A table's sheet names the table (build 76: it said "Chat about Figure").
+ await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Chat about Table');
  await page.screenshot({path:`../../.artifacts/contents-table-detail-${test.info().project.name}.png`});
  await detail.getByTestId('figure-reference-go').click();
  await expect(detail).toBeHidden(); await expect(page.getByTestId('citation-back')).toBeVisible();
  await expect(frame.locator('.reader-table').first()).toBeInViewport();
+});
+
+// Builds 73 and 75 (G2): "an option right at the top to search ML papers based on this keyword"; "ideally you can choose
+// either external or internal". A keyword chip offers the ML paper search first, then the library's papers with that tag,
+// then Edit keywords; the library's Tags control starts with the same search.
+test('a keyword chip searches ML papers for it, shows the library’s papers with it, or edits keywords',async({page,request},info)=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await openFixture(page,request,html);
+ const frame=page.frameLocator('[data-testid=reader-frame]'),chip=frame.locator('[data-sr-tag="HTML"]');
+ await expect(chip).toBeVisible({timeout:20000});await expect(chip).toHaveAttribute('role','button');
+ await chip.click();
+ const dialog=page.getByRole('dialog',{name:'HTML',exact:true});
+ await expect(dialog.getByTestId('keyword-actions').getByRole('button')).toHaveText(['Search ML papers for “HTML”','Show library papers tagged “HTML”','Edit keywords…']);
+ await page.screenshot({path:`../../.artifacts/feedback-20261021/browser/b5-keyword-${info.project.name}-light.png`});
+ await page.emulateMedia({colorScheme:'dark'});
+ await page.screenshot({path:`../../.artifacts/feedback-20261021/browser/b5-keyword-${info.project.name}-dark.png`});
+ await page.emulateMedia({colorScheme:'light'});
+ await dialog.getByRole('button',{name:'Edit keywords…',exact:true}).click();
+ const editor=page.getByRole('dialog',{name:'Edit tags',exact:true});
+ await expect(editor).toBeVisible();await editor.getByRole('button',{name:'Cancel',exact:true}).click();
+ // Internal: the library with that tag.
+ await chip.click();await dialog.getByRole('button',{name:'Show library papers tagged “HTML”',exact:true}).click();
+ await expect(page.getByTestId('library-table')).toBeVisible();
+ await expect(page.locator('.library-head .view-sub')).toContainText('HTML');
+ // The Tags control's first entry: ML paper search for the chosen tag.
+ const rail=page.getByTestId('tag-search');
+ if(await rail.isVisible()){await expect(rail).toHaveText('Search ML papers for “HTML”');
+  await page.screenshot({path:`../../.artifacts/feedback-20261021/browser/b5-tags-${info.project.name}-light.png`});await rail.click();}
+ else await page.getByLabel('Filter by tag').selectOption({label:'Search ML papers for “HTML”'});
+ const field=page.getByTestId('search');
+ await expect(field).toHaveAttribute('aria-label','ML paper search');await expect(field).toHaveValue('HTML');
+ await expect(page.locator('.library-head .view-sub')).toHaveCount(0);
+ // External from the chip itself: the same search, from the paper.
+ await page.getByTestId('search-cancel').click();
+ await page.getByTestId('library-table').getByRole('link',{name:'Authored HTML fixture',exact:true}).click();
+ await chip.click();await dialog.getByRole('button',{name:'Search ML papers for “HTML”',exact:true}).click();
+ await expect(field).toHaveAttribute('aria-label','ML paper search');await expect(field).toHaveValue('HTML');
 });
 
 test('Contents says when a paper has no tables or equations',async({page,request})=>{

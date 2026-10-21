@@ -35,7 +35,7 @@ extension ReaderModel {
         if let paper = papers.first(where: { $0.publicLink == link || (arxiv?.revision == nil && arxiv != nil && $0.sourceID == arxiv?.sourceID) }) {
             select(paper)
         } else {
-            discoveryQuery = link.identity; searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+            searchPapers(link.identity)
         }
     }
 }

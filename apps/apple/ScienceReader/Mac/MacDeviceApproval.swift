@@ -108,7 +108,7 @@ struct MacDeviceApprovalSection: View {
                         .frame(maxWidth: .infinity, minHeight: 240)
                 case .waiting(let payload):
                     if let code = MacApprovalQRCode.image(payload) {
-                        Image(uiImage: code).interpolation(.none).resizable().scaledToFit()
+                        Image(uiImage: code).interpolation(.none).resizable().scaledToFit().hiddenFromReports()
                             .frame(width: 240, height: 240)
                             .frame(maxWidth: .infinity)
                             .accessibilityLabel("Approval code for this Mac")

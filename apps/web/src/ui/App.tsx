@@ -171,8 +171,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
   const [passage, setPassage] = useState<{ id: string; documentID: string; anchor: TextAnchor; at: number } | null>(null);
-  // After a chat citation closed the chat drawer: the reader's Back to chat (ReaderModel.returnToChat).
-  const [chatReturn, setChatReturn] = useState(false);
+  // After a chat citation closed the chat drawer: the reader's Back to chat (ReaderModel.returnToChat), to the composer
+  // that was showing (build 73, AHYZ: a promoted figure explainer's chat must come back as itself).
+  const [chatReturn, setChatReturn] = useState<{ composer: string | null } | null>(null);
   const [path, moveTo] = usePath();
   const [navigationIssue, setNavigationIssue] = useState(false);
   const navigationIntent = useRef(0);
@@ -287,9 +288,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }}])));
   },[chat,library.entries,readerCache,account]);
   useEffect(()=>{if(chat&&library.state==='ready')chat.retainPromotedContexts(new Set(library.entries.filter((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible).map(paperIdentity)));},[chat,library.state,library.entries]);
-  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the status filter is
-  // remembered between visits too, as the apps remember it (owner-approved follow-up, 2026-10-07). The tag lasts only
-  // this visit (ReaderModel.libraryTagFilter); a tag an earlier build stored is forgotten.
+  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter is remembered
+  // between visits too (owner-approved follow-up, 2026-10-07). The tag is not, as on the apps since build 71 ("I open to
+  // this screen": an empty tag view after relaunch); a tag an earlier build stored is forgotten (B3).
   const [view, setViewState] = useState<LibraryQuery>(() => {
     try { localStorage.removeItem(OLD_LIBRARY_TAG_KEY); } catch { /* storage unavailable */ }
     return { ...INITIAL_QUERY, filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)) };
@@ -299,6 +300,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     if (value.filter !== previous.filter) writeStored(LIBRARY_FILTER_KEY, value.filter);
     return value;
   }), []);
+  const clearTag = useCallback(() => setView(q => q.tag ? { ...q, tag: '' } : q), [setView]);
   const [railTab, setRailTab] = useState<'contents' | 'library'>('contents');
   const [contentsSlot, setContentsSlot] = useState<HTMLElement | null>(null);
   const [lastPaper, setLastPaper] = useState<string | null>(null);
@@ -308,9 +310,19 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // Paper search beside the library search (native RootView: the Library / arXiv switch under the field while
   // searching; PaperSearch.tsx). Each side keeps its own query, as native libraryQuery and discoveryQuery do.
   const paperSearch = usePaperSearch(account);
-  function similar(paper:LibraryPaper) {
-    const tags=effectiveTags(paper).slice(0,3); paperSearch.setQuery(tags.length?tags.join(' '):paper.metadata?.title??'');
+  // Every way into ML paper search (find similar, an author, a keyword, a public link) starts without a library tag
+  // filter, which would otherwise wait unseen behind the search (owner, build 75: "I wonder if a search was not escaped").
+  function searchPapers(text: string) {
+    clearTag(); paperSearch.setQuery(text);
     setSearchExternal(true);navigate('/');paperSearch.run();
+  }
+  // A keyword's "Show library papers tagged": the library with that tag and nothing else in the way.
+  function showTagged(tag: string) {
+    setSearchExternal(false); setSearchFocus(false); search.current?.blur(); paperSearch.setQuery('');
+    setView(q => ({ ...q, query: '', filter: 'all', tag })); navigate('/');
+  }
+  function similar(paper:LibraryPaper) {
+    const tags=effectiveTags(paper).slice(0,3); searchPapers(tags.length?tags.join(' '):paper.metadata?.title??'');
   }
   const [searchExternal, setSearchExternal] = useState(false);
   const [searchFocus, setSearchFocus] = useState(false);
@@ -333,7 +345,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     const link=parsePublicPaperLink(raw);if(!link)return;publicLinkHandled.current=true;
     try{sessionStorage.removeItem('gradstep.publicLink');}catch{}
     const installed=library.entries.find((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible&&parsePublicPaperLink(paperShareLinks(p).gradstep??'')?.identity===link.identity);
-    if(installed)openReader(installed);else{paperSearch.setQuery(link.identity);setSearchExternal(true);navigate('/');paperSearch.run();}
+    if(installed)openReader(installed);else searchPapers(link.identity);
   },[library.state,library.entries,openReader,paperSearch,navigate]);
   useEffect(() => {
     let live = true;
@@ -391,7 +403,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 
   const ws = useWorkspace(route);
   // Back to chat goes away once the chat is open again or the paper is left.
-  useEffect(() => { if (ws.right.open || route !== 'paper') setChatReturn(false); }, [ws.right.open, route]);
+  useEffect(() => { if (ws.right.open || route !== 'paper') setChatReturn(null); }, [ws.right.open, route]);
   const reading = useReadingMode(ws, route === 'paper' && !!item);
   const latest = useRef({ ws, route, paperID, reading });
   latest.current = { ws, route, paperID, reading };
@@ -501,6 +513,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 
   const searchText = searchExternal ? paperSearch.query : view.query;
   const searching = searchFocus || !!searchText || searchExternal;
+  // Starting a search ends a tag filter: inside search it would hide matches without showing why (build 75, AOog).
+  useEffect(() => { if (searching) clearTag(); }, [searching, clearTag]);
   // Focus may move between the field and its switch without ending the search (native searchFocused). When a click
   // elsewhere takes focus, the switch stays until that click has landed, so nothing moves under the pointer.
   const inSearch = (node: Node | null) => !!node && (!!search.current?.contains(node) || !!scope.current?.contains(node));
@@ -522,7 +536,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
   };
   const cancelSearch = () => {
-    setSearchExternal(false); setView(q => ({ ...q, query: '' })); paperSearch.setQuery(''); setSearchFocus(false); search.current?.blur();
+    setSearchExternal(false); setView(q => ({ ...q, query: '', tag: '' })); paperSearch.setQuery(''); setSearchFocus(false); search.current?.blur();
   };
   const query = (text: string) => {
     setView(q => ({ ...q, query: text }));
@@ -566,6 +580,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     addReference: (doi, operationID) => functionPost('add-reference', { operation_id: operationID, reference: doi, capabilities: ['web_import'] }, { account, maximum: 65_536 }),
   }), [library, openPaper, navigate, setView, account]);
   const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
+    const showing = anchor && documentID && chat ? chat.current(documentID).id : null;
     if (!documentID) setChatMode('general');
     else {
       const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && paperIdentity(e) === documentID);
@@ -575,7 +590,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
     // A citation from a chat that covers the paper (a drawer: phone, narrow window) closes it so the passage shows, and
     // the reader offers Back to chat (PaperView's reader.chat.back); beside the paper, the chat stays open.
-    if (anchor && !latest.current.ws.right.inline) { latest.current.ws.show('right', false); setChatReturn(true); }
+    if (anchor && !latest.current.ws.right.inline) { latest.current.ws.show('right', false); setChatReturn({ composer: showing }); }
     else latest.current.ws.show('right');
   };
   const goToPassage = (documentID: string, anchor: TextAnchor) => {
@@ -672,7 +687,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   ) : (
     <>
       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
-      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={next => { setSearchExternal(false); setView(next); }} />}</div>
+      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={next => { setSearchExternal(false); setView(next); }} onSearchTag={searchPapers} />}</div>
     </>
   );
 
@@ -700,8 +715,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
-        onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => { setSearchExternal(true); paperSearch.setQuery('author:' + name); navigate('/'); paperSearch.run(); }}
-        onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
+        onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => searchPapers('author:' + name)}
+        onTagSearch={searchPapers} onShowTagged={showTagged}
+        onBackToChat={chatReturn && !ws.right.open ? () => { const back = chatReturn.composer; setChatReturn(null); if (back) chat?.chooseDraft(back); setChatMode('paper'); ws.show('right'); } : undefined}
+        onExplainerReturn={() => setChatReturn(null)}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading}
         noteCapture={notes ? { writable: notes.writable, images: notes.canSaveImages, add: (draft, adjust) => setComposer({ draft, adjust }) } : undefined} /></Suspense>
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
@@ -723,7 +740,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     center = <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={feedAdd} onLibrary={() => setSearchExternal(false)}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
-    center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared}
+    center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared} onSearchTag={searchPapers}
       currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} chatCount={chatCount} />;
   }
 
@@ -752,6 +769,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           {nav('/notes', 'Notes', 'notes', route === 'notes', 'nav-notes')}
           <button className="nav-link" onClick={() => setChats(true)} title="All chats"><Icon name="chats" /><span className="nav-label">Chats</span></button>
         </nav>}
+        {/* The catalog to the left of the search (owner, build 75: "Move the catalog to the left of the search bar"): on the
+            library, only once there is a choice (more than one catalog, or one renamed), and not while searching. */}
+        {route === 'library' && !searching && library.catalogs && (library.catalogs.state.catalogs.length > 1 || library.catalogs.state.catalogs[0]?.name !== 'Default') &&
+          <label className="topbar-catalog"><span className="visually-hidden">Catalog</span>
+            <select aria-label="Current catalog" value={library.catalogs.currentID} onChange={e => library.catalogs?.select(e.target.value)} data-testid="catalog-select"
+              title={library.catalogs.state.catalogs.find(c => c.id === library.catalogs?.currentID)?.name}>
+              {library.catalogs.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
         <div className="search-field">
           <Icon name="search" size={14} />
           <input ref={search} type="search" placeholder={searchExternal ? 'Search ML papers' : 'Search library'} aria-label={searchExternal ? 'ML paper search' : 'Search library'}
@@ -770,13 +794,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <kbd aria-hidden="true">/</kbd>
         </div>
         <div className="topbar-actions">
-          <button className="primary small add-button" onClick={() => setAdding(true)} disabled={library.state !== 'ready'} data-testid="add-paper" title="Add paper">
-            <Icon name="plus" size={14} /><span>Add paper</span></button>
           <button className="icon-button theme-toggle" onClick={() => setTheme(resolved === 'dark' ? 'light' : 'dark')} aria-label={resolved === 'dark' ? 'Use light appearance' : 'Use dark appearance'}
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu compact={phone} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
+          <AccountMenu compact={phone} onAdd={library.state === 'ready' ? () => setAdding(true) : null} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
             onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
@@ -818,7 +840,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       {notes && newNote && <NewNoteDialog store={notes} onClose={() => setNewNote(false)} onCreated={id => { setNewNote(false); void navigate(`/notes/${id}`); }} />}
       {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
       <RegionBoundary region="add-paper" label="Add paper" compact resetKey={adding} onReport={report}>
-        <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
+        <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} onOpen={paper => void openPaper(paper)} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
       </RegionBoundary>
       <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
         <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} topics={paperTopics} />
@@ -911,7 +933,10 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
   </nav>;
 }
 
-function AccountMenu({ compact = false, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks, sync }: { compact?: boolean; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks, sync }: {
+  compact?: boolean;
+  /** Add paper, the menu's first row (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
+  onAdd: (() => void) | null; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
   passageMarks: boolean; onPassageMarks: (on: boolean) => void;
   sync?: { label: string; detail: string | null; canSync: boolean; run: () => void } | null }) {
@@ -953,6 +978,7 @@ function AccountMenu({ compact = false, account, email, theme, setTheme, onHelp,
       </button>
       {open && (
         <div className="menu" role="menu">
+          <button role="menuitem" className="menu-item menu-add" disabled={!onAdd} onClick={() => { setOpen(false); onAdd?.(); }} data-testid="add-paper"><Icon name="plus" size={14} /> Add paper…</button>
           {compact && <p className="fine menu-heading">Settings</p>}
           <p className="menu-email">{email}</p>
           <p className="fine">This browser is an approved device.</p>

@@ -166,7 +166,60 @@ test('TikZ pictures: a framed text box reads as paragraphs; a diagram keeps its 
  const xml=inline.get('#S1.F9.pic1')!;
  assert.ok(!xml.includes('foreignObject')&&!xml.includes('<span'),'no HTML inside the SVG');
  assert.match(xml,/<text [^>]*dominant-baseline="central"[^>]*>h_t<\/text>/);
- assert.match(xml,/<g transform="matrix\(1 0 0 -1 0 30\)">/);
+ // The label's own counter-flip moves to its group; the text adds no second flip (revision 22).
+ assert.match(xml,/<g transform="matrix\(1 0 0 -1 0 30\)"><text [^>]*>h_t<\/text><\/g>/);
+ assert.doesNotMatch(xml,/<text [^>]*transform=/);
+});
+
+/** The 2-D affine matrix each `<text>` is drawn with: every ancestor's transform composed, outermost first. */
+function textMatrices(xml:string):{text:string;m:number[]}[] {
+ const mul=(a:number[],b:number[])=>[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];
+ const parse=(t:string)=>[...t.matchAll(/(matrix|translate|scale)\(([^)]*)\)/g)].reduce((m,[,f,args])=>{
+  const n=args.split(/[\s,]+/).filter(Boolean).map(Number);
+  const step=f==='matrix'?n:f==='translate'?[1,0,0,1,n[0],n[1]??0]:[n[0],0,0,n[1]??n[0],0,0];
+  return mul(m,step);},[1,0,0,1,0,0]);
+ const stack:number[][]=[[1,0,0,1,0,0]],out:{text:string;m:number[]}[]=[];
+ for (const [tag,close,name,attrs,self] of xml.matchAll(/<(\/?)([A-Za-z]+)([^>]*?)(\/?)>/g)) {
+  void tag;
+  if (close) { stack.pop(); continue; }
+  const own=/\stransform="([^"]*)"/.exec(attrs)?.[1];
+  const m=own?mul(stack.at(-1)!,parse(own)):stack.at(-1)!;
+  if (name==='text') out.push({text:/<text[^>]*>([^<]*)<\/text>/.exec(xml.slice(xml.indexOf(tag)))?.[1]??'',m});
+  if (!self) stack.push(m);
+ }
+ return out;
+}
+
+test('pgfplots labels in a flipped picture read upright, rotated ticks included, without TeX annotations (build 73, 2610.22371v1 Figure 3)',()=>{
+ // Authored reduction of LaTeXML's pgfplots output: the picture's y-up flip on the outer group, each label a
+ // foreignObject with its own counter-flip, x ticks rotated 45°, math labels carrying their TeX annotation.
+ const label=(transform:string,width:number,height:number,base:number,content:string)=>
+  `<g fill="#000000" stroke="#000000" transform="${transform}"><foreignObject style="font-size:10pt;" height="${height}" overflow="visible" transform="matrix(1 0 0 -1 0 ${base})" width="${width}">`
+  +`<span class="ltx_foreignobject_container"><span class="ltx_foreignobject_content">${content}</span></span></foreignObject></g>`;
+ const sigma='<math alttext="\\sigma" display="inline"><semantics><mi>σ</mi><annotation encoding="application/x-tex">\\sigma</annotation></semantics></math>';
+ const down='<math alttext="\\downarrow" display="inline"><semantics><mo stretchy="false">↓</mo><annotation encoding="application/x-tex">\\downarrow</annotation></semantics></math>';
+ const plot=`<figure id="S3.F3" class="ltx_figure"><svg id="S3.F3.pic1" class="ltx_picture" height="125.06" overflow="visible" version="1.1" viewBox="0 0 253.36 125.06" width="253.36">`
+  +`<g fill="#000000" stroke="#000000" stroke-width="0.4pt" transform="translate(0,125.06) matrix(1 0 0 -1 0 0) translate(27.33,0) translate(0,35.66)">`
+  +`<path style="fill:none" d="M 0 0 L 0 72.48 L 207.24 72.48 L 207.24 0 Z"></path>`
+  +label('matrix(0.7071 0.7071 -0.7071 0.7071 -5.08 -19.36)',17.68,8.92,8.92,'<span class="ltx_text">0.5</span>')
+  +label('matrix(0 1 -1 0 -12.4 10)',91.71,12.3,9.61,`<span class="ltx_text">Tracking EPE ${down}</span>`)
+  +label('matrix(1 0 0 1 210 -4)',7.91,5.96,5.96,sigma)
+  +`</g></svg><figcaption class="ltx_caption">Figure 3: Noise Level – Tracking.</figcaption></figure>`;
+ const xml=arxivInlineImages(source.replace('<p id="p1">',plot+'<p id="p1">'),url).get('#S3.F3.pic1')!;
+ assert.ok(!xml.includes('foreignObject')&&!xml.includes('\\sigma')&&!xml.includes('\\downarrow'),'SVG text only, no TeX source');
+ const texts=textMatrices(xml);
+ assert.deepEqual(texts.map(t=>t.text),['0.5','Tracking EPE ↓','σ']);
+ for (const {text,m} of texts) {
+  // Not mirrored: the composed linear part keeps its orientation (a double flip made it -1: upside-down letters).
+  assert.ok(m[0]*m[3]-m[1]*m[2]>0,`"${text}" is drawn mirrored: ${m.map(v=>v.toFixed(3)).join(' ')}`);
+ }
+ // The tick reads up and to the right (pgfplots rotate=45), the axis label bottom to top, σ level.
+ const [tick,axis,level]=texts.map(t=>t.m);
+ assert.ok(tick[0]>0&&tick[1]<0,'45° tick rises to the right on screen');
+ assert.ok(Math.abs(axis[0])<1e-9&&axis[1]<0,'the y-axis label runs upward');
+ assert.ok(level[0]>0&&Math.abs(level[1])<1e-9&&level[3]>0,'σ is upright');
+ // Labels are text, not strokes of the picture's line width.
+ assert.ok(/<text [^>]*stroke="none"/.test(xml));
 });
 
 test('a table inside inline blocks (resizebox) reads as a table block (KAN, 2404.19756)',()=>{
@@ -620,20 +673,36 @@ test('a mark set as a formula reads as its symbol in the title page\'s notes (Pr
  assert.doesNotMatch(html.replace(/<math[\s\S]*?<\/math>|<[^>]+>/g,' '),/\\ast|, ,/);
 });
 
-test('affiliations placed after the abstract read separately without losing marks or contacts', () => {
-  const html = source.replace('<section id="S1">', '<p><sup>1</sup> ETH Zurich <sup>2</sup> The University of Hong Kong <sup>3</sup> Max Planck Institute <sup>4</sup> WU Vienna</p><p>contact@example.org</p><section id="S1">');
+// Revision 22 (owner, build 69 "Broken sources list", 2610.22353v1): affiliations and the e-mail paragraph after the
+// abstract read in the header, under the names; every institution and contact is kept.
+const headerOf = (html: string) => /<p class="reader-authors"[^>]*>([\s\S]*?)<\/p>/.exec(html)![1];
+test('affiliations and the e-mail paragraph after the abstract read in the header (2610.22353v1)', () => {
+  const html = source.replace('<section id="S1">', '<p><sup>1</sup> ETH Zurich\t<sup>2</sup> The University of Hong Kong\t<sup>3</sup> Max Planck Institute\t<sup>4</sup> WU Vienna</p>'
+    + '<p>{bingcong.li, niao.he}@inf.ethz.ch, {haoma, mayi}@hku.hk, <br class="ltx_break">michael@tuebingen.mpg.de</p><section id="S1">');
   const {html: rendered, checked} = buildWith(html);
-  const result = {html: rendered, index: checked.index};
-  assert.match(result.html, /reader-affiliation-lines/);
-  assert.match(result.html, /ETH Zurich\s*<br><sup>2<\/sup>/);
-  assert.match(result.html, /contact@example.org/);
-  assert.equal(result.index.equations.length, 2);
+  const header = headerOf(rendered);
+  assert.match(header, /^A\. Author <span class="reader-affiliations"><sup>1<\/sup> ETH Zurich<br><sup>2<\/sup> The University of Hong Kong<br><sup>3<\/sup> Max Planck Institute<br><sup>4<\/sup> WU Vienna<br>\{bingcong\.li, niao\.he\}@inf\.ethz\.ch, \{haoma, mayi\}@hku\.hk,<br>michael@tuebingen\.mpg\.de<\/span>$/, header);
+  assert.doesNotMatch(rendered, /reader-affiliation-lines/, 'nothing is left after the abstract');
+  assert.ok(!checked.index.blocks.some(b => b.kind === 'paragraph' && !/^A\. Author/.test(b.text) && /ETH Zurich|tuebingen/.test(b.text)), 'no separate affiliation or contact block');
+  assert.ok(checked.index.blocks.find(b => /^A\. Author/.test(b.text))!.text.includes('michael@tuebingen.mpg.de'), 'the header\'s index text has the contacts');
+  assert.equal(checked.index.equations.length, 2);
+  // The same paragraphs before the abstract also join the header; a contact paragraph not beside them stays where it is.
+  const apart = buildWith(source.replace('<section id="S1">', '<p><sup>1</sup> ETH Zurich <sup>2</sup> Example Institute</p><p>A short remark.</p><p>contact@example.org</p><section id="S1">')).html;
+  assert.match(headerOf(apart), /<sup>2<\/sup> Example Institute<\/span>$/);
+  assert.match(apart, /<p [^>]*>contact@example\.org<\/p>/);
 });
 
-test('affiliation line breaks preserve indexed math marks and contacts in the same paragraph', () => {
+test('affiliation lines keep indexed math marks and contacts; the equation entry follows its line into the header', () => {
  const dagger='<math alttext="\\dagger" display="inline"><mo>†</mo></math>';
  const paragraph=`<p><sup>${dagger}</sup> ETH Zurich contact@example.org <sup>2</sup> Example Institute</p>`;
  const {html,checked}=buildWith(source.replace('<section id="S1">',paragraph+'<section id="S1">'));
- assert.match(html,/reader-affiliation-lines/); assert.match(html,/contact@example.org/);
- assert.ok(checked.index.equations.some(e=>e.latex==='\\dagger'));
+ const header=headerOf(html);
+ assert.match(header,/class="reader-affiliations"><sup><span [^>]*data-reader-equation=/); assert.match(header,/contact@example.org/);
+ const mark=checked.index.equations.find(e=>e.latex==='\\dagger')!;
+ assert.ok(mark,'the mark is still an indexed equation');
+ assert.equal(mark.block_id,checked.index.blocks.find(b=>/^A\. Author/.test(b.text))!.id,'in the header block');
+ // Without an author block the lines stay where the paper put them, one per institution (revisions 19–21).
+ const anonymous=buildWith(source.replace('<div class="ltx_authors">A. Author</div>','').replace('<section id="S1">',paragraph+'<section id="S1">')).html;
+ assert.doesNotMatch(anonymous,/reader-authors/);
+ assert.match(anonymous,/<span class="reader-affiliation-lines"><sup>[\s\S]*ETH Zurich contact@example\.org<br><sup>2<\/sup> Example Institute<\/span>/);
 });

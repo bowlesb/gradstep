@@ -51,7 +51,8 @@ final class LiveJourneyTests: XCTestCase {
     /// signed-in library; never tap through the sheet.
     private func waitForSignedInAccount(_ app: XCUIApplication) {
         let saved = app.switches["I saved this code somewhere safe"]
-        let signedInLibrary = app.buttons["Add a paper"]
+        // Build 75: Add is the first row of Library options (no + beside the search field).
+        let signedInLibrary = app.buttons["Library options"]
         let setupDeadline = Date().addingTimeInterval(120)
         var recovered = false
         while Date() < setupDeadline {
@@ -82,7 +83,7 @@ final class LiveJourneyTests: XCTestCase {
         waitForSignedInAccount(app)
 
         // Add the paper through the existing Library + flow.
-        let add = app.buttons["Add a paper"]
+        let add = app.buttons["Library options"]
         XCTAssertTrue(add.waitForExistence(timeout: 30))
         let addEnabled = NSPredicate(format: "isEnabled == true")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: addEnabled, object: add)], timeout: 60), .completed)
@@ -100,7 +101,7 @@ final class LiveJourneyTests: XCTestCase {
             capture(app, "Added from search")
             app.segmentedControls["wide.mode"].buttons["Library"].tap()
         } else {
-            add.tap()
+            add.tap(); app.buttons["library.add"].tap()
             let reference = app.textFields["import.reference"]
             XCTAssertTrue(reference.waitForExistence(timeout: 10)); reference.tap(); reference.typeText(arxivID)
             app.buttons["import.add"].tap()
@@ -199,9 +200,9 @@ final class LiveJourneyTests: XCTestCase {
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
-        let add = app.buttons["Add a paper"]
+        let add = app.buttons["Library options"]
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: add)], timeout: 60), .completed)
-        add.tap()
+        add.tap(); app.buttons["library.add"].tap()
         let field = app.textFields["import.reference"]
         XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(arxivID)
         app.buttons["import.add"].tap()

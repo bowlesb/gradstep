@@ -289,7 +289,13 @@ final class ReaderModel {
     private var promotedChatContexts: [UUID: PromotedChatContext] = [:]
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
-    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } } }
+    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged(); noteLibraryCommandAges() } } }
+    /// When this run first saw each unsent change, and whether one has waited long enough to mention (LibrarySyncNotice).
+    @ObservationIgnored var libraryCommandSeen: [UUID: Date] = [:]
+    @ObservationIgnored var libraryCommandAgeCheck: Task<Void, Never>?
+    var libraryCommandsOverdue = false
+    /// Storage stopped sending changes until the app reopens.
+    var libraryCommandsHalted: Bool { libraryCommandIssue != nil && (libraryCommandCoordinator == nil || libraryCommandCoordinator?.isHalted == true) }
     #if DEBUG && FIXTURE_HOST
     /// Fixture runs only: Retry and Remove on imports act locally (there is no account or server).
     @ObservationIgnored var fixtureImportChanges = false
@@ -642,7 +648,9 @@ final class ReaderModel {
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
     var chatTitle: String {
         guard !chatWasDeleted else { return "Deleted conversation" }
-        guard let root = activeConversation.flatMap({ privateState.revisions(for: $0).first }) else { return "New chat" }
+        // A figure, table or equation explainer continued in Chat is that item's chat until it has a title of its own
+        // (build 73: Back to chat landed on a "New chat" showing Figure 2's explainer).
+        guard let root = activeConversation.flatMap({ privateState.revisions(for: $0).first }) else { return promotedChatContext?.label ?? "New chat" }
         return ChatTitle.display(root.payload.text ?? "", source: root.payload.titleSource)
     }
     /// The visible conversation has a topic title (generated or renamed); without one, its next answer asks for one.
@@ -2037,15 +2045,20 @@ final class ReaderModel {
         }
     }
 
-    func beginReport(afterMenu: Bool = false) {
+    func beginReport(afterMenu: Bool = false, sheet: String? = nil) {
         let scope = sessionID
         Task {
             if afterMenu { try? await Task.sleep(for: .milliseconds(350)) }
             guard sessionID == scope else { return }
-            reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)"
-            reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
+            captureReport(sheet: sheet)
             showReport = true
         }
+    }
+    /// The screen's name and the app's own snapshot for a report (no snapshot over the recovery code or sign-in; any
+    /// other secret on screen is covered: `hiddenFromReports`).
+    func captureReport(sheet: String?) {
+        reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)" + (sheet.map { " / \($0)" } ?? "")
+        reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
     }
 
     func signOut() async {
@@ -2295,8 +2308,18 @@ final class ReaderModel {
     /// the results; failures are shown as failures, never as empty results.
     func findSimilarPapers(_ paper: Paper) {
         let tags = LibraryTags.tags(for: paper).prefix(3)
-        discoveryQuery = tags.isEmpty ? paper.title : tags.joined(separator: " ")
-        searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+        searchPapers(tags.isEmpty ? paper.title : tags.joined(separator: " "))
+    }
+    /// ML paper search for `query`: find similar, an author, a shared link, a keyword. A Library tag filter never
+    /// carries into search (build 75: "I somehow got here, I wonder if a search was not escaped").
+    func searchPapers(_ query: String) {
+        libraryTagFilter = nil; libraryQuery = ""
+        discoveryQuery = query; searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+    }
+    /// The Library's papers with this keyword (a keyword's "Show library papers tagged").
+    func showLibraryPapers(taggedWith tag: String) {
+        searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all; libraryTagFilter = tag
+        tab = .library; wideMode = .library
     }
     func runDiscovery() {
         let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2423,10 +2446,16 @@ final class ReaderModel {
         feedLoadedAt = Date(); feedStaleNote = nil
     }
 
-    /// arXiv identifiers already in the library or being added.
+    /// arXiv identifiers already in the library or being added (an Add still waiting to sync included).
     var librarySourceIDs: Set<String> {
-        Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.compactMap(\.sourceID))
+        var ids = Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.compactMap(\.sourceID))
+        for command in libraryCommands where command.isUnfinished {
+            if case .beginImport(let source, _, _) = command.mutation { ids.insert(source) }
+        }
+        return ids
     }
+    /// Build 75 (two "TreeCut" rows): an arXiv paper already in the library, or being added, is not added again.
+    enum LibraryAddError: Error, Equatable { case alreadyInLibrary }
 
     func addDiscovered(_ result: DiscoveryResult) async throws {
         try await importPaper(result.sourceID, stayInSearch: true)
@@ -2442,6 +2471,13 @@ final class ReaderModel {
                 guard command.isUnfinished, case .beginImport(let source, _, _) = command.mutation else { return false }
                 return LibraryCatalogBatch.arxivKey(source) == key
             }
+        let inLibrary = papers.contains { !$0.isSample && catalogKey($0) == key }
+            || libraryImports.contains { $0.visible && catalogKey($0) == key && ![.failed, .cancelled].contains($0.phase) }
+            || libraryCommands.contains { command in
+                guard command.isUnfinished, case .beginImport(let source, _, _) = command.mutation else { return false }
+                return LibraryCatalogBatch.arxivKey(source) == key
+            }
+        if inLibrary { throw LibraryAddError.alreadyInLibrary }
         if !alreadyPresent && libraryCatalogs.catalogID(for: key) != currentCatalog.id {
             try await writeCatalog([.init(.assign, catalogID: currentCatalog.id, paperKey: key)])
         }
@@ -3415,8 +3451,10 @@ final class ReaderModel {
         do {
             let result = try await backend.addReference(text, accountID: accountID)
             guard sessionID == scope else { return nil }
+            // The paper is added on the server either way: a catalog assignment that can't be saved here (no private
+            // store yet) leaves it in the default catalog instead of reporting the add as failed.
             if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
-                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
+                try? await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
             }
             let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
             let source = result.paper?.source_id
@@ -3547,8 +3585,10 @@ final class ReaderModel {
         do {
             let result = try await service.addPaper(query)
             guard sessionID == scope else { return nil }
+            // The paper is added on the server either way: a catalog assignment that can't be saved here (no private
+            // store yet) leaves it in the default catalog instead of reporting the add as failed.
             if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
-                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
+                try? await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
             }
             if result.status == "added" { Task { await refreshLibrary() } }
             return AddOutcome.from(result)
@@ -5352,6 +5392,8 @@ extension ReaderModel {
     var promotedChatContext: PromotedChatContext? { chatComposerID.flatMap { promotedChatContexts[$0] } }
 
     func rememberExplainer(paperID: UUID, manifest: String, item: String, label: String, equation: Bool) {
+        // One way back at a time: the explainer the reader just left, not an older chat (build 73).
+        returnToChatAvailable = false
         explainerReturn = ExplanationSubject(paperID: paperID, paperTitle: selectedPaper?.title ?? "",
             manifestSHA256: manifest, itemID: item, label: label, action: equation ? "equation" : "figure", savedAt: Date(), localModelID: localAIModelID)
     }

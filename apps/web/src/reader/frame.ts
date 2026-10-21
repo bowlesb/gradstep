@@ -96,7 +96,7 @@ export type FrameMessage =
   | { type: 'selection'; empty: boolean; selection: Selection | null }
   | { type: 'marks'; ids: string[] } | { type: 'passage'; found: boolean }
   | { type: 'reference'; reference: ReaderReference } | { type: 'figureref'; reference: ReaderFigureReference }
-  | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'contentsGesture' } | { type: 'invalid' }
+  | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'tag'; name: string } | { type: 'contentsGesture' } | { type: 'invalid' }
   | { type: 'find'; count: number; index: number; matches: { index: number; text: string }[] }
   | { type: 'key'; key: FrameKey }
   /** A link out of the paper the reader clicked (frame-shim.js): opened in a new tab, never in the frame. */
@@ -149,6 +149,8 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
     }
     case 'figure': return typeof v.id === 'string' && /^[0-9A-Za-z_-]{1,200}$/.test(v.id) ? { type: 'figure', id: v.id } : null;
     case 'tags': return { type: 'tags' };
+    // One keyword chip (the bridge trims names and keeps at most 60 characters); the reader acts only on the paper's own.
+    case 'tag': return typeof v.name === 'string' && v.name.trim().length > 0 && v.name.length <= 60 ? { type: 'tag', name: v.name } : null;
     case 'contentsGesture': return bundle && v.manifest_sha256 === bundle.manifestSHA256 ? { type: 'contentsGesture' } : null;
     case 'invalid': return { type: 'invalid' };
     case 'find': {

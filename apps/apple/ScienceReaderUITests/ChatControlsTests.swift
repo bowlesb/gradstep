@@ -84,9 +84,11 @@ final class ChatControlsTests: XCTestCase {
             XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,
                            "Nothing is sent until the reader sends")
             if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) {
-                let dismiss = app.buttons["chat.dismissKeyboard"]
-                XCTAssertLessThan(dismiss.frame.maxX, composer.frame.minX + 2, "Inside the pill, before the question")
-                XCTAssertGreaterThan(app.buttons["chat.send"].frame.minX, composer.frame.maxX - 2, "Send inside the pill, after it")
+                // The pill's lower line (build 69 onward): the model, then hide keyboard, dictation and Send at the trailing end.
+                let dismiss = app.buttons["chat.dismissKeyboard"], send = app.buttons["chat.send"]
+                XCTAssertGreaterThan(dismiss.frame.minY, composer.frame.maxY - 2, "Inside the pill, under the question")
+                XCTAssertLessThan(dismiss.frame.maxX, send.frame.minX + 2, "before Send")
+                XCTAssertGreaterThan(send.frame.minY, composer.frame.maxY - 2, "Send inside the pill, under the question")
                 save("\(device())-\(appearance)-composer-with-keyboard")
                 dismiss.tap()
             }

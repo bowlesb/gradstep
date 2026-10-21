@@ -1,4 +1,5 @@
 // Browser reader journeys against the local fixture backend, under the production CSP.
+import { openAddPaper } from './device-reader-helpers';
 import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
@@ -81,7 +82,7 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await table.getByRole('button', { name: 'Retry' }).click();
   await expect(table.getByRole('link', { name: 'A retried paper' })).toBeVisible({ timeout: 15_000 });
 
-  await page.getByTestId('add-paper').click();
+  await openAddPaper(page);
   await page.getByTestId('arxiv-input').fill('not a paper');
   await page.getByTestId('arxiv-add').click();
   await expect(page.getByTestId('add-outcome')).toContainText('Couldn’t find a paper for this.'); // free text goes to add-paper

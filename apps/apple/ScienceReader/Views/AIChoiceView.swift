@@ -64,6 +64,14 @@ struct AIChoiceView: View {
                 select(nil)
             }.disabled(model.chatProfileTable == nil || model.chatProfilesRefreshing)
                 .accessibilityIdentifier("ai.chooseCloud")
+            // The composer's one model control also makes this the default and explains the choices (build 69: the
+            // separate options slider beside it is gone).
+            if chat {
+                Section {
+                    ChatDefaultRow(model: model)
+                    ChatOptionsAboutLink(model: model)
+                }
+            }
             #if targetEnvironment(macCatalyst)
             Section("On this Mac") {
                 let installed = local.models.filter { local.installed.contains($0.id) && (!needsVision || $0.vision) }

@@ -474,7 +474,12 @@ final class LibraryModelTests: XCTestCase {
         model.selectCatalog(LibraryCatalogBatch.initialCatalogID)
         try await observe("Import catches up") { !model.libraryCommands.contains(where: \.isUnfinished) }
         XCTAssertEqual(model.libraryCatalogs.catalogID(for: "arxiv:1706.03762"), catalog)
-        try await model.importPaper("1706.03762v7")
+        // Build 75 (two "TreeCut" rows): the same paper is never queued again; it isn't moved either.
+        let commands = server.commands().count
+        do { try await model.importPaper("1706.03762v7"); XCTFail("An existing paper is not added twice") }
+        catch { XCTAssertEqual(error as? ReaderModel.LibraryAddError, .alreadyInLibrary) }
+        XCTAssertEqual(server.commands().count, commands, "no second import request")
+        XCTAssertTrue(model.librarySourceIDs.contains("1706.03762"))
         XCTAssertEqual(model.libraryCatalogs.catalogID(for: "arxiv:1706.03762"), catalog, "Adding an existing paper never moves it")
     }
 
@@ -1312,6 +1317,8 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(kept.failure, .datasetChanged); XCTAssertFalse(kept.canAttempt)
         XCTAssertEqual(kept.mutation, .beginImport(sourceID: "2404.00002", requestedRevision: nil, observedCursor: 2))
         XCTAssertEqual(model.libraryCommandIssue, "Your library was updated on the server. Review your saved change before trying it again.")
+        // The reader has to act: the banner says so at once, in orange (build 73).
+        XCTAssertEqual(model.librarySyncNotice, .needsAction("Your library was updated on the server. Review your saved change before trying it again."))
         XCTAssertEqual(server.commands().map(\.endpoint), ["v5_begin_import"])
         // Server-side evidence is not observable model state: poll it, bounded.
         var refreshed = false
@@ -1393,6 +1400,11 @@ final class LibraryModelTests: XCTestCase {
             model.libraryCommands.first?.failure == .connection && model.libraryCommandIssue != nil
         }
         let pending = try XCTUnwrap(model.libraryCommands.first), initial = try XCTUnwrap(server.commands().first)
+        // Build 73: a temporary failure is retried by itself and not mentioned until the change has waited a while.
+        XCTAssertNil(model.librarySyncNotice, "no banner the moment a change is queued or first fails")
+        model.libraryCommandsOverdue = true
+        XCTAssertEqual(model.librarySyncNotice, .waiting(1))
+        XCTAssertFalse(model.libraryCommandIssue?.contains("Refresh") ?? false)
         XCTAssertEqual(pending.phase, .submittedUnknown)
         XCTAssertEqual(initial.endpoint, "v5_begin_import")
         XCTAssertEqual(pending.request?.body, initial.body)

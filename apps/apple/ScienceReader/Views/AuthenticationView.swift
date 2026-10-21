@@ -195,7 +195,7 @@ private struct AuthenticationForm: View {
                     .textFieldStyle(.roundedBorder).font(.body.monospacedDigit())
                     .focused($focusedField, equals: .code).submitLabel(.continue)
                     .onSubmit { verifyCode() }
-                    .privacySensitive().accessibilityIdentifier("auth.code")
+                    .privacySensitive().hiddenFromReports().accessibilityIdentifier("auth.code")
                 if let issue = challenge.issue { issueText(issue) }
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     let verifyWait = coordinator.verifySecondsRemaining()

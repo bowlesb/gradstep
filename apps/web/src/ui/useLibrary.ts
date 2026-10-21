@@ -160,6 +160,8 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs, catalogs?:Ca
 
   const addArxiv = useCallback(async (sourceID: string, revision: number | null) => {
     if (snapshot.cursor === null) return Promise.reject(new BackendError('library_not_ready'));
+    // The same paper never joins twice (build 75: two "TreeCut" rows): any version of it already here is the paper.
+    if (existingArxiv(entries, sourceID)) throw new BackendError('library_already_present');
     if (pendingKeys.current.has('add')) throw new BackendError('library_command_pending');
     const key = arxivCatalogKey(sourceID);
     if (key && catalogs && !entries.some(e => e.visible && entryCatalogKey(e) === key)) await catalogs.assign(key);
@@ -192,6 +194,7 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs, catalogs?:Ca
       p_tags: change.own, p_hidden_tags: change.hidden, p_expected_revision: item.membership_revision });
   }, [itemCommand,sourceDetails,devicePDFs]);
 
+  const present = useCallback((sourceID: string) => existingArxiv(entries, sourceID), [entries]);
   const displayed:ClientEntry[]=useMemo(()=>[...entries,...(devicePDFs?.rows??[])],[entries,devicePDFs?.rows]);
   const latest = useRef(displayed); latest.current = displayed;
   const catalogEntries = (id: string) => {
@@ -221,5 +224,11 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs, catalogs?:Ca
   };
   /** The visible entry for a source ID as the reconciler has it now (before React shows it). */
   const sourceEntry = (sourceID: string) => [...reconciler.current.entries.values()].find(e => e.visible && e.source_id === sourceID) ?? null;
-  return { ...(catalogs ? { catalogs } : {}), catalogEntries, deleteCatalogPapers, sourceEntry, entries:displayed, serverEntries:entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
+  return { ...(catalogs ? { catalogs } : {}), catalogEntries, deleteCatalogPapers, sourceEntry, entries:displayed, serverEntries:entries, cursor: snapshot.cursor, state, marks, pending, refresh, present, addArxiv, retry, remove, archive, removePaper, setTags };
+}
+
+/** The visible library entry for this arXiv paper (any version), unless it was cancelled: adding it again would only
+ * duplicate it (build 75). The server's own idempotency is separate. */
+export function existingArxiv(entries: readonly Entry[], sourceID: string): Entry | undefined {
+  return entries.find(e => e.visible && e.source === 'arxiv' && e.source_id === sourceID && !(e.kind === 'import' && e.phase === 'cancelled'));
 }

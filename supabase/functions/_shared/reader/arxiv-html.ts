@@ -33,9 +33,12 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * device can't prepare says so in its figure instead of refusing the paper, an SVG's unreferenced repeated id is dropped
  * and an over-large SVG is drawn smaller, 2610.19820 and 2610.16784 on build 58; revision 16: an image arXiv doesn't
  * serve (not found, not an image, too large on its own) is that figure's note, not the paper's refusal, and the index
- * lists the paper's captioned tables (`tables`) for Contents › Tables), so a device re-prepares papers it
- * compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 21;
+ * lists the paper's captioned tables (`tables`) for Contents › Tables; revision 22: a picture's labels are drawn in
+ * their own foreignObject coordinates without a second flip, so a flipped pgfplots/TikZ picture's labels read upright,
+ * without their TeX annotations, 2610.22371v1 on build 73; affiliation and contact paragraphs after the abstract join
+ * the header, 2610.22353v1 on build 69), so a device re-prepares papers it compiled with an older app
+ * (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 22;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

@@ -162,6 +162,15 @@ public enum TagVocabulary {
         return result
     }
 
+    /// Keywords too broad to tell one paper from another (owner, builds 70 and 75): left out of derived keywords and
+    /// of catalog tags as the reader sees them; a tag the reader typed stays theirs. Lower case, matched whole; the
+    /// server's `GENERIC_KEYWORDS` is the same list (a backend test compares the two).
+    public static let generic: Set<String> = [
+        "llm", "llms", "large language model", "large language models", "language model", "language models",
+        "foundation model", "foundation models", "vlm", "vlms", "mllm", "mllms", "reasoning", "evaluation", "benchmark",
+        "benchmarks", "deep learning", "neural network", "neural networks", "transformer", "transformers", "generative ai",
+    ]
+
     /// Suggestions for a typed prefix: names starting with it first, then names containing it (a word
     /// start before other matches), leaving out tags already chosen.
     public static func suggestions(for query: String, excluding chosen: [String], limit: Int = 8) -> [Tag] {

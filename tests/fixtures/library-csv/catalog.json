@@ -1,0 +1,74 @@
+{
+ "description": "Library catalog CSV export (owner, build 75: \"save the entire catalog as csv\"). Both the native ScienceReaderCore LibraryCSV and the browser lib/library-csv.ts must produce exactly `csv` from `rows`: UTF-8 with a byte-order mark, CRLF line ends, RFC 4180 quoting, lists joined by '; ', the added date as the UTC calendar day, and a cell starting with = + - @ tab or CR prefixed with an apostrophe so a spreadsheet never runs it as a formula.",
+ "columns": [
+  "Title",
+  "Authors",
+  "Year",
+  "arXiv ID",
+  "DOI",
+  "Link",
+  "Tags",
+  "Added"
+ ],
+ "rows": [
+  {
+   "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+   "authors": [
+    "Rafael Rafailov",
+    "Archit Sharma",
+    "Eric Mitchell"
+   ],
+   "year": 2023,
+   "arxivID": "2305.18290v3",
+   "doi": null,
+   "link": "https://arxiv.org/abs/2305.18290v3",
+   "tags": [
+    "Preference optimization",
+    "Learning from human feedback"
+   ],
+   "added": "2026-10-19T17:17:42.512Z"
+  },
+  {
+   "title": "Quotes \"inside\", commas, and\nnew lines",
+   "authors": [
+    "O'Brien, Jr.",
+    "Zoë Müller",
+    "李华"
+   ],
+   "year": null,
+   "arxivID": "2610.22353v1",
+   "doi": null,
+   "link": "https://arxiv.org/abs/2610.22353v1",
+   "tags": [],
+   "added": null
+  },
+  {
+   "title": "=HYPERLINK(\"http://example.invalid\")",
+   "authors": [
+    "+Plus",
+    "-Minus",
+    "@At"
+   ],
+   "year": 2024,
+   "arxivID": null,
+   "doi": "10.1145/3580305.3599256",
+   "link": "https://doi.org/10.1145/3580305.3599256",
+   "tags": [
+    "\tTabbed",
+    "Tool use"
+   ],
+   "added": "2026-01-02T00:00:00Z"
+  },
+  {
+   "title": "A paper with no metadata yet",
+   "authors": [],
+   "year": null,
+   "arxivID": null,
+   "doi": null,
+   "link": null,
+   "tags": [],
+   "added": "2026-10-20T23:59:59.999Z"
+  }
+ ],
+ "csv": "﻿Title,Authors,Year,arXiv ID,DOI,Link,Tags,Added\r\nDirect Preference Optimization: Your Language Model is Secretly a Reward Model,Rafael Rafailov; Archit Sharma; Eric Mitchell,2023,2305.18290v3,,https://arxiv.org/abs/2305.18290v3,Preference optimization; Learning from human feedback,2026-10-19\r\n\"Quotes \"\"inside\"\", commas, and\nnew lines\",\"O'Brien, Jr.; Zoë Müller; 李华\",,2610.22353v1,,https://arxiv.org/abs/2610.22353v1,,\r\n\"'=HYPERLINK(\"\"http://example.invalid\"\")\",'+Plus; -Minus; @At,2024,,10.1145/3580305.3599256,https://doi.org/10.1145/3580305.3599256,'\tTabbed; Tool use,2026-01-02\r\nA paper with no metadata yet,,,,,,,2026-10-20\r\n"
+}

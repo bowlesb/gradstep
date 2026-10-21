@@ -37,8 +37,7 @@ released browser is still Pages `27c45ca0`. iPhone sources were read for wording
   three model/length groups, Find similar papers first, the saved-draft hint going away). The app was wrong for
   owner-58: Privacy &amp; data still mentioned a backup search provider; it now uses the apps' wording. One app
   regression of this work was caught by arxiv-html (the lazy reader asked arXiv twice) and fixed in 114df10.
-- **Evidence**: `apps/web` unit tests 545 passing. Root `npm test`: every fast-tier step passes except compiler
-  freshness (below): backend 697, browser units 545, operations, egress scan, Edge and admin type checks. Playwright
+- **Evidence**: `apps/web` unit tests 545 passing. Root `npm test` (fast tier): ROOT_FINAL. Playwright
   on desktop and phone, after merging main, for the 20 affected specs (account-assets, account-delete, arxiv-html,
   build-62, catalogs, chat, chat-controls, chat-redesign, equation-view, figure-view, journal, layout, library-actions,
   library-columns, notes, owner-58, parity, podcast-workspace, reader, support-reports): 179 passed, 25 skipped by
@@ -46,9 +45,69 @@ released browser is still Pages `27c45ca0`. iPhone sources were read for wording
   rerun). One opaque-diagram case failed once under load and passed 12 of 12 when repeated. notes-capture with its
   own config: 10 passed; its arXiv cases skip without the local corpus. Screenshots reviewed in light and dark under
   `.artifacts/` (web-chat, web-columns, web-support, figure views, web-build62, owner-58, web-podcast-workspace).
-- **Limits**: the committed device compiler was built in a checkout whose `node_modules/.deno` made it bundle `fflate`
-  twice, so `build-arxiv-compiler.mjs --check` fails in a fresh worktree (known; not rebuilt here). Browser Notes adds
-  about 42 kB to the first load and could be loaded lazily next. WebKit keeps its durable-key limitation.
+- **Limits**: browser Notes adds about 42 kB to the first load and could be loaded lazily next. WebKit keeps its
+  durable-key limitation. The compiler freshness check failed in this worktree until main's 5ef1bce (packages resolve
+  from the repository's node_modules only); after merging it the check passes and the moved copy in
+  `apps/web/src/reader/` matches the app's.
+
+## Builds 66–76 open feedback — October 21 UTC (feedback branch; not merged, not released)
+
+Implemented on branch `worktree-agent-a9ba7e1c4135d32c0` from `641541c`, then merged with `main` at `fa1f69f` (browser
+Notes client, server review fixes; conflicts kept both sides); per-item status and commits are in the
+[triage report §0](reviews/FEEDBACK_TRIAGE_20261021.md#0-implementation-status--2026-10-21-on-the-feedback-branch-not-merged-not-released).
+Current clients remain build 77 / browser `27c45ca0`: nothing was uploaded or deployed, and the physical phone was not
+used. Reader **revision 22** (plot labels upright, affiliations and contacts in the header) is built into both compiled
+copies but unreleased; saved papers need ⋯ › Update this paper once it ships.
+
+Checks run (a heavily loaded shared Mac: load average 650–950; one stalled run found its Simulator shut down):
+
+- `npm test` passes after the merge: backend 700/700, browser units 527 (57 files), compiler freshness, operations
+  (incl. Python), egress, edge and admin type checks. The first pre-merge run failed the source-metadata extractor
+  freshness gate after the vocabulary change; the extractor was rebuilt (5993578), the compiler bundle unchanged.
+- Swift Core: `PaperDiscoveryTests` (generic keywords) and `LibraryCSVTests` (shared fixture byte for byte) pass.
+- iPhone 17 Pro Simulator (iOS 26.4, Debug), unit: UnsentDraftTests, WorkflowSafetyTests, LibraryCommandCoordinatorTests,
+  PaperTableTests, LibraryMetadataTests, ContentsEquationLabelTests and the touched LibraryModelTests cases pass
+  (92 tests, `unit-2`); the two PaperWebViewTests cases (whole-name links, abstract list, keyword chips) and the
+  NativeSafetyTests report-snapshot and screenshot-offer cases pass in `unit-3` (the WebView cases had first timed out
+  loading under load, the existing named-reference case included).
+- iPhone UI journeys: FigureViewJourneyTests (all three, incl. the promoted chat's title and the new Report this
+  screen journey), LibraryCatalogTests (rename without flash, Export as CSV share sheet, catalog left of search, Add
+  paper… in ⋯), LibraryLayoutTests.testFiltersTagsAndRetryOnAFailedImport (tag search; search start/Cancel clear the
+  tag), LocalAIJourneyTests.testDictationOnlyFillsTheDraftAndModelsLiveInSettings (one composer model control) and
+  AddPaperFlowTests.testAddByDOIAndLink pass. First-run failures were investigated: a stale "Alignment" tag query
+  (catalog tags give way to derived keywords since build 70), a share sheet the test could not dismiss, an accessibility
+  server crash, and a real add bug since ca5c3e1 (a catalog write that can't be saved reported a server-successful
+  DOI add as failed; fixed in edbd9c5). `ChatControlsTests.testStartersAnswerOptionsAndTheTopicTitle` still fails on
+  pre-existing stale assertions (a DeepSeek segment and "Reset default settings" from before the build-69/71 model rows);
+  its composer-layout assertion was corrected.
+- iPad Pro 11-inch Simulator: FigureViewJourneyTests (all three), LibraryCatalogTests and
+  LibraryLayoutTests.testFiltersTagsAndRetryOnAFailedImport pass (one first-run launch timeout at 10 s passed on rerun).
+- Mac Catalyst: the app builds (Debug). Mac UI journeys were not run, and the scripted Mac screen capture could not read
+  the app's sandbox container from this session (EPERM), so no Mac screenshots were reviewed.
+- The CSV share sheet draws "Research.csv" with Save to Files after ~20 s on this loaded Simulator (two earlier
+  captures, taken sooner, showed it still blank).
+- `scripts/visual-check.mjs` light/dark on iPhone (library table and options, chat, paper, Settings end): Add paper… is
+  the first row of Library "…", no + beside Search, one model control in the composer, and the Settings toggle; contact
+  sheet `.artifacts/visual/fb21-sheet.png`.
+- Screenshots reviewed: the promoted Figure 1 chat titled "Figure 1" with one model control; the figure page with
+  equal capsules and "…"; Report this screen over Contents with the app's own snapshot; Catalogs with "…" and the share
+  sheet; the Tags menu with Search ML papers first. Evidence: `.artifacts/feedback-20261021/` in this worktree (logs and screenshots exported from the result bundles;
+  the bundles themselves were pruned for disk space).
+- After the merge, Playwright catalogs, library, paper-search, figure-view, parity, layout and notes specs pass on desktop
+  and phone, except notes-capture (it needs its own config, where it passes 2 + 2 skipped for an uncached source) and
+  a library.spec selector that the new "Search ML papers for “…”" also matched (anchored; passes).
+- Browser (from the parity sub-task, cherry-picked unchanged): `npm run test:fast --prefix apps/web` 502/502; affected
+  Playwright specs pass on desktop and phone (tablet where in the project) apart from pre-existing wording failures in
+  account-delete, reader "invite-only", arxiv-html consent v5→v6 and owner-58 privacy text; library-commands showed one
+  intermittent timeout per full run that passes alone. Light/dark screenshots of each changed screen were reviewed.
+- Compiler (from the compiler sub-task): the 123-paper cached replay has no failures and unchanged findings; device
+  compile of 2610.22371v1, 2610.22353v1, 2610.19892v1, 2201.11903v6 and 2610.15542v1 succeeds; before/after renders
+  of Gen4P Figure 3 and the 2610.22353v1 header were inspected.
+
+Not verified here: physical-phone behavior, the 15-case import gate (`npm run test:imports`; required before the next
+native upload because RootView.swift and importPaper changed), Mac Catalyst journeys and screenshots, and an actual
+screenshot gesture (the offer was exercised by posting the system notification). TestFlight's own screenshot feedback
+and ReplayKit session recordings cannot be redacted by the app.
 
 ## Server, admin and scripts review fixes — October 21 UTC (built and tested locally; not deployed)
 

@@ -116,6 +116,10 @@ struct RootView: View {
         #if INTERNAL
         .modifier(SessionCaptureHooks(model: model))
         #endif
+        #if !targetEnvironment(macCatalyst)
+        // A screenshot taken in Gradstep offers "Report this screen" (Settings can turn the offer off).
+        .task { ScreenshotReportPrompt.shared.start(model) }
+        #endif
         // Scheduled sync (ReaderModel.updateSyncSchedule) follows the scene; the first sync on return is below.
         .onChange(of: scenePhase, initial: true) { _, phase in model.sceneActive = phase == .active }
         .onChange(of: scenePhase) { _, phase in
@@ -338,6 +342,9 @@ struct LibraryView: View {
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
             }
+            // A search starts from the whole library: an earlier tag filter would hide results without saying so
+            // (build 75: "I somehow got here, I wonder if a search was not escaped").
+            .onChange(of: searching) { _, now in if now { model.libraryTagFilter = nil } }
             // Mac menu bar: Edit › Search Library (⌘F) / Search ML Papers (⇧⌘F).
             .onChange(of: MacCommandRequests.shared.librarySearch, initial: true) { _, request in
                 if request != nil { MacCommandRequests.shared.librarySearch = nil; searchFocused = true }
@@ -361,10 +368,10 @@ struct LibraryView: View {
     @ViewBuilder private func banners(inset: Bool) -> some View {
         let signIn = !model.isSignedIn && !searching
         let issue = model.searchExternal ? nil : model.libraryIssue
-        let pending = !model.searchExternal && (!model.libraryCommands.isEmpty || model.libraryCommandIssue != nil)
+        let pending = model.searchExternal ? nil : model.librarySyncNotice
         let offline = model.searchExternal ? nil : model.offlineCacheIssue
         let uploading = !model.searchExternal && PDFUploadBanners.shows(model)
-        if signIn || issue != nil || pending || offline != nil || uploading {
+        if signIn || issue != nil || pending != nil || offline != nil || uploading {
             VStack(spacing: 8) {
                 if uploading { PDFUploadBanners(model: model) }
                 if signIn {
@@ -381,12 +388,19 @@ struct LibraryView: View {
                         Button("Retry") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing)
                     }.accessibilityIdentifier("library.refreshIssue")
                 }
-                if pending {
-                    StatusBanner(tone: model.libraryCommandIssue == nil ? .info : .problem, systemImage: "arrow.triangle.2.circlepath",
-                                 message: model.libraryCommandIssue ?? "\(model.libraryCommands.count) change\(model.libraryCommands.count == 1 ? "" : "s") waiting to sync") {
+                // Build 73: quiet until a change has waited or keeps failing; orange only when the reader must act.
+                if case .needsAction(let message)? = pending {
+                    StatusBanner(tone: .problem, systemImage: "exclamationmark.arrow.triangle.2.circlepath", message: message,
+                                 messageID: "library.syncNotice") {
                         if !model.libraryCommands.isEmpty {
                             Button("Review") { model.showLibraryChanges = true }.accessibilityIdentifier("library.pendingChanges")
                         }
+                    }
+                } else if case .waiting(let count)? = pending {
+                    StatusBanner(tone: .info, systemImage: "arrow.triangle.2.circlepath",
+                                 message: count == 1 ? "1 change hasn’t synced yet. Gradstep will keep trying."
+                                    : "\(count) changes haven’t synced yet. Gradstep will keep trying.", messageID: "library.syncNotice") {
+                        Button("Details") { model.showLibraryChanges = true }.accessibilityIdentifier("library.pendingChanges")
                     }
                 }
                 if let offline {
@@ -401,21 +415,27 @@ struct LibraryView: View {
     /// The selected paper is highlighted only where it is shown beside the list (iPad Browse).
     private var highlightsSelection: Bool { model.wideMode == .browse && Platform.isLargeScreen }
 
+    /// The catalog beside the search field when there is a choice of catalogs (owner, build 75: "Move the catalog to the
+    /// left of the search bar and move the + option as a new row inside the dialogue on the far right").
+    private var showsCatalog: Bool {
+        !searching && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default")
+    }
+
     private var header: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
+                if showsCatalog { catalogMenu }
                 LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search",
                                    focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
                     .padding(.leading, 10).padding(.trailing, 6).frame(height: DesignMetrics.headerControl)
                     .chromeSurface(Capsule())
                 if searching {
                     Button("Cancel") {
-                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; searchFocused = false
+                        // Back to the whole library: no tag filter is left behind (build 75).
+                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
+                        searchFocused = false
                     }.accessibilityIdentifier("library.search.cancel")
                 } else {
-                    Button {
-                        if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
-                    } label: { HeaderButtonLabel(systemImage: "plus") }.buttonStyle(.plain).accessibilityLabel("Add a paper")
                     optionsMenu
                 }
             }
@@ -423,25 +443,6 @@ struct LibraryView: View {
                 Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
                     .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
                 if model.searchExternal { AdvancedPaperSearch(model: model) }
-            }
-            if !model.searchExternal && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default") {
-                HStack {
-                    Menu {
-                        ForEach(model.libraryCatalogs.catalogs) { catalog in
-                            Button(catalog.name, systemImage: model.currentCatalog.id == catalog.id ? "checkmark" : "folder") {
-                                model.selectCatalog(catalog.id)
-                            }
-                        }
-                        Divider()
-                        Button("Manage catalogs…") { model.showCatalogs = true }
-                    } label: {
-                        HStack {
-                            Label(model.currentCatalog.name, systemImage: "folder").lineLimit(1)
-                            Image(systemName: "chevron.down").font(.caption)
-                        }
-                    }.accessibilityIdentifier("library.catalog")
-                    Spacer()
-                }.font(.subheadline)
             }
         }
         .modifier(HeaderWidth(fullWidth: tableShown))
@@ -452,10 +453,44 @@ struct LibraryView: View {
         .animation(.snappy(duration: 0.2), value: searching)
     }
 
+    /// The current catalog as a compact glass control (its name truncates), choosing another or managing them.
+    private var catalogMenu: some View {
+        Menu {
+            ForEach(model.libraryCatalogs.catalogs) { catalog in
+                Button(catalog.name, systemImage: model.currentCatalog.id == catalog.id ? "checkmark" : "folder") {
+                    model.selectCatalog(catalog.id)
+                }
+            }
+            Divider()
+            Button("Manage catalogs…") { model.showCatalogs = true }
+        } label: {
+            // A long name is shortened so the search field keeps most of the row.
+            let name = model.currentCatalog.name
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                Text(name.count > 14 ? String(name.prefix(13)).trimmingCharacters(in: .whitespaces) + "…" : name).lineLimit(1)
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+            }
+            .font(.subheadline.weight(.semibold)).foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12).frame(height: DesignMetrics.headerControl)
+            .fixedSize()
+            .chromeSurface(Capsule(), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Catalog: \(model.currentCatalog.name)")
+        .accessibilityIdentifier("library.catalog")
+    }
+
     /// Every Library option behind one button (design audit F3): how the list looks, as submenus that
     /// show the current choice, then where else to go, then reporting.
     private var optionsMenu: some View {
         Menu {
+            // Add is the first row here (owner, build 75), not a + beside the field.
+            Section {
+                MenuRow("Add paper…", systemImage: "plus") {
+                    if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
+                }.accessibilityIdentifier("library.add")
+            }
             Section {
                 MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
             }
@@ -681,8 +716,8 @@ struct ImportStatusText: View {
 }
 
 /// The List layout's row (and the only layout at accessibility text sizes). It says what the table's title cell says
-/// (audit 2026-10-15): what this device holds (the check, or the cloud to tap to download), the "new" dot, and a
-/// download or problem in words.
+/// (audit 2026-10-15): what this device holds (the check, or the cloud to tap to download), "New" for a recent paper not
+/// opened yet (build 75: words, not a dot), and a download or problem in words.
 struct PaperRow: View {
     let paper: Paper
     var selected = false
@@ -698,7 +733,6 @@ struct PaperRow: View {
         #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                if isNew { Circle().fill(Color.accentColor).frame(width: 8, height: 8).padding(.top, 7).accessibilityLabel("New") }
                 Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 // The cloud's tap target is the list's overlay beside this row's button (a button inside a button's
@@ -717,7 +751,7 @@ struct PaperRow: View {
             }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
-            let metadata = (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
+            let metadata = (isNew ? ["New"] : []) + (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
             // Its tags when it has any (docs/architecture/TAGS.md), else its arXiv topics.
             let topics = showTopics ? (paper.tags.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: 3) : Array(paper.tags.prefix(3))) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
@@ -1021,10 +1055,10 @@ struct ChatView: View {
         }
     }
 
-    /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
-    /// trailing edge. While the keyboard is up on iPhone a way to put it away sits inside at the leading
-    /// edge, where Gemini has its +. Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly
-    /// to the right side"); Answer options are in the chat's ⋯ menu.
+    /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and under it the model control, then
+    /// (while the keyboard is up on iPhone) a way to put it away, dictation and Send (or Stop) at the trailing edge.
+    /// Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly to the right side"); Answer
+    /// options are in the chat's ⋯ menu.
     @ViewBuilder private func composer(compact: Bool) -> some View {
         let keyboardUp = composerFocused && UIDevice.current.userInterfaceIdiom == .phone
         let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
@@ -1042,12 +1076,10 @@ struct ChatView: View {
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 5)
             HStack(spacing: 4) {
+                // One control for the model (build 69: the model button and an options slider both chose it); its
+                // Choose model page also has the length, Use for new chats and About. Answer options stay in ⋯.
                 AISelectionButton(model: model).padding(.leading, 14)
                 Spacer(minLength: 0)
-                Button { model.showAnswerOptions = true } label: {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 18)).foregroundStyle(.secondary)
-                        .frame(width: 38, height: 40).contentShape(Circle())
-                }.buttonStyle(.plain).accessibilityLabel("Answer options").accessibilityIdentifier("chat.composerOptions")
                 if keyboardUp {
                     Button { composerFocused = false } label: {
                         Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 16)).foregroundStyle(.secondary)
@@ -1290,6 +1322,7 @@ struct SettingsView: View {
     var dismissSettings: (() -> Void)? = nil
     @State private var showDeleteAccount = false
     @State private var width: CGFloat = 0
+    @AppStorage(ScreenshotReportPrompt.enabledKey) private var screenshotPrompt = true
     /// A count in Your assets: "None" when empty, as Downloaded papers.
     static func count(_ value: Int) -> String { value > 0 ? value.formatted() : "None" }
 
@@ -1427,6 +1460,9 @@ struct SettingsView: View {
                 Section {
                     Button("Report a problem") { model.beginReport() }.accessibilityIdentifier("settings.report")
                     openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
+                    #if !targetEnvironment(macCatalyst)
+                    Toggle("Offer to report after a screenshot", isOn: $screenshotPrompt).accessibilityIdentifier("settings.screenshotPrompt")
+                    #endif
                     NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
                 }
                 // Owner, build 57: "Testing and Admin should go in a special section for Admins with Grey background".
@@ -1591,7 +1627,7 @@ struct RecoveryView: View {
                 if model.needsRecovery {
                     Section("Recovery code") {
                         TextField("Paste your recovery code", text: $input, axis: .vertical).font(.system(.body, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
-                            .textContentType(.password).accessibilityIdentifier("recovery.input")
+                            .hiddenFromReports().textContentType(.password).accessibilityIdentifier("recovery.input")
                         Button { fillFromPasswords() } label: { Label("Use code saved in Passwords", systemImage: "key.fill") }
                             .disabled(anchor == nil || passwords == .working || model.isBusy).accessibilityIdentifier("recovery.fromPasswords")
                         if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
@@ -1604,8 +1640,9 @@ struct RecoveryView: View {
                     #endif
                 } else if let code = model.recoveryCode {
                     Section {
+                        // `.privacySensitive()` doesn't redact screenshots: in-app reports cover the code (build 75).
                         Text(code).font(.system(.body, design: .monospaced)).textSelection(.enabled).privacySensitive()
-                            .accessibilityIdentifier("recovery.code")
+                            .hiddenFromReports().accessibilityIdentifier("recovery.code")
                         if passwords == .saved {
                             Label("Saved in Passwords under gradstep.ai", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                                 .accessibilityIdentifier("recovery.savedToPasswords")
@@ -1747,6 +1784,7 @@ struct DiscoveryRow: View {
                 adding = true; issue = nil
                 Task {
                     do { try await model.addDiscovered(result) }
+                    catch ReaderModel.LibraryAddError.alreadyInLibrary { issue = "“\(result.title)” is already in your library." }
                     catch { issue = "Couldn’t add “\(result.title)”. Try again." }
                     adding = false
                 }

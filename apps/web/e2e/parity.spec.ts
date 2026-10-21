@@ -37,7 +37,9 @@ test('Feed → reading: Add prepares the paper here with its percent, In library
  // The library marks it new (never opened) and on this device (prepared in this tab).
  await page.getByTestId('back-to-library').click();
  const row=page.getByTestId('paper-row').filter({hasText:'Paper 2604.01001'}); // the fixture's title for an added paper
- await expect(row.getByTestId('new-dot')).toBeVisible();
+ // New in words where "—" would be, no accent dot (owner, build 75).
+ await expect(row.getByTestId('new-label')).toBeVisible(); await expect(row.getByTestId('new-label')).toHaveText('New, not opened yet');
+ await expect(row.locator('.new-dot')).toHaveCount(0);
  await expect(row.getByTestId('device-badge')).toHaveAttribute('aria-label','On this device (prepared in this tab)');
  await expect(page.getByTestId('paper-row').filter({hasText:'Direct Preference Optimization'}).getByTestId('device-badge')).toHaveAttribute('aria-label',/^Not on this device yet/);
  await page.screenshot({path:`../../.artifacts/parity-web-library-after-${test.info().project.name}.png`});
@@ -50,7 +52,7 @@ test('Feed → reading: Add prepares the paper here with its percent, In library
  expect(documents).toBe(1);
  // Opened: no longer new.
  await page.getByTestId('back-to-library').click();
- await expect(row.getByTestId('new-dot')).toHaveCount(0);
+ await expect(row.getByTestId('new-label')).toHaveCount(0);
 });
 
 test('a tag chip filters by its tag, shows which one is active, and clears when tapped again',async({page,request})=>{
@@ -80,4 +82,41 @@ test('a tag chip filters by its tag, shows which one is active, and clears when 
  await expect(page.getByTestId('library-table').locator('button.tag.on')).toHaveCount(0);
  expect(await page.evaluate(()=>localStorage.getItem('gradstep.library.tag'))).toBeNull();
  expect(await page.evaluate(()=>localStorage.getItem('gradstep.library.filter'))).toBe('"unread"');
+});
+
+// Build 75 (AOog): "I somehow got here, I wonder if a search was not escaped": the search field active with a tag
+// filter still on. Starting a search, Cancel and every route into ML paper search end the tag filter; a reload starts
+// without it (as the apps since build 71).
+test('a tag filter never survives into search, Cancel or Find similar papers, and is not restored after a reload',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await signInReader(page,request);
+ const rows=page.getByTestId('paper-row'),all=await rows.count();
+ const choose=async()=>{
+  const rail=page.getByRole('navigation',{name:'Library filters'}).getByRole('button',{name:/^Alignment/});
+  if(await rail.isVisible())await rail.click();else await page.getByLabel('Filter by tag').selectOption('Alignment');
+  await expect(rows).toHaveCount(1);
+ };
+ await choose();
+ // Focusing the search ends it: the whole library is searched.
+ await page.getByTestId('search').click();
+ await expect(page.getByTestId('search-scope')).toBeVisible();
+ await expect(rows).toHaveCount(all);
+ // Chosen again during a search (a query keeps it going), Cancel ends it together with the search.
+ await page.getByTestId('search').fill('Direct');
+ await choose();
+ await page.getByTestId('search-cancel').click();
+ await expect(page.getByTestId('search')).toHaveValue('');
+ await expect(page.getByTestId('search-scope')).toHaveCount(0);
+ await expect(rows).toHaveCount(all);
+ // Find similar papers goes to ML paper search without it; Cancel returns to the whole library.
+ await choose();
+ await rows.filter({hasText:'Direct Preference Optimization'}).getByRole('button',{name:/^Actions for/}).click();
+ await page.getByRole('menuitem',{name:'Find similar papers'}).click();
+ await expect(page.getByTestId('search')).toHaveAttribute('aria-label','ML paper search');
+ await page.getByTestId('search-cancel').click();
+ await expect(rows).toHaveCount(all);
+ await choose();
+ await page.reload();
+ await expect(page.getByTestId('library-table')).toBeVisible();
+ await expect(rows).toHaveCount(all);
 });

@@ -107,7 +107,8 @@ import XCTest
         let field = app.textViews["chat.composer"].exists ? app.textViews["chat.composer"] : app.textFields["chat.composer"]
         XCTAssertEqual(field.value as? String, "Explain this result in simpler terms")
         XCTAssertFalse(app.buttons["chat.stop"].exists, "dictation never sends")
-        XCTAssertTrue(app.buttons["chat.composerOptions"].exists)
+        // Build 69: one model control in the composer (its Choose model page has Use for new chats and About).
+        XCTAssertTrue(app.buttons["ai.selection"].exists); XCTAssertFalse(app.buttons["chat.composerOptions"].exists)
         app.show("settings")
         let models = app.buttons["settings.localModels"]
         #if targetEnvironment(macCatalyst)
