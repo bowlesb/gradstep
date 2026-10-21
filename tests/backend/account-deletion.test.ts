@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { allowedPrefix, completeAccountDeletion, IncompleteDeletionScan, listPrefix, sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
 
 const account = '17000000-0000-0000-0000-00000000000a';
-function fakeService(files: Record<string, string[]>, options: { failRemoveTimes?: number; failLogin?: boolean; failFinish?: boolean } = {}) {
-  const removed: { bucket: string; paths: string[] }[] = [], rpcs: string[] = [];
+function fakeService(files: Record<string, string[]>, options: { failRemoveTimes?: number; failLogin?: boolean; failFinish?: boolean; beginError?: string } = {}) {
+  const removed: { bucket: string; paths: string[] }[] = [], rpcs: string[] = [], reports: Record<string, unknown>[] = [];
   let removeFailures = options.failRemoveTimes ?? 0;
   const tree = (bucket: string) => files[bucket] ?? [];
   const service = {
@@ -23,15 +23,17 @@ function fakeService(files: Record<string, string[]>, options: { failRemoveTimes
         removed.push({ bucket, paths }); return { error: null };
       },
     }) },
-    rpc: async (name: string) => {
+    rpc: async (name: string, params?: Record<string, unknown>) => {
       rpcs.push(name);
       if (name === 'worker_account_deletions_pending') return { error: null, data: [account] };
-      if (name === 'worker_delete_account_begin') return { error: null, data: { objects: [], prefixes: [{ bucket: 'paper-assets', prefix: `private/${account}/` }] } };
+      if (name === 'worker_account_deletion_attempt') { reports.push(params!); return { error: null, data: {} }; }
+      if (name === 'worker_delete_account_begin') return options.beginError ? { error: { message: options.beginError }, data: null }
+        : { error: null, data: { objects: [], prefixes: [{ bucket: 'paper-assets', prefix: `private/${account}/` }] } };
       return { error: options.failFinish ? { message: 'down' } : null, data: 1 };
     },
     auth: { admin: { deleteUser: async () => ({ error: options.failLogin ? { message: 'internal error' } : null }) } },
   };
-  return { service: service as never, removed, rpcs };
+  return { service: service as never, removed, rpcs, reports };
 }
 
 test('lists every file under the private prefix recursively', async () => {
@@ -91,8 +93,24 @@ test('the worker sweep resumes pending deletions', async () => {
   const logs: Record<string, unknown>[] = [];
   await sweepAccountDeletions(service, fields => logs.push(fields));
   // Podcast work is closed in its own committed step before deletion begins (migration 048).
-  assert.deepEqual(rpcs, ['worker_account_deletions_pending', 'worker_podcast_account_closing', 'worker_delete_account_begin', 'worker_delete_account_finish']);
+  assert.deepEqual(rpcs, ['worker_account_deletions_pending', 'worker_podcast_account_closing', 'worker_delete_account_begin', 'worker_delete_account_finish',
+    'worker_account_deletion_attempt']);
   assert.deepEqual(logs, [{ event: 'account_deletion_swept', account_id: account, step: undefined }]);
+});
+
+test('the sweep reports every outcome so a failing account backs off (migration 128)', async () => {
+  const done = fakeService({});
+  await sweepAccountDeletions(done.service, () => {});
+  assert.deepEqual(done.reports, [{ p_account_id: account, p_complete: true, p_step: null, p_code: null }]);
+  const busy = fakeService({}, { beginError: 'account_busy' });
+  await sweepAccountDeletions(busy.service, () => {});
+  assert.deepEqual(busy.reports, [{ p_account_id: account, p_complete: false, p_step: 'begin', p_code: 'account_busy' }]);
+  const other = fakeService({}, { beginError: 'something private' });
+  await sweepAccountDeletions(other.service, () => {});
+  assert.deepEqual(other.reports, [{ p_account_id: account, p_complete: false, p_step: 'begin', p_code: 'begin_failed' }], 'a raw message is never reported');
+  const finish = fakeService({}, { failFinish: true });
+  await sweepAccountDeletions(finish.service, () => {});
+  assert.deepEqual(finish.reports.at(-1), { p_account_id: account, p_complete: false, p_step: 'finish', p_code: null });
 });
 
 test('unknown writes block physical erasure and its completion rather than racing a late upload', async () => {

@@ -24,6 +24,11 @@ glance, each over 7, 30 or 90 days, with daily points and a headline for the win
 An **Attention** list heads the tab: the month's forecast over its budget, paper adds failing (over 10 % in a day with
 at least 5), podcast failures, open reports. Every number has its window and definition beside it.
 
+**Added 2026-10-21 (migration 128, review A22).** `v1_admin_health.account_deletions` counts closed accounts whose
+deletion is unfinished (personal rows, a linked login or files left), the ones the worker's sweep is retrying with
+back-off, and the stalled ones (over 30 days after closing), with the oldest closing date and the commonest failure
+code; Attention names a stall ([PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#account-deletion-implemented-2026-10-05)).
+
 What the server cannot see is said on the page, not guessed: reading happens on the device (the arXiv HTML is fetched
 and compiled there), so a reader's preparation failures reach the owner through TestFlight and support reports only.
 Counting them would need a new, consented device report; that is a separate decision.

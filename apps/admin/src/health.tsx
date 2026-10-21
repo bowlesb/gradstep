@@ -210,6 +210,10 @@ function derive(data: HealthData, budget: Budget | null) {
       ? `Billing refusals in the last hour: ${who}. Current model calls use OpenRouter. Inspect the affected attempts in Spending and check the recorded billing provider's credit balance.`
       : `Billing refusals in the last 24 hours: ${who} (last at ${billing.last_at ? new Date(billing.last_at).toLocaleTimeString() : 'unknown'}). Current model calls use OpenRouter; check the attempts in Spending for their billing provider.` });
   }
+  // Account deletion (migration 128): the worker's sweep retries with back-off; a deletion unfinished 30 days after the
+  // account closed still holds personal rows or files and needs a look (scripts/finish-account-deletion.mjs).
+  const deletions = data.account_deletions;
+  if (deletions && deletions.stalled > 0) attention.push({ tone: 'warning', text: `${plural(deletions.stalled, 'account deletion has', 'account deletions have')} not finished more than 30 days after the account closed${deletions.top_code ? ` (most often “${codeName(deletions.top_code)}”)` : ''}. Personal data or files remain; check worker_account_deletion_status.` });
   if (data.reliability.reports_open) attention.push({ tone: 'info', text: `${plural(data.reliability.reports_open, 'support report is', 'support reports are')} open.` });
   const errorTotals = new Map<string, number>();
   for (const day of data.providers?.daily ?? []) for (const [p, n] of Object.entries(day.by_provider)) errorTotals.set(p, (errorTotals.get(p) ?? 0) + n.failed + n.throttled);
