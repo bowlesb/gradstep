@@ -698,7 +698,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>
       {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
       <RegionBoundary region="add-paper" label="Add paper" compact resetKey={adding} onReport={report}>
-        <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
+        <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} onOpen={paper => void openPaper(paper)} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
       </RegionBoundary>
       <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
         <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />

@@ -14,8 +14,8 @@ async function signIn(page: Page) {
   await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
-  // Add paper is enabled once the library is ready (the far-right menu's first row, build 75).
-  await page.getByTestId('account-menu').click(); await expect(page.getByTestId('add-paper')).toBeEnabled(); await page.keyboard.press('Escape');
+  // The library is ready (Add paper now lives in the far-right menu, build 75; opening it here would add a request).
+  await expect(page.getByTestId('library-table')).toBeVisible();
 }
 
 for (const failRefresh of [false, true]) test(`removing an import needs a complete post-receipt observation${failRefresh ? ' when catch-up fails' : ''}`, async ({ page, request }) => {
@@ -196,4 +196,24 @@ for (const failRefresh of [false, true]) test(`a stale Remove reports a revision
   await expect(stopped).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveText('This paper changed since you last saw it. Check its status and try again.');
   expect(submissions).toBe(1);
+});
+
+// Build 75: two "TreeCut" rows from adding the same paper twice. Any version of an arXiv paper already in the library is
+// that paper: Add says so and opens it, and no second import starts (the server's idempotency is separate).
+test('adding an arXiv paper that is already in the library opens it instead of importing it again', async ({ page, request }, info) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
+  await request.post(`${FIXTURE}/__reset`);
+  await signIn(page);
+  let submissions = 0; page.on('request', r => { if (r.url().endsWith('/rpc/v2_begin_import')) submissions++; });
+  const rows = await page.getByTestId('paper-row').count();
+  await openAddPaper(page);
+  await page.getByTestId('arxiv-input').fill('https://arxiv.org/abs/2305.18290v1');
+  await page.getByTestId('arxiv-add').click();
+  await expect(page.getByTestId('add-outcome')).toHaveText(/“Direct Preference Optimization: Your Language Model is Secretly a Reward Model” is already in your library\./);
+  await page.screenshot({ path: `../../.artifacts/feedback-20261021/browser/b9-already-${info.project.name}-light.png` });
+  await page.getByTestId('add-open-existing').click();
+  await expect(page).toHaveURL(/\/paper\//);
+  expect(submissions).toBe(0);
+  await page.getByTestId('back-to-library').click();
+  await expect(page.getByTestId('paper-row')).toHaveCount(rows);
 });

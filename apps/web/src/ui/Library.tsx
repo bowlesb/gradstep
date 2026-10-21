@@ -44,6 +44,7 @@ export const commandError = (error: unknown) => {
   if (code === 'library_command_pending') return 'This change is still updating. Wait for your library to refresh.';
   if (code === 'library_revision_conflict') return 'This paper changed since you last saw it. Check its status and try again.';
   if (code === 'library_not_ready') return 'Wait for your library to load, then add the paper.';
+  if (code === 'library_already_present') return 'This paper is already in your library.';
   if (code === 'connection') return 'Couldn’t reach Gradstep. Your change may not have been saved; check the list, then try again.';
   return 'Couldn’t update the library. Try again.';
 };
@@ -537,8 +538,11 @@ function pdfFailure(error: unknown): string {
 
 /** Add paper: an arXiv ID stays a library command; a DOI or any link goes to add-paper.
  * A selected PDF is checked and kept on this device; only its encrypted membership syncs. */
-export function AddPaper({ open, onClose, library, account, keys, localPDFs }: { localPDFs:DevicePDFs; open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys }) {
+export function AddPaper({ open, onClose, library, account, keys, localPDFs, onOpen }: { localPDFs:DevicePDFs; open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys;
+  /** Opens a paper already in the library (an arXiv ID added a second time). */
+  onOpen?: (paper: LibraryPaper) => void }) {
   const [text, setText] = useState('');
+  const [already, setAlready] = useState<LibraryPaper | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<AddOutcome | null>(null);
@@ -580,6 +584,13 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
     if (!value) return;
     setBusy(true); setIssue(null); setOutcome(null);
     const reference = parseArxiv(value);
+    const present = reference && library.present(reference.sourceID);
+    if (present) {
+      // Already here (any version): say so and offer it, without a second import (build 75: two "TreeCut" rows).
+      setBusy(false); setAlready(isReaderPaper(present) ? present : null);
+      setOutcome({ status: 'present', message: `${present.metadata?.title ? `“${present.metadata.title}”` : 'This paper'} is already in your library.`, link: null, finished: true });
+      return;
+    }
     if (reference) {
       try { await library.addArxiv(reference.sourceID, reference.revision); setText(''); onClose(); }
       catch (error) { setIssue(commandError(error)); if (error instanceof CommandRefreshError) setAwaitingObservation(true); }
@@ -619,6 +630,7 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
           <div className={`outcome ${outcome.finished ? 'good' : 'problem'}`} role="status" data-testid="add-outcome">
             <p>{outcome.message}</p>
             {outcome.link && !outcome.finished && <a href={outcome.link} target="_blank" rel="noopener noreferrer" className="outcome-link">Open {new URL(outcome.link).hostname.replace(/^www\./, '')} <Icon name="external" size={12} /></a>}
+            {outcome.status === 'present' && already && onOpen && <button type="button" className="secondary small" data-testid="add-open-existing" onClick={() => { const paper = already; setAlready(null); onClose(); onOpen(paper); }}>Open it</button>}
           </div>
         )}
         <div className="pdf-upload-choice" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); choose(event.dataTransfer.files[0] ?? null); }}>
