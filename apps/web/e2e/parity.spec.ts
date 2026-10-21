@@ -74,3 +74,40 @@ test('a tag chip filters by its tag, shows which one is active, and clears when 
  await expect(page.getByTestId('library-table').locator('button.tag.on')).toHaveCount(0);
  await expect(page.getByTestId('paper-row')).toHaveCount(all);
 });
+
+// Build 75 (AOog): "I somehow got here, I wonder if a search was not escaped": the search field active with a tag
+// filter still on. Starting a search, Cancel and every route into ML paper search end the tag filter; a reload starts
+// without it (as the apps since build 71).
+test('a tag filter never survives into search, Cancel or Find similar papers, and is not restored after a reload',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await signInReader(page,request);
+ const rows=page.getByTestId('paper-row'),all=await rows.count();
+ const choose=async()=>{
+  const rail=page.getByRole('navigation',{name:'Library filters'}).getByRole('button',{name:/^Alignment/});
+  if(await rail.isVisible())await rail.click();else await page.getByLabel('Filter by tag').selectOption('Alignment');
+  await expect(rows).toHaveCount(1);
+ };
+ await choose();
+ // Focusing the search ends it: the whole library is searched.
+ await page.getByTestId('search').click();
+ await expect(page.getByTestId('search-scope')).toBeVisible();
+ await expect(rows).toHaveCount(all);
+ // Chosen again during a search (a query keeps it going), Cancel ends it together with the search.
+ await page.getByTestId('search').fill('Direct');
+ await choose();
+ await page.getByTestId('search-cancel').click();
+ await expect(page.getByTestId('search')).toHaveValue('');
+ await expect(page.getByTestId('search-scope')).toHaveCount(0);
+ await expect(rows).toHaveCount(all);
+ // Find similar papers goes to ML paper search without it; Cancel returns to the whole library.
+ await choose();
+ await rows.filter({hasText:'Direct Preference Optimization'}).getByRole('button',{name:/^Actions for/}).click();
+ await page.getByRole('menuitem',{name:'Find similar papers'}).click();
+ await expect(page.getByTestId('search')).toHaveAttribute('aria-label','ML paper search');
+ await page.getByTestId('search-cancel').click();
+ await expect(rows).toHaveCount(all);
+ await choose();
+ await page.reload();
+ await expect(page.getByTestId('library-table')).toBeVisible();
+ await expect(rows).toHaveCount(all);
+});

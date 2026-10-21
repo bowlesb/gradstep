@@ -37,7 +37,7 @@ import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { readStored, type Route, type Theme, useTheme, writeStored } from './prefs';
 /** The Library's filter and tag, remembered between visits (per browser, a convenience only). */
-const LIBRARY_FILTER_KEY = 'gradstep.library.filter', LIBRARY_TAG_KEY = 'gradstep.library.tag';
+const LIBRARY_FILTER_KEY = 'gradstep.library.filter';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
@@ -245,17 +245,17 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }}])));
   },[chat,library.entries,readerCache,account]);
   useEffect(()=>{if(chat&&library.state==='ready')chat.retainPromotedContexts(new Set(library.entries.filter((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible).map(paperIdentity)));},[chat,library.state,library.entries]);
-  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter and the tag are
-  // remembered between visits too, as the apps remember them (owner-approved follow-up, 2026-10-07).
+  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter is remembered
+  // between visits too (owner-approved follow-up, 2026-10-07). The tag is not, as on the apps since build 71 ("I open to
+  // this screen": an empty tag view after relaunch).
   const [view, setViewState] = useState<LibraryQuery>(() => ({ ...INITIAL_QUERY,
-    filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)),
-    tag: readStored<string>(LIBRARY_TAG_KEY, '', v => typeof v === 'string' && v.length <= 200) }));
+    filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)) }));
   const setView = useCallback((next: LibraryQuery | ((q: LibraryQuery) => LibraryQuery)) => setViewState(previous => {
     const value = typeof next === 'function' ? next(previous) : next;
     if (value.filter !== previous.filter) writeStored(LIBRARY_FILTER_KEY, value.filter);
-    if (value.tag !== previous.tag) writeStored(LIBRARY_TAG_KEY, value.tag);
     return value;
   }), []);
+  const clearTag = useCallback(() => setView(q => q.tag ? { ...q, tag: '' } : q), [setView]);
   const [railTab, setRailTab] = useState<'contents' | 'library'>('contents');
   const [contentsSlot, setContentsSlot] = useState<HTMLElement | null>(null);
   const [lastPaper, setLastPaper] = useState<string | null>(null);
@@ -265,9 +265,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // Paper search beside the library search (native RootView: the Library / arXiv switch under the field while
   // searching; PaperSearch.tsx). Each side keeps its own query, as native libraryQuery and discoveryQuery do.
   const paperSearch = usePaperSearch(account);
-  function similar(paper:LibraryPaper) {
-    const tags=effectiveTags(paper).slice(0,3); paperSearch.setQuery(tags.length?tags.join(' '):paper.metadata?.title??'');
+  // Every way into ML paper search (find similar, an author, a keyword, a public link) starts without a library tag
+  // filter, which would otherwise wait unseen behind the search (owner, build 75: "I wonder if a search was not escaped").
+  function searchPapers(text: string) {
+    clearTag(); paperSearch.setQuery(text);
     setSearchExternal(true);navigate('/');paperSearch.run();
+  }
+  function similar(paper:LibraryPaper) {
+    const tags=effectiveTags(paper).slice(0,3); searchPapers(tags.length?tags.join(' '):paper.metadata?.title??'');
   }
   const [searchExternal, setSearchExternal] = useState(false);
   const [searchFocus, setSearchFocus] = useState(false);
@@ -290,7 +295,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     const link=parsePublicPaperLink(raw);if(!link)return;publicLinkHandled.current=true;
     try{sessionStorage.removeItem('gradstep.publicLink');}catch{}
     const installed=library.entries.find((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible&&parsePublicPaperLink(paperShareLinks(p).gradstep??'')?.identity===link.identity);
-    if(installed)openReader(installed);else{paperSearch.setQuery(link.identity);setSearchExternal(true);navigate('/');paperSearch.run();}
+    if(installed)openReader(installed);else searchPapers(link.identity);
   },[library.state,library.entries,openReader,paperSearch,navigate]);
   useEffect(() => {
     let live = true;
@@ -441,6 +446,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 
   const searchText = searchExternal ? paperSearch.query : view.query;
   const searching = searchFocus || !!searchText || searchExternal;
+  // Starting a search ends a tag filter: inside search it would hide matches without showing why (build 75, AOog).
+  useEffect(() => { if (searching) clearTag(); }, [searching, clearTag]);
   // Focus may move between the field and its switch without ending the search (native searchFocused). When a click
   // elsewhere takes focus, the switch stays until that click has landed, so nothing moves under the pointer.
   const inSearch = (node: Node | null) => !!node && (!!search.current?.contains(node) || !!scope.current?.contains(node));
@@ -462,7 +469,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
   };
   const cancelSearch = () => {
-    setSearchExternal(false); setView(q => ({ ...q, query: '' })); paperSearch.setQuery(''); setSearchFocus(false); search.current?.blur();
+    setSearchExternal(false); setView(q => ({ ...q, query: '', tag: '' })); paperSearch.setQuery(''); setSearchFocus(false); search.current?.blur();
   };
   const query = (text: string) => {
     setView(q => ({ ...q, query: text }));
@@ -584,7 +591,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
-        onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => { setSearchExternal(true); paperSearch.setQuery('author:' + name); navigate('/'); paperSearch.run(); }}
+        onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => searchPapers('author:' + name)}
         onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
