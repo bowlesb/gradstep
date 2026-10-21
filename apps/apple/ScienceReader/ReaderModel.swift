@@ -289,7 +289,13 @@ final class ReaderModel {
     private var promotedChatContexts: [UUID: PromotedChatContext] = [:]
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
-    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } } }
+    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged(); noteLibraryCommandAges() } } }
+    /// When this run first saw each unsent change, and whether one has waited long enough to mention (LibrarySyncNotice).
+    @ObservationIgnored var libraryCommandSeen: [UUID: Date] = [:]
+    @ObservationIgnored var libraryCommandAgeCheck: Task<Void, Never>?
+    var libraryCommandsOverdue = false
+    /// Storage stopped sending changes until the app reopens.
+    var libraryCommandsHalted: Bool { libraryCommandIssue != nil && (libraryCommandCoordinator == nil || libraryCommandCoordinator?.isHalted == true) }
     #if DEBUG && FIXTURE_HOST
     /// Fixture runs only: Retry and Remove on imports act locally (there is no account or server).
     @ObservationIgnored var fixtureImportChanges = false

@@ -364,10 +364,10 @@ struct LibraryView: View {
     @ViewBuilder private func banners(inset: Bool) -> some View {
         let signIn = !model.isSignedIn && !searching
         let issue = model.searchExternal ? nil : model.libraryIssue
-        let pending = !model.searchExternal && (!model.libraryCommands.isEmpty || model.libraryCommandIssue != nil)
+        let pending = model.searchExternal ? nil : model.librarySyncNotice
         let offline = model.searchExternal ? nil : model.offlineCacheIssue
         let uploading = !model.searchExternal && PDFUploadBanners.shows(model)
-        if signIn || issue != nil || pending || offline != nil || uploading {
+        if signIn || issue != nil || pending != nil || offline != nil || uploading {
             VStack(spacing: 8) {
                 if uploading { PDFUploadBanners(model: model) }
                 if signIn {
@@ -384,12 +384,19 @@ struct LibraryView: View {
                         Button("Retry") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing)
                     }.accessibilityIdentifier("library.refreshIssue")
                 }
-                if pending {
-                    StatusBanner(tone: model.libraryCommandIssue == nil ? .info : .problem, systemImage: "arrow.triangle.2.circlepath",
-                                 message: model.libraryCommandIssue ?? "\(model.libraryCommands.count) change\(model.libraryCommands.count == 1 ? "" : "s") waiting to sync") {
+                // Build 73: quiet until a change has waited or keeps failing; orange only when the reader must act.
+                if case .needsAction(let message)? = pending {
+                    StatusBanner(tone: .problem, systemImage: "exclamationmark.arrow.triangle.2.circlepath", message: message,
+                                 messageID: "library.syncNotice") {
                         if !model.libraryCommands.isEmpty {
                             Button("Review") { model.showLibraryChanges = true }.accessibilityIdentifier("library.pendingChanges")
                         }
+                    }
+                } else if case .waiting(let count)? = pending {
+                    StatusBanner(tone: .info, systemImage: "arrow.triangle.2.circlepath",
+                                 message: count == 1 ? "1 change hasn’t synced yet. Gradstep will keep trying."
+                                    : "\(count) changes haven’t synced yet. Gradstep will keep trying.", messageID: "library.syncNotice") {
+                        Button("Details") { model.showLibraryChanges = true }.accessibilityIdentifier("library.pendingChanges")
                     }
                 }
                 if let offline {
