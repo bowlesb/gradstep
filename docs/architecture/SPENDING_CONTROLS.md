@@ -27,6 +27,28 @@ and beta-return fixtures also pass, plus `npm test` and native balance decoding 
 `.artifacts/testing-allowance-*.log`, `.artifacts/testing-allowance-native.xcresult`, and private grant readback
 `.artifacts/credits/owner-unlimited-20261019/verified.json`. No paid model request was used.
 
+### Safeguards — 2026-10-21 (review A9, migration 0105; not deployed)
+
+Migration 094 let any service-role caller give any account self-refilling credits, recorded the target as its own actor
+with a hard-coded authority, refused to disable it for a suspended account, let re-enabling sign-in silently restore it,
+had no per-account cap inside the shared budget, and had no control or marker in the admin site.
+
+- `worker_set_testing_allowance(actor, request, account, enabled, reason, monthly_cap)` — the actor must be an owner
+  account (`require_owner_account`) and is the audit row's actor; the target must be an owner or tester (`app_roles`) or
+  a synthetic test account. Enabling needs an open, unsuspended account; disabling works in any state. The admin site's
+  Accounts tab calls it through `admin-accounts` (`set_testing_allowance`) with the signed-in owner (MFA) as actor.
+- **Monthly cap.** Each allowance carries `monthly_cap_microusd` (default **$25** for allowances turned on after 0105,
+  at most $50, the whole month's schema ceiling; NULL = no per-account cap). A new paid operation of that account is
+  refused (`testing_cap_reached`; chat reports `insufficient_credits`) when the account's provider cost this month
+  (settled cost and liability plus open holds) plus its hold would pass the cap; it is checked under the same budget →
+  account locks as the reservation. The owner asked for unlimited testing on their own account (DECISIONS.md,
+  2026-10-19), so the allowance that exists when 0105 is deployed keeps NULL (only the platform budget applies);
+  turning an allowance on again without naming a cap keeps its current cap. The $100/month budget and platform limit
+  are unchanged.
+- **Suspension ends it.** Disabling sign-in (`worker_admin_set_sign_in`) also ends the allowance, audited to the same
+  owner; re-enabling sign-in does not bring it back.
+- Admin › Accounts marks accounts with the allowance (this month's spend against the cap) and offers the control.
+
 Status, 2026-10-08 UTC: **migrations 034–038 and their provider/worker controls are deployed on staging**;
 039 upload accounting is also applied. Read-only takeover evidence at
 `.artifacts/takeover-20261008/spending-policies.json` records provider admission enabled with coverage beginning
@@ -272,6 +294,48 @@ refusal charge the reader 0 credits, and their provider cost is recorded as `abs
 day's anomalies, whether the tripwire paused the month, and today's absorbed early endings. Drills reconcile their own
 synthetic attempts to zero (`worker_fault_drill_reconcile`, test accounts only), so they leave no liability. Still open:
 aborted real attempts (a Stop, a dropped connection) stay `unknown` until reconciled (audit item 1, above).
+
+## Pauses across months — 2026-10-21 (review A7, migration 0103; not deployed)
+
+Migration 060 creates next month's row ahead of time, copying the switch then; an owner's pause and the tripwire
+changed only one month, so a pause made on the 20th was silently lifted at 00:00 UTC on the 1st. The tripwire also
+counted test-account anomalies, so more than five drill or fixture overruns in an hour paused AI for every reader.
+
+- **A pause is until an owner resumes.** `v1_admin_pause_work` sets the switch for the current UTC month and every month
+  already created after it (the audit row lists them); a month created later copies the current one, as before.
+  Resuming resumes them all. The tripwire pauses the current and later months, whatever month the overrunning
+  operation belonged to.
+- **Test accounts never trip the pause.** Their anomalies are still recorded (`test_account`) and shown on Health, but
+  `anomalies_toward_tripwire` counts real accounts only.
+- **Limit changes** carry to later months too (A11, migration 0104, below). No limit is raised by either migration.
+
+## Operator budget command — 2026-10-21 (review A11, migration 0104; not deployed)
+
+`scripts/pipeline-ops.py budget` called `worker_set_platform_budget` (no actor, no audit) with `p_enabled = not
+--disable`, so changing a limit silently resumed a tripwire-paused month; it used the Mac's local date (an evening on
+the last day in Pacific time updated the previous month); next month kept the old limit; `grant` issued uncapped,
+unaudited credits; `resolve` handled only retired Mathpix OCR.
+
+- `worker_owner_set_budget_limit(actor, request, limit, reason)`: owner only, the current UTC month and every later
+  month already created, never the pause switch, within the schema ceiling ($50), audited (`platform_budget_limit`,
+  before and after) and replay-safe. The unaudited `worker_set_platform_budget` keeps its service grant (about 25
+  database fixtures and provisioning use it); no operator tool calls it any more. Closing it is a follow-up once those
+  fixtures move to the audited function.
+- `pipeline-ops.py budget --usd N --actor OWNER --reason TEXT` uses it; pausing stays the admin site's control. `grant`
+  and `resolve` are removed (the admin site's audited, capped grant remains; OCR is retired).
+- This does not raise the $100/month operating budget or any month's provider limit.
+
+## Hot paths — 2026-10-21 (review C7, migration 0108; not deployed)
+
+- Partial indexes for the counts made under the budget lock or on every add: an account's unsettled operations
+  (`metered_operations_open_by_account`), unsettled chat operations by age (`metered_operations_open_chat`, the
+  stale-hold sweep) and active imports (`import_requests_active`). Provider attempt counts moved to counter rows (A2).
+- `worker_expire_stale_chat_operations` (every pipeline run) skips operations that failed recently, records each failure
+  in `stale_sweep_failures` (SQLSTATE only, back-off 10 minutes doubling to a day) instead of swallowing it, and moves on;
+  `worker_budget_health.stale_sweep_failing` counts those still open, so 50 permanently failing operations can no longer
+  block the sweep or keep `reserved_microusd` inflated unseen.
+- Not changed: the lifetime import counters (2,000 per account, 20,000 per environment) — a retention policy for
+  lifetime-counted tables is the larger refactor in review E2.
 
 ## October cap raised on the owner's instruction — 2026-10-15 01:30 UTC
 

@@ -5,6 +5,7 @@ import { ChatSession, type JournalState } from '../lib/chat-session';
 import { History } from '../lib/history';
 import { storage } from '../lib/idb';
 import { Journal, browserJournalDependencies } from '../lib/journal';
+import { NotesStore, backendTransport } from '../lib/notes-store';
 import { prepare, type Preparation } from '../lib/keys';
 
 export function useChat(account: string, ready: Extract<Preparation, { kind: 'ready' }>) {
@@ -37,6 +38,7 @@ export function useChat(account: string, ready: Extract<Preparation, { kind: 're
       return refreshed.ring;
     }, opened?.journal);
     const session = new ChatSession(account, history, owner.signal, { journal: opened?.journal }, journalState);
+    session.noteStore = new NotesStore(account, history, owner.signal, backendTransport(account));
     if (opened) {
       try { await history.restore(opened.snapshot); await session.restore(opened.snapshot.drafts, opened.snapshot.turns); }
       catch { opened.journal.retire(); session.lockJournal('damaged'); journalState = 'damaged'; }

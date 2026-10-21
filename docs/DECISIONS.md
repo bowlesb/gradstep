@@ -31,6 +31,15 @@ include catalog metadata, so user notes need a separate payload namespace. Media
 blob service; the planned `encrypted_blobs` entry in DATA_MODEL.md is not an existing implementation. The design
 records conflict/deletion semantics, old-client compatibility, capture feasibility, budget and release gates.
 This is design work, not a deployed Notes feature, new infrastructure commitment or E2EE verification claim.
+Update 2026-10-21 UTC: the reviewed implementation contract's server side is live on staging (migration 095 and
+the `note-assets` function, quotas inside the existing budget, no new vendor commitment); clients are separate work.
+That is a ciphertext transport, not evidence of client encryption or cross-device Notes sync.
+Update 2026-10-21 UTC (browser, local, not deployed): desktop browser widths add Notes to the existing destinations;
+at phone widths (≤640 px) the browser follows the apps' five destinations, Feed · Library · Paper · Chat · Notes,
+with Settings in the top-right ⋯ (implementation direction for this delivery). Arbitrary-region capture in the browser
+uses a local rasterizer inside the reader frame; it passed fidelity checks on real bundles in Playwright's Chromium,
+Firefox and WebKit, and a runtime probe disables Draw snippet with a message where it can't work. Details and limits:
+[browser client status](architecture/NOTES_AND_SNIPPETS.md#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc).
 
 ## Responsiveness, dollar balances and platform parity (October 20; parity released, dollars design only)
 

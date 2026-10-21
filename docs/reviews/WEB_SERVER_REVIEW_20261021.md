@@ -1,7 +1,7 @@
 # Browser, admin and server review — 2026-10-21
 
-Status: read-only review, owner request of 2026-10-20 (night). No code, configuration, database, deployment, phone
-or NAS was touched. Scope: `apps/web`, `apps/admin`, `supabase/functions` (every function and `_shared`),
+Status: review, owner request of 2026-10-20 (night); fixes for its server, admin and scripts findings are listed under "Fix status" below (2026-10-21, not deployed). The review itself touched no code, configuration, database, deployment, phone
+or NAS. Scope: `apps/web`, `apps/admin`, `supabase/functions` (every function and `_shared`),
 `supabase/migrations`, `scripts/` and `tests/`, with emphasis on the 26 commits since 2026-10-16 (OpenRouter for all
 inference, Gemini chat, owner testing allowance, durable beta admission, library catalogs, private-table RLS).
 Browser/iPhone parity was checked against `apps/apple` source, `docs/UX_PARITY.md`,
@@ -31,6 +31,47 @@ A sourcemapped production build was made in the scratchpad to measure the bundle
 
 Totals: 24 correctness/security findings (A), 11 parity gaps (B), 8 performance (C), 11 structure/debt (D),
 6 larger refactors (E).
+
+## Fix status — 2026-10-21 (server, admin and scripts; built and tested locally, not deployed)
+
+Each finding was re-verified against the code before it was changed; all of those below were real. Browser findings
+(A18–A20, B, C1–C5, C8, D8, D11) were out of this pass's scope (other agents work in `apps/web` and `apps/apple`), as were
+D2, D3 and the E refactors. Migrations: 0100–0108 (spending), 0120 (paper add), 0125–0128 (podcast, admission,
+deletion), 0135 (default privileges). Deploy order and live checks: IMPLEMENTATION_STATUS.md, 2026-10-21.
+
+| Finding | Status | Commit(s) | Notes |
+|---|---|---|---|
+| A1 | Fixed | 864233e | Generation record after a cut-short stream; reader pays the written part, never the hold; nothing if no text/tool call. |
+| A2 | Fixed | fbaa583 (0100) | 24 h window of granted attempts in counter rows; limits raisable by policy; 80% warning on Spending and the budget check. |
+| A3 | Fixed | cae0d61 | Overview and Health select the current UTC month. |
+| A4 | Fixed | 0a0b8fd (0101) | Renewable tariff table (owner, audited, ≤183 days); chat stops offering a model 24 h before; six-week Health warning. |
+| A5 | Fixed | 74113b7 (0120) | `v2_add_paper_once`; retry-stable operation id. Browser `add.ts` unchanged (not in scope). |
+| A6 | Fixed | aa999f2 (0102) | Pipeline worker reconciles from generation records, bounded and audited; what cannot be (no id, retired providers, including the 2026-10-17 Anthropic attempt) is named on Health. |
+| A7 | Fixed | aae2e46 (0103) | Pause/resume and the tripwire apply to later months; test accounts excluded from the tripwire. |
+| A8 | Fixed | 95d3edd | Outer JWS chain and signature checked in the Edge function before admission. Notification-history reconciliation not done: needs App Store Server API credentials. |
+| A9 | Fixed | 53e24b3 (0105) | Owner actor and audit, owner/tester target, disable in any state, ends with a sign-in disable, $25/month default cap, Accounts control. |
+| A10 | Fixed | 6640cc0 | Closed accounts only, staging project only, typed confirmation. |
+| A11 | Fixed | f1e9cab (0104) | Owner-audited UTC limit for this and later months, never the switch; `grant`/`resolve` removed. The old setter keeps its service grant (about 25 fixtures use it). |
+| A12 | Fixed | b376cc0 | Ending decided when the answer ended; a finished answer is `completed`; unrelayed side requests are Gradstep's. |
+| A13 | Fixed | 86f4260 (0106) | Route/upstream-scoped breakers; per-feature keys used when present (provisioning is an owner step); 402 → `service_unavailable`. |
+| A14 | Fixed | c30e7ed | Auth follows the database state; superseded replays answer 409; final answers clear the retry key. |
+| A15 | Fixed | 7d49e6a | OpenAlex only on an explicit `true`, failing closed; code kept behind the owner's switch. |
+| A16 | Fixed | 4bab39d (0125) | Device-source records deleted with the account (and those of accounts closed earlier). |
+| A17 | Fixed | 818d5c4 (0126) | Reserve (quota, rate, policy) before the upload. |
+| A18–A20 | Skipped | — | Browser (`apps/web`), outside this pass. |
+| A21 | Fixed | 78813f0 (0127) | Audited withdrawal; no transfer through deletion; admit refuses suspended accounts. Supersedes the 10-19 linked-address re-admission. |
+| A22 | Fixed | 4a3b036, 39f54af (0128) | Back-off ordering, no 30-day cut-off, stalls on Health; compatible with 095's note-asset sweep. |
+| A23 | Fixed | 0abd0a4 | Invalid tool calls dropped with the text kept; `done` reports the recorded settlement; `key_count` in the ledger. |
+| A24 | Fixed, one part deferred | 3886527, 42cdcc6 | Bounded bodies and third-party JSON; rebinding window narrowed (residual risk in PDF_UPLOADS §1); helpers kept out of the compiler's `http.ts`. Account-delete body bound deferred to the deletion work. |
+| C6 | Fixed | f432f08 (0107) | Token check and account read together; admit+dispatch in one call; receipt concurrent with finish. Local JWKS verification not attempted. |
+| C7 | Fixed | 9255ee3 (0108) | Partial indexes; stale sweep records failures and moves on. Lifetime import counters left to E2. |
+| D1 | Partly fixed | 90b7017 | Removed `deepseek.ts`, the direct podcast script and speech providers and their tests. The Anthropic SDK adapter and native-search branches remain as the transport of 17 chat and 3 admission tests (E1). |
+| D4 | Fixed | 0f26222, 35c3cba | Scripts, admin labels, docs; drills stream in OpenRouter's format. |
+| D5 | Fixed | 53e3851 (0135) | `test:ops`, the 7 failures, widened fingerprints, `deno check` and admin `tsc` in fast, no silent skips, default-grant emulation, current-schema phase. |
+| D6 | Fixed | 0c44802 | Wrangler shortcuts and unused plugin removed; Wrangler pinned. |
+| D7 | Fixed | b3d98c0 | Obsolete/risky scripts removed; dedicated App Store Connect key; one PostgreSQL tools resolver. Provisioning and research scripts kept (still referenced). |
+| D9 | Fixed | 6c93427 | `feed-refresh` in the routine deploy; every function in `config.toml`; admission hook declared (not verified against a local stack). |
+| D10 | Fixed | 5ba4bc0 | Support paging and Close/Reopen; Accounts truncation notice; 30 s RPC bound; missing messages; abandoned TOTP enrolment removed. |
 
 ---
 

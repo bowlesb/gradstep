@@ -217,8 +217,10 @@ def verify(bin_path, db, base):
 
 if __name__ == '__main__':
     repository = pathlib.Path(__file__).resolve().parents[2]
-    binaries = pathlib.Path(os.environ.get('SCIENCE_READER_PG_BIN',
-        '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
+    import sys  # run directly: the same binaries as scripts/test-database.py (scripts/pg_tools.py)
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'scripts'))
+    from pg_tools import pg_bin
+    binaries = pg_bin()
     base = ['-h', '127.0.0.1', '-p', '55431']
     database = 'science_reader_test_' + uuid.uuid4().hex[:12]
     environment = {k: v for k, v in os.environ.items() if not k.startswith('PG')}

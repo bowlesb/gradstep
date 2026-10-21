@@ -1,7 +1,9 @@
 // App Store Server Notifications V2 (renewals, refunds, reversals). Apple signs
 // the payload; it is verified against Apple's root before anything is
 // recorded. A database failure answers 503 (Apple retries production
-// notifications; sandbox ones are not retried).
+// notifications; sandbox ones are not retried). Since review A8 (2026-10-21)
+// the signature chain and claims are authenticated here first, so posting junk
+// to this public URL never touches the database or the notification quota.
 import { installEgressGuard } from '../_shared/egress.ts';
 import { serviceClient } from '../_shared/backend.ts';
 import { PublicError, readBounded } from '../_shared/http.ts';
@@ -9,6 +11,7 @@ import { errorResponse } from '../_shared/retry-after.ts';
 import { handleNotification, REJECTED_DATA, storeConfig } from '../_shared/store-purchases.ts';
 import { configuredStoreGoogleIdentity } from '../_shared/store-google-auth.ts';
 import { createStoreRecordTransport, privateStorePolicy, STORE_REQUEST_BUDGET_MS } from '../_shared/store-verifier-transport.ts';
+import { authenticateAppleNotification } from '../_shared/app-store-jws.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('app-store-notifications');
 
@@ -24,6 +27,14 @@ Deno.serve(async request => {
     let body: unknown;
     try { body = JSON.parse(new TextDecoder().decode(await readBounded(request, 256_000))); }
     catch { throw new PublicError(400, 'invalid_request'); }
+    // Apple's signature chain, the pinned root and our bundle/environment, before any database call or admission
+    // (PURCHASE_VERIFICATION_RUNTIME.md "Notification authentication before admission"). Only the fixed code is logged.
+    const authenticated = await authenticateAppleNotification((body as { signedPayload?: unknown } | null)?.signedPayload, config!);
+    if (!authenticated.ok) {
+      console.log(JSON.stringify({ function: 'app-store-notifications', event: 'notification_unauthenticated', failure: authenticated.failure }));
+      // The same 400 `invalid` an unverifiable payload always received (smoke-store and workflow-checks rely on it).
+      return Response.json({ outcome: 'invalid' }, { status: 400, headers });
+    }
     const service = serviceClient();
     connection ??= configuredStoreGoogleIdentity(name => Deno.env.get(name));
     const recordVerifier = createStoreRecordTransport({ audience: connection.audience, channel: 'notification', accountID: null,

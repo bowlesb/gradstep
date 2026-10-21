@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { reconcileOpenRouterAttempts } from '../../supabase/functions/_shared/openrouter-reconcile.ts';
+
+const account = 'aaaaaaaa-0000-4000-8000-000000000001', operation = 'bbbbbbbb-0000-4000-8000-000000000001';
+const claim = (n: number, extra: Record<string, unknown> = {}) => ({ attempt_id: `cccccccc-0000-4000-8000-00000000000${n}`, account_id: account, operation_id: operation,
+  generation_id: `gen-${n}`, transport_model: 'anthropic/claude-sonnet-5.5', feature: 'chat', ...extra });
+const record = (id: string, extra: Record<string, unknown> = {}) => ({ data: { id, model: 'anthropic/claude-sonnet-5.5', provider_name: 'Google',
+  external_user: account, session_id: operation, native_tokens_prompt: 40_000, native_tokens_cached: 30_000, native_tokens_completion: 900,
+  total_cost: 0.0512, cancelled: true, finish_reason: null, ...extra } });
+
+test('A6: unresolved attempts settle at their generation record; misses are recorded for back-off; nothing is bought', async () => {
+  const calls: { name: string; p: Record<string, any> }[] = [], gets: string[] = [];
+  const result = await reconcileOpenRouterAttempts({
+    keyFor: feature => feature === 'chat' ? 'chat-key' : null,
+    rpc: async (name, p) => { calls.push({ name, p });
+      if (name === 'worker_openrouter_reconcile_claim') return [claim(1), claim(2), claim(3, { generation_id: 'gen-3' }), claim(4, { feature: 'catalog_tags' }), claim(5)];
+      if (name === 'worker_openrouter_reconcile') return { reconciled: true };
+      return null; },
+    fetch: async (url, init) => {
+      assert.equal(init?.method, undefined, 'only GETs'); assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer chat-key');
+      const id = new URL(String(url)).searchParams.get('id')!; gets.push(id);
+      if (id === 'gen-2') return new Response(null, { status: 404 });
+      if (id === 'gen-3') return Response.json(record(id, { external_user: operation })); // another account: never believed
+      if (id === 'gen-5') return Response.json(record(id, { model: 'openai/other-model' }));
+      return Response.json(record(id));
+    } });
+  assert.deepEqual(result, { claimed: 5, reconciled: 1, missing: 4, failed: 0 });
+  assert.deepEqual(gets, ['gen-1', 'gen-2', 'gen-3', 'gen-5'], 'one GET per attempt per run; no key, no request');
+  const done = calls.find(c => c.name === 'worker_openrouter_reconcile')!.p;
+  assert.deepEqual(done, { p_attempt_id: claim(1).attempt_id, p_generation_id: 'gen-1', p_actual_microusd: 51_200,
+    p_receipt: { generation_id: 'gen-1', provider: 'Google', model: 'anthropic/claude-sonnet-5.5', total_cost_microusd: 51_200 },
+    p_units: { input_tokens: 10_000, cache_read_tokens: 30_000, output_tokens: 900 } });
+  assert.deepEqual(calls.filter(c => c.name === 'worker_openrouter_reconcile_miss').map(c => [c.p.p_attempt_id.slice(-1), c.p.p_outcome]),
+    [['2', 'not_found'], ['3', 'not_found'], ['4', 'no_key'], ['5', 'mismatch']]);
+});
+
+test('A6: the run is bounded in time and survives a database refusal', async () => {
+  let clock = 0;
+  const result = await reconcileOpenRouterAttempts({ keyFor: () => 'k', now: () => (clock += 20_000),
+    rpc: async name => { if (name === 'worker_openrouter_reconcile_claim') return [claim(1), claim(2), claim(3)];
+      if (name === 'worker_openrouter_reconcile') throw new Error('invalid_reconciliation'); return null; },
+    fetch: async url => Response.json(record(new URL(String(url)).searchParams.get('id')!)) }, { budgetMs: 30_000 });
+  assert.equal(result.claimed, 3); assert.ok(result.failed + result.reconciled < 3, 'stops when the time budget is spent');
+  assert.deepEqual(await reconcileOpenRouterAttempts({ keyFor: () => 'k', rpc: async () => null }), { claimed: 0, reconciled: 0, missing: 0, failed: 0 });
+});

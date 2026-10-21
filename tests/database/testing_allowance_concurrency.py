@@ -19,10 +19,12 @@ def verify(bin_path, db, base):
             raise AssertionError(result.stderr)
         return [line for line in result.stdout.splitlines() if line.strip()]
 
-    account, request, op = (str(uuid.uuid4()) for _ in range(3))
-    sql(f"insert into auth.users(id) values('{account}'); set role service_role; "
+    account, request, op, owner = (str(uuid.uuid4()) for _ in range(4))
+    # Migration 0105 (review A9): an owner acts, and the target is a tester.
+    sql(f"insert into auth.users(id) values('{account}'),('{owner}'); "
+        f"insert into app_private.app_roles(account_id,role) values('{owner}','owner'),('{account}','tester'); set role service_role; "
         "select public.worker_set_platform_budget(date_trunc('month',now() at time zone 'UTC')::date,1000000,true); "
-        f"select public.worker_set_testing_allowance('{account}','{request}',true,'Owner-authorized concurrency fixture');")
+        f"select public.worker_set_testing_allowance('{owner}','{request}','{account}',true,'Owner-authorized concurrency fixture');")
 
     def reserve(operation, credits):
         # Hold the transaction briefly so separately connected contenders overlap.

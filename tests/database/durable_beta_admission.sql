@@ -44,7 +44,8 @@ select test.assert(not exists(select 1 from auth.identities where user_id=:'A'),
 select test.assert(exists(select 1 from app_private.accounts where id=:'A' and closed_at is not null),'old account remains closed');
 set role supabase_auth_admin;
 select test.assert(public.hook_beta_before_user_created('{"user":{"email":"tester-91@example.invalid"}}')='{}','return allowed after deletion');
-select test.assert(public.hook_beta_before_user_created('{"user":{"email":"relay-91@privaterelay.appleid.com"}}')='{}','verified Apple identity retained separately');
+-- Since migration 127 (review A21) deletion invites only addresses already admitted; a later-linked identity is not.
+select test.assert(public.hook_beta_before_user_created('{"user":{"email":"relay-91@privaterelay.appleid.com"}}') ? 'error','a linked identity is not invited by deletion (127)');
 select test.assert(public.hook_beta_before_user_created('{"user":{"email":"unverified-91@example.invalid"}}') ? 'error','unverified linked address never admitted');
 reset role;
 insert into auth.users(id,email,email_confirmed_at) values(:'B','tester-91@example.invalid',now());

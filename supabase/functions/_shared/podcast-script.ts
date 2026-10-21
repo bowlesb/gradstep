@@ -2,9 +2,9 @@
 // fact-check review (a bounded correction set, applied deterministically) with Claude
 // Sonnet 5.5, then a deterministic evidence checker. Deno and Node compatible. Never
 // log paper text, prompts or scripts; only ids and counts.
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import type { OpenRouterAttribution } from './openrouter-transport.ts';
-import { attemptsFromUsage, priceAttempts } from './anthropic.ts';
+import { priceAttempts } from './anthropic.ts';
 import { evidenceNumbers, indexPaper, latexFromPaper, spokenNumbers, verifyQuote, type EvidenceDrop, type EvidenceRepair,
   type PaperIndex } from './podcast-evidence.ts';
 import { spokenCharacterBudget, type SpeechBudget } from './podcast-speech.ts';
@@ -288,47 +288,6 @@ export function scriptCost(result: ScriptCallResult): { microusd: number; units:
   const microusd = Math.ceil(result.billedMicrousd ?? priceAttempts([{ model: result.model, estimated: false, usage: u }]));
   return { microusd, units: { input_tokens: u.input, cache_write_5m_tokens: u.cacheWrite5m, cache_write_1h_tokens: u.cacheWrite1h,
     cache_read_tokens: u.cacheRead, output_tokens: u.output } };
-}
-
-/** The Anthropic adapter: one transport per call (SDK retries off), streamed so a long output keeps its connection. */
-export function anthropicScriptProvider(client: Anthropic): ScriptProvider {
-  return {
-    async countTokens(params, signal) {
-      try {
-        const counted = await client.messages.countTokens({ model: params.model, system: params.system, messages: params.messages }, { signal });
-        return Number.isSafeInteger(counted.input_tokens) ? counted.input_tokens : null;
-      } catch { return null; }
-    },
-    async generate(params, signal) {
-      let requestID: string | null = null, messageID: string | null = null;
-      let stream: ReturnType<typeof client.messages.stream> | undefined;
-      try {
-        stream = client.messages.stream(params, { signal });
-        for await (const event of stream) {
-          if (event.type === 'message_start') messageID = event.message.id;
-        }
-        const message = await stream.finalMessage();
-        requestID = stream.request_id ?? message.id;
-        const [attempt] = attemptsFromUsage(message.model, message.usage as unknown as Anthropic.Beta.Messages.BetaUsage);
-        if (!attempt || !Number.isSafeInteger(message.usage?.output_tokens)) {
-          return { state: 'unknown', requestID, model: message.model, stopReason: message.stop_reason, text: null, usage: null, failure: 'usage_missing' };
-        }
-        const text = (message.content as { type: string; text?: string }[]).filter(b => b.type === 'text').map(b => b.text ?? '').join('');
-        return { state: 'succeeded', requestID, model: message.model, stopReason: message.stop_reason, text, usage: attempt.usage, failure: null };
-      } catch (error) {
-        stream?.abort();
-        requestID = stream?.request_id ?? messageID;
-        // Explicit pre-processing rejections are not billed; anything after the
-        // request may have been processed keeps its full ceiling as a liability.
-        if (error instanceof Anthropic.APIError && typeof error.status === 'number' && !(error instanceof Anthropic.APIConnectionError)
-          && [400, 401, 403, 404, 413, 422, 429].includes(error.status) && !messageID) {
-          return { state: 'rejected', requestID, model: null, stopReason: null, text: null, usage: null, failure: `http_${error.status}` };
-        }
-        return { state: 'unknown', requestID, model: null, stopReason: null, text: null, usage: null,
-          failure: signal.aborted ? 'deadline' : 'transport_unknown' };
-      }
-    },
-  };
 }
 
 // ----------------------------------------------------------------------------

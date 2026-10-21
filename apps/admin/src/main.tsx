@@ -11,6 +11,7 @@ import { Accounts, liveAccountsApi } from './accounts';
 import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
+import { currentBudget } from './budget-period';
 import './style.css';
 
 const loadMetrics = (days: number) => rpc<PipelineMetrics>('v1_admin_pipeline_metrics', { p_days: days });
@@ -110,7 +111,7 @@ function App() {
     loading={loading} onRefresh={() => { setReloads(n => n + 1); void refresh(); }}>
       {error && <div className="error" role="alert">{error}</div>}
       {loading && !account ? <p role="status">Checking operator access…</p> : null}
-      {tab === 'Health' && owner && <Health key={account.account_id} load={loadHealth} budget={overview?.budgets[0] ?? null} reloadKey={reloads} days={healthDays} onDays={setHealthDays} />}
+      {tab === 'Health' && owner && <Health key={account.account_id} load={loadHealth} budget={currentBudget(overview?.budgets)} reloadKey={reloads} days={healthDays} onDays={setHealthDays} />}
       {tab === 'Overview' && overview && <>
         <div className="metrics"><Metric label="Accounts" value={overview.accounts} /><Metric label="Library items" value={overview.library_items} /><Metric label="Shared documents" value={overview.shared_documents} /><Metric label="Reused by multiple accounts" value={overview.shared_documents_reused} /></div>
         <BudgetPanel overview={overview} onChanged={refresh} />
@@ -134,7 +135,7 @@ function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
     <section className="panel"><div className="section-heading"><h2>Paper pipeline</h2><span className={'badge ' + (pipeline.policy.enabled ? 'positive' : '')}>{pipeline.policy.enabled ? 'Running' : 'Stopped'}</span></div>
       <Counts values={pipeline.stages} empty="No papers have been imported." />
       <p className="muted">OCR is capped at {pipeline.policy.max_ocr_pages} pages per paper; reader renderer {pipeline.policy.renderer_version}.</p>
-      {uncertain.length > 0 && <p className="error" role="alert">{uncertain.length} paid submission(s) are uncertain and keep their credit hold until reconciled with scripts/pipeline-ops.py resolve.</p>}
+      {uncertain.length > 0 && <p className="error" role="alert">{uncertain.length} historical paid OCR submission(s) are uncertain and keep their credit hold until an operator reconciles them.</p>}
     </section>
     <section className="panel"><h2>Recent papers</h2>
       <table><thead><tr><th>Paper</th><th>Stage</th><th>Interested</th><th>Updated</th></tr></thead><tbody>{pipeline.papers.map(p => <tr key={p.id}>
@@ -143,7 +144,8 @@ function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
         <td>{p.interested}</td><td>{date(p.updated_at)}</td></tr>)}</tbody></table>
       {!pipeline.papers.length && <Empty text="No papers yet." />}
     </section>
-    <section className="panel"><h2>Paid OCR attempts</h2>
+    <section className="panel"><h2>Paid OCR attempts (retired)</h2>
+      <p className="muted">History only: server OCR stopped on 2026-10-13 (every PDF is processed on the device); no new attempts are made.</p>
       <table><thead><tr><th>State</th><th>Pages</th><th>Provider job</th><th>Created</th></tr></thead><tbody>{pipeline.attempts.map(a => <tr key={a.id}>
         <td>{statusName(a.state)}{a.error_code ? <><br /><small className="muted">{statusName(a.error_code)}</small></> : null}</td>
         <td>{a.pages_reported ?? '—'} / {a.page_limit}</td><td><code>{a.provider_job_id ?? '—'}</code></td><td>{date(a.created_at)}</td></tr>)}</tbody></table>
@@ -198,6 +200,9 @@ function TwoFactor({ onVerified }: { onVerified: () => Promise<void> }) {
   useEffect(() => { void backend?.auth.mfa.listFactors().then(({ data }) => { const first = data?.totp.find(item => item.status === 'verified'); if (first) setFactor(first.id); }); }, []);
   async function enroll() {
     if (!backend) return; setBusy(true); setError('');
+    // D10: an abandoned, never-verified enrolment would block a new one with the same name; remove it first.
+    const listed = await backend.auth.mfa.listFactors();
+    for (const stale of listed.data?.all.filter(f => f.factor_type === 'totp' && f.status === 'unverified') ?? []) await backend.auth.mfa.unenroll({ factorId: stale.id });
     const { data, error } = await backend.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Gradstep administration' });
     if (error) setError('Authenticator setup could not start. Try again.');
     else { setFactor(data.id); setQR(data.totp.qr_code.startsWith('data:') ? data.totp.qr_code : 'data:image/svg+xml,' + encodeURIComponent(data.totp.qr_code)); }
@@ -217,7 +222,7 @@ function TwoFactor({ onVerified }: { onVerified: () => Promise<void> }) {
 }
 
 function BudgetPanel({ overview, onChanged }: { overview: Overview; onChanged: () => Promise<void> }) {
-  const budget = overview.budgets[0]; const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const budget = currentBudget(overview.budgets); const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   return <section className="panel"><div className="section-heading"><h2>Provider spending</h2><span className={'badge ' + (budget?.work_enabled ? 'positive' : '')}>{budget?.work_enabled ? 'Enabled' : 'Paused'}</span></div>
     {!budget ? <Empty text="No provider budget is configured. Paid processing is disabled." /> : <>
       <div className="budget-values"><div><span>Incurred</span><strong>{dollars(budget.spent_microusd)}</strong></div><div><span>Reserved in flight</span><strong>{dollars(budget.reserved_microusd)}</strong></div><div><span>Environment limit</span><strong>{dollars(budget.limit_microusd)}</strong></div></div>
@@ -231,8 +236,19 @@ function BudgetPanel({ overview, onChanged }: { overview: Overview; onChanged: (
   </section>;
 }
 
+const REPORT_PAGE = 50;
 function Support({ accountID, reports, refresh }: { accountID: string; reports: Report[]; refresh: () => Promise<void> }) {
   const [selected, setSelected] = useState<string | null>(null); const [thread, setThread] = useState<Thread | null>(null);
+  // D10: older reports page in (v2_reports' cursor); the first page comes with the dashboard refresh.
+  const [older, setOlder] = useState<Report[]>([]); const [more, setMore] = useState(true); const [paging, setPaging] = useState(false);
+  useEffect(() => { setOlder([]); setMore(reports.length >= REPORT_PAGE); }, [reports]);
+  const listed = [...reports, ...older.filter(o => !reports.some(r => r.id === o.id))];
+  const loadOlder = async () => {
+    const last = listed.at(-1); if (!last) return; setPaging(true); setError('');
+    try { const page = await rpc<Report[]>('v2_reports', { p_before_created_at: last.created_at, p_before_id: last.id, p_limit: REPORT_PAGE });
+      setOlder(o => [...o, ...page]); setMore(page.length >= REPORT_PAGE); }
+    catch (e) { setError((e as Error).message); } finally { setPaging(false); }
+  };
   const [reply, setReply] = useState(''); const [build, setBuild] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -243,8 +259,9 @@ function Support({ accountID, reports, refresh }: { accountID: string; reports: 
     try { await mutate(accountID, 'v1_set_report_status', { p_report_id: selected, p_status: value, p_fixed_build: value === 'ready_to_retest' ? build : null }); await load(); await refresh(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  return <div className="support-layout"><section className="panel report-list"><h2>Reports</h2>{!reports.length && <Empty text="No reports have been submitted." />}
-    {reports.map(report => <button key={report.id} disabled={busy} className={selected === report.id ? 'report selected-report' : 'report'} onClick={() => setSelected(report.id)}><strong>{report.title}</strong><span>{statusName(report.status)} · Build {report.build}</span><small>{date(report.created_at)}</small></button>)}
+  return <div className="support-layout"><section className="panel report-list"><h2>Reports</h2>{!listed.length && <Empty text="No reports have been submitted." />}
+    {listed.map(report => <button key={report.id} disabled={busy} className={selected === report.id ? 'report selected-report' : 'report'} onClick={() => setSelected(report.id)}><strong>{report.title}</strong><span>{statusName(report.status)} · Build {report.build}</span><small>{date(report.created_at)}</small></button>)}
+    {more && listed.length > 0 && <button className="secondary" disabled={paging} onClick={() => void loadOlder()}>{paging ? 'Loading…' : 'Load older reports'}</button>}
     </section><section className="panel report-detail">
       {!thread ? <Empty text="Select a report to review the issue and reply." /> : <><span className="badge">{statusName(thread.report.status)}</span><h2>{thread.report.title}</h2><p className="report-note">{thread.report.note}</p>
         <p className="muted">Version {thread.report.app_version} ({thread.report.build}) · {thread.report.os_version} · {thread.report.screen}</p>
@@ -254,7 +271,10 @@ function Support({ accountID, reports, refresh }: { accountID: string; reports: 
         <form onSubmit={async event => { event.preventDefault(); setBusy(true); setError(''); try { await mutate(accountID, 'v1_reply_to_report', { p_report_id: selected, p_body: reply }); setReply(''); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
           <label>Reply<textarea required disabled={busy} maxLength={10000} rows={4} value={reply} onChange={e => setReply(e.target.value)} /></label><button disabled={busy || !reply.trim()}>Send reply</button>
         </form>
-        <div className="status-controls"><button className="secondary" disabled={busy} onClick={() => void status('investigating')}>Investigating</button><label>Fixed in build<input value={build} maxLength={40} onChange={e => setBuild(e.target.value)} placeholder="e.g. 12" /></label><button className="secondary" disabled={busy || !build.trim()} onClick={() => void status('ready_to_retest')}>Ready to retest</button></div>
+        <div className="status-controls"><button className="secondary" disabled={busy} onClick={() => void status('investigating')}>Investigating</button><label>Fixed in build<input value={build} maxLength={40} onChange={e => setBuild(e.target.value)} placeholder="e.g. 12" /></label><button className="secondary" disabled={busy || !build.trim()} onClick={() => void status('ready_to_retest')}>Ready to retest</button>
+          {thread.report.status === 'verified'
+            ? <button className="secondary" disabled={busy} onClick={() => void status('open')}>Reopen</button>
+            : <button className="secondary" disabled={busy} onClick={() => void status('verified')} title="Resolved and confirmed; it leaves the open count">Close</button>}</div>
       </>}{error && <p className="error" role="alert">{error}</p>}
     </section></div>;
 }

@@ -378,7 +378,9 @@ the same SwiftUI code.
 2. Lead applies 043 to staging after an encrypted backup (after 042), generates `FEED_REFRESH_SECRET`
    (`.env.staging`), and deploys `feed-refresh` and `discover` (explicit `scripts/deploy-staging.py staging --skip-migrations --functions feed-refresh discover`; the routine
    function list deliberately does not include the unpublished refresh function yet). This command stores the
-   Vault URL and dedicated secret and the function secret.
+   Vault URL and dedicated secret and the function secret. Since 2026-10-21 (review D9) `feed-refresh`, live through
+   pg_cron, is in the routine list (`infra/staging.json`), so shared fixes such as the egress guard reach it with every
+   routine deploy; its existing secret is reused.
 3. `select public.worker_set_feed_policy('off', true)` — refresh on, serving off. After 24 h check
    `worker_feed_status()`: one successful refresh per announcement day, mostly `not_modified`, pool ≈ 800 papers/day.
 4. `worker_set_feed_policy('staff', true)` with a TestFlight build containing the app change: owner and support/tester

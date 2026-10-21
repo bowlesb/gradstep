@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { allowedPrefix, completeAccountDeletion, IncompleteDeletionScan, listPrefix, sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
 
 const account = '17000000-0000-0000-0000-00000000000a';
-function fakeService(files: Record<string, string[]>, options: { failRemoveTimes?: number; failLogin?: boolean; failFinish?: boolean } = {}) {
-  const removed: { bucket: string; paths: string[] }[] = [], rpcs: string[] = [];
+function fakeService(files: Record<string, string[]>, options: { failRemoveTimes?: number; failLogin?: boolean; failFinish?: boolean; beginError?: string } = {}) {
+  const removed: { bucket: string; paths: string[] }[] = [], rpcs: string[] = [], reports: Record<string, unknown>[] = [];
   let removeFailures = options.failRemoveTimes ?? 0;
   const tree = (bucket: string) => files[bucket] ?? [];
   const service = {
@@ -20,18 +20,20 @@ function fakeService(files: Record<string, string[]>, options: { failRemoveTimes
       },
       remove: async (paths: string[]) => {
         if (removeFailures > 0) { removeFailures--; return { error: { message: 'temporary' } }; }
-        removed.push({ bucket, paths }); return { error: null };
+        removed.push({ bucket, paths }); files[bucket] = tree(bucket).filter(path => !paths.includes(path)); return { error: null };
       },
     }) },
-    rpc: async (name: string) => {
+    rpc: async (name: string, params?: Record<string, unknown>) => {
       rpcs.push(name);
       if (name === 'worker_account_deletions_pending') return { error: null, data: [account] };
-      if (name === 'worker_delete_account_begin') return { error: null, data: { objects: [], prefixes: [{ bucket: 'paper-assets', prefix: `private/${account}/` }] } };
+      if (name === 'worker_account_deletion_attempt') { reports.push(params!); return { error: null, data: {} }; }
+      if (name === 'worker_delete_account_begin') return options.beginError ? { error: { message: options.beginError }, data: null }
+        : { error: null, data: { objects: [], prefixes: [{ bucket: 'paper-assets', prefix: `private/${account}/` }] } };
       return { error: options.failFinish ? { message: 'down' } : null, data: 1 };
     },
     auth: { admin: { deleteUser: async () => ({ error: options.failLogin ? { message: 'internal error' } : null }) } },
   };
-  return { service: service as never, removed, rpcs };
+  return { service: service as never, removed, rpcs, reports };
 }
 
 test('lists every file under the private prefix recursively', async () => {
@@ -72,6 +74,9 @@ test('only the account’s own folders and its conversions’ raw/reader folders
   assert.ok(allowedPrefix(account, 'paper-assets', `raw/${sha}/`) && allowedPrefix(account, 'paper-assets', `reader/${sha}/`));
   assert.ok(allowedPrefix(account, 'support', `${account}/`));
   assert.ok(allowedPrefix(account, 'paper-uploads', `${account}/`), 'PDF uploads (migration 039)');
+  // Encrypted note images (migration 095): the account's own folder only.
+  assert.ok(allowedPrefix(account, 'note-assets', `${account}/`));
+  assert.ok(!allowedPrefix(account, 'note-assets', '') && !allowedPrefix(account, 'note-assets', 'other/') && !allowedPrefix(account, 'note-assets', `private/${account}/`));
   for (const [bucket, prefix] of [['paper-assets', 'private/other/'], ['paper-assets', 'reader/'], ['paper-assets', 'originals/'],
     ['support', 'other/'], ['paper-uploads', 'other/'], ['paper-uploads', ''], ['private-content', `${account}/`], ['paper-assets', `raw/${sha}/../`]]) {
     assert.equal(allowedPrefix(account, bucket, prefix), false, `${bucket}:${prefix}`);
@@ -91,8 +96,24 @@ test('the worker sweep resumes pending deletions', async () => {
   const logs: Record<string, unknown>[] = [];
   await sweepAccountDeletions(service, fields => logs.push(fields));
   // Podcast work is closed in its own committed step before deletion begins (migration 048).
-  assert.deepEqual(rpcs, ['worker_account_deletions_pending', 'worker_podcast_account_closing', 'worker_delete_account_begin', 'worker_delete_account_finish']);
+  assert.deepEqual(rpcs, ['worker_account_deletions_pending', 'worker_podcast_account_closing', 'worker_delete_account_begin', 'worker_delete_account_finish',
+    'worker_account_deletion_attempt']);
   assert.deepEqual(logs, [{ event: 'account_deletion_swept', account_id: account, step: undefined }]);
+});
+
+test('the sweep reports every outcome so a failing account backs off (migration 128)', async () => {
+  const done = fakeService({});
+  await sweepAccountDeletions(done.service, () => {});
+  assert.deepEqual(done.reports, [{ p_account_id: account, p_complete: true, p_step: null, p_code: null }]);
+  const busy = fakeService({}, { beginError: 'account_busy' });
+  await sweepAccountDeletions(busy.service, () => {});
+  assert.deepEqual(busy.reports, [{ p_account_id: account, p_complete: false, p_step: 'begin', p_code: 'account_busy' }]);
+  const other = fakeService({}, { beginError: 'something private' });
+  await sweepAccountDeletions(other.service, () => {});
+  assert.deepEqual(other.reports, [{ p_account_id: account, p_complete: false, p_step: 'begin', p_code: 'begin_failed' }], 'a raw message is never reported');
+  const finish = fakeService({}, { failFinish: true });
+  await sweepAccountDeletions(finish.service, () => {});
+  assert.deepEqual(finish.reports.at(-1), { p_account_id: account, p_complete: false, p_step: 'finish', p_code: null });
 });
 
 test('unknown writes block physical erasure and its completion rather than racing a late upload', async () => {
@@ -126,4 +147,20 @@ test('a truncated file or folder scan never confirms erasure or releases capacit
     assert.ok(listed <= 21, 'an incomplete scan is not retried three times');
     assert.deepEqual([removed, finished, loginDeleted], [0, 0, 0]);
   }
+});
+
+test('note images: every planned object and the folder are removed, and a second listing must be empty', async () => {
+  const blob = '0f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a', stray = '7b0e8c1d-2a3f-4c5d-8e6f-7a8b9c0d1e2f';
+  const { service, removed, rpcs } = fakeService({ 'note-assets': [`${account}/${blob}`, `${account}/${stray}`, `other/${blob}`] });
+  const plan = { objects: [{ bucket: 'note-assets', path: `${account}/${blob}` }], prefixes: [{ bucket: 'note-assets', prefix: `${account}/` }] };
+  assert.deepEqual(await completeAccountDeletion(service, account, plan), { complete: true });
+  assert.deepEqual(removed.flatMap(r => r.paths).sort(), [`${account}/${blob}`, `${account}/${stray}`], 'an uninventoried object in the folder too; never another account');
+  assert.deepEqual(rpcs, ['worker_delete_account_finish']);
+
+  // Storage reports success but the folder still lists an object: not finished, inventory rows kept.
+  const stuck = fakeService({ 'note-assets': [`${account}/${blob}`] });
+  const unremoved = { ...stuck.service as object, storage: { from: (bucket: string) => ({ ...(stuck.service as never as { storage: { from(b: string): object } }).storage.from(bucket),
+    remove: async () => ({ error: null }) }) } } as never;
+  assert.deepEqual(await completeAccountDeletion(unremoved, account, plan), { complete: false, step: 'files', code: 'deletion_unverified' });
+  assert.deepEqual(stuck.rpcs, [], 'finish (which removes the inventory rows) is not called');
 });

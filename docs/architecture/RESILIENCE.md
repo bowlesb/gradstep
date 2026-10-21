@@ -237,7 +237,7 @@ failed or throttled calls in the last hour (and ≥ 20 calls); any breaker open 
   read by `provider-health.ts` before the real call; honoured only when the request's account is a test account
   (`@example.invalid`/`@example.test`) **and** the environment is not production (`SCIENCE_READER_ENVIRONMENT`), so a
   forgotten row can't hurt a real reader. Operator RPC to set/clear, audit-logged.
-- `scripts/fault-drill.mjs --provider=anthropic --mode=throttle --minutes=5`: sets the row, runs the affected
+- `scripts/fault-drill.mjs --provider=openrouter --mode=throttle --minutes=5` (`anthropic` until 2026-10-18): sets the row, runs the affected
   workflow checks (chat smoke, podcast short, search, add DOI) with a disposable account, asserts the user-visible
   outcome and the telemetry counts, clears the row.
 
@@ -358,12 +358,37 @@ and `--mode=overrun` (no fault: through the service RPCs a test account's operat
 micro-USD attempt ceiling; checks the two anomaly rows, `work_enabled` still true, and a real Haiku answer; it refuses
 to run when one more anomaly could trip the tripwire). Recovery answers use Claude Haiku 5.5 (about $0.0002 each).
 
-Wired today: Anthropic on chat. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
+Wired today: OpenRouter on chat (Anthropic until the OpenRouter-only cutover of 2026-10-18; chat no longer calls
+Anthropic, so an Anthropic drill injected nothing — review D4, 2026-10-21). The overrun drill admits its synthetic
+attempt as `openrouter`/`chat`/`anthropic/claude-haiku-5.5`. The streamed `midstream`/`slow` faults are synthesized
+only for the Anthropic and DeepSeek stream formats in `provider-health.ts`; an OpenRouter-format synthetic stream is
+needed before `--mode=midstream`/`stop` exercise the live path. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
 worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn't pass it yet); search and add-paper
 (their provider calls carry no account yet).
 
 **First drill.** After migration 073 and the functions are deployed to staging:
-`node scripts/fault-drill.mjs --provider=anthropic --mode=throttle --route=chat --minutes=5`.
+`node scripts/fault-drill.mjs --provider=anthropic --mode=throttle --route=chat --minutes=5` (today: `--provider=openrouter`, the default).
+
+### Scoped breakers, per-feature keys and billing blame — 2026-10-21 (review A13, migration 0106; not deployed)
+
+After the OpenRouter switch every model shares one host, so the per-provider breaker turned any route's trouble into
+everyone's: five failures in 60 s from a DeepInfra outage (DeepSeek), a podcast's speech errors or a tag job's 429s
+failed every Claude and Gemini chat with synthetic 429s for 30 s–5 min. One key also let a runaway podcast or tag job
+drain the balance chat needs, and a 402 told readers to "choose another AI model" when every model shares the account.
+
+- **Scoped breakers.** `provider_breakers` is keyed by provider and `scope`. For OpenRouter the scope is the calling
+  route and the upstream the request pins, read from the end of the request body without parsing or recording content:
+  `chat_vertex` (Claude and Gemini), `chat_deepinfra` (DeepSeek), `run_vertex` (catalog tags), `podcast_vertex` /
+  `podcast_deepinfra` (scripts), `podcast_speech`, and `*_read` for receipt GETs. A scope's failures open only its own
+  breaker; other providers keep one breaker each. `worker_provider_health(..., p_scope)` (named arguments of the earlier
+  signature still resolve); health hours are unchanged (per provider and route); Health › Attention names the scope.
+- **Per-feature keys.** `OPENROUTER_TAGS_API_KEY` and `OPENROUTER_PODCAST_API_KEY` are used when present, each meant to
+  carry OpenRouter's own per-key credit limit; otherwise the chat key, as before. The reconciler reads each generation
+  with the key of the feature that created it. **Provisioning is an owner step not done here:** create the two keys in
+  OpenRouter with per-key limits that fit inside the month's provider limit, add them to `.env.providers` and the
+  pipeline worker's secret list (`scripts/pipeline_readiness.py`), then redeploy the worker.
+- **Billing blame.** A 402 from the gateway is answered `service_unavailable` with `retry_after: 300` (and a
+  `chat_provider_billing` log line and the existing Health › Attention count), never `model_unavailable`.
 
 ## Fix 1 and early endings as built — 2026-10-16
 

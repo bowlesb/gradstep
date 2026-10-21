@@ -33,14 +33,16 @@ type Props = { bundle: VerifiedBundle; equationID: string; theme: 'light' | 'dar
   autoExplain?: boolean;
   /** Another of the paper's equations, chosen from the heading's menu: shown in its place, waiting for AI Explainer. */
   onSwitch?: (equationID: string) => void;
-  onClose: () => void; onCite: (paragraph: number) => void; onAsk?: () => void };
+  onClose: () => void; onCite: (paragraph: number) => void; onAsk?: () => void;
+  /** Notes: this equation, rendered on this device as an image, into the composer (NOTES_AND_SNIPPETS.md). */
+  onAddToNote?: () => void };
 
 const VIEW_KEY = 'gradstep.equation-view.v1';
 const SCALES = [100, 120, 140, 160, 200, 240, 280, 320, 360, 400];
 const readView = () => readStored<{ scale: number; scroll: boolean }>(VIEW_KEY, { scale: 160, scroll: false },
   v => !!v && typeof v === 'object' && SCALES.includes((v as { scale: unknown }).scale as number) && typeof (v as { scroll: unknown }).scroll === 'boolean');
 
-export default function EquationView({ bundle, equationID, theme, fontSize, host, autoExplain = false, onSwitch, onClose, onCite, onAsk }: Props) {
+export default function EquationView({ bundle, equationID, theme, fontSize, host, autoExplain = false, onSwitch, onClose, onCite, onAsk, onAddToNote }: Props) {
   const number = useMemo(() => equationNumber(bundle, equationID), [bundle, equationID]);
   // The heading's menu: every display equation as Contents lists it ("Equation (4)", "Equation · 3.2 Method").
   const others = useMemo(() => { const numbers = equationNumbers(bundle); return contentsEquations(bundle.index, id => numbers.get(id) ?? null); }, [bundle]);
@@ -129,6 +131,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
 
         {host && !symbols && !asking && <button className="sheet-action" onClick={explain} data-testid="equation-explain"
           title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
+        {onAddToNote && <button className="sheet-action" onClick={onAddToNote} data-testid="equation-add-to-note" title="Save this equation as an image in a note"><Icon name="notes" size={15} />Add to note</button>}
       </SheetTop>
       <h2 className="explainer-heading">{onSwitch && others.length > 1
         ? <MenuButton icon="chevronDown" text={title} label={title} align="start" testID="equation-heading">{close => others.map(e =>
