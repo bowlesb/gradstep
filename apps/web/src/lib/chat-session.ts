@@ -1010,17 +1010,23 @@ export class ChatSession {
     } finally { clearTimeout(deadline); clearTimeout(checkpointTimer); controller.dispose(); this.streams.delete(c.id); }
     // The model asked for a figure the question is about (none was attached): the same question again, once, with that
     // figure from this paper; the first answer was only the request and is not kept.
-    if (pass === 0 && asked && !sent.figures?.length && outcome.kind === 'completed' && figureBundle && !this.signal.aborted && !this.stopping.has(c.id)) {
-      const figures = await chatFigureImages(asked, null, figureBundle);
-      if (figures.length && !this.signal.aborted) {
+    if (pass === 0 && asked && !sent.figures?.length && outcome.kind === 'completed' && figureBundle && !this.signal.aborted && !this.stopping.has(c.id)
+      && !this.retiredStorage && this.accepting) {
+      // The next pass's controller is registered before the figure is prepared, so Stop, storage retirement and sign-out
+      // reach this gap too (A19): Stop has no operation to record here and simply ends it.
+      const next = cancellation([this.signal]);
+      this.streams.set(c.id, next); this.operations.delete(c.id);
+      let figures: Awaited<ReturnType<typeof chatFigureImages>> = [];
+      try { figures = await chatFigureImages(asked, null, figureBundle); } catch { figures = []; }
+      if (figures.length && !next.signal.aborted && !this.signal.aborted && !this.stopping.has(c.id) && !this.retiredStorage && this.accepting) {
         sent = { ...sent, operationID: crypto.randomUUID(), figures }; figureManifest = figureBundle.manifestSHA256;
         c.liveText = ''; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null; end = null;
         outcome = { kind: 'failed', code: 'transport' };
         c.progress = { kind: 'looking_at_figure', query: figures[0] ? figureLabel(figures[0].caption) ?? undefined : undefined }; this.publish();
-        controller = cancellation([this.signal]); deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
-        this.streams.set(c.id, controller);
+        controller = next; deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
         continue;
       }
+      next.dispose(); if (this.streams.get(c.id) === next) this.streams.delete(c.id);
     }
     break;
     }
