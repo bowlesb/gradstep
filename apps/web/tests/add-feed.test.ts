@@ -63,4 +63,11 @@ describe('frame messages added for the large-screen reader', () => {
     expect(readFrameMessage({ type: 'key', key: 'find' })).toEqual({ type: 'key', key: 'find' });
     expect(readFrameMessage({ type: 'key', key: 'reload' })).toBeNull();
   });
+  it('reads a keyword chip by name within the bridge’s bounds (builds 73 and 75)', () => {
+    expect(readFrameMessage({ type: 'tag', name: 'Tool use' })).toEqual({ type: 'tag', name: 'Tool use' });
+    expect(readFrameMessage({ type: 'tag', name: '  ' })).toBeNull();
+    expect(readFrameMessage({ type: 'tag', name: 'x'.repeat(61) })).toBeNull();
+    expect(readFrameMessage({ type: 'tag' })).toBeNull();
+    expect(readFrameMessage({ type: 'tags' })).toEqual({ type: 'tags' });
+  });
 });

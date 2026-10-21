@@ -82,6 +82,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
   /** The equation view's requests (the chat's consent and cache); without it the view shows the equation only. */
   onEditTags?: () => void; onAuthorSearch?: (name: string) => void;
+  /** A keyword chip's choices (builds 73 and 75): ML paper search for it, or the library's papers with that tag. */
+  onTagSearch?: (tag: string) => void; onShowTagged?: (tag: string) => void;
   equations?: EquationHost;
   /** The figure view's requests (FIGURE_VIEW.md), the same way. */
   figureView?: FigureHost;
@@ -101,7 +103,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, onExplainerReturn, reading }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onTagSearch, onShowTagged, onBackToChat, onExplainerReturn, reading }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -117,6 +119,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [back, setBack] = useState<{ from: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [author, setAuthor] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState<string | null>(null);
   const [markedChats, setMarkedChats] = useState<string[]>([]);
   const [bridgeReady, setBridgeReady] = useState(false);
   const appliedPassage = useRef<string | null>(null);
@@ -285,6 +288,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         // An older bridge never emits figureref. Keep its existing figure gallery path unchanged.
         case 'figureref': setFigureReference(message.reference); break;
         case 'tags': onEditTags?.(); break;
+        case 'tag': { const tag = effectiveTags(item).find(t => t.trim().slice(0, 60) === message.name); if (tag) setKeyword(tag); break; }
         case 'contentsGesture':
           setContentsDiscovered(true); writeStored('gradstep.contents.doubleTapDiscovered', true);
           if (!workspace?.left.open) onContents();
@@ -549,6 +553,16 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           ? () => { setTableDetail(null); setFigure({ id: tableDetail.id, open: true, explain: true }); } : undefined} onGo={() => {
           setTableDetail(null); command('showFigure', tableDetail.id, reduced(), true); if (workspace && !workspace.left.inline) workspace.show('left', false);
         }} />}
+      {/* A keyword chip (owner, builds 73 and 75: "an option right at the top to search ML papers based on this keyword";
+          "ideally you can choose either external or internal"), the search first; editing stays one step away. */}
+      <Dialog open={!!keyword} onClose={() => setKeyword(null)} title={keyword ?? 'Keyword'}>
+        <h2>{keyword}</h2>
+        <div className="keyword-actions" data-testid="keyword-actions">
+          {onTagSearch && <button className="primary" onClick={() => { const tag = keyword; setKeyword(null); if (tag) onTagSearch(tag); }}>Search ML papers for “{keyword}”</button>}
+          {onShowTagged && <button className="secondary" onClick={() => { const tag = keyword; setKeyword(null); if (tag) onShowTagged(tag); }}>Show library papers tagged “{keyword}”</button>}
+          {onEditTags && <button className="secondary" onClick={() => { setKeyword(null); onEditTags(); }}>Edit keywords…</button>}
+        </div>
+      </Dialog>
       <Dialog open={!!author} onClose={() => setAuthor(null)} title="Author">
         <h2>{author}</h2><button className="primary" onClick={() => { if (author) onAuthorSearch?.(author); setAuthor(null); }}>Find papers by {author}</button>
       </Dialog>

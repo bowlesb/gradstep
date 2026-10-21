@@ -20,7 +20,7 @@ import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
-import { Dialog, dateLines, formatDate, formatDateTime } from './common';
+import { Dialog, MenuButton, dateLines, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { useLibraryColumns } from './prefs';
@@ -142,8 +142,18 @@ const filterCount = (model: LibraryModel, f: Filter) => f === 'all' ? model.coun
 /** Only filters that would change the list appear (DESIGN.md › Filters). */
 const offered = (model: LibraryModel, f: Filter) => f === 'all' || (f === 'unread' ? model.counts.unread > 0 && model.counts.unread < model.counts.total : filterCount(model, f) > 0);
 
+/** "Search ML papers for …" at the top of the tags (owner, build 75: "a Search ML papers for tag at the top which then
+ * directs you to the ML paper search"): the chosen tag, or a menu of the tags when none is chosen. */
+function TagSearch({ model, view, onSearchTag }: { model: LibraryModel; view: LibraryQuery; onSearchTag?: (tag: string) => void }) {
+  if (!onSearchTag || !model.tags.length) return null;
+  if (view.tag) return <button className="rail-item rail-tag-search" onClick={() => onSearchTag(view.tag)} data-testid="tag-search">
+    <Icon name="search" size={13} /><span className="rail-label">Search ML papers for “{view.tag}”</span></button>;
+  return <MenuButton icon="search" text="Search ML papers for a tag" label="Search ML papers for a tag" align="start" className="rail-tag-search" testID="tag-search">
+    {close => model.tags.map(([t]) => <button key={t} type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onSearchTag(t); }}>{t}</button>)}</MenuButton>;
+}
+
 /** The library route's left rail: the views and the tags, with counts. */
-export function LibraryRail({ model, view, setView }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery }) {
+export function LibraryRail({ model, view, setView, onSearchTag }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery; onSearchTag?: (tag: string) => void }) {
   return (
     <nav className="rail-nav" aria-label="Library filters">
       <div className="rail-section">
@@ -157,6 +167,7 @@ export function LibraryRail({ model, view, setView }: { model: LibraryModel; vie
       {model.tags.length > 0 && (
         <div className="rail-section">
           <div className="rail-heading">Tags{view.tag && <button className="rail-clear" onClick={() => setView(q => ({ ...q, tag: '' }))}>Clear</button>}</div>
+          <TagSearch model={model} view={view} onSearchTag={onSearchTag} />
           {model.tags.map(([t, n]) => (
             <button key={t} className={`rail-item tag-item${view.tag === t ? ' selected' : ''}`} aria-pressed={view.tag === t} onClick={() => setView(q => ({ ...q, tag: q.tag === t ? '' : t }))}>
               <span className="rail-label">{t}</span><span className="rail-count">{n}</span>
@@ -168,8 +179,9 @@ export function LibraryRail({ model, view, setView }: { model: LibraryModel; vie
   );
 }
 
-/** The same filters as chips, when the rail isn't showing. */
-function FilterChips({ model, view, setView }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery }) {
+const SEARCH_TAG = 'search\u0000';
+/** The same filters as chips, when the rail isn't showing. The tag menu starts with the ML paper search for a tag. */
+function FilterChips({ model, view, setView, onSearchTag }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery; onSearchTag?: (tag: string) => void }) {
   const chip = (value: Filter, label: string) => (
     <button key={value} className={view.filter === value ? 'chip selected' : 'chip'} aria-pressed={view.filter === value} onClick={() => setView(q => ({ ...q, filter: value }))}>
       {label}{value === 'failed' && model.counts.failed > 0 ? <span className="chip-count"> {model.counts.failed}</span> : null}
@@ -179,9 +191,15 @@ function FilterChips({ model, view, setView }: { model: LibraryModel; view: Libr
     <div className="chips" role="toolbar" aria-label="Filter library">
       {model.tags.length > 0 && (
         <label className="tag-select"><span className="visually-hidden">Tag</span>
-          <select value={view.tag} onChange={e => setView(q => ({ ...q, tag: e.target.value }))} aria-label="Filter by tag">
+          <select value={view.tag} aria-label="Filter by tag" onChange={e => {
+            const value = e.target.value;
+            if (value.startsWith(SEARCH_TAG)) { e.target.value = view.tag; onSearchTag?.(value.slice(SEARCH_TAG.length)); }
+            else setView(q => ({ ...q, tag: value }));
+          }}>
             <option value="">Tags</option>
-            {model.tags.map(([t, n]) => <option key={t} value={t}>{t} ({n})</option>)}
+            {onSearchTag && (view.tag ? <option value={SEARCH_TAG + view.tag}>Search ML papers for “{view.tag}”</option>
+              : <optgroup label="Search ML papers for a tag">{model.tags.map(([t]) => <option key={t} value={SEARCH_TAG + t}>Search ML papers for “{t}”</option>)}</optgroup>)}
+            <optgroup label="Show papers tagged">{model.tags.map(([t, n]) => <option key={t} value={t}>{t} ({n})</option>)}</optgroup>
           </select>
         </label>
       )}
@@ -265,11 +283,13 @@ function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTM
   </div>;
 }
 
-export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar }: {
+export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar, onSearchTag }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
   /** Whether this tab has the paper prepared (the row's check); without it every paper shows as still to download. */
   prepared?: (entry: ClientEntry) => boolean;
   currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void; onSimilar?:(item:LibraryPaper)=>void;
+  /** ML paper search for a tag (the Tags menu's first entry). */
+  onSearchTag?: (tag: string) => void;
 }) {
   const { notice, setNotice, run } = useCommandRunner();
   const { columns, setColumns, reset } = useLibraryColumns();
@@ -352,7 +372,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
         </div>
         <div className="row-actions column-actions"><button className="secondary" onClick={reset}>Reset</button><button className="primary" onClick={() => setChoosingColumns(false)}>Done</button></div>
       </Dialog>
-      {showChips && (counts.total > 0 || counts.archived > 0) && <FilterChips model={model} view={view} setView={setView} />}
+      {showChips && (counts.total > 0 || counts.archived > 0) && <FilterChips model={model} view={view} setView={setView} onSearchTag={onSearchTag} />}
       {notice && <p className="issue banner" role="alert">{notice.text}</p>}
       <LibraryActionSurface actions={actions} />
       {library.state === 'loading' && all.length === 0 && <div className="empty"><div className="spinner" aria-label="Loading library" /></div>}

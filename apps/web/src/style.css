@@ -179,6 +179,12 @@ html.resizing iframe { pointer-events: none; }
 .rail-item:hover { background: var(--row-hover); }
 .rail-item.selected { background: var(--accent-muted); color: var(--accent); font-weight: 600; }
 .rail-item.problem .rail-count { color: var(--problem); font-weight: 600; }
+/* Search ML papers for a tag: the first row of the rail's tags, a quiet accent action. */
+.rail-tag-search.rail-item, .rail-tag-search .title-menu-button { color: var(--accent); font-size: 13px; font-weight: 500; }
+.rail-tag-search.menu-anchor { margin: 0 6px 2px 14px; }
+.rail-tag-search .title-menu-button { min-height: 30px; margin-left: 0; padding: 4px 6px; }
+.rail-tag-search .title-menu-button .icon { color: var(--accent); }
+.keyword-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin-top: 8px; }
 .rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-count { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .rail-note { padding: 10px 18px; }

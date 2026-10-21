@@ -272,6 +272,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     clearTag(); paperSearch.setQuery(text);
     setSearchExternal(true);navigate('/');paperSearch.run();
   }
+  // A keyword's "Show library papers tagged": the library with that tag and nothing else in the way.
+  function showTagged(tag: string) {
+    setSearchExternal(false); setSearchFocus(false); search.current?.blur(); paperSearch.setQuery('');
+    setView(q => ({ ...q, query: '', filter: 'all', tag })); navigate('/');
+  }
   function similar(paper:LibraryPaper) {
     const tags=effectiveTags(paper).slice(0,3); searchPapers(tags.length?tags.join(' '):paper.metadata?.title??'');
   }
@@ -566,7 +571,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   ) : (
     <>
       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
-      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={next => { setSearchExternal(false); setView(next); }} />}</div>
+      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={next => { setSearchExternal(false); setView(next); }} onSearchTag={searchPapers} />}</div>
     </>
   );
 
@@ -594,6 +599,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
         onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => searchPapers('author:' + name)}
+        onTagSearch={searchPapers} onShowTagged={showTagged}
         onBackToChat={chatReturn && !ws.right.open ? () => { const back = chatReturn.composer; setChatReturn(null); if (back) chat?.chooseDraft(back); setChatMode('paper'); ws.show('right'); } : undefined}
         onExplainerReturn={() => setChatReturn(null)}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
@@ -608,7 +614,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     center = <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={feedAdd} onLibrary={() => setSearchExternal(false)}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
-    center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared}
+    center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared} onSearchTag={searchPapers}
       currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} />;
   }
 
