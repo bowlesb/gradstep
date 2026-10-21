@@ -225,11 +225,12 @@ export const idb = {
     return () => committed;
   }),
   /** A delayed save must prove its exact writer/login as well as its retained device in the write transaction. */
-  putActivity: (key: string, deviceID: string, value: unknown, fence: WriterFence, current: () => boolean) => run<void>(['devices', 'activity'], 'readwrite', tx => {
+  /** `suffix`: another record of the same device (its kept explanations, ':explanations'), fenced the same way. */
+  putActivity: (key: string, deviceID: string, value: unknown, fence: WriterFence, current: () => boolean, suffix = '') => run<void>(['devices', 'activity'], 'readwrite', tx => {
     const device = tx.objectStore('devices').get(key), admission = tx.objectStore('devices').get(admissionKey(key));
     admission.onsuccess = () => {
       if (key === fence.key && current() && matchesFence(admission.result, fence) && (device.result as { deviceID?: string } | undefined)?.deviceID === deviceID)
-        tx.objectStore('activity').put(value, key);
+        tx.objectStore('activity').put(value, key + suffix);
     };
     return () => undefined;
   }),
@@ -249,6 +250,7 @@ export const idb = {
       const old = request.result as Admission | undefined;
       if ((fence && !matchesFence(old, fence)) || (current && !current())) { refused = true; cancel(); return; }
       tx.objectStore('devices').delete(key); tx.objectStore('activity').delete(key);
+      tx.objectStore('activity').delete(IDBKeyRange.bound(`${key}:`, `${key}:\uffff`)); // its kept explanations too
       if (tx.objectStoreNames.contains('journal')) tx.objectStore('journal').delete(IDBKeyRange.bound(`${key}:`, `${key}:￿`));
       for (const store of LIBRARY_STORES) if (tx.objectStoreNames.contains(store)) tx.objectStore(store).delete(IDBKeyRange.bound(`${key}:`, `${key}:￿`));
       if (old) tx.objectStore('devices').put({ ...old, incarnation: crypto.randomUUID(), generation: old.generation + 1, lifetime: null, writers: [] }, admissionKey(key));

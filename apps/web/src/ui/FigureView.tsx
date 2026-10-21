@@ -22,6 +22,8 @@ export interface FigureHost {
   saved: (manifest: string, figureID: string, action: FigureAction, part?: string, choice?: ProfileChoice) => FigureResult | null;
   run: (input: { figureID: string; part?: { key: string; label: string; title: string; text: string } }, action: FigureAction,
     update: (result: FigureResult) => void, signal: AbortSignal, choice?: ProfileChoice) => Promise<FigureResult>;
+  /** A kept walkthrough's image, prepared again on this device (B4). */
+  image?: (figureID: string) => Promise<FigureResult['image']>;
 }
 type Props = { label?:string; profile?: ProfileChoice; onExplanation?: (text: string) => void; manifest: string; figureID: string; host?: FigureHost;
   /** The page's figure gets smaller while a walkthrough is asked for or shown, so the words are in view. */
@@ -89,6 +91,13 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     void host.run({ figureID, ...(part ? { part: { key, label: part.label, title: part.title, text: part.text } } : {}) }, action, set, controller.signal, profile).catch(() => {});
   }, [host, figureID, JSON.stringify(profile)]);
 
+  // A kept walkthrough (B4) comes back without its image: it is prepared again from the paper on this device.
+  useEffect(() => {
+    if (walk?.phase !== 'done' || walk.image || !host?.image) return;
+    let live = true;
+    void host.image(figureID).then(image => { if (live && image) setWalk(w => w && !w.image ? { ...w, image } : w); });
+    return () => { live = false; };
+  }, [walk, host, figureID]);
   const panel = useRef<HTMLDivElement>(null);
   const explain = () => {
     if (!host || walk) return;

@@ -3,7 +3,7 @@ import type { ChatSession, Explanation } from '../lib/chat-session';
 import { Dialog, formatDateTime, InfoTip, SheetTop } from './common';
 import { Icon } from './icons';
 
-const INFO = 'The Gradstep apps keep these explanations on your iPhone, iPad or Mac. This browser keeps them only until this tab closes.';
+const INFO = 'Kept in this browser, encrypted with its key, as the apps keep them on your iPhone, iPad or Mac. Opening one shows it again without a new request.';
 
 /** Your assets › Equation explanations / Figure explanations (owner, build 62: "We should also have Equation
  * Explanations, and Figure Explanations in the list of your assets"), as the apps' KeptExplanationsView: this tab's,
@@ -34,6 +34,7 @@ export function ExplanationsDialog({ chat, kind, paperTitle, onOpen, onClose }: 
           <span className="fine">{formatDateTime(e.at)}</span>
           <Icon name="chevronRight" size={14} />
         </button></li>;
-    })}</ul> : <p className="muted" data-testid="explanations-empty">None yet</p>}
+    })}</ul> : <div data-testid="explanations-empty"><p><strong>{kind === 'equation' ? 'No equation explanations' : 'No figure explanations'}</strong></p>
+      <p className="muted">{kind === 'equation' ? 'Equations' : 'Figures'} you ask the AI Explainer about are kept in this browser.</p></div>}
   </Dialog>;
 }

@@ -150,4 +150,25 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3,{timeout:20000});
  await expect(viewer.getByTestId('figure-explain')).toHaveCount(0);
  expect(await chats()).toHaveLength(2);
+
+ // Kept across a reload (B4): encrypted in this browser, as the apps keep them on the device; reopening asks nothing.
+ await page.reload(); await expect(page.getByTestId('reader-frame')).toBeVisible({timeout:20000});
+ await page.getByTestId('account-menu').click();await page.getByTestId('assets-equations').click();
+ kept=page.getByRole('dialog',{name:'Equation explanations'});
+ await expect(kept.getByTestId('explanations-list').getByRole('button')).toHaveCount(1);
+ await kept.getByTestId('explanations-list').getByRole('button').first().click();
+ await expect(view.getByTestId('equation-summary')).toBeVisible({timeout:20000});await expect(view.getByTestId('equation-explain')).toHaveCount(0);
+ await view.getByTestId('equation-close').click();
+ await page.getByTestId('account-menu').click();await page.getByTestId('assets-figures').click();
+ kept=page.getByRole('dialog',{name:'Figure explanations'});
+ await kept.getByTestId('explanations-list').getByRole('button').first().click();
+ await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3,{timeout:20000});
+ // Its image is prepared again from the paper here (kept answers don't hold images): the parts show their crops.
+ await expect(viewer.getByTestId('figure-crop').first()).toBeVisible();
+ // Nothing of it is readable in this browser's storage.
+ const stored=await page.evaluate(async()=>{const db=await new Promise<IDBDatabase>(r=>{const q=indexedDB.open('gradstep');q.onsuccess=()=>r(q.result);});
+   const values=await Promise.all([...db.objectStoreNames].map(n=>new Promise(r=>{const q=db.transaction(n).objectStore(n).getAll();q.onsuccess=()=>r(q.result);})));
+   return JSON.stringify(values);});
+ expect(stored).not.toContain('Equation (1)');
+ expect(await chats()).toHaveLength(2);
 });

@@ -25,6 +25,7 @@ import type { NotesStore } from './notes-store';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
 import { detailQuote, figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
+import { MAX_KEPT_PER_KIND, boundKept, type KeptEntry } from './kept-explanations';
 
 /** One equation or figure this tab explained (its symbols or its walkthrough): the paper's document id, the bundle it was
  * read from, the equation or figure id and its name ("Equation (4)", "Figure 2"). */
@@ -626,8 +627,31 @@ export class ChatSession {
   private equations = new Map<string, EquationResult>();
   // Your assets › Equation explanations / Figure explanations: what this tab explained, newest first, each once.
   private explained: Explanation[] = [];
-  /** This session's explanations of one kind, newest first (the account menu's Your assets; memory only). */
+  /** This browser's explanations of one kind, newest first (the account menu's Your assets; kept across reloads, B4). */
   explanations(kind: Explanation['kind']): Explanation[] { return this.explained.filter(e => e.kind === kind); }
+  // Kept explanations (B4): every finished explainer answer, kept in this browser by its key (lib/kept-explanations.ts).
+  private kept = new Map<string, KeptEntry>();
+  private keptListeners = new Set<() => void>();
+  /** Notifies when an answer is kept, so the page saves the list (encrypted, on this device). */
+  onKept(listener: () => void) { this.keptListeners.add(listener); return () => { this.keptListeners.delete(listener); }; }
+  keptEntries(): KeptEntry[] { return boundKept([...this.kept.values()]); }
+  /** What this browser kept before: the answers come back without a new request, and Your assets lists them. */
+  restoreKept(entries: readonly KeptEntry[]) {
+    for (const e of boundKept(entries)) if (!this.kept.has(`${e.kind}|${e.key}`)) this.kept.set(`${e.kind}|${e.key}`, e);
+    const listed = [...this.kept.values()].filter(e => e.listed).map(e => ({ kind: e.kind, ...e.listed!, at: e.savedAt }) as Explanation);
+    this.explained = [...this.explained, ...listed].sort((a, b) => b.at - a.at)
+      .filter((e, i, all) => all.findIndex(o => o.kind === e.kind && o.documentID === e.documentID && o.targetID === e.targetID) === i).slice(0, 500);
+    this.publish();
+  }
+  private keep(kind: KeptEntry['kind'], key: string, result: object, listed: KeptEntry['listed']) {
+    const stored = kind === 'figure' ? { ...result, image: null } : result;
+    this.kept.set(`${kind}|${key}`, { kind, key, listed, result: stored, savedAt: Date.now() });
+    // At most MAX_KEPT_PER_KIND of each kind, the oldest out first (as the apps' stores).
+    const ofKind = [...this.kept.entries()].filter(([, e]) => e.kind === kind);
+    if (ofKind.length > MAX_KEPT_PER_KIND) this.kept.delete(ofKind.reduce((a, b) => (a[1].savedAt <= b[1].savedAt ? a : b))[0]);
+    for (const listener of [...this.keptListeners]) listener();
+  }
+  private keptResult<T>(kind: KeptEntry['kind'], key: string): T | undefined { return this.kept.get(`${kind}|${key}`)?.result as T | undefined; }
   private noteExplanation(entry: Explanation) {
     this.explained = [entry, ...this.explained.filter(e => !(e.kind === entry.kind && e.documentID === entry.documentID && e.targetID === entry.targetID))].slice(0, 500);
   }
@@ -635,7 +659,8 @@ export class ChatSession {
   /** A finished result for this equation with the current default model (memory only, this login lifetime). */
   savedEquation(manifest: string, equationID: string, action: EquationAction, choice?: ProfileChoice): EquationResult | null {
     const p = choice ?? this.equationProfile();
-    return recall(this.equations, equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`)) ?? null;
+    const key = equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`);
+    return recall(this.equations, key) ?? this.keptResult<EquationResult>('equation', key) ?? null;
   }
   /** One equation-view request, sent exactly as this browser's chat sends a question about the paper (its default
    * profile, capabilities, consent and the numbered paper on this device), so the server reads the same cached prefix.
@@ -656,7 +681,7 @@ export class ChatSession {
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     const key = equationKey(bundle.manifestSHA256, input.equationID, action, `${profile.model}-${profile.effort}-${profile.length}`);
-    const saved = recall(this.equations, key);
+    const saved = recall(this.equations, key) ?? this.keptResult<EquationResult>('equation', key);
     if (saved) { update(saved); return saved; }
     const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: equationTurn(input.number) }], input.latex, action,
       { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
@@ -676,7 +701,9 @@ export class ChatSession {
     } finally { clearTimeout(deadline); controller.dispose(); }
     if (result.phase === 'done') {
       remember(this.equations, key, result, EQUATION_RESULTS);
-      if (action === 'equation') this.noteExplanation({ kind: 'equation', documentID, manifest: bundle.manifestSHA256, targetID: input.equationID, label: equationTurn(input.number), at: Date.now() });
+      const listed = action === 'equation' ? { documentID, manifest: bundle.manifestSHA256, targetID: input.equationID, label: equationTurn(input.number) } : null;
+      if (listed) this.noteExplanation({ kind: 'equation', ...listed, at: Date.now() });
+      this.keep('equation', key, result, listed);
     }
     void this.refreshBalance();
     return result;
@@ -687,7 +714,8 @@ export class ChatSession {
   private profileKey(): string { const p = this.equationProfile(); return `${p.model}-${p.effort}-${p.length}`; }
   /** A finished walkthrough (or, with `part`, that part more simply) with the current default model (memory only). */
   savedFigure(manifest: string, figureID: string, action: FigureAction, part = '', choice?: ProfileChoice): FigureResult | null {
-    return recall(this.figureResults, figureKey(manifest, figureID, action, choice ? `${choice.model}-${choice.effort}-${choice.length}` : this.profileKey(), part)) ?? null;
+    const key = figureKey(manifest, figureID, action, choice ? `${choice.model}-${choice.effort}-${choice.length}` : this.profileKey(), part);
+    return recall(this.figureResults, key) ?? this.keptResult<FigureResult>('figure', key) ?? null;
   }
   /** One figure-view request, sent exactly as this browser's chat sends a question about the paper (its default profile,
    * capabilities, consent and the numbered paper on this device) with this figure's image, as a chat question naming it
@@ -713,7 +741,7 @@ export class ChatSession {
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     const key = figureKey(bundle.manifestSHA256, input.figureID, action, `${profile.model}-${profile.effort}-${profile.length}`, input.part?.key ?? '');
-    const saved = recall(this.figureResults, key);
+    const saved = recall(this.figureResults, key) ?? this.keptResult<FigureResult>('figure', key);
     if (saved) { update(saved); return saved; }
     const figure = bundle.index.figures.find(f => f.id === input.figureID);
     const image = figure ? await figureImage(bundle, figure) : null;
@@ -746,10 +774,22 @@ export class ChatSession {
     } finally { clearTimeout(deadline); controller.dispose(); }
     if (result.phase === 'done') {
       remember(this.figureResults, key, result, FIGURE_RESULTS);
-      if (action === 'figure') this.noteExplanation({ kind: 'figure', documentID, manifest: bundle.manifestSHA256, targetID: figure.id, label: name, at: Date.now() });
+      const listed = action === 'figure' ? { documentID, manifest: bundle.manifestSHA256, targetID: figure.id, label: name } : null;
+      if (listed) this.noteExplanation({ kind: 'figure', ...listed, at: Date.now() });
+      this.keep('figure', key, result, listed);
     }
     void this.refreshBalance();
     return result;
+  }
+  /** A kept walkthrough's image, prepared again from this paper on this device (kept answers don't hold images). */
+  async keptFigureImage(documentID: string, figureID: string): Promise<FigureResult['image']> {
+    const reference = this.reference(documentID), local = reference ? this.sourcePapers.get(reference.membershipID) : this.legacyPapers.get(documentID);
+    if (!local) return null;
+    try {
+      const bundle = await local.load(), figure = bundle.index.figures.find(f => f.id === figureID);
+      const image = figure ? await figureImage(bundle, figure) : null;
+      return image ? { data: image.data, width: image.width, height: image.height } : null;
+    } catch { return null; }
   }
   private track(task: Promise<void>): Promise<void> { this.tasks.add(task); void task.finally(() => this.tasks.delete(task)).catch(() => {}); return task; }
 

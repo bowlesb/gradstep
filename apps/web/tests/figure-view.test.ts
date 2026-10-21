@@ -182,14 +182,35 @@ describe('the figure view in the chat session', () => {
     expect((await other.figure(member, { figureID: 'b-3' }, 'figure_simpler', () => {}, new AbortController().signal)).issue).toBe('invalid_request');
     expect(server.requests).toHaveLength(0);
   });
-  it('keeps a bounded number of finished results in memory, least recently used out first (C8)', async () => {
+  it('keeps a bounded number of finished results, the oldest out first (C8, B4)', async () => {
     const chat = await setup([[{ type: 'delta', text: 'It squares x.' }, { type: 'done', stopReason: 'end_turn', credits: 1, charged: true }]]);
-    for (let i = 0; i < 201; i++) await chat.equation(member, { equationID: `e${i}`, latex: 'x^2', number: null }, 'equation', () => {}, new AbortController().signal);
+    for (let i = 0; i < 401; i++) await chat.equation(member, { equationID: `e${i}`, latex: 'x^2', number: null }, 'equation', () => {}, new AbortController().signal);
     expect(chat.savedEquation(bundle.manifestSHA256, 'e0', 'equation')).toBeNull();
-    expect(chat.savedEquation(bundle.manifestSHA256, 'e1', 'equation')).not.toBeNull(); // read: now the most recent
-    await chat.equation(member, { equationID: 'e201', latex: 'x^2', number: null }, 'equation', () => {}, new AbortController().signal);
     expect(chat.savedEquation(bundle.manifestSHA256, 'e1', 'equation')).not.toBeNull();
-    expect(chat.savedEquation(bundle.manifestSHA256, 'e2', 'equation')).toBeNull();
+    expect(chat.keptEntries().filter(e => e.kind === 'equation')).toHaveLength(400);
+  });
+  it('keeps finished explanations for a later session: they reopen without a request and stay listed (B4)', async () => {
+    const chat = await setup([[{ type: 'figure', walkthrough: event as any }, { type: 'done', stopReason: 'end_turn', credits: 5, charged: true, model: 'gemini-3.8-flash' }],
+      [{ type: 'delta', text: 'It squares x.' }, { type: 'done', stopReason: 'end_turn', credits: 2, charged: true }]]);
+    let saved = 0; chat.onKept(() => saved++);
+    await chat.figure(member, { figureID: 'b-3' }, 'figure', () => {}, new AbortController().signal);
+    await chat.equation(member, { equationID: 'e1', latex: 'x^2', number: '(1)' }, 'equation', () => {}, new AbortController().signal);
+    expect(saved).toBe(2);
+    const kept = chat.keptEntries();
+    expect(kept.map(e => e.kind).sort()).toEqual(['equation', 'figure']);
+    expect((kept.find(e => e.kind === 'figure')!.result as any).image).toBeNull(); // the image is prepared again, never kept
+    expect((kept.find(e => e.kind === 'figure')!.result as any).model).toBe('gemini-3.8-flash');
+    server.requests = [];
+    const later = await setup([[{ type: 'done', stopReason: 'end_turn', credits: 0 }]]);
+    expect(later.explanations('equation')).toEqual([]);
+    later.restoreKept(JSON.parse(JSON.stringify(kept)));
+    expect(later.explanations('equation').map(e => e.label)).toEqual(['Equation (1)']);
+    expect(later.explanations('figure').map(e => e.targetID)).toEqual(['b-3']);
+    expect(later.savedEquation(bundle.manifestSHA256, 'e1', 'equation')).toMatchObject({ phase: 'done', text: 'It squares x.' });
+    const reopened = await later.figure(member, { figureID: 'b-3' }, 'figure', () => {}, new AbortController().signal);
+    expect(reopened).toMatchObject({ phase: 'done', walkthrough: event });
+    expect(server.requests).toHaveLength(0);
+    expect(await later.keptFigureImage(member, 'b-3')).toMatchObject({ data: 'AAAA', width: 1000, height: 200 });
   });
   it('lets go of a figure or equation composer that was only shown, keeping one with text (C8)', async () => {
     const chat = await setup([[{ type: 'done', stopReason: 'end_turn', credits: 0 }]]);

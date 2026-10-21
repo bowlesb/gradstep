@@ -7,6 +7,7 @@ import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
 import { type ComponentProps, type FocusEvent as ReactFocusEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib/activity';
+import { loadKept, saveKept } from '../lib/kept-explanations';
 import { AuthError, type AuthIssue, type Session, auth, config, functionPost, operationsDashboard, operatorRoles } from '../lib/backend';
 import type { AnswerPapers } from './AnswerPapers';
 import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
@@ -355,6 +356,15 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     activityStore.set(itemID, value);
   }, [activityLoaded, leaving, activityStore]);
 
+  // Kept explanations (B4): restored once the device's key and the chat are here; each new one saved (encrypted, here).
+  useEffect(() => {
+    if (!chat || !device || !ready.local || leaving) return;
+    const local = ready.local;
+    let live = true, timer: ReturnType<typeof setTimeout> | undefined;
+    void loadKept(device).then(entries => { if (live && entries.length) chat.restoreKept(entries); });
+    const unsubscribe = chat.onKept(() => { clearTimeout(timer); timer = setTimeout(() => { void saveKept(device, chat.keptEntries(), local).catch(() => {}); }, 300); });
+    return () => { live = false; unsubscribe(); clearTimeout(timer); };
+  }, [chat, device, leaving, ready.local]);
   // Saved half a second after the last change (encrypted, on this device), without rendering anything.
   useEffect(() => {
     if (!device || !ready.local || leaving) return;
@@ -618,6 +628,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
     saved: (manifest, figureID, action, part, choice) => chat.savedFigure(manifest, figureID, action, part, choice),
     run: (input, action, update, signal, choice) => chat.figure(equationDocument, input, action, update, signal, choice),
+    image: figureID => chat.keptFigureImage(equationDocument, figureID),
   } : undefined, [chat, equationDocument]);
   // Passages with chats are underlined unless the reader turned that off (Settings › Reading on the apps; B10).
   const [passageMarks, setPassageMarks] = useStored<boolean>(PASSAGE_MARKS_KEY, true, v => typeof v === 'boolean');
