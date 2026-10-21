@@ -600,6 +600,85 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         }
     }
 
+    static let maximumRecommendStreamBytes = 256 * 1024
+
+    /// AI recommendations (`functions/v1/recommend`, docs/architecture/AI_RECOMMENDATIONS.md): one request's streamed
+    /// events. The same host, account and auth-generation checks as `chatStream`; the server acts as the reader while it
+    /// adds papers, so the token outlives the request. Cancelling the consumer closes the connection only: the server
+    /// still adds the papers it chose and settles.
+    func recommendStream(_ body: RecommendRequestBody, accountID: UUID) async throws -> AsyncThrowingStream<RecommendEvent, Error> {
+        let generation = authGeneration
+        guard let expected = session?.user.id, expected == accountID else { throw BackendError.signInRequired }
+        let encoded = try JSONEncoder().encode(body)
+        var token = try await accessToken(validFor: 300)
+        guard let url = URL(string: "/functions/v1/recommend", relativeTo: config.url)?.absoluteURL,
+              url.scheme == "https", url.host == config.url.host else { throw BackendError.unavailable }
+        var replayed = false
+        var opened: URLSession.AsyncBytes, reply: HTTPURLResponse
+        while true {
+            guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"; request.httpBody = encoded
+            request.timeoutInterval = 90
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (received, response) = try await network.bytes(for: request, delegate: LibraryRedirectPolicy())
+            opened = received
+            guard generation == authGeneration, session?.user.id == expected else { opened.task.cancel(); throw CancellationError() }
+            guard let http = response as? HTTPURLResponse else { opened.task.cancel(); throw BackendError.transport }
+            reply = http
+            guard http.statusCode == 401 else { break }
+            opened.task.cancel()
+            // As chat: refresh once and send again (the function refuses before any hold); a second refusal ends the session.
+            if replayed { try await expireSession(generation: generation, accountID: expected) }
+            replayed = true
+            token = try await accessToken(validFor: 300, rejected: token)
+        }
+        let bytes = opened, http = reply, task = bytes.task
+        guard (200..<300).contains(http.statusCode) else {
+            defer { task.cancel() }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < 4_096 else { break }
+                data.append(byte)
+            }
+            struct Failure: Decodable { let code: String; let retry_after: Double? }
+            let failure = try? JSONDecoder().decode(Failure.self, from: data)
+            if http.statusCode == 403, failure?.code == "authentication_required" || failure?.code == "account_unavailable" {
+                try await expireSession(generation: generation, accountID: expected)
+            }
+            let code = failure.flatMap { $0.code.utf8.count <= 64 ? $0.code : nil } ?? (http.statusCode == 429 ? "rate_limited" : "service_unavailable")
+            throw RecommendFailure(code: code, retryAfter: failure?.retry_after)
+        }
+        guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/event-stream") == true else {
+            task.cancel(); throw RecommendStreamError.malformed
+        }
+        return AsyncThrowingStream { continuation in
+            let reader = Task {
+                var parser = RecommendSSEParser(), chunk: [UInt8] = [], total = 0
+                do {
+                    for try await byte in bytes {
+                        total += 1
+                        guard total <= Self.maximumRecommendStreamBytes else { throw RecommendStreamError.tooLarge }
+                        chunk.append(byte)
+                        if byte == 0x0A || chunk.count >= 1_024 {
+                            for event in try parser.consume(chunk) { continuation.yield(event) }
+                            chunk.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    for event in try parser.consume(chunk) { continuation.yield(event) }
+                    for event in try parser.finish() { continuation.yield(event) }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+                task.cancel()
+            }
+            continuation.onTermination = { _ in reader.cancel(); task.cancel() }
+        }
+    }
+
     /// The chat function's published profile table (models, effort, length and credit estimates; `GET functions/v1/chat`).
     /// A server without profiles answers 405, which callers treat as "no choices offered".
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {

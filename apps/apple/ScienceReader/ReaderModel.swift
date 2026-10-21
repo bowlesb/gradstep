@@ -238,7 +238,7 @@ final class ReaderModel {
     private var libraryRefreshAttempt: UUID?
     private var libraryCreationSequences: [UUID: Int64] = [:] { didSet { if libraryCreationSequences != oldValue { librarySearchSourceChanged() } } }
     private var presentedImportIDs: Set<UUID> = [] { didSet { if presentedImportIDs != oldValue { librarySearchSourceChanged() } } }
-    private var completeLibrary: LibrarySnapshot?
+    private(set) var completeLibrary: LibrarySnapshot?
     private var libraryPublicationDeferred = false
     private var deferredLibraryObservation: LibraryCompleteObservation?
     private var readerBundles: ReaderBundleCoordinator?
@@ -376,13 +376,13 @@ final class ReaderModel {
         return libraryCatalogs.isAssigned(key) || !libraryCatalogs.isAssigned(documentKey) ? key : documentKey
     }
     /// The key a paper the server just added is filed under: its arXiv or web source key.
-    private static func addedCatalogKey(_ sourceID: String?) -> String? {
+    static func addedCatalogKey(_ sourceID: String?) -> String? {
         sourceID.flatMap { LibraryCatalogBatch.arxivKey($0) ?? LibraryCatalogBatch.sourceKey($0) }
     }
     /// Files a paper the server added into the catalog chosen when Add was pressed, unless it is there already.
     /// Best effort: the add has happened even when this device can't write its catalog now (recovery, activation, a
     /// local write failure); the paper then shows in the Default catalog.
-    private func assignAddedPaper(key: String, to destination: UUID) async {
+    func assignAddedPaper(key: String, to destination: UUID) async {
         guard libraryCatalogs.catalog(destination) != nil, libraryCatalogs.catalogID(for: key) != destination else { return }
         do { try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)]) }
         catch { SessionTimeline.shared.record("catalog", ["phase": "assign-failed"]) }
@@ -4915,6 +4915,7 @@ final class ReaderModel {
         chatAnswerIssues = [:]; unsavedAnswers = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
         storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; figureAnswers = [:]; figureStore = nil; pendingFigureOutcome = nil; keptEquationFiles = nil; keptFigureFiles = nil; keptEquationExplanations = []; keptFigureExplanations = []; pendingExplanation = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        recommendation?.task?.cancel(); recommendation = nil; showRecommendations = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
         for generation in retiring {
@@ -4986,6 +4987,12 @@ final class ReaderModel {
     // MARK: App Store purchases (docs/architecture/PURCHASES.md)
 
     var showStore = false
+    // MARK: AI recommendations (docs/architecture/AI_RECOMMENDATIONS.md; ReaderModel+Recommendations.swift)
+    /// The latest request: it keeps running (and its papers keep being filed) while its sheet is closed.
+    var recommendation: RecommendationRun?
+    var showRecommendations = false
+    /// Tests replace the network service.
+    @ObservationIgnored var recommendationServiceOverride: (any RecommendationService)?
     private(set) var storeSummary: StoreSummary?
     /// Equation view answers this session, by paper revision, equation, action and profile (sealed copies on disk).
     @ObservationIgnored private var equationAnswers: [EquationResultKey: EquationAnswer] = [:]

@@ -57,6 +57,7 @@ struct SharedPresentations: ViewModifier {
             }
             .sheet(isPresented: routed($model.showDiagrams)) { HistoryView(model: model, diagrams: true).macSheetKeys() }
             .sheet(isPresented: routed($model.showStore)) { CreditsStoreView(model: model).macSheetKeys() }
+            .sheet(isPresented: routed($model.showRecommendations)) { RecommendationSheet(model: model).macSheetKeys() }
             .sheet(item: routed($model.presentedDiagram)) { presented in
                 if let diagram = model.diagram(presented.id) {
                     DiagramSheet(diagram: diagram).macSheetKeys()
