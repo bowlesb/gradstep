@@ -1,5 +1,10 @@
 # Local figure regions
 
+Status, 2026-10-22: the rights-clean release candidate scores 73.3% fully right / 18.8% wrong crops / 84%
+panel recall on a new never-seen arXiv test; gates not met, nothing bundled. The on-device API for offering
+parts P1… to the explainer (with a "whole" fallback) and Core ML FP32 parity are specified in
+[Subfigure detector 10-22](../reviews/SUBFIGURE_DETECTOR_20261022.md); FP16/int8 compression fails parity.
+
 Status, 2026-10-21: a corpus-trained detector + completeness/caption policy reaches 80.4% fully-right figures
 (8.9% wrong crops) on a new held-out arXiv final test versus 59.1% for the previous detector; still below the
 gates below, so not bundled. The model-free completeness check is proposed as the first integration. See

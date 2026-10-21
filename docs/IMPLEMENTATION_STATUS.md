@@ -590,6 +590,20 @@ Both platform states were read back at **06:07:35 UTC**. Evidence and exact coun
 `catalog-release-verification.json`; archive hashes and acceptance identity are in `release-75-provenance.json`.
 No physical iPhone or paid model call was used.
 
+## Subfigure detector release candidate — 2026-10-22 (research; not released; gates not met)
+
+A rights-clean release candidate (RT-DETRv2-M trained only on corpus-derived and synthetic data, plus
+completion, OCR letter grouping, caption-constrained decoding and two-view agreement) was frozen on validation
+and scored once on a **new never-seen test** (240 figures, 201 papers from unused author families, annotated
+before any model saw it): **73.3% (95% CI 67.8–79.0) fully right, 18.8% harmful, panel recall 84.1%**
+(previous v13 detector: 52.9% / 29.6%; 10-21 system: 70.4% / 21.2%). The gates (≥ 95% recall, < 2% wrong
+crops) are **not met**; clipping and framed diagrams dominate the errors, and the targeted class data gave no
+clear per-class gain. Core ML FP32 exports (132 MB R50-M, 80 MB R18) give identical delivered crops; FP16 and
+int8 weight compression change decisions; ONNX runs in Chromium via onnxruntime-web WASM (1.7–2.7 s).
+`scripts/subfigure-detector/` is now a documented package with configs, a pytest suite and the reference
+on-device `decide()` API (parts P1… or "whole" fallback) for step-2 integration. $0 model spend; no app code
+changed. Details: [Subfigure detector 10-22](reviews/SUBFIGURE_DETECTOR_20261022.md).
+
 ## Subfigure detector from the PDF corpus — 2026-10-21 (research; not released)
 
 A new app-level evaluation scores crops as displayed: complete panels, no false splits, correct counts.
