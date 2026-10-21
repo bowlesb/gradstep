@@ -18,7 +18,7 @@ for entire PDFs is too ambitious" and the Mathpix research
   [review 2026-10-21](reviews/DEVICE_PDF_ROUTE_20261021.md)).
 - The desktop's port kit (converter 0.1.0) stops being a frozen reference the app must match: the app may diverge
   from it where measurement shows a gain. Agent decisions taken under this direction (reversible, each measured):
-  the recogniser ships as one batched multifunction Core ML package (same weights, same tokens); the host overlaps
+  the recogniser ships as one batched multifunction Core ML package (same weights; same tokens on its samples); the host overlaps
   the stages and shows a reading before its formulas are read; seven converter rules are on in the app (simple inline
   formulas from the text layer, font-found math, tidied LaTeX, title page by metadata, no duplicate headings, reference
   entries split, line ownership) and one tried rule is off (`extendSpans`); the display-formula gate is unchanged (a

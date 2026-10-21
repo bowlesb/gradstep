@@ -7,7 +7,7 @@ Owner, 2026-10-21: keep developing the on-device model (too slow, not accurate e
 Full measurements and before/after: [review](reviews/DEVICE_PDF_ROUTE_20261021.md); design: [DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md#development-after-the-port-kit--port-revision-5-2026-10-21).
 
 - **Recogniser**: the same weights (texteller-ft-v4) exported as one multifunction package (`prefill`/`step` sharing one
-  state, batch 8, int8; `scripts/device-pdf-models/export_texteller.py`; lock updated) — same tokens as before, per-crop
+  state, batch 8, int8; `scripts/device-pdf-models/export_texteller.py`; lock updated) — same tokens on its samples (a few formulas differ on whole papers), per-crop
   GPU cost about a fifth.
 - **Host**: pages read ahead, recognition in the background in batches (converter port revision 5: `submit`/`collect`),
   a reading shown before its formulas are read (`onPreview`; the app keeps the reading place when the finished reading
@@ -15,13 +15,13 @@ Full measurements and before/after: [review](reviews/DEVICE_PDF_ROUTE_20261021.m
 - **Converter rules** on in the app (each kept only when it measured better on two separate 32-paper sets): simple
   inline formulas from the text layer (58 % of formulas never reach the recogniser), font-found math, tidied LaTeX,
   title page by metadata, no duplicate headings or contents lists, reference entries split, line ownership.
-- **Results on 32 fresh papers (this Mac)**: TIMING-STATUS; headings 0.905/0.725 → 0.920/0.765 (recall/precision), whole
+- **Results on 32 fresh papers (this Mac)**: whole conversion 4,263 s → 1,529 s (4.89 → 1.75 s a page, ×2.8; median paper 105 → 43 s), a reading on screen after a median 15 s; headings 0.905/0.725 → 0.920/0.765 (recall/precision), whole
   blocks 0.59 → 0.72, inline formula images halved, displays typeset 0.37 → 0.41; text F1 0.854 → 0.856. Display
   formulas (still mostly images) and tagger boundaries are the open accuracy problems; the renderer is not one.
 - **Evaluation tooling**: `scripts/device-route-accuracy.mjs` (fresh arXiv papers scored against the app's own arXiv
   HTML reading), `scripts/device-route-replay.mjs` (converter rules re-run on recorded model outputs in Node),
   `DevicePDFRouteTool --bench-steps / --bench-recogniser / --check-determinism / --replay-converter / --record / --rules`.
-- Evidence: TESTS-STATUS. Not verified: any iPhone (paused; the iPhone figures in the review are estimates), the
+- Evidence: `npm test` passes; `swift test --filter DevicePDF` (15 tests) passes; the Catalyst app builds; Simulator `DeviceModelJourneyTests` passes with the new converter (it failed twice under heavy machine load and passed on a rebooted Simulator on a quiet machine, so recorded as load-sensitive); fixture conformance with the new models (rules off) unchanged except a few formulas (LaTeX agreement within 0.004 either way; one rendered-formula flag on 2610.11253v1 now narrowly fails, 0.952 → 0.950). Not verified: any iPhone (paused; the iPhone figures in the review are estimates), the
   recogniser in the iOS Simulator (it never loads there; the route degrades to images, as before).
 
 ## Complete figure crops and presentation margins — 2026-10-21 (local source; not released, not deployed)

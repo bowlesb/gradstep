@@ -51,7 +51,7 @@ the pages' layout and text are read ahead on two threads (each with its own `CGP
 page i), the tagger's lines run on four threads, and the recogniser runs in the background on batches of eight crops
 of one placement, narrowest first (`DevicePDFPipeline.swift`). Results are the same as one crop at a time: the batched
 export decodes every crop's tokens exactly as the one-crop export does (20/20 and 80/80 on the export's samples, the
-same bundles on the fixtures).
+on the fixtures a few formulas differ in LaTeX, agreement with the reference within 0.004).
 
 Crop rectangles are computed by the converter exactly as the reference does (integer pixel rounding included),
 so the rules live in one place; the host only renders, cuts, encodes and infers.
@@ -153,7 +153,7 @@ app now ships the same weights (texteller-ft-v4) as one **multifunction package*
 position [1])` reads them; a state made by one function serves the other (checked on CPU and GPU before relying on it),
 both have fixed shapes so Core ML never re-specialises between calls (the cost that sank the desktop's single-function
 "cross-state" export). Per crop on this Mac's GPU: encoder 35 ms (60), decoder step 1.7 ms (12.7, plus 30 ms of
-conversion per crop); same tokens as the port kit's export (20/20 samples, 80/80 batched, identical bundles). 285 MB
+conversion per crop); same tokens as the port kit's export on its samples (20/20, 80/80 batched; on whole papers a few formulas differ). 285 MB
 compiled (299 before). A batch holds about 0.4 GB of state: two batches run at once only on devices with 7.5 GB of
 memory or more.
 

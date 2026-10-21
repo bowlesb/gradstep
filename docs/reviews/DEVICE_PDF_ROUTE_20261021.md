@@ -18,7 +18,7 @@ measures again on the same papers. Design: [DEVICE_PDF_ROUTE](../architecture/DE
 - **The time was the formula recogniser** (88 % of it), and mostly fixed per-call overhead: one crop at a time, the
   encoder's 77 MB of cross-attention keys converted and passed into every decoder step. The fix is a new export of the
   same weights — one Core ML package whose two functions share one state, eight crops per pass — that gives the same
-  tokens (20/20 and 80/80 on the export's samples; identical bundles end to end).
+  tokens on the export's samples (20/20, 80/80 batched); on whole papers a handful of formulas read differently (batched GPU arithmetic): on the eight fixtures LaTeX agreement with the Python reference moved by at most 0.004 either way.
 - **Accuracy before:** text 0.85 F1 in reading order (0.92 of words present in any order), 95 % of paragraphs found,
   reading order 0.97, headings 0.91 recall / 0.73 precision; inline formulas 78 % found, 86 % of them typeset, 93 % of
   typeset ones exactly right; display formulas 77 % found but only 37 % typeset (the rest shown as images), 89 % right
@@ -105,7 +105,7 @@ interpreter speed with and without `JSC_useJIT`), so this is the phone's case up
 
 ## 2. Speed changes and what they gave
 
-1. **The batched multifunction recogniser** (above), same tokens as before.
+1. **The batched multifunction recogniser** (above), same tokens on the samples, a handful of formulas different on whole papers.
 2. **Background recognition** (port revision 5's `submit`/`collect`): formulas are read while the converter reads the
    following pages, in batches of one placement, narrowest first; two batches in flight on large-memory devices.
 3. **Pages read ahead**: render, text layer and layout of the next pages on two threads while the converter works.
@@ -185,13 +185,13 @@ All seven together, real runs (not replays):
 
 | Measure | Test before | Test after | Dev before | Dev after |
 |---|---|---|---|---|
-| text F1 / precision | 0.854 / 0.865 | 0.856 / 0.870 | 0.873 / 0.879 | DEV-A |
-| whole blocks, mean per paper | 0.589 | 0.721 | 0.615 | DEV-B |
-| headings recall / precision | 0.905 / 0.725 | 0.920 / 0.765 | 0.776 / 0.667 | DEV-C |
-| tables word F1 | 0.553 | 0.568 | 0.515 | DEV-D |
-| inline formulas found / glyph-right / typeset / typeset right | 0.782 / 0.909 / 0.859 / 0.934 | 0.781 / 0.914 / 0.923 / 0.924 | 0.811 / 0.905 / 0.853 / 0.938 | DEV-E |
-| inline formulas shown as images | 2,027 | 1,107 | 1,805 | DEV-F |
-| display formulas typeset / typeset right | 0.374 / 0.894 | 0.412 / 0.888 | 0.389 / 0.869 | DEV-G |
+| text F1 / precision | 0.854 / 0.865 | 0.856 / 0.870 | 0.873 / 0.879 | 0.876 / 0.884 |
+| whole blocks, mean per paper | 0.589 | 0.721 | 0.615 | 0.746 |
+| headings recall / precision | 0.905 / 0.725 | 0.920 / 0.765 | 0.776 / 0.667 | 0.799 / 0.705 |
+| tables word F1 | 0.553 | 0.568 | 0.515 | 0.521 |
+| inline formulas found / glyph-right / typeset / typeset right | 0.782 / 0.909 / 0.859 / 0.934 | 0.781 / 0.914 / 0.923 / 0.924 | 0.811 / 0.905 / 0.853 / 0.938 | 0.818 / 0.908 / 0.909 / 0.932 |
+| inline formulas shown as images | 2,027 | 1,107 | 1,805 | 1,132 |
+| display formulas typeset / typeset right | 0.374 / 0.894 | 0.412 / 0.888 | 0.389 / 0.869 | 0.410 / 0.870 |
 
 All blocks pooled on the test corpus: merged 0.216 → 0.079, split 0.159 → 0.169. Formulas typeset in all: 15,875 → 17,049
 of about 19,480.
@@ -255,6 +255,18 @@ so if it does not), and memory pressure on 6 GB phones.
 7. **Residual nondeterminism** under extreme load (a few formulas on a few papers): find which prediction still
    interferes (layout on the Neural Engine alongside the tagger is the candidate) before relying on byte-identical
    re-reads.
+
+## Checks
+
+- `npm test` passes; `swift test --filter DevicePDF` (15 tests) passes; the Catalyst app builds.
+- Fixtures (`scripts/device-route-eval.mjs --conformance`, new models and host, rules off): conformance unchanged apart
+  from a few formulas read differently by the batched recogniser — LaTeX agreement 0.945 → 0.949, 0.956 → 0.953,
+  0.945 → 0.943 on three fixtures, and the rendered-formula flag on 2610.11253v1 now narrowly fails (0.952 → 0.950).
+  Conversion time on the fixtures is about half (e.g. 152 → 65 s).
+- Simulator `DeviceModelJourneyTests` (iPhone 17 Pro): failed twice with the new converter while the machine was under
+  heavy load (the reader stayed on "Preparing…"; the same bundle converted correctly on the Mac), passed on a rebooted
+  Simulator on a quieter machine. Recorded as load-sensitive, not as fixed.
+- Not run: any iPhone (paused), the recogniser in the Simulator (it does not load there).
 
 ## Files
 
