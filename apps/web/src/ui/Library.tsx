@@ -352,8 +352,6 @@ export function LibraryView({ library, model, activity, view, setView, showChips
         {sortedHidden && <span className="fine library-sort-note">Sorted by {LIBRARY_COLUMNS.find(c => c.key === view.sort.key)?.label} {view.sort.descending ? '↓' : '↑'}</span>}
       </div>
       <CatalogsDialog open={showCatalogs} onClose={() => setShowCatalogs(false)} library={library} />
-      {library.catalogs && (library.catalogs.state.catalogs.length > 1 || library.catalogs.state.catalogs[0].name !== 'Default') && <label className="catalog-switch">Catalog <select aria-label="Current catalog" value={library.catalogs.currentID} onChange={e => library.catalogs?.select(e.target.value)}>
-        {library.catalogs.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
       <Dialog open={choosingColumns} onClose={() => setChoosingColumns(false)} title="Library columns">
         <h2>Library columns</h2>
         <p className="fine">Title stays pinned as you scroll.</p>

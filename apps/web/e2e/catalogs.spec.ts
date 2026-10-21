@@ -1,3 +1,4 @@
+import { openAddPaper } from './device-reader-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
@@ -62,7 +63,7 @@ test('new additions stay in the chosen catalog and an individual paper can move 
   await dialog(page).getByRole('button', { name: 'New catalog', exact: true }).click();
   await dialog(page).getByLabel('Catalog name', { exact: true }).fill('Research'); await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
   await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByTestId('add-paper').click();
+  await openAddPaper(page);
   await page.getByTestId('arxiv-input').fill('1901.00001');
   await page.getByRole('dialog', { name: 'Add paper', exact: true }).getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByTestId('paper-row')).toHaveCount(1);
@@ -101,4 +102,35 @@ test('a catalog exports every paper as a CSV file named after it', async ({ page
   expect(text).toContain(',2305.18290v3,,https://arxiv.org/abs/2305.18290v3,Alignment,');
   expect(sent).toEqual([]);
   await expect(dialog(page)).toBeVisible();
+});
+
+// Build 75 (AHI8): "Move the catalog to the left of the search bar and move the + option as a new row inside the dialogue
+// on the far right".
+test('the catalog sits left of the search; Add paper is the first row of the far-right menu', async ({ page }, info) => {
+  await signIn(page);
+  const select = page.getByLabel('Current catalog'), field = page.getByTestId('search');
+  await expect(select).toHaveCount(0); // only Default: nothing to choose
+  await open(page);
+  await dialog(page).getByRole('button', { name: 'New catalog', exact: true }).click();
+  await dialog(page).getByLabel('Catalog name', { exact: true }).fill('Research papers for the thesis'); await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(select).toBeVisible();
+  const [s, f] = [(await select.boundingBox())!, (await field.boundingBox())!];
+  expect(s.x + s.width).toBeLessThanOrEqual(f.x);
+  expect(Math.abs(s.y + s.height / 2 - (f.y + f.height / 2))).toBeLessThan(4);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
+  await expect(page.getByRole('banner').getByRole('button', { name: 'Add paper' })).toHaveCount(0);
+  await page.getByTestId('account-menu').click();
+  await expect(page.getByRole('menu').getByRole('menuitem').first()).toHaveText('Add paper…');
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: `../../.artifacts/feedback-20261021/browser/b7-header-${info.project.name}-${scheme}.png` });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.getByTestId('add-paper').click();
+  await expect(page.getByRole('dialog', { name: 'Add paper', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // Hidden while searching, back after Cancel.
+  await field.click(); await expect(select).toHaveCount(0);
+  await page.getByTestId('search-cancel').click(); await expect(select).toBeVisible();
 });

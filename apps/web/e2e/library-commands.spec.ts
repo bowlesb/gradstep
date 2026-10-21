@@ -1,3 +1,4 @@
+import { openAddPaper } from './device-reader-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
@@ -13,7 +14,8 @@ async function signIn(page: Page) {
   await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
-  await expect(page.getByTestId('add-paper')).toBeEnabled();
+  // Add paper is enabled once the library is ready (the far-right menu's first row, build 75).
+  await page.getByTestId('account-menu').click(); await expect(page.getByTestId('add-paper')).toBeEnabled(); await page.keyboard.press('Escape');
 }
 
 for (const failRefresh of [false, true]) test(`removing an import needs a complete post-receipt observation${failRefresh ? ' when catch-up fails' : ''}`, async ({ page, request }) => {
@@ -94,7 +96,7 @@ test('Add captures the published cursor while a background change page is incomp
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await held.promise;
     await expect(page.getByText('Unpublished change', { exact: true })).toHaveCount(0);
-    await page.getByTestId('add-paper').click();
+    await openAddPaper(page);
     await page.getByTestId('arxiv-input').fill('1706.03762');
     const sent = page.waitForRequest(r => r.url().endsWith('/rpc/v2_begin_import'));
     const accepted = page.waitForResponse(r => r.url().endsWith('/rpc/v2_begin_import'));
@@ -133,7 +135,7 @@ test('concurrent commands each wait for a boundary begun after their own receipt
     const stopped = page.getByTestId('paper-row').filter({ hasText: 'arXiv 2401.00001' });
     await stopped.getByRole('button', { name: 'Remove' }).click();
     await first.promise; // Remove's fresh read was started before Add existed.
-    await page.getByTestId('add-paper').click();
+    await openAddPaper(page);
     await page.getByTestId('arxiv-input').fill('1706.03762');
     const accepted = page.waitForResponse(r => r.url().endsWith('/rpc/v2_begin_import'));
     await page.getByTestId('arxiv-add').click();
@@ -158,7 +160,7 @@ test('an accepted Add finishes its waiting form after a failed refresh recovers'
   page.on('request', r => { if (r.url().endsWith('/rpc/v2_begin_import')) submissions++; });
   await page.route('**/rpc/v3_library_changes', route => ++reads === 1
     ? route.fulfill({ status: 503, json: { code: 'fixture_read_unavailable' } }) : route.continue());
-  await page.getByTestId('add-paper').click();
+  await openAddPaper(page);
   await page.getByTestId('arxiv-input').fill('1706.03762');
   await page.getByTestId('arxiv-add').click();
   await expect(page.getByRole('alert')).toContainText('Refresh the page');
@@ -168,7 +170,7 @@ test('an accepted Add finishes its waiting form after a failed refresh recovers'
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByTestId('paper-row').filter({ hasText: '1706.03762' })).toBeVisible();
-  await page.getByTestId('add-paper').click();
+  await openAddPaper(page);
   await expect(page.getByTestId('arxiv-input')).toHaveValue('');
   await expect(page.getByRole('alert')).toHaveCount(0);
   expect(submissions).toBe(1);

@@ -636,6 +636,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           {nav('/feed', 'Feed', 'feed', route === 'feed')}
           <button className="nav-link" onClick={() => setChats(true)} title="All chats"><Icon name="chats" /><span className="nav-label">Chats</span></button>
         </nav>
+        {/* The catalog to the left of the search (owner, build 75: "Move the catalog to the left of the search bar"): on the
+            library, only once there is a choice (more than one catalog, or one renamed), and not while searching. */}
+        {route === 'library' && !searching && library.catalogs && (library.catalogs.state.catalogs.length > 1 || library.catalogs.state.catalogs[0]?.name !== 'Default') &&
+          <label className="topbar-catalog"><span className="visually-hidden">Catalog</span>
+            <select aria-label="Current catalog" value={library.catalogs.currentID} onChange={e => library.catalogs?.select(e.target.value)} data-testid="catalog-select"
+              title={library.catalogs.state.catalogs.find(c => c.id === library.catalogs?.currentID)?.name}>
+              {library.catalogs.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
         <div className="search-field">
           <Icon name="search" size={14} />
           <input ref={search} type="search" placeholder={searchExternal ? 'Search ML papers' : 'Search library'} aria-label={searchExternal ? 'ML paper search' : 'Search library'}
@@ -654,13 +661,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <kbd aria-hidden="true">/</kbd>
         </div>
         <div className="topbar-actions">
-          <button className="primary small add-button" onClick={() => setAdding(true)} disabled={library.state !== 'ready'} data-testid="add-paper" title="Add paper">
-            <Icon name="plus" size={14} /><span>Add paper</span></button>
           <button className="icon-button theme-toggle" onClick={() => setTheme(resolved === 'dark' ? 'light' : 'dark')} aria-label={resolved === 'dark' ? 'Use light appearance' : 'Use dark appearance'}
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
+          <AccountMenu onAdd={library.state === 'ready' ? () => setAdding(true) : null} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
             onExplanations={chat ? setExplanationsOpen : null} />
@@ -771,7 +776,9 @@ function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view
   return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.scenarioProfile(scenario)} onChange={next => chat.setScenarioProfile(scenario,next)} scenarioControl={<label>Activity <select value={scenario} onChange={e=>setScenario(e.target.value as AIUseCase)}><option value="general">General chat</option><option value="paper">Paper chat</option><option value="equations">Equation explanations</option><option value="figures">Figures and tables</option></select></label>} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+function AccountMenu({ onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations }: {
+  /** Add paper, the menu's first row (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
+  onAdd: (() => void) | null; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
@@ -809,6 +816,7 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivac
       </button>
       {open && (
         <div className="menu" role="menu">
+          <button role="menuitem" className="menu-item menu-add" disabled={!onAdd} onClick={() => { setOpen(false); onAdd?.(); }} data-testid="add-paper"><Icon name="plus" size={14} /> Add paper…</button>
           <p className="menu-email">{email}</p>
           <p className="fine">This browser is an approved device.</p>
           {/* Owner, build 57: "Credits -> AI credits", "Plan -> Subscription Plan"; the explanations behind ⓘ. Bought in the apps. */}
