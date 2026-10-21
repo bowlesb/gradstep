@@ -1,10 +1,10 @@
 // OpenRouter TTS has no provider pin. Require ZDR + no collection; store the actual endpoint from its receipt.
 // Gemini rejects MP3 on this endpoint. Explicitly request 24 kHz mono signed 16-bit PCM, then validate/wrap WAV.
 import { openRouterPost, OpenRouterNotDispatched } from './openrouter-transport.ts';
+import { lookupGeneration } from './openrouter-generation.ts';
 import { SPEECH_MODEL, MAX_SPEECH_RESPONSE_BYTES, parseWav, wavBytes, type SpeechProvider } from './podcast-speech.ts';
 const MODEL = `google/${SPEECH_MODEL}`;
 const obj = (v: unknown): Record<string, any> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : {};
-const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0 ? v as number : null;
 
 // Speech ignores endpoint pins and output caps. Check every currently eligible ZDR endpoint before buying
 // audio: a newly added endpoint or changed serving limit must not silently invalidate the reserved ceiling.
@@ -43,7 +43,6 @@ export function openRouterSpeechProvider(options: { apiKey: string; fetch?: type
     let requestID: string | null = null;
     const failed = (state: 'unknown' | 'rejected', failure: string) => ({ state, requestID, model: SPEECH_MODEL,
       finishReason: null, audio: null, mimeType: null, usage: null, failure });
-    if (Date.now() >= Date.parse('2027-01-01T00:00:00Z')) return failed('rejected', 'tariff_expired');
     const config = obj(obj(request.body.generationConfig).speechConfig).multiSpeakerVoiceConfig;
     const voices = new Map((obj(config).speakerVoiceConfigs ?? []).map((v: any) => [v.speaker, v.voiceConfig?.voice]));
     const parts = obj((request.body.contents as unknown[])?.[0]).parts;
@@ -69,32 +68,15 @@ export function openRouterSpeechProvider(options: { apiKey: string; fetch?: type
       } finally { await reader.cancel().catch(() => {}); }
       if (!requestID || !/^[a-zA-Z0-9._:-]{1,256}$/.test(requestID)) return failed('unknown', 'usage_missing');
       // Receipt GETs cannot buy another generation. A missing/late receipt leaves the full admitted liability.
-      let receipt: Record<string, any> = {};
-      for (let n = 0; n < 8; n++) {
-        if (n) await new Promise<void>((resolve, reject) => {
-          const stop = () => { clearTimeout(timer); reject(new Error('deadline')); };
-          const timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, Math.min(4000, 250 * 2 ** (n - 1)));
-          signal.addEventListener('abort', stop, { once: true });
-          if (signal.aborted) stop();
-        });
-        const r = await (options.fetch ?? fetch)(`https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(requestID)}`,
-          { signal, redirect: 'error', headers: { authorization: `Bearer ${options.apiKey}`, 'X-Session-ID': attribution!.operationID } });
-        if (r.ok) { const raw = await r.text(); if (raw.length <= 65_536) receipt = obj(obj(JSON.parse(raw)).data); break; }
-        await r.body?.cancel();
-        if (r.status !== 404) break;
-      }
-      const tin = count(receipt.native_tokens_prompt), tout = count(receipt.native_tokens_completion);
-      if (receipt.id !== requestID || !eligible.models.has(receipt.model) || !eligible.providers.has(receipt.provider_name)
-        || receipt.external_user !== attribution!.accountID || receipt.session_id !== attribution!.operationID
-        || typeof receipt.total_cost !== 'number' || !Number.isFinite(receipt.total_cost) || receipt.total_cost < 0 || receipt.total_cost > 30
-        || tin === null || tout === null) return failed('unknown', 'usage_missing');
-      const billedMicrousd = Math.ceil(receipt.total_cost * 1_000_000);
-      if (!await attribution?.receipt?.({ generation_id: requestID, model: MODEL, resolved_model: receipt.model, provider: receipt.provider_name,
+      const receipt = await lookupGeneration(options, requestID, attribution!, signal);
+      if (!receipt || !eligible.models.has(receipt.model) || !eligible.providers.has(receipt.provider)) return failed('unknown', 'usage_missing');
+      const billedMicrousd = receipt.totalMicrousd, tin = receipt.promptTokens, tout = receipt.completionTokens;
+      if (!await attribution?.receipt?.({ generation_id: requestID, model: MODEL, resolved_model: receipt.model, provider: receipt.provider,
         total_cost_microusd: billedMicrousd })) return failed('unknown', 'receipt_unrecorded');
       const base = { state: 'succeeded' as const, requestID, model: SPEECH_MODEL, billedMicrousd,
         usage: { text_input_tokens: tin, audio_output_tokens: tout }, failure: null };
       if (!size || !['audio/pcm', 'audio/l16', 'audio/wav'].includes(response.headers.get('content-type')?.split(';')[0].toLowerCase() ?? '')
-        || receipt.cancelled !== false || ![null, 'stop'].includes(receipt.finish_reason))
+        || receipt.cancelled !== false || ![null, 'stop'].includes(receipt.finishReason))
         return { ...base, finishReason: 'INCOMPLETE', audio: null, mimeType: null };
       const bytes = new Uint8Array(size); let at = 0; for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
       try { return { ...base, finishReason: 'STOP', audio: normalizeOpenRouterSpeech(bytes), mimeType: 'audio/wav' }; }

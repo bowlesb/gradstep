@@ -227,7 +227,11 @@ test('Find lists occurrences and jumps without rewriting verified paper text',as
  await page.getByRole('search',{name:'Find in paper'}).getByRole('button',{name:'Done'}).click();
  expect(await frame.locator('body').innerHTML()).toBe(before);
  const afterTop=(await iframe.boundingBox())!.y+await frame.locator('body').evaluate(()=>(window as any).__findTestRange.getBoundingClientRect().top);
- expect(Math.abs(afterTop-top)).toBeLessThan(3); // Closing the bar changes viewport height; at the bottom scrollY clamps.
+ // Closing the bar changes viewport height. When that leaves a short paper scrolled to its end (the phone's
+ // destination bar since Notes makes this fixture reach it), scrollY clamps: the match must still be in view there.
+ const end=await frame.locator('body').evaluate(()=>{const r=(window as any).__findTestRange.getBoundingClientRect();
+   return {bottom:Math.abs(scrollY+innerHeight-document.documentElement.scrollHeight)<1,visible:r.top>=0&&r.bottom<=innerHeight};});
+ if(end.bottom&&Math.abs(afterTop-top)>=3)expect(end.visible).toBe(true);else expect(Math.abs(afterTop-top)).toBeLessThan(3);
 });
 
 test('a failed walkthrough says so and can be tried again; the figure page’s Explain in Chat drafts about the caption',async({page,request})=>{

@@ -1,10 +1,12 @@
 // "Add to library" on a bibliography entry, without a model: read the entry's arXiv id (named by
 // DataCite, never arXiv: docs/architecture/ARXIV_DEVICE_ONLY.md) or DOI, else match it with
 // Crossref's citation matcher, then find an arXiv or open-access copy with the shared finder. A
-// found paper is accepted only if its title appears in the entry.
+// found paper is accepted only if its title appears in the entry. OpenAlex (a DOI's record, the last-resort
+// search) is asked only while the owner's `openalex_enabled` switch is on (off since migration 075; §6.0.4).
 import type { FindResult, FoundPaper } from './chat.ts';
 import { dataciteIDURL, lookupDataCite, openAlexCandidates, titleWords, type DiscoveryResult } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
+import { readJSONCapped } from './bounded-json.ts';
 
 export const MAX_REFERENCE_CHARS = 2_000;
 const MAILTO = 'hello@gradstep.ai';
@@ -104,6 +106,8 @@ export type ReferenceRoute = 'arxiv_id' | 'doi' | 'title' | 'crossref' | 'openal
 export interface ReferenceDeps {
   fetch: typeof fetch;
   findPaper: (wanted: { title: string; year: number | null; firstAuthor: string | null; arxivID: string | null }, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
+  /** `worker_search_policy().openalex` (migration 072). Only an explicit `true` asks OpenAlex; absent or unreadable is off. */
+  openAlex?: boolean;
 }
 
 const UA = { accept: 'application/json', 'user-agent': `Gradstep/0.1 (research paper reader; mailto:${MAILTO})` };
@@ -111,12 +115,15 @@ async function getJSON(fetcher: typeof fetch, url: string, signal: AbortSignal):
   try {
     const response = await fetcher(url, { headers: UA, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(8_000)]) });
     if (!response.ok) { void response.body?.cancel().catch(() => {}); return null; }
-    return await response.json();
+    // Selected fields and a few rows only: a body over 2 MiB is not an answer worth reading (review A24).
+    return await readJSONCapped(response, 2 * 1024 * 1024);
   } catch { return null; }
 }
 
 /** OpenAlex's record for a DOI: an arXiv copy, an open-access PDF, or a closed paper. */
 async function byDOI(deps: ReferenceDeps, doi: string, reference: string, web: boolean, signal: AbortSignal): Promise<FindResult | null> {
+  // With OpenAlex off the entry's title and Crossref's citation matcher name the paper (steps 3 and 4 below).
+  if (deps.openAlex !== true) return null;
   const select = 'id,doi,title,publication_year,authorships,locations,best_oa_location';
   const work = await getJSON(deps.fetch, `https://api.openalex.org/works/doi:${encodeURIComponent(doi)}?select=${select}`, signal);
   if (!work) return null;
@@ -154,7 +161,7 @@ export async function resolveReference(deps: ReferenceDeps, reference: string, w
     if (found) { consulted = true; if (found.status !== 'closed') return { route: 'doi', result: found }; closed ??= found; }
   }
   // 3. The entry's own title (quoted, or between the authors and the venue) through the shared strict
-  //    search: OpenAlex (arXiv copies, open-access PDFs) and DataCite. Fast, and what a reader would do.
+  //    search: DataCite (and OpenAlex while its switch is on). Fast, and what a reader would do.
   for (const title of candidateTitles(reference).slice(0, 2)) {
     if (signal.aborted) break;
     const viaTitle = await deps.findPaper({ title, year: referenceYear(reference), firstAuthor: null, arxivID: null }, signal, { web })
@@ -178,7 +185,8 @@ export async function resolveReference(deps: ReferenceDeps, reference: string, w
   }
   if (closed) return { route: 'doi', result: closed };
   // 5. No citation match (many ML papers exist only on arXiv or at venues Crossref doesn't index):
-  //    OpenAlex's search on the entry, accepting a work whose title appears in it.
+  //    OpenAlex's search on the entry (only with the switch on), accepting a work whose title appears in it.
+  if (deps.openAlex !== true) return { route: 'none', result: { status: consulted && !signal.aborted ? 'not_found' : 'unavailable' } };
   const search = new URL('https://api.openalex.org/works');
   search.search = new URLSearchParams({ search: citationText(reference).slice(0, 300), 'per-page': '10',
     select: 'id,doi,title,publication_year,authorships,locations,best_oa_location', mailto: MAILTO }).toString();

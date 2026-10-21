@@ -1,4 +1,3 @@
-import { ROUTER_CLAUDE_PRICE_EXPIRES } from '../_shared/openrouter-claude-pricing.ts';
 import { installEgressGuard } from '../_shared/egress.ts';
 import { accountProviderFetch, installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
@@ -6,12 +5,12 @@ import { PublicError, sha256 } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { retryOnceWhenBusy, type ProviderOutcome } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
-import { paperFinder } from '../_shared/find-paper.ts';
+import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
 import { providerForModel, publishedProfiles } from '../_shared/chat-profiles.ts';
 import { openRouterChat } from '../_shared/openrouter-chat.ts';
-import { GEMINI_PRICE_EXPIRES } from '../_shared/gemini-pricing.ts';
+import { ACCEPT_MARGIN_MS, PUBLISH_MARGIN_MS, tariffOpen, tariffValidity } from '../_shared/openrouter-tariffs.ts';
 
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('chat');
@@ -19,6 +18,9 @@ installEgressGuard('chat');
 installProviderHealth('chat', serviceClient);
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
+/** The spending policy (Tavily allowance, OpenRouter card validity), or null when it cannot be read. Never throws. */
+const spendingPolicy = (service: ReturnType<typeof serviceClient>): Promise<unknown> => Promise.resolve(service.rpc('worker_provider_spending_policy', {}))
+  .then(({ data, error }) => error ? null : data, () => null);
 const encoder = new TextEncoder();
 
 // After a failure, this instance sends new answers to the backup for a while.
@@ -30,9 +32,9 @@ const deepseekMode = Deno.env.get('CHAT_DEEPSEEK') ?? 'off';
 const deepseekAccepted = !!openrouterKey && (deepseekMode === 'on' || deepseekMode === 'hidden');
 const deepseekPublished = !!openrouterKey && deepseekMode === 'on';
 const geminiMode = Deno.env.get('CHAT_GEMINI') ?? 'off';
-const geminiAccepted = !!openrouterKey && ['on', 'hidden'].includes(geminiMode) && Date.now() < GEMINI_PRICE_EXPIRES;
+// Each model's price-card validity is app_private.openrouter_tariffs (A4, migration 0101), read per request below.
+const geminiAccepted = !!openrouterKey && ['on', 'hidden'].includes(geminiMode);
 const claudeOpenRouter = true; // All remote model inference uses OpenRouter; no direct-provider fallback.
-const claudeAvailable = claudeOpenRouter && !!openrouterKey && Date.now() < ROUTER_CLAUDE_PRICE_EXPIRES;
 const geminiPublished = geminiAccepted && geminiMode === 'on';
 const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthorized: 3600_000, rate_limited: 60_000, unavailable: 120_000, rejected: 0 };
 
@@ -49,15 +51,20 @@ Deno.serve(async request => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (request.method !== 'POST' && request.method !== 'GET') throw new PublicError(405, 'method_unavailable');
     ({ accountID, user } = await userClient(request));
-    if (request.method === 'GET') return Response.json(publishedProfiles({ deepseek: deepseekPublished && new URL(request.url).searchParams.get('consent_version') === 'cloud-ai-v6', gemini: geminiPublished, claudeOpenRouter }), { headers });
+    if (request.method === 'GET') {
+      // A4: a model whose price card lapses within a day is not offered (clients keep the table for a while). An
+      // unreadable table leaves the list as it is; admission still refuses a lapsed card.
+      const validity = tariffValidity(await spendingPolicy(serviceClient()));
+      return Response.json(publishedProfiles({ deepseek: deepseekPublished && new URL(request.url).searchParams.get('consent_version') === 'cloud-ai-v6',
+        gemini: geminiPublished, claudeOpenRouter, available: model => tariffOpen(validity, model, PUBLISH_MARGIN_MS) }), { headers });
+    }
     service = serviceClient();
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
     return errorResponse(failure, headers);
   }
   // Started before the body is read and awaited only when search is decided (time to first text).
-  const providerPolicy = Promise.resolve(service.rpc('worker_provider_spending_policy', {}))
-    .then(({ data, error }) => error ? null : data, () => null) as Promise<{ tavily_enabled?: boolean; native_search_enabled?: boolean } | null>;
+  const providerPolicy = spendingPolicy(service) as Promise<{ tavily_enabled?: boolean; native_search_enabled?: boolean; openrouter_tariffs?: unknown } | null>;
   // An unreadable body is reported as invalid_request after rate limiting.
   try { body = await readChatBody(request); } catch { body = null; }
 
@@ -81,7 +88,11 @@ Deno.serve(async request => {
     ? (body as { action: string }).action : 'chat';
   const spending = { accountID, feature, operationID: typeof rawID === 'string' ? rawID.toLowerCase() : '', rpc, sha256Hex: sha256, log };
   const search = tavilyKey ? admittedTavily(spending, 'chat_search', providerFetch, tavilyKey) : null;
-  const finder = paperFinder(user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined);
+  // Ingest asks OpenAlex only while the owner's `openalex_enabled` switch is on (off since migration 075): the policy is
+  // read lazily, only when an Ingest looks a title up, and an unreadable policy keeps OpenAlex off.
+  // An Ingest's import is named after this chat operation (migration 120), so it can never be queued twice.
+  const finder = paperFinder(user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined, fetch, {
+    requestID: spending.operationID, openAlex: () => Promise.resolve(service.rpc('worker_search_policy')).then(({ data, error }) => !error && openAlexAllowed(data), () => false) });
   const deps: ChatDependencies = {
     accountID,
     rpc,
@@ -95,6 +106,8 @@ Deno.serve(async request => {
     deepseek: deepseekAccepted,
     gemini: geminiAccepted,
     claudeOpenRouter,
+    // A4: refused as model_unavailable before any hold when the card lapses within the answer's time.
+    modelAvailable: async model => tariffOpen(tariffValidity(await providerPolicy), model, ACCEPT_MARGIN_MS),
     sha256Hex: sha256,
     webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
     // RPC readiness cannot stand in for an enforceable native-search quote.

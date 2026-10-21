@@ -19,11 +19,11 @@ import statistics
 import subprocess
 import time
 import uuid
+from pg_tools import pg_bin  # SCIENCE_READER_PG_BIN, PATH, or the documented local tools
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = ['-h', '127.0.0.1', '-p', '55431']
-BIN = pathlib.Path(os.environ.get('SCIENCE_READER_PG_BIN',
-    '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
+BIN = pg_bin()
 ENV = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
 ENV['PGPASSFILE'] = os.devnull
 QUERY_BUDGET_MS = 5000

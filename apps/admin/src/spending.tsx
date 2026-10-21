@@ -20,6 +20,20 @@ export interface SpendingSummary {
     components: Array<{ id: string; label: string; observation_id: string | null; measure: string | null; amount_microusd: number | null; complete: boolean | null; observed_at: string | null; source: string | null; evidence_reference: string | null }> };
   external_observations: Array<{ id: string; component: string; measure: string; amount_microusd: number | null; complete: boolean; observed_at: string; source: string; evidence_reference: string; units: Units }>;
   anomalies: { budget_paused: boolean; budget_eighty_percent: boolean; forecast_incomplete: boolean; funded_plan_over_budget: boolean; tavily_unverified: boolean; native_search_gated: boolean; attempt_capacity_eighty_percent: boolean };
+  /** Encrypted note images (migration 095); absent before it. */
+  note_assets?: NoteAssetUsage;
+  /** Granted provider attempts in the rolling window (migration 0100, review A2); absent before it. */
+  attempt_capacity?: AttemptCapacity;
+}
+export interface AttemptCapacity { window_hours: number; platform_used: number; platform_limit: number; account_limit: number;
+  busiest_account_id: string | null; busiest_account_used: number; eighty_percent: boolean }
+export interface NoteAssetUsage {
+  period: string;
+  limits: { max_blob_bytes: number; account_bytes: number; account_objects: number; environment_bytes: number; account_download_bytes_month: number;
+    environment_download_bytes_month: number; account_verify_bytes_month: number; environment_verify_bytes_month: number };
+  stored: { bytes: number; objects: number; ready_bytes: number; ready_objects: number; pending_bytes: number; pending_objects: number; oldest_pending_at: string | null; accounts: number };
+  month: { download_bytes: number; downloads: number; verify_bytes: number; verifies: number };
+  account: { bytes: number; objects: number; pending_objects: number; download_bytes: number; verify_bytes: number } | null;
 }
 export interface SpendingOperation {
   id: string; account_id: string; kind: string; state: string; created_at: string; settled_at: string | null;
@@ -57,6 +71,16 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const recordNames: Record<RecordKind, string> = { events: 'Attempt history', credits: 'Customer credits', adjustments: 'Reconciliation', legacy_usage: 'Earlier usage records' };
 const errorText = (e: unknown) => e instanceof Error ? e.message : 'Spending records could not be loaded.';
 
+/** Review A2: provider attempts are limited per rolling window; at 80% new AI work is close to being refused. */
+function AttemptCapacityNotice({ capacity }: { capacity: AttemptCapacity }) {
+  const window = `${capacity.window_hours} hours`;
+  return <div className="notice" role="alert">
+    {capacity.platform_used >= capacity.platform_limit * 0.8 && <>Provider attempts in the last {window}: {capacity.platform_used.toLocaleString()} of {capacity.platform_limit.toLocaleString()} for the whole service. </>}
+    {capacity.busiest_account_id && capacity.busiest_account_used >= capacity.account_limit * 0.8 && <>Account {short(capacity.busiest_account_id)} used {capacity.busiest_account_used.toLocaleString()} of its {capacity.account_limit.toLocaleString()} attempts in the last {window}. </>}
+    At the limit, new AI work is refused until older attempts leave the window.
+  </div>;
+}
+
 export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ownerID: string; api?: SpendingApi; reloadKey?: number }) {
   const [days, setDays] = useState(30), [account, setAccount] = useState<string | null>(null), [draft, setDraft] = useState('');
   const [summary, setSummary] = useState<SpendingSummary | null>(null), [error, setError] = useState(''), [retry, setRetry] = useState(0);
@@ -87,6 +111,7 @@ export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ow
         {summary.anomalies.budget_paused ? 'New provider spending is paused. ' : summary.anomalies.budget_eighty_percent ? 'At least 80% of the provider budget is used or held. ' : ''}
         {summary.unresolved.aged_over_hour > 0 && `${summary.unresolved.aged_over_hour} unresolved attempts are more than an hour old.`}
       </div>}
+      {summary.attempt_capacity?.eighty_percent && <AttemptCapacityNotice capacity={summary.attempt_capacity} />}
       <section className="panel"><div className="section-heading"><h2>Provider attempts</h2><small className="muted">Requests started since {new Date(summary.since).toLocaleDateString()}</small></div>
         <div className="table-scroll"><table><thead><tr><th>Provider / model</th><th>Feature</th><th className="num">Attempts</th><th className="num">Reported</th><th className="num">Estimated</th><th className="num">Held</th><th className="num">Prepaid units</th></tr></thead><tbody>
           {summary.providers.map(row => <tr key={[row.provider, row.model, row.route].join(':')}><td>{row.provider}<small>{row.model}</small></td><td>{name(row.route)}</td><td className="num">{row.attempts}</td><td className="num">{money(row.reported_microusd)}</td><td className="num">{money(row.estimated_microusd)}</td><td className="num">{money(row.held_microusd)}</td><td className="num">{row.provider === 'tavily' ? `${row.prepaid_used} used · ${row.prepaid_held} held` : '—'}</td></tr>)}
@@ -102,6 +127,7 @@ export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ow
         {summary.allowances.map(a => <div className="allowance-row" key={a.id}><strong>{a.provider}</strong><span>{new Date(a.starts_at).toLocaleDateString()} – {new Date(a.ends_at).toLocaleDateString()}</span><span>{a.baseline_units + a.spent_units} used + {a.reserved_units} held / {a.limit_units}</span><span className="badge">{a.enabled ? 'Enabled' : 'Paused'}</span><small className="muted">Baseline {a.baseline_units}; evidence {a.evidence_reference}, checked {date(a.observed_at)}</small></div>)}
         {summary.anomalies.native_search_gated && <p className="muted">Anthropic search backup is gated until its full cost can be bounded.</p>}
       </section>
+      {summary.note_assets && <NoteImages usage={summary.note_assets} account={account} />}
       <Forecast summary={summary} />
       <p className="footnote">Customer refunds do not erase possible provider charges. These records contain financial metadata; private prompts, chats and papers are not included.</p>
     </>}
@@ -175,6 +201,25 @@ function RecordList({ api, selected, kind }: { api: SpendingApi; selected: { acc
     {busy && <p role="status">Loading records…</p>}{page && !page.records.length && <p className="empty">No records in this section.</p>}
     {page?.next && <button className="quiet" disabled={busy} onClick={() => void next()}>Load older records</button>}
   </div>;
+}
+const size = (n: number) => n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KiB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MiB` : `${(n / 1024 ** 3).toFixed(2)} GiB`;
+const share = (used: number, limit: number) => `${size(used)} of ${size(limit)} (${limit ? Math.round(used / limit * 100) : 0}%)`;
+/** Storage and transfer the server enforces for encrypted note images; it cannot see what they show. */
+function NoteImages({ usage, account }: { usage: NoteAssetUsage; account: string | null }) {
+  const { limits, stored, month } = usage;
+  const full = stored.bytes >= limits.environment_bytes * 0.8 || month.download_bytes >= limits.environment_download_bytes_month * 0.8;
+  return <section className="panel"><div className="section-heading"><h2>Note images</h2><small className="muted">Encrypted · {new Date(usage.period + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })} (UTC)</small></div>
+    {full && <p className="notice" role="status">At least 80% of the note image storage or this month's download allowance is used.</p>}
+    <div className="table-scroll"><table><thead><tr><th>Whole service</th><th className="num">Used</th><th>Detail</th></tr></thead><tbody>
+      <tr><td>Stored</td><td className="num">{share(stored.bytes, limits.environment_bytes)}</td><td>{stored.objects.toLocaleString()} objects across {stored.accounts.toLocaleString()} accounts</td></tr>
+      <tr><td>Uploads not yet verified</td><td className="num">{size(stored.pending_bytes)}</td><td>{stored.pending_objects.toLocaleString()} objects{stored.oldest_pending_at ? ` · oldest ${date(stored.oldest_pending_at)}` : ''}; they count against storage</td></tr>
+      <tr><td>Downloads this month</td><td className="num">{share(month.download_bytes, limits.environment_download_bytes_month)}</td><td>{month.downloads.toLocaleString()} downloads, charged before reading</td></tr>
+      <tr><td>Upload read-backs this month</td><td className="num">{share(month.verify_bytes, limits.environment_verify_bytes_month)}</td><td>{month.verifies.toLocaleString()} checks of stored bytes</td></tr>
+    </tbody></table></div>
+    {account && usage.account && <p>This account: {share(usage.account.bytes, limits.account_bytes)} stored in {usage.account.objects.toLocaleString()} of {limits.account_objects.toLocaleString()} objects ({usage.account.pending_objects} not yet verified);
+      downloads {share(usage.account.download_bytes, limits.account_download_bytes_month)}; read-backs {share(usage.account.verify_bytes, limits.account_verify_bytes_month)}.</p>}
+    <p className="muted">Per account: {size(limits.account_bytes)} and {limits.account_objects.toLocaleString()} objects stored, {size(limits.account_download_bytes_month)} downloaded a month; each object at most {size(limits.max_blob_bytes)}. Byte counts are the server's admission records, not a Supabase invoice.</p>
+  </section>;
 }
 function Forecast({ summary }: { summary: SpendingSummary }) {
   const forecast = summary.forecast;

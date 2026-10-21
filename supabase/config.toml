@@ -23,6 +23,13 @@ minimum_password_length = 12
 enable_signup = true
 enable_confirmations = true
 
+# Durable beta admission (migration 091): every new login must pass this invitation hook. Hosted staging enables it
+# through scripts/configure-beta-admission.py; declared here too (review D9) so a local stack admits only invited
+# addresses and a `supabase config push` cannot re-open signup without it.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/hook_beta_before_user_created"
+
 [auth.mfa.totp]
 enroll_enabled = true
 verify_enabled = true
@@ -75,6 +82,27 @@ verify_jwt = false
 # the handler; ordinary user/anon JWTs cannot invoke Google or the private service.
 verify_jwt = false
 
+[functions.add-paper]
+# Auth is verified against Auth.getUser inside the handler (before rate limiting or any lookup), as the other
+# functions; browser preflights carry no token (review D9: without an entry the gateway defaulted to verify_jwt=true).
+verify_jwt = false
+
+[functions.add-reference]
+# Auth is verified against Auth.getUser inside the handler, as add-paper.
+verify_jwt = false
+
+[functions.podcast]
+# Auth is verified against Auth.getUser inside the handler before any action (podcast-api.ts).
+verify_jwt = false
+
+[functions.podcast-member]
+# Auth.getUser plus an account-bound, one-use member grant in the handler.
+verify_jwt = false
+
+[functions.upload-pdf]
+# Retired: answers 410 pdf_device_only after Auth.getUser in the handler, without reading the body.
+verify_jwt = false
+
 [functions.admin-accounts]
 # Called from the admin site (browser preflights carry no token). The handler verifies the
 # token with Auth.getUser and requires an owner with MFA (v1_admin_actor) before any change.
@@ -83,4 +111,9 @@ verify_jwt = false
 [functions.admin-spending]
 # Auth.getUser and caller-token v1_admin_actor require a real owner MFA session
 # before the append-only evidence RPC. Browser preflights carry no token.
+verify_jwt = false
+
+[functions.note-assets]
+# Encrypted note images (migration 095). Auth.getUser and the open-account check inside the handler, as
+# support-assets; browser preflights carry no token.
 verify_jwt = false

@@ -57,6 +57,15 @@
       "application/octet-stream"
     ]
   },
+  "note_bucket": {
+    "id": "note-assets",
+    "name": "note-assets",
+    "public": false,
+    "file_size_limit": 2097180,
+    "allowed_mime_types": [
+      "application/octet-stream"
+    ]
+  },
   "functions": [
     "support-assets",
     "reader-artifact",
@@ -72,7 +81,9 @@
     "add-paper",
     "upload-pdf",
     "podcast",
-    "podcast-member"
+    "podcast-member",
+    "note-assets",
+    "feed-refresh"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,

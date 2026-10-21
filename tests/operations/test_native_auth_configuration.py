@@ -333,18 +333,21 @@ class NativeAuthConfigurationTests(unittest.TestCase):
 
     def test_missing_duplicate_and_foreign_credential_locators_refuse_without_node_or_network(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / 'project'; reference = Path(directory) / 'reference'
-            (root / 'infra').mkdir(parents=True); reference.mkdir()
+            # Science Reader's own .env.appstore and secrets/ only (AGENTS.md: dedicated credentials), never another project's.
+            root = Path(directory) / 'project'; keys = root / 'secrets'
+            (root / 'infra').mkdir(parents=True); keys.mkdir()
             (root / 'infra/account.json').write_text(json.dumps({
                 'organization': {'slug': AUTH.ORGANIZATION}, 'projects': {'staging': {'id': AUTH.PROJECT}}}))
-            (reference / 'fixture.p8').write_text('fake fixture only')
+            (keys / 'fixture.p8').write_text('fake fixture only')
+            (root / 'outside.p8').write_text('fake key outside secrets/')
             (Path(directory) / 'foreign.p8').write_text('fake foreign fixture only')
             base = 'ASC_KEY_ID=ABCDEFGHIJ\nASC_ISSUER_ID=00000000-0000-4000-8000-000000000000\n'
-            cases = [base, base + 'ASC_KEY_PATH=fixture.p8\nASC_KEY_ID=KLMNOPQRST\n',
-                     base + 'ASC_KEY_PATH=../foreign.p8\n']
+            cases = [base, base + 'ASC_KEY_PATH=secrets/fixture.p8\nASC_KEY_ID=KLMNOPQRST\n',
+                     base + 'ASC_KEY_PATH=../foreign.p8\n', base + 'ASC_KEY_PATH=outside.p8\n']
             for text in cases:
-                (reference / '.env').write_text(text)
-                with mock.patch.object(AUTH, 'ROOT', root), mock.patch.object(AUTH, 'REFERENCE', reference), \
+                (root / '.env.appstore').write_text(text)
+                with mock.patch.object(AUTH, 'ROOT', root), mock.patch.object(AUTH, 'APPSTORE_ENV', root / '.env.appstore'), \
+                     mock.patch.object(AUTH, 'APPSTORE_KEYS', keys), \
                      mock.patch.object(AUTH.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='fake-management')) as run:
                     with self.assertRaises(AUTH.ConfigurationError):
                         AUTH.credentials()

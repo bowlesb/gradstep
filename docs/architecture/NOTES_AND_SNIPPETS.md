@@ -1,7 +1,9 @@
 # Notes and snippets
 
-Designed 2026-10-20 local / 2026-10-21 UTC. **Proposal and interactive design prototype; no application implementation, migration,
-provisioning or release.** The owner requested the end-to-end experience and examination of the current app.
+Designed 2026-10-20 local / 2026-10-21 UTC. Proposal and interactive design prototype, now being built: see
+[Server status](#server-status--blob-api-live-on-staging-2026-10-21-utc) and
+[Browser client status](#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc); no client is released.
+The owner requested the end-to-end experience and examination of the current app.
 This document separates that direction from recommended details and implementation gates. Current released
 clients remain TestFlight 77 and browser Pages `27c45ca0` as recorded in IMPLEMENTATION_STATUS.md.
 
@@ -78,6 +80,104 @@ Mac and browser add Notes to their existing destination lists; Mac keeps ⌘, fo
 **Capture entry points (v1).** Paper ⋯ › Draw snippet; selection menu › Add to note (quote); figure, table and
 equation pages › Add to note (whole item, then optional adjust). Native HTML reader: `WKWebView.takeSnapshot` of the
 chosen rect; local PDF: PDFKit page render of the rect. Notes ⋯/+: New note, Add text.
+
+### Server status — blob API live on staging (2026-10-21 UTC)
+
+Migration `202610210095_note_assets.sql` and the `note-assets` Edge function are deployed to staging
+(`coxhjvqpflgxkleydati`); clients are separate work. Evidence: [implementation status](../IMPLEMENTATION_STATUS.md#notes-images-server--october-21-utc-staging-live).
+The API as deployed (`{base}` = `https://<project>.supabase.co/functions/v1/note-assets`; both methods send
+`Authorization: Bearer <access token>` and `apikey`, like every user function):
+
+| Request | Responses (JSON errors are `{code}`, plus `retry_after` seconds and `Retry-After` when waiting helps) |
+|---|---|
+| `PUT {base}/{blobID}`, body = stored blob (28 B … 2 MiB + 28 B), `x-content-sha256: <hex>` | **200** `{state:"ready",bytes}` (also for a repeat of a ready object, which writes nothing) · **400** `digest_required` (missing/malformed header), `digest_mismatch` (body ≠ header), `invalid_blob` (< 28 B), `invalid_id` · **409** `conflict` (this account already has the ID with another digest or length) · **413** `too_large` · **429** `quota` (stored quota; no `retry_after`, objects stay until account deletion) or `quota` with `retry_after` (monthly read-back allowance, renews at the next UTC month) or `rate_limited` (60 s) · **401**/**403** as other functions · **503** `not_ready` (the stored bytes did not read back identically; repeat the same PUT) or `service_unavailable` (10 s) |
+| `GET {base}/{blobID}` | **200** the bytes, `Content-Type: application/octet-stream`, `Content-Length`, `X-Content-SHA256` (CORS-exposed) · **404** `not_found` (no ready object of this ID for this account; pending objects and other accounts' objects look the same) · **429** `quota` + `retry_after` until the next UTC month, or `rate_limited` · **416** for `Range` · **503** `integrity_failed`/`asset_unavailable` (a charged read that failed; retry) |
+
+Every response carries `Cache-Control: private, no-store`. Browser preflight allows `GET, PUT, OPTIONS` and the
+`x-content-sha256` header for the shared reader origins. Blob IDs are per account: the same UUID under two accounts
+is two objects (`{account}/{blob}`), never a conflict or a disclosure. Upper-case UUIDs/hex are accepted and
+normalized to lower case. Downloads are charged in full before Storage is read; a failed read keeps its charge.
+
+Behind it: one policy row (`app_private.note_asset_policy`, the single place for quotas) with the contract's limits,
+plus two server-side bounds the contract did not list: each upload attempt's read-back is metered (256 MiB/account,
+1 GiB/environment per month; a retry of a pending object is another read-back) and the shared request limiter allows
+`note-upload` 300/hour/account (3,000 environment) and `note-download` 1,000/hour/account (10,000 environment).
+Authentication is exactly the other functions' (Auth `getUser`, open account via `v1_account_context`, the request
+limiter, not spending-suspended); no user-facing function checks device identity, so neither does this one — the
+entry event carrying the key still needs device and management authority through `v1_append_event`. The bucket
+(private, 2,097,180-byte limit, `application/octet-stream` only, no Storage policies) is provisioned and drift-checked
+by `scripts/deploy-staging.py` from `infra/staging.json`, like every other bucket. Inventory: `app_private.note_assets`
+(account, blob, stored-bytes SHA-256, length, `pending|ready`, attempt count/time), environment totals and monthly
+transfer counters, all RLS deny-by-default and reachable only through service-role functions. Logs carry method,
+status, error code, byte count and duration only.
+
+Account deletion plans every inventoried object plus the `{account}/` folder. While a pending object's last write
+began less than 10 minutes ago (above Edge's wall-clock limit) nothing is removed and `account-delete` answers
+`complete:false`; the worker sweep finishes later. After removal the function lists the folder again and only an
+empty listing lets `finish` delete the inventory rows and release capacity. The Cloud Run worker's sweep runs the
+previous shared module until its next deploy: it removes every inventoried object but does not re-list. Ready
+objects are included in `scripts/backup.py` checkpoints and counted by `restore-local.py`. Owner's Spending page
+(admin) shows stored/pending bytes and this month's downloads and read-backs against the limits.
+
+Supabase's gateway held an early refusal (401, 413, …) to an unread upload body over a few hundred KiB until a 504
+after 160 s; the function therefore reads and discards (never buffers) up to 4 MiB of a refused body before
+answering. A client that declares more than that may still see a gateway timeout instead of 413.
+
+### Browser client status — implemented locally, not deployed (2026-10-21 UTC)
+
+The browser (`apps/web`) implements the contract against the local fixture backend; it is **not deployed** and was
+not exercised against the staging function. Evidence: [implementation status](../IMPLEMENTATION_STATUS.md#notes-and-snippets-browser--october-21-utc-local-not-deployed).
+
+- **Records** (`lib/notes.ts`): the codec reads and writes `gradstep-notes-v1` in the fixture's field order, so every
+  fixture record re-encodes byte for byte; the five invalid fixture records fail with their stated reasons; future
+  `gradstep-notes-vN` records are counted and their note says "Update Gradstep"; any other `note` payload (catalogs,
+  older notes) is ignored, and the catalog reducer ignores Notes records (both directions tested). The reducer orders
+  entries by `(counter, entryID)`, keeps concurrent comments/titles as versions (winner = greatest event ID) until
+  one is chosen with every head as parent, hides tombstoned entries/notes for good, shows entries whose note hasn't
+  arrived as an incomplete note, and counts malformed records visibly (including revisions that change anything
+  but the title/comment, and outer events with a document/paper/chat binding).
+- **Blobs** (`lib/note-blob.ts`): AES-256-GCM with the contract AAD; the fixture vector matches byte for byte.
+  Opening checks length, digest, tag and magic bytes; display additionally checks the image header and the decoded
+  size against the record. Images are re-encoded on the device (PNG; JPEG only when the PNG would exceed 2 MiB;
+  ≤4,096 px, ≤6 MP; JPEG thumbnail ≤480 px, ≤64 KiB), which strips metadata, and the composer shows those exact bytes.
+- **Local durability** (`lib/journal.ts`, `lib/history.ts`, `lib/notes-store.ts`): a save commits sealed blob
+  records, any new note and the entry in one IndexedDB transaction of the account's encrypted journal, then says
+  Saved. Blob records sit outside the key range an older release counts (it rewrites the head's new `notes` manifest
+  unchanged) and are removed with the browser's keys. The history's send gate uploads an entry's blobs (same IDs and
+  bytes on every retry) before the entry event, and holds the entry and anything depending on it when an upload
+  fails, while unrelated events (chats) still go. Unsynced crops are never evicted; downloaded or already-uploaded
+  copies are an encrypted cache bounded at 96 MiB. Images are fetched on demand (thumbnail in the stream, full image
+  in the zoom view), local copy first, and shown through in-memory `blob:` URLs revoked when the account's session
+  retires; the app CSP therefore adds `img-src blob:` (the reader frame's CSP and sandbox are unchanged).
+- **UI**: Notes is a destination (desktop: Library · Feed · Notes · Chats, with the list in the side panel beside the
+  note; phone widths ≤640 px: Feed · Library · Paper · Chat · Notes at the bottom and the top-right account control
+  becomes ⋯ with Settings). List with on-device search, counts, last edited and pending syncs; New, Rename, Delete
+  (confirmation names the note and its entries); the stream with date separators, crops, quotes and writing; Edit
+  comment, Open in paper and Delete snippet; "2 versions · Review"; full-size view with zoom; Add text. State labels
+  follow the table above (keys-not-approved is the existing browser key setup, before any destination).
+- **Capture**: selection › Add to note (a quote; no AI); a tapped equation, the figure page, the table page and the
+  equation page › Add to note (a figure's own verified image when it has one asset; otherwise the element rendered
+  from the paper); Paper ⋯ › Draw snippet (after Reader version details). The region is rasterized **inside the
+  sandboxed reader frame**, locally and without network: the document is cloned with its stylesheets (media
+  conditions resolved as they apply now), drawn from an SVG `foreignObject` data URL to a canvas, and the frame's
+  own decoded pictures are painted over it (WebKit paints pictures inside an SVG image only after its first paint).
+  Replies are bounded and bound to the open bundle. A probe disables Draw snippet with a message where the canvas
+  can't be read back. Fidelity on real bundles passes in Chromium (1×, 2×), Firefox and WebKit (2×), light and dark.
+
+Choices where the contract was open: UUIDs are written lowercase and read in either case; omitted nullable keys
+read as null; a stored blob may be the 2 MiB image plus its 28 bytes (as the server's 413 bound), a thumbnail 64 KiB
+plus 28; a thumbnail of either image type is read, JPEG is written; titles are trimmed with Swift's whitespace set
+and limited to 80 scalars (no byte bound); counters ≤ 2³¹−1; `offsetMinutes` within ±1,440; source `sourceID`,
+`revision` and `url` may be null (a non-arXiv paper); a deletion tombstone names the entity's current heads; a
+region's anchor has its viewport rectangle and the covered blocks, an element capture has blocks only.
+
+Not done in the browser: encrypted composer/comment drafts (Cancel after typing asks Discard or Keep editing, and an
+unsaved comment does not survive a reload); the last destination is remembered for the session only (otherwise the
+most recently edited note is preselected); "Keep both" when resolving versions; a New snippets jump; touch hold menus
+and two-tap corners (Draw snippet is in Paper ⋯; keyboard users have Whole view, edge sliders and arrow keys on
+corners); capture from a local PDF (the browser opens local PDFs outside the reader frame); Open in paper for a paper
+not in this library (it says to add it). Real Safari, the hosted function and cross-platform (native ↔ browser)
+records are untested; Playwright WebKit cannot persist the device keys, so the full journeys run in Chromium.
 
 ## Product contract
 

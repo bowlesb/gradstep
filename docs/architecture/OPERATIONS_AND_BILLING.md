@@ -389,7 +389,7 @@ reads and 0.11 M output tokens; a cold figure walkthrough is ~35–60 credits (~
 
 **Evidence limit, corrected during takeover:** these figures do not establish what depleted the prepaid balance.
 We have not reconciled the opening balance, top-ups, provider invoice or direct development-script calls. The key's
-historical source was the NAS project file (`scripts/read-nas-provider-config.py`); that does not prove the NAS app
+historical source was the NAS project file (read by `scripts/read-nas-provider-config.py`, removed 2026-10-21); that does not prove the NAS app
 is currently running or spending. No NAS access was performed during takeover. Organization-level billing and
 other API keys are possible contributors, not measured attribution. A Claude subscription quota is also distinct
 from the application's API balance. Reconcile Anthropic's Usage by key/workspace before assigning the missing spend.

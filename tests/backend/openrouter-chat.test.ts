@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import { openRouterAttempt, openRouterChat, openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
-import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL, GEMINI_PRICE_EXPIRES } from '../../supabase/functions/_shared/gemini-pricing.ts';
+import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL } from '../../supabase/functions/_shared/gemini-pricing.ts';
+// A fixed clock: card validity is the database's (migration 0101), not a constant in the adapter.
+const NOW = Date.parse('2026-12-01T00:00:00Z');
 import { chatRequestParams, priceAttempts, holdForParams } from '../../supabase/functions/_shared/anthropic.ts';
 import { publishedProfiles, resolveChoice, providerForModel } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { validateChatRequest, runChat, type ChatDependencies, type ChatEvent } from '../../supabase/functions/_shared/chat.ts';
@@ -25,7 +27,7 @@ function response(events: unknown[], done = true) {
 }
 async function run(events: unknown[], done = true) {
   let text = '', sent: Record<string, any> | null = null;
-  const generate = openRouterChat({ apiKey: 'test-key', now: () => GEMINI_PRICE_EXPIRES - 1, fetch: async (_url, options) => {
+  const generate = openRouterChat({ apiKey: 'test-key', now: () => NOW, fetch: async (_url, options) => {
     assert.equal(new Headers(options?.headers).get('X-OpenRouter-Cache'), 'false');
     sent = JSON.parse(String(options?.body)); return response(events, done);
   } });
@@ -60,7 +62,9 @@ test('streamed Unicode and authoritative cache-inclusive cost reach settlement o
   const admitted = admittedAnthropic({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
     rpc: async (name, p) => { calls.push({ name, p }); return { granted: true }; } }, async () => outcome);
   await admitted(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {} });
-  assert.equal(calls[0].p.p_provider, 'openrouter'); assert.equal(calls[1].p.p_actual_microusd, 1000);
+  // C6: admission and dispatch are one call (migration 0107), with the model and pinned endpoint it is sent as.
+  assert.equal(calls[0].name, 'worker_openrouter_admit'); assert.deepEqual(calls[0].p.p_metadata, { transport_model: GEMINI_OPENROUTER_MODEL, endpoint: 'google-vertex/us', feature: 'chat', caller: 'chat' });
+  assert.equal(calls[1].p.p_actual_microusd, 1000);
   assert.equal(calls[1].p.p_provider_request_id, 'gen-test'); assert.equal(calls[1].p.p_state, 'succeeded');
   assert.equal((calls[1].p.p_actual_units as Record<string, number>).cache_storage_tokens, 100);
 });
@@ -125,15 +129,18 @@ test('provider rejection diagnostics expose only a closed category, never echoed
   }
 });
 
-test('pre-inference refusals cost zero, 5xx is uncertain, and expired rates make no request', async () => {
+test('pre-inference refusals cost zero, 5xx is uncertain, and a lapsed card (admission) makes no request', async () => {
   for (const status of [402, 429, 503]) {
     const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => new Response('', { status, headers: { 'retry-after': '2' } }) });
     const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
     assert.equal(outcome.failure, status === 402 ? 'provider_billing' : 'provider_error');
     assert.equal(outcome.exact, status !== 503); assert.equal(outcome.retryAfterMs, 2000);
   }
-  const expired = openRouterChat({ apiKey: 'test-key', now: () => GEMINI_PRICE_EXPIRES, fetch: async () => { throw new Error('must not send'); } });
-  assert.equal((await expired(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1, onText: () => {} })).exact, true);
+  // A4: admission refuses a lapsed card (app_private.openrouter_tariffs) before the adapter runs: the model is unavailable.
+  const refused = admittedAnthropic({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
+    rpc: async () => ({ granted: false, reason: 'tariff_expired' }) }, async () => { throw new Error('must not send'); });
+  const expired = await refused(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1, onText: () => {} });
+  assert.equal(expired.exact, true); assert.equal(expired.rejectionReason, 'tariff_expired'); assert.deepEqual(expired.attempts, []);
   for (const reason of ['length', 'content_filter', 'unexpected']) {
     const { outcome } = await run([final(reason)]);
     assert.equal(outcome.status, reason === 'unexpected' ? 'failed' : 'complete');
@@ -164,7 +171,7 @@ test('the enabled chat orchestrator quotes Flash and settles the reported cost',
   const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [];
   const rpc: ChatDependencies['rpc'] = async (name, p) => {
     calls.push({ name, p });
-    return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null;
+    return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : null;
   };
   const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000001';
   const sha256Hex = async (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -214,7 +221,7 @@ test('routed Claude plus title and suggestions all admit and settle as OpenRoute
   for (const consent of ['cloud-ai-v4', 'cloud-ai-v5']) {
     const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], models: string[] = [];
     const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
-      return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
+      return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
     const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000002';
     const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
     const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', fetch: async (_url, init) => {
@@ -236,7 +243,7 @@ test('routed Claude plus title and suggestions all admit and settle as OpenRoute
     assert.equal(quote.model, routedClaudeModel('claude-sonnet-5-5'));
     assert.equal(quote.title_model, routedClaudeModel('claude-haiku-5-5'));
     assert.equal(quote.follow_ups_model, quote.title_model);
-    assert.ok(calls.filter(c => c.name === 'worker_provider_attempt_begin').every(c => c.p.p_provider === 'openrouter'));
+    assert.ok(calls.filter(c => c.name === 'worker_openrouter_admit').length === 3 && !calls.some(c => c.name === 'worker_openrouter_dispatch'), 'admitted and dispatched in one call each');
     assert.ok(events.some(e => e.event === 'done' && e.data.model === 'claude-sonnet-5-5'));
   }
 });
@@ -256,7 +263,108 @@ test('Vertex Claude forced auxiliaries use a structured schema, never an unsuppo
     const result = await generate(forced, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { streamed += s; } });
     assert.equal(streamed, '', 'auxiliary JSON never leaks into the reader answer');
     assert.equal(result.exact, true); assert.equal(priceAttempts(result.attempts), 1000);
-    assert.equal(result.status, content === 'invalid JSON' ? 'failed' : 'complete');
-    if (result.status === 'complete') assert.deepEqual(result.toolCalls?.[0].input, { questions: ['Why units?', 'What scale?'] });
+    // A23: an unparsable forced object is dropped (the turn completes with nothing usable; its caller treats it as
+    // unusable and the reader is not charged for it), not turned into a provider failure.
+    assert.equal(result.status, 'complete');
+    if (content === 'invalid JSON') { assert.deepEqual(result.toolCalls, []); assert.equal(result.stopReason, 'end_turn'); }
+    else assert.deepEqual(result.toolCalls?.[0].input, { questions: ['Why units?', 'What scale?'] });
   }
+});
+
+test('A23: an invalid or cut-off tool call is dropped and the streamed answer is kept', async () => {
+  const visualParams = { ...params, tools: [...(params.tools ?? []), { name: 'create_visual', input_schema: { type: 'object' as const, properties: {} } }] };
+  const cases: [string, unknown[], string, number][] = [
+    // A `length` stop inside a large create_visual call: the text stays, the call is dropped, it is a length stop.
+    ['cut off', [event({ content: 'Here is the answer.' }), event({ tool_calls: [{ index: 0, id: 'v1', function: { name: 'create_visual', arguments: '{"html":"<div' } }] }), final('length')], 'max_tokens', 0],
+    ['unknown tool', [event({ content: 'Answer text.' }), event({ tool_calls: [{ index: 0, id: 'x1', function: { name: 'delete_everything', arguments: '{}' } }] }), final('tool_calls')], 'end_turn', 0],
+    ['missing id', [event({ content: 'Answer text.' }), event({ tool_calls: [{ index: 0, function: { name: 'create_visual', arguments: '{}' } }] }), final('tool_calls')], 'end_turn', 0],
+    ['one good, one bad', [event({ content: 'Answer.' }), event({ tool_calls: [{ index: 0, id: 'v1', function: { name: 'create_visual', arguments: '{}' } },
+      { index: 1, id: 'v2', function: { name: 'create_visual', arguments: '{' } }] }), final('tool_calls')], 'tool_use', 1],
+  ];
+  for (const [label, events, stopReason, kept] of cases) {
+    let text = '';
+    const generate = openRouterChat({ apiKey: 'test-key', now: () => NOW, fetch: async () => response(events) });
+    const outcome = await generate(visualParams, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { text += s; } });
+    assert.equal(outcome.status, 'complete', label); assert.equal(outcome.stopReason, stopReason, label);
+    assert.equal(outcome.toolCalls?.length, kept, label); assert.equal(outcome.exact, true, label);
+    assert.ok(text.length > 0, label); assert.ok((outcome.content as any[]).some(b => b.type === 'text'), label);
+  }
+});
+
+// A1 (review 2026-10-21): Stop on an OpenRouter answer charges what was written, never the hold. The real adapter, a
+// stream the reader stops after its first words, and OpenRouter's generation record (or its absence).
+import { stoppedReaderMicrousd, STOPPED_RECEIPT_WAIT_MS } from '../../supabase/functions/_shared/openrouter-chat.ts';
+import { creditsFor } from '../../supabase/functions/_shared/anthropic.ts';
+const SONNET = routedClaudeModel('claude-sonnet-5-5');
+function stoppable(first: unknown[], signal: AbortSignal | null | undefined, id = 'gen-stop') {
+  const bytes = new TextEncoder().encode(first.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
+  return new Response(new ReadableStream({ start(c) {
+    if (bytes.length) c.enqueue(bytes);
+    signal?.addEventListener('abort', () => c.error(new DOMException('stopped', 'AbortError')), { once: true });
+  } }), { headers: { 'x-generation-id': id } });
+}
+async function stoppedAnswer(options: { record: 'found' | 'missing'; first: unknown[]; stopAtStart?: boolean }) {
+  const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000003';
+  const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], gets: string[] = [];
+  const client = new AbortController();
+  const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
+    return name === 'worker_openrouter_dispatch' || name === 'worker_openrouter_receipt' ? true : name === 'worker_reserve_chat' ? { replayed: false }
+      : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : name === 'worker_local_chat_context' ? { title: 'A long paper' }
+      : name === 'worker_chat_stop_requested' ? true : null; };
+  const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+  const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', now: () => 1_000, sleep: async () => {},
+    fetch: async (url, init) => {
+      if (String(url).includes('/generation?id=')) {
+        gets.push(String(url));
+        if (options.record === 'missing' || gets.length === 1) return new Response(null, { status: 404 });
+        // Google Vertex keeps generating after a cancel: 900 output tokens billed, the reader saw a handful.
+        return Response.json({ data: { id: 'gen-stop', model: SONNET, provider_name: 'Google', external_user: accountID, session_id: operationID,
+          cancelled: true, finish_reason: null, native_tokens_prompt: 40_000, native_tokens_cached: 0, native_tokens_completion: 900, total_cost: 0.12 } });
+      }
+      // The reader presses Stop after the first words arrive, or (stopAtStart) while the model is still thinking.
+      if (options.stopAtStart) setTimeout(() => client.abort(), 5);
+      return stoppable(options.first, init?.signal);
+    } }));
+  const text = 'word '.repeat(30_000); // ~150 KB of paper: the case the review measured (≈89 credits for a Stop)
+  const local = { format: 'reader-local-context-v2', membership_id: 'cccccccc-0000-4000-8000-000000000003', source: 'arxiv', source_id: '2305.18290',
+    revision: 3, manifest_sha256: 'a'.repeat(64), source_sha256: 'b'.repeat(64), text };
+  await runChat({ accountID, rpc, sha256Hex, generate, claudeOpenRouter: true, loadPaper: async () => null, log: () => {}, sleep: async () => {} },
+    { operation_id: operationID, consent_version: 'cloud-ai-v6', mode: 'paper', local_context: local, capabilities: ['stop_signal'],
+      messages: [{ role: 'user', text: 'Summarize the method.' }], profile: { model: 'sonnet', effort: 'low', length: 'standard' } },
+    e => { events.push(e); if (e.event === 'delta') client.abort(); }, client.signal);
+  const reserve = calls.find(c => c.name === 'worker_reserve_chat')!.p, settle = calls.find(c => c.name === 'worker_settle_chat')!.p;
+  const finish = calls.find(c => c.name === 'worker_provider_attempt_finish')!.p;
+  return { reserve, settle, finish, events, gets, calls };
+}
+
+test('a Stop is charged at OpenRouter\'s record of the part written, not the hold; the rest is Gradstep\'s', async () => {
+  const { reserve, settle, finish, gets, calls } = await stoppedAnswer({ record: 'found', first: [{ id: 'gen-stop', model: SONNET, choices: [{ delta: { content: 'The method fits' }, finish_reason: null }] }] });
+  assert.ok(reserve.p_credits > 100, `the hold is large (${reserve.p_credits} credits)`);
+  assert.equal(settle.p_ending, 'stopped');
+  // Input 40,000 × $2.20/M = 88,000 µ$; the 900 billed output tokens cost the other 32,000 µ$, of which the reader saw
+  // ⌈15 chars / 3⌉ = 5 tokens: 32,000 × 5/900 ≈ 178 µ$. 88,178 µ$ → 18 credits.
+  assert.equal(Math.round(stoppedReaderMicrousd(SONNET, 5, true, { id: 'gen-stop', model: SONNET, provider: 'Google', totalMicrousd: 120_000,
+    promptTokens: 40_000, completionTokens: 900, cachedTokens: 0, cancelled: true, finishReason: null })), 88_178);
+  assert.equal(settle.p_actual_credits, creditsFor(88_178)); assert.equal(settle.p_actual_credits, 18);
+  assert.equal(settle.p_absorbed_microusd, 120_000 - 88_178);
+  // The attempt is exact (no liability left to reconcile) and its receipt is recorded.
+  assert.equal(finish.p_state, 'succeeded'); assert.equal(finish.p_actual_microusd, 120_000);
+  assert.equal(gets.length, 2, 'one 404 while OpenRouter writes the record, then the record');
+  assert.deepEqual(calls.find(c => c.name === 'worker_openrouter_receipt')!.p.p_metadata,
+    { generation_id: 'gen-stop', provider: 'Google', model: SONNET, total_cost_microusd: 120_000 });
+});
+
+test('without OpenRouter\'s record a Stop is charged for the streamed output only; the ceiling stays unresolved', async () => {
+  const { settle, finish, gets } = await stoppedAnswer({ record: 'missing', first: [{ id: 'gen-stop', model: SONNET, choices: [{ delta: { content: 'The method fits' }, finish_reason: null }] }] });
+  assert.equal(settle.p_ending, 'stopped');
+  // 5 observed output tokens × $11/M = 55 µ$ → 1 credit, never the input estimate.
+  assert.equal(settle.p_actual_credits, 1);
+  assert.equal(finish.p_state, 'unknown'); assert.equal(finish.p_actual_microusd, null);
+  assert.equal(gets.length, 6, 'bounded reads, then the attempt is left for the reconciler');
+  assert.ok(STOPPED_RECEIPT_WAIT_MS <= 8_000);
+});
+
+test('a Stop before any text or tool call arrived costs the reader nothing, even with a record', async () => {
+  const { settle } = await stoppedAnswer({ record: 'found', first: [{ id: 'gen-stop', model: SONNET, choices: [{ delta: { reasoning_details: [{ index: 0, type: 'reasoning.text', text: 'Thinking' }] }, finish_reason: null }] }], stopAtStart: true });
+  assert.equal(settle.p_ending, 'stopped'); assert.equal(settle.p_actual_credits, 0); assert.equal(settle.p_absorbed_microusd, 120_000);
 });

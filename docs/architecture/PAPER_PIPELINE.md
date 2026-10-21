@@ -120,7 +120,7 @@ Every credit hold has an exit:
 | Funded but the original can't be prepared (3 tries) | `worker_pipeline_abandon_funding`: settle 0/0, retry restarts at download |
 | Funder withdrew before the grant | `begin_submit` releases the hold and refunds from another interested account |
 | POST result lost (lease expired, RPC failed) | `worker_pipeline_submitted` is keyed by attempt, retried, and accepts a late job id after `uncertain` |
-| Genuinely uncertain POST | Operator: `pipeline-ops.py resolve ATTEMPT --job ID` (resume polling) or `--pages N` (release, no customer charge) |
+| Genuinely uncertain POST | Operator (OCR retired; the `pipeline-ops.py resolve` command was removed 2026-10-21): `worker_pipeline_resolve_uncertain` with the job ID (resume polling) or billed pages (release, no customer charge), with the provider's evidence |
 | Provider error, deleted job, unusable output, > 6 h | `worker_pipeline_ocr_failed`: customer not charged, estimated provider cost recorded |
 
 Submit and wait never give up on *transient* errors. Import projection runs per link with its own backoff

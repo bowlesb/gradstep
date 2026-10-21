@@ -1,6 +1,7 @@
 // Owner-only account management for the private beta (admin site › Accounts; migration 028):
 // add a tester (a confirmed login created through the Auth admin API, so sign-up stays
-// invite-only and no email is sent), grant credits, and disable or re-enable sign-in.
+// invite-only and no email is sent), grant credits, disable or re-enable sign-in, and withdraw an
+// address's invitation (migration 127).
 //
 // The caller must be an owner signed in with MFA: v1_admin_actor runs the same
 // app_private.is_operator('owner') gate as every v1_admin_* function, on the caller's own token.
@@ -23,7 +24,14 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 export type AdminAction =
   | { action: 'add_tester'; email: string; credits: number }
   | { action: 'grant_credits'; request_id: string; account_id: string; credits: number; reason: string }
-  | { action: 'set_sign_in'; request_id: string; account_id: string; disabled: boolean; reason: string };
+  | { action: 'set_sign_in'; request_id: string; account_id: string; disabled: boolean; reason: string }
+  /** Withdraw an address's private-beta invitation (migration 127, review A21): no future account can be created with it. */
+  | { action: 'revoke_admission'; email: string; reason: string }
+  /** The owner testing allowance (migration 0105, review A9): owner or tester accounts, with a monthly provider-cost cap. */
+  | { action: 'set_testing_allowance'; request_id: string; account_id: string; enabled: boolean; reason: string; monthly_cap_usd: number | null };
+
+/** The most a testing allowance may spend in a month (the whole month's schema ceiling, migration 068). */
+export const MAX_TESTING_CAP_USD = 50;
 
 type DatabaseError = { message: string } | null;
 export interface RpcClient {
@@ -92,6 +100,17 @@ export function parseAdminAction(text: string): AdminAction {
       if (typeof fields.disabled !== 'boolean') throw new PublicError(400, 'invalid_request');
       return { action: 'set_sign_in', request_id: id(fields.request_id, 'invalid_request_id'), account_id: id(fields.account_id, 'invalid_account'),
         disabled: fields.disabled, reason: reason(fields.reason) };
+    case 'revoke_admission':
+      exactKeys(fields, ['action', 'email', 'reason']);
+      return { action: 'revoke_admission', email: normalizeEmail(fields.email), reason: reason(fields.reason) };
+    case 'set_testing_allowance': {
+      exactKeys(fields, ['action', 'request_id', 'account_id', 'enabled', 'reason', 'monthly_cap_usd']);
+      const cap = fields.monthly_cap_usd;
+      if (typeof fields.enabled !== 'boolean' || (cap !== null && (typeof cap !== 'number' || !Number.isFinite(cap) || cap < 0 || cap > MAX_TESTING_CAP_USD
+        || Math.round(cap * 100) !== cap * 100))) throw new PublicError(400, 'invalid_request');
+      return { action: 'set_testing_allowance', request_id: id(fields.request_id, 'invalid_request_id'), account_id: id(fields.account_id, 'invalid_account'),
+        enabled: fields.enabled, reason: reason(fields.reason), monthly_cap_usd: cap as number | null };
+    }
     default:
       throw new PublicError(400, 'invalid_request');
   }
@@ -126,6 +145,7 @@ const DATABASE_ERRORS: Record<string, [number, string]> = {
   invalid_email: [400, 'invalid_email'], invalid_reason: [400, 'invalid_reason'], invalid_grant: [400, 'invalid_credits'],
   invalid_tester: [400, 'invalid_credits'], invalid_sign_in_change: [400, 'invalid_request'],
   account_disabled: [409, 'account_disabled'],
+  testing_allowance_role_required: [409, 'testing_allowance_role_required'], invalid_testing_allowance: [400, 'invalid_request'],
 };
 export function databaseError(error: { message: string }): PublicError {
   const known = DATABASE_ERRORS[error.message];
@@ -184,10 +204,31 @@ async function setSignIn(service: AdminService, actor: string, request: Extract<
   // unrecorded change. Retrying the same request ID reapplies it without a second row.
   const result = await call<{ auth_user_id: string; disabled: boolean; replayed: boolean }>(service, 'worker_admin_set_sign_in', {
     p_actor_id: actor, p_request_id: request.request_id, p_account_id: request.account_id, p_disabled: request.disabled, p_reason: request.reason });
-  if (typeof result?.auth_user_id !== 'string' || !UUID.test(result.auth_user_id)) throw new PublicError(503, 'service_unavailable');
-  const { error } = await service.auth.admin.updateUserById(result.auth_user_id, { ban_duration: request.disabled ? BAN_DURATION : 'none' });
+  if (typeof result?.auth_user_id !== 'string' || !UUID.test(result.auth_user_id) || typeof result.disabled !== 'boolean') throw new PublicError(503, 'service_unavailable');
+  // A14: Auth follows the database's current state, never the request's intent. A replayed request ID returns the state
+  // now, which a newer change may have reversed; applying the old intent would ban an enabled account (or the reverse).
+  const { error } = await service.auth.admin.updateUserById(result.auth_user_id, { ban_duration: result.disabled ? BAN_DURATION : 'none' });
   if (error) throw new PublicError(503, 'sign_in_change_unconfirmed');
-  return { account_id: request.account_id, disabled: request.disabled, replayed: result.replayed };
+  // A replay whose intent no longer matches: Auth is in step with the database, and the page is told it was superseded.
+  if (result.replayed && result.disabled !== request.disabled) throw new PublicError(409, 'request_superseded');
+  return { account_id: request.account_id, disabled: result.disabled, replayed: result.replayed };
+}
+
+/** Withdraws an invitation (owner rechecked in SQL; audited with the reason). An existing login keeps signing in until
+ * Disable sign-in: the result says whether one exists. */
+async function revokeAdmission(service: AdminService, actor: string, request: Extract<AdminAction, { action: 'revoke_admission' }>) {
+  const result = await call<{ revoked: boolean; previously: string; existing_login: boolean }>(service, 'worker_admin_revoke_email',
+    { p_actor_id: actor, p_email: request.email, p_reason: request.reason });
+  if (result?.revoked !== true) throw new PublicError(503, 'service_unavailable');
+  return { email: request.email, revoked: true, previously: result.previously, existing_login: result.existing_login === true };
+}
+
+/** Review A9: the testing allowance is set by the signed-in owner (the audit actor), never by the target itself. */
+async function setTestingAllowance(service: AdminService, actor: string, request: Extract<AdminAction, { action: 'set_testing_allowance' }>) {
+  const result = await call<{ enabled: boolean; replayed: boolean; monthly_cap_microusd?: number }>(service, 'worker_set_testing_allowance', {
+    p_actor_id: actor, p_request_id: request.request_id, p_account_id: request.account_id, p_enabled: request.enabled, p_reason: request.reason,
+    p_monthly_cap_microusd: request.monthly_cap_usd === null ? null : Math.round(request.monthly_cap_usd * 1_000_000) });
+  return { account_id: request.account_id, enabled: result.enabled, replayed: result.replayed, monthly_cap_microusd: result.monthly_cap_microusd ?? null };
 }
 
 /** Handles one request; `headers` (CORS etc.) are added to every response. */
@@ -208,6 +249,8 @@ export async function adminAccounts(request: Request, deps: AdminDeps, headers: 
     await call(service, 'worker_consume_request', { p_account_id: actor, p_route: RATE_ROUTE });
     const body = parsed.action === 'add_tester' ? await addTester(service, actor, parsed)
       : parsed.action === 'grant_credits' ? await grantCredits(service, actor, parsed)
+      : parsed.action === 'revoke_admission' ? await revokeAdmission(service, actor, parsed)
+      : parsed.action === 'set_testing_allowance' ? await setTestingAllowance(service, actor, parsed)
       : await setSignIn(service, actor, parsed);
     return reply(200, body, 'replayed' in body && body.replayed ? 'replayed' : 'ok');
   } catch (error) {

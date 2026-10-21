@@ -157,7 +157,10 @@ test('later navigation wins during draft persistence and cannot leave a deferred
     if (e.data?.gradstep === 'reader' && e.data.value?.type === 'passage') (window as any).passages.push(e.data.value.found);
   }); });
   await signIn(page); await listen(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button').click();
+  // All chats: the top navigation's Chats on wide screens; on a phone (the apps' five destinations since Notes) the
+  // same dialog is in ⋯ › Your assets › Chats.
+  if (await page.getByTestId('phone-chat').count()) { await page.getByTestId('account-menu').click(); await page.getByTestId('assets-chats').click(); }
+  else await page.getByRole('navigation', { name: 'Main' }).getByRole('button').click();
   await page.getByTestId('history-menu').click(); await page.getByRole('menuitem', { name: 'New general chat', exact: true }).click(); // All chats › ≡ (build 57)
   await expect(message(page)).toBeFocused();
   await page.evaluate(() => {

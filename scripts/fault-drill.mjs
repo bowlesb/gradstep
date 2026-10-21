@@ -4,7 +4,7 @@
 // shown, that they are not charged, that the rest of the app still answers, that the failure reached the provider-health
 // telemetry, and that the feature recovers once the fault is cleared.
 //
-//   node scripts/fault-drill.mjs [--provider=anthropic] [--route=chat] [--mode=throttle|midstream|stop|overrun|…] [--minutes=5]
+//   node scripts/fault-drill.mjs [--provider=openrouter] [--route=chat] [--mode=throttle|midstream|stop|overrun|…] [--minutes=5]
 //        [--allow-liability] [--no-recovery] [--keep-account]
 //
 // Staging only, and only where the functions were deployed with FAULT_INJECTION=on (infra/staging.json fault_injection).
@@ -27,6 +27,11 @@
 // The synthetic answers of midstream and stop, and the overrun's attempt, carry a `drill-` request id and are reconciled
 // to zero at the end (worker_fault_drill_reconcile, test accounts only): they never reached a provider.
 //
+// Since 2026-10-18 every model call goes through OpenRouter (migration 089; owner: no direct-provider fallback), so the
+// drill targets provider `openrouter` (the host chat actually calls); an `anthropic` drill would inject nothing.
+// The streamed `midstream`/`slow` faults need provider-health.ts to answer in OpenRouter's stream format for openrouter
+// hosts; until that is deployed, `--mode=midstream`/`stop` on openrouter do not reach the synthetic stream.
+//
 // Secrets come from the environment or .env.staging (a git worktree reads the main checkout's) and are never printed.
 // No dependencies beyond Node 24.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -37,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT_REF = 'coxhjvqpflgxkleydati';
-const CONSENT = 'cloud-ai-v2';
+const CONSENT = 'cloud-ai-v6'; // The current consent: it names the OpenRouter routes every answer uses.
 const DELETE_CONFIRMATION = 'delete my account';
 const MODES = ['throttle', 'overload', 'error', 'timeout', 'malformed', 'midstream', 'stop', 'overrun'];
 // The fault row each mode sets (migration 079 adds the streamed `midstream` and `slow`); the overrun drill sets none.
@@ -45,16 +50,16 @@ const FAULT_MODE = { stop: 'slow', overrun: null };
 // The answers these drills ask for: the cheapest profile (Claude Haiku 5.5, low effort, brief).
 const HAIKU = { model: 'haiku', effort: 'low', length: 'brief' };
 // Modes that leave an unknown (possibly billed) liability on a metered provider's operation.
-const LIABLE = { anthropic: ['overload', 'error', 'timeout', 'malformed'] };
+const LIABLE = { openrouter: ['overload', 'error', 'timeout', 'malformed'] };
 // What each mode is recorded as (provider-health outcome) and how many calls the feature makes under it (the chat
 // retries a 429/529 once before the first token, RESILIENCE.md step 2).
 const OUTCOME = { throttle: ['throttled', 2], overload: ['overloaded', 2], error: ['server_error', 1], timeout: ['timeout', 1], malformed: ['ok', 1],
   midstream: ['transport', 1], stop: ['ok', 3], overrun: [null, 0] };
 // The drills wired so far: the provider calls that carry the reader's account (accountProviderFetch).
-const DRILLS = { 'anthropic:chat': chatDrill };
+const DRILLS = { 'openrouter:chat': chatDrill };
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, ...v] = a.replace(/^--/, '').split('='); return [k, v.length ? v.join('=') : 'true']; }));
-const provider = args.provider ?? 'anthropic', route = args.route ?? 'chat', mode = args.mode ?? 'throttle', minutes = Number(args.minutes ?? 5);
+const provider = args.provider ?? 'openrouter', route = args.route ?? 'chat', mode = args.mode ?? 'throttle', minutes = Number(args.minutes ?? 5);
 const usage = message => { console.error(message); process.exit(2); };
 if (!MODES.includes(mode)) usage(`--mode must be one of ${MODES.join(', ')}`);
 if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) usage('--minutes must be a whole number from 1 to 60');
@@ -292,8 +297,8 @@ async function overrunDrill(acct, step) {
   const digest = value => `\\x${sha256(value)}`;
   await rpc('worker_reserve_operation', { p_account_id: acct.id, p_id: operationID, p_kind: 'chat', p_request_sha256: digest(`overrun-drill:${operationID}`),
     p_rate_version: 'beta-credits-v1', p_credits: 1, p_microusd: 2 }, { service: true });
-  const grant = await rpc('worker_provider_attempt_begin', { p_account_id: acct.id, p_operation_id: operationID, p_attempt_id: attemptID, p_provider: 'anthropic',
-    p_route: 'chat', p_model: 'claude-haiku-5-5', p_request_sha256: digest(`overrun-drill-attempt:${attemptID}`), p_ceiling_microusd: 1, p_reserved_units: { output_tokens: 1 } }, { service: true });
+  const grant = await rpc('worker_provider_attempt_begin', { p_account_id: acct.id, p_operation_id: operationID, p_attempt_id: attemptID, p_provider: 'openrouter',
+    p_route: 'chat', p_model: 'anthropic/claude-haiku-5.5', p_request_sha256: digest(`overrun-drill-attempt:${attemptID}`), p_ceiling_microusd: 1, p_reserved_units: { output_tokens: 1 } }, { service: true });
   step('the drill attempt is admitted with a 1 micro-USD ceiling', grant?.granted === true, `granted ${grant?.granted}, reason ${grant?.reason ?? 'none'}`);
   await rpc('worker_provider_attempt_finish', { p_account_id: acct.id, p_operation_id: operationID, p_attempt_id: attemptID, p_state: 'succeeded',
     p_provider_request_id: `drill-overrun-${attemptID}`, p_actual_microusd: 3, p_actual_units: { output_tokens: 1 }, p_failure_code: null }, { service: true });

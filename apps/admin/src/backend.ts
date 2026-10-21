@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { FinalRequestError } from './retry-key';
 import { spendingReceipt, type SpendingObservationRequest, type SpendingObservationReceipt } from '../../../supabase/functions/_shared/spending-observations.ts';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -34,6 +35,10 @@ const accountErrors: Record<string, string> = {
   owner_cannot_be_disabled: 'Owner accounts cannot be disabled here.',
   request_id_conflict: 'This change conflicts with an earlier one. Reload and try again.',
   sign_in_change_unconfirmed: 'The change was recorded but sign-in could not be updated. Try again.',
+  request_superseded: 'A newer change to this account came after this one. Reload to see its current state.',
+  testing_allowance_role_required: 'The testing allowance is only for owner and tester accounts.',
+  account_disabled: 'This account is disabled. Enable its sign-in first.',
+  invalid_request: 'The request was refused as invalid. Check the fields and try again.',
 };
 export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T> {
   if (!backend || !url || !key) throw new Error('The backend has not been configured for this build.');
@@ -45,7 +50,11 @@ export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T
       headers: { apikey: key, Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   } catch { throw new Error('The request could not be completed. Your change was not confirmed.'); }
   const json = await response.json().catch(() => null) as { code?: string } | null;
-  if (!response.ok) throw new Error(accountErrors[json?.code ?? ''] ?? 'The request could not be completed. Your change was not confirmed.');
+  if (!response.ok) {
+    const message = accountErrors[json?.code ?? ''] ?? 'The request could not be completed. Your change was not confirmed.';
+    // A14: the server's own refusal of this request (4xx other than a rate limit) is final: the retry key is cleared.
+    throw response.status < 500 && response.status !== 429 ? new FinalRequestError(message) : new Error(message);
+  }
   return json as T;
 }
 
@@ -63,6 +72,7 @@ const observationErrors: Record<string, string> = {
   invalid_observed_at: 'The observation time was refused. Check this device’s clock before continuing.',
   observation_id_conflict: 'This entry conflicts with its recorded receipt. Keep its request ID for review; do not resubmit it as a new entry.',
   observation_capacity: 'This component has reached its monthly evidence-entry limit. Review its existing records.',
+  invalid_observation: 'The entry was refused as invalid. Check its fields; it was not recorded.',
 };
 const unconfirmedObservation = 'The observation was not confirmed. Retry the same entry; it will not be added twice.';
 export async function adminSpendingObservation(ownerID: string, body: SpendingObservationRequest): Promise<SpendingObservationReceipt> {
@@ -90,9 +100,14 @@ export async function adminSpendingObservation(ownerID: string, body: SpendingOb
   return result;
 }
 
+/** Every admin read or change is bounded in time (D10): a hung request is reported, never left spinning. */
+export const RPC_TIMEOUT_MS = 30_000;
 export async function rpc<T>(name: string, parameters: Record<string, unknown> = {}): Promise<T> {
   if (!backend) throw new Error('The backend has not been configured for this build.');
-  const { data, error } = await backend.rpc(name, parameters);
+  let result: Awaited<ReturnType<NonNullable<typeof backend>['rpc']>>;
+  try { result = await backend.rpc(name, parameters).abortSignal(AbortSignal.timeout(RPC_TIMEOUT_MS)); }
+  catch { throw new Error('The request did not finish in time. Your changes were not confirmed.'); }
+  const { data, error } = result;
   if (error) {
     const errors: Record<string, string> = {
       owner_mfa_required: 'An owner account with two-factor authentication is required.',
@@ -101,7 +116,9 @@ export async function rpc<T>(name: string, parameters: Record<string, unknown> =
       fixed_build_required: 'Enter the build that contains the fix.',
       budget_not_configured: 'Provider spending has not been configured.',
     };
-    throw new Error(errors[error.message] ?? 'The request could not be completed. Your changes were not confirmed.');
+    const message = errors[error.message] ?? 'The request could not be completed. Your changes were not confirmed.';
+    // A database refusal (it carries a SQLSTATE) is final for this request; a lost answer is not.
+    throw typeof error.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) ? new FinalRequestError(message) : new Error(message);
   }
   return data as T;
 }
@@ -155,7 +172,7 @@ export interface Health {
   providers?: {
     daily: { day: string; by_provider: Record<string, { calls: number; failed: number; throttled: number; breaker_open: number }> }[];
     last_hour: { provider: string; calls: number; failed: number; throttled: number; breaker_open: number; latency_ms_avg: number | null }[];
-    breakers: { provider: string; state: 'open' | 'half_open'; reopen_at: string | null }[];
+    breakers: { provider: string; /** Migration 0106 (review A13): the route and upstream a scoped breaker covers, e.g. chat_deepinfra. */ scope?: string; state: 'open' | 'half_open'; reopen_at: string | null }[];
   };
   /** Migration 079 (RESILIENCE.md fix 1): operations whose provider cost passed their ceiling. Recorded, never a pause by
    * itself; more than `pause_after` within `window_minutes` pause the month (the tripwire). Absent on older servers. */
@@ -174,6 +191,13 @@ export interface Health {
   /** Migration 084: requests a provider refused for the account's own balance (Anthropic "credit balance is too low",
    * DeepSeek 402), last hour and day. Absent on older servers. */
   provider_billing?: { last_hour: number; last_24h: number; last_at: string | null; by_provider: Record<string, number> };
+  /** Migration 128 (PRIVACY_AND_SYNC.md, review A22): closed accounts still holding personal rows, a login or files; `stalled`
+   * is over 30 days after closing. Counts and one failure code only. Absent on older servers. */
+  account_deletions?: { unfinished: number; retrying: number; stalled: number; oldest_closed_at: string | null; top_code: string | null };
+  /** Migration 0101 (review A4): OpenRouter price cards that lapse within `warn_days`. Absent on older servers. */
+  tariffs?: { warn_days: number; soonest_valid_until: string | null; expiring: { model: string; tariff: string; valid_until: string }[] };
+  /** Migration 0102 (review A6): unresolved provider attempts the automatic reconciler cannot settle. Absent on older servers. */
+  reconciliation?: { automatic_pending: number; gave_up: number; without_generation: number; other_providers: number; manual_held_microusd: number; reconciled_24h: number };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */
