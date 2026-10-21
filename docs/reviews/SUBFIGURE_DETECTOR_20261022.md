@@ -110,3 +110,20 @@ The release candidate is the checkpoint of `rc-r50m-clean` or `rc-r18-clean` wit
 over the two validation sets under `policy-letters-decode-agree` at threshold .5 or .6; ties go to the lower
 arXiv harmful rate, then to the smaller model. Test 2 is then scored once for that system, with the 10-21 frozen
 system and v13 as fixed comparators.
+
+## Validation results and the frozen release candidate (18:16 UTC, before any test-2 prediction)
+
+Policy `policy-letters-decode-agree` (completion + OCR letter grouping + caption decoding + two-view agreement).
+Mean = mean app success over the two validation sets.
+
+| Checkpoint | arXiv val app success | arXiv harmful | arXiv panel recall | Frozen val app success | Mean |
+|---|---|---|---|---|---|
+| 10-21 frozen R50-M r4 e04 (includes SCI-3000) + letters | 76.5 | 13.0 | 80.2 | 96.2 | 86.3 |
+| r7 R50-M clean (no targeted data) e09 + letters | 76.1 | 16.4 | 82.9 | 93.9 | 85.0 |
+| **rc-r50m-clean e10, t .5 (selected)** | **77.3** | **12.2** | 79.2 | 93.6 | **85.5** |
+| rc-r50m-clean e15, t .5 | 77.7 | 11.3 | 79.4 | 92.7 | 85.2 |
+| rc-r18-clean e13, t .6 (best small model) | 75.2 | 14.3 | 80.6 | 94.9 | 85.1 |
+
+Frozen: `rc-r50m-clean` EMA e10 SHA `decb1569…8863`, system `e99e0772…a6aa`, policy.py `12a8d0c9…28b0`;
+size comparator `rc-r18-clean` EMA e13 SHA `1d27aa38…f0f9` at t .6. Declared test-2 systems: the RC, the R18
+comparator, the 10-21 frozen system (its own policy) and v13 raw.
