@@ -15,9 +15,7 @@
     "test:status": "node scripts/test-tiers.mjs status",
     "test:database": "python3 scripts/test-database.py",
     "dev:admin": "vite apps/admin",
-    "build:admin": "tsc --noEmit -p apps/admin/tsconfig.json && vite build apps/admin",
-    "deploy": "npm run build:admin && wrangler deploy",
-    "preview": "npm run build:admin && wrangler dev"
+    "build:admin": "tsc --noEmit -p apps/admin/tsconfig.json && vite build apps/admin"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
@@ -38,7 +36,6 @@
     "temml": "0.11.11"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.63.0",
     "@playwright/test": "1.63.0",
     "@types/node": "26.6.4",
     "@types/react": "19.3.0",
@@ -50,7 +47,7 @@
     "supabase": "2.119.0",
     "typescript": "7.0.2",
     "vite": "8.3.2",
-    "wrangler": "^4.148.0"
+    "wrangler": "4.148.0"
   },
   "engines": {
     "node": ">=24"
