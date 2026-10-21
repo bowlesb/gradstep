@@ -7,6 +7,8 @@ struct ScienceReaderApp: App {
     @State private var pendingLink: URL?
     #if targetEnvironment(macCatalyst)
     @UIApplicationDelegateAdaptor(MacAppDelegate.self) private var macDelegate
+    #else
+    @UIApplicationDelegateAdaptor(KeyboardMenuDelegate.self) private var keyboardMenuDelegate
     #endif
     var body: some Scene {
         WindowGroup {
