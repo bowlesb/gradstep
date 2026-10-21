@@ -322,6 +322,18 @@ unaudited credits; `resolve` handled only retired Mathpix OCR.
   and `resolve` are removed (the admin site's audited, capped grant remains; OCR is retired).
 - This does not raise the $100/month operating budget or any month's provider limit.
 
+## Hot paths — 2026-10-21 (review C7, migration 0108; not deployed)
+
+- Partial indexes for the counts made under the budget lock or on every add: an account's unsettled operations
+  (`metered_operations_open_by_account`), unsettled chat operations by age (`metered_operations_open_chat`, the
+  stale-hold sweep) and active imports (`import_requests_active`). Provider attempt counts moved to counter rows (A2).
+- `worker_expire_stale_chat_operations` (every pipeline run) skips operations that failed recently, records each failure
+  in `stale_sweep_failures` (SQLSTATE only, back-off 10 minutes doubling to a day) instead of swallowing it, and moves on;
+  `worker_budget_health.stale_sweep_failing` counts those still open, so 50 permanently failing operations can no longer
+  block the sweep or keep `reserved_microusd` inflated unseen.
+- Not changed: the lifetime import counters (2,000 per account, 20,000 per environment) — a retention policy for
+  lifetime-counted tables is the larger refactor in review E2.
+
 ## October cap raised on the owner's instruction — 2026-10-15 01:30 UTC
 
 The owner's chat refused with "AI answers are paused right now" (`platform_budget_exhausted`): October stood at
