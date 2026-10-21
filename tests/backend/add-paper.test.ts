@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { addPaper, type AddPaperDeps } from '../../supabase/functions/_shared/add-paper.ts';
-import { paperFinder } from '../../supabase/functions/_shared/find-paper.ts';
+import { openAlexAllowed, paperFinder } from '../../supabase/functions/_shared/find-paper.ts';
 import { doiInURL, doiOf, landingForPDF, pageFacts, parseAddInput, probeLink } from '../../supabase/functions/_shared/identify.ts';
 import type { FindResult, FoundPaper } from '../../supabase/functions/_shared/chat.ts';
 
@@ -118,9 +118,9 @@ test('probing a link: every hop resolved and checked, a PDF is recognised withou
 });
 
 const found = (paper: FoundPaper): FindResult => ({ status: 'found', paper });
-function deps(routes: Routes, options: { findPaper?: AddPaperDeps['findPaper']; imported?: FoundPaper[]; calls?: string[] } = {}): AddPaperDeps {
+function deps(routes: Routes, options: { findPaper?: AddPaperDeps['findPaper']; imported?: FoundPaper[]; calls?: string[]; openAlex?: boolean } = {}): AddPaperDeps {
   return {
-    fetch: fetcher(routes, options.calls), resolveHost: publicDNS,
+    fetch: fetcher(routes, options.calls), resolveHost: publicDNS, ...(options.openAlex === undefined ? {} : { openAlex: options.openAlex }),
     findPaper: options.findPaper ?? (async () => ({ status: 'not_found' })),
     importPaper: async paper => { options.imported?.push(paper); return 'added'; },
   };
@@ -128,37 +128,38 @@ function deps(routes: Routes, options: { findPaper?: AddPaperDeps['findPaper']; 
 const work = (extra: Record<string, unknown>) => ({ id: 'https://openalex.org/W2963403868', doi: 'https://doi.org/10.1145/3292500.3330701', title: 'Optuna: A Next-generation Hyperparameter Optimization Framework',
   publication_year: 2019, authorships: [{ author: { display_name: 'Takuya Akiba' } }], locations: [], best_oa_location: null, ...extra });
 
-test('a DOI: its arXiv copy, an open copy, or closed with its landing page; OpenAlex first, Crossref for the rest', async () => {
+test('with the OpenAlex switch on, a DOI: its arXiv copy, an open copy, or closed with its landing page; OpenAlex first, Crossref for the rest', async () => {
   const imported: FoundPaper[] = [];
-  const arxiv = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json(work({ locations: [{ landing_page_url: 'https://arxiv.org/abs/1907.10902', source: { display_name: 'arXiv' } }] })) }, { imported }),
+  const on = (routes: Routes, options: Parameters<typeof deps>[1] = {}) => deps(routes, { ...options, openAlex: true });
+  const arxiv = await addPaper(on({ 'api.openalex.org/works/doi:': () => json(work({ locations: [{ landing_page_url: 'https://arxiv.org/abs/1907.10902', source: { display_name: 'arXiv' } }] })) }, { imported }),
     '10.1145/3292500.3330701', true, signal());
   assert.equal(arxiv.status, 'added'); assert.equal(arxiv.route, 'doi');
   assert.equal(imported[0].source_id, '1907.10902'); assert.equal(imported[0].kind, 'arxiv');
 
-  const open = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json(work({ best_oa_location: { pdf_url: 'https://repository.example.org/optuna.pdf', landing_page_url: 'https://repository.example.org/optuna', is_oa: true } })) }, { imported }),
+  const open = await addPaper(on({ 'api.openalex.org/works/doi:': () => json(work({ best_oa_location: { pdf_url: 'https://repository.example.org/optuna.pdf', landing_page_url: 'https://repository.example.org/optuna', is_oa: true } })) }, { imported }),
     'https://doi.org/10.1145/3292500.3330701', true, signal());
   assert.equal(open.status, 'added'); assert.equal(open.paper?.kind, 'web'); assert.equal(open.paper?.source_id, 'openalex:W2963403868');
   assert.equal(open.paper?.host, 'repository.example.org');
 
-  const closed = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json(work({})) }), 'doi:10.1145/3292500.3330701', true, signal());
+  const closed = await addPaper(on({ 'api.openalex.org/works/doi:': () => json(work({})) }), 'doi:10.1145/3292500.3330701', true, signal());
   assert.equal(closed.status, 'closed');
   assert.equal(closed.paper?.source_id, 'openalex:W2963403868', 'an upload can attach to the paper');
   assert.equal(closed.link, 'https://doi.org/10.1145/3292500.3330701', 'the device can try the landing page');
 
   // A journal DOI without an open copy, whose arXiv preprint the finder knows.
-  const preprint = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json(work({})) },
+  const preprint = await addPaper(on({ 'api.openalex.org/works/doi:': () => json(work({})) },
     { findPaper: async wanted => found({ source_id: '1907.10902', title: wanted.title, year: 2019, kind: 'arxiv' }) }), '10.1145/3292500.3330701', true, signal());
   assert.equal(preprint.status, 'added'); assert.equal(preprint.paper?.source_id, '1907.10902');
 
   // OpenAlex doesn't know it: Crossref names it, the finder looks for it by title.
-  const crossref = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json({}, 404),
+  const crossref = await addPaper(on({ 'api.openalex.org/works/doi:': () => json({}, 404),
     'api.crossref.org/works/10.5555': () => json({ message: { title: ['A Workshop Paper'], issued: { 'date-parts': [[2024]] }, author: [{ family: 'Doe' }] } }) }),
     '10.5555/workshop.1', true, signal());
   assert.equal(crossref.status, 'closed'); assert.equal(crossref.paper?.source_id, 'doi:10.5555/workshop.1');
   assert.equal(crossref.paper?.title, 'A Workshop Paper');
-  const unknown = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json({}, 404), 'api.crossref.org/works/': () => json({}, 404) }), '10.5555/nothing', true, signal());
+  const unknown = await addPaper(on({ 'api.openalex.org/works/doi:': () => json({}, 404), 'api.crossref.org/works/': () => json({}, 404) }), '10.5555/nothing', true, signal());
   assert.equal(unknown.status, 'not_found');
-  const down = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json({}, 503), 'api.crossref.org/works/': () => json({}, 503) }), '10.5555/nothing', true, signal());
+  const down = await addPaper(on({ 'api.openalex.org/works/doi:': () => json({}, 503), 'api.crossref.org/works/': () => json({}, 503) }), '10.5555/nothing', true, signal());
   assert.equal(down.status, 'unavailable');
 });
 
@@ -172,6 +173,13 @@ test('with OpenAlex switched off (migration 072), a DOI is named by Crossref and
   assert.equal(found.status, 'added'); assert.equal(found.paper?.source_id, '1907.10902');
   assert.deepEqual(wanted, ['Optuna: A Next-generation Hyperparameter Optimization Framework|Akiba']);
   assert.ok(calls.length > 0 && !calls.some(url => url.includes('openalex')), calls.join(' '));
+  // Fail closed (review A15): a deployment that could not read the switch (no `openAlex` at all) never asks OpenAlex either.
+  const defaultCalls: string[] = [];
+  const unread = await addPaper(deps({ 'api.openalex.org/': () => json(work({})),
+    'api.crossref.org/works/10.1145': () => json({ message: { title: ['Optuna: A Next-generation Hyperparameter Optimization Framework'], issued: { 'date-parts': [[2019]] }, author: [{ family: 'Akiba' }] } }) },
+  { calls: defaultCalls, findPaper: async request => ({ status: 'found', paper: { source_id: '1907.10902', title: request.title, year: 2019, kind: 'arxiv' } }) }), '10.1145/3292500.3330701', true, signal());
+  assert.equal(unread.status, 'added');
+  assert.ok(defaultCalls.length > 0 && !defaultCalls.some(url => url.includes('openalex')), defaultCalls.join(' '));
   const unknown = await addPaper({ ...deps({ 'api.crossref.org/works/': () => json({}, 404) }), openAlex: false }, '10.5555/nothing', true, signal());
   assert.equal(unknown.status, 'not_found');
   const down = await addPaper({ ...deps({ 'api.crossref.org/works/': () => json({}, 503) }), openAlex: false }, '10.5555/nothing', true, signal());
@@ -184,7 +192,7 @@ test('recorded: Crossref names a DOI (title with its subtitle), DataCite finds i
   const calls: string[] = [], imported: FoundPaper[] = [];
   const routes: Routes = {
     'api.crossref.org/works/10.1145%2F3292500.3330701': answer(recorded('crossref-10.1145-3292500.3330701.json')),
-    'api.openalex.org/works': () => json({ results: [] }), // the finder's OpenAlex step knows nothing here
+    'api.openalex.org/works': () => json({ results: [] }), // never asked: the finder's OpenAlex step is off by default
     'api.datacite.org/dois?query=titles.title%3A%22optuna': answer(recorded('datacite-title-optuna-phrase.json')),
   };
   const fetch = fetcher(routes, calls);
@@ -195,6 +203,7 @@ test('recorded: Crossref names a DOI (title with its subtitle), DataCite finds i
   assert.deepEqual(imported.map(p => [p.source_id, p.title]), [['1907.10902', 'Optuna: A Next-generation Hyperparameter Optimization Framework']]);
   assert.ok(calls.some(c => c.startsWith('api.crossref.org')) && calls.some(c => c.startsWith('api.datacite.org')), calls.join(' '));
   assert.ok(!calls.some(c => /arxiv\.org/.test(c.split('/')[0])), 'no arXiv host');
+  assert.ok(!calls.some(c => c.startsWith('api.openalex.org')), 'no OpenAlex request: the finder fails closed');
 });
 
 test('a link: proceedings PDFs through their landing page, DOIs in the path, citation tags, or the device', async () => {
@@ -216,7 +225,7 @@ test('a link: proceedings PDFs through their landing page, DOIs in the path, cit
   assert.deepEqual({ status: plainPDF.status, link: plainPDF.link }, { status: 'link_only', link: 'https://files.example.org/draft.pdf' });
 
   // A publisher page that challenges our servers: the DOI in its path still identifies the paper.
-  const acm = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json(work({})), 'dl.acm.org/doi': () => html('<title>Just a moment...</title>', 403, { 'cf-mitigated': 'challenge' }) }),
+  const acm = await addPaper(deps({ 'api.openalex.org/works/doi:': () => json(work({})), 'dl.acm.org/doi': () => html('<title>Just a moment...</title>', 403, { 'cf-mitigated': 'challenge' }) }, { openAlex: true }),
     'https://dl.acm.org/doi/10.1145/3292500.3330701', true, signal());
   assert.equal(acm.status, 'closed'); assert.equal(acm.paper?.source_id, 'openalex:W2963403868');
 
@@ -227,7 +236,7 @@ test('a link: proceedings PDFs through their landing page, DOIs in the path, cit
     { status: 'blocked', reason: 'source_blocked', link: 'https://openreview.net/pdf?id=HPuSIXJaa9' });
 
   const citationDOI = await addPaper(deps({ 'www.example-journal.org/article/42': () => html('<meta name="citation_doi" content="10.1145/3292500.3330701">'),
-    'api.openalex.org/works/doi:': () => json(work({ locations: [{ landing_page_url: 'https://arxiv.org/abs/1907.10902' }] })) }, { imported }),
+    'api.openalex.org/works/doi:': () => json(work({ locations: [{ landing_page_url: 'https://arxiv.org/abs/1907.10902' }] })) }, { imported, openAlex: true }),
   'https://www.example-journal.org/article/42', true, signal());
   assert.equal(citationDOI.status, 'added'); assert.equal(citationDOI.route, 'page');
 
@@ -248,4 +257,29 @@ test('arXiv input is queued directly; a reference goes through add-reference res
   assert.equal((await addPaper(deps({}), 'https://10.0.0.1/x.pdf', true, signal())).status, 'invalid');
   const failing = { ...deps({}, {}), importPaper: async () => 'failed' as const };
   assert.equal((await addPaper(failing, '2305.18290', true, signal())).status, 'failed');
+});
+
+test('the finder asks OpenAlex only when the switch says so: lazily, once, and never on an unreadable policy (review A15)', async () => {
+  assert.equal(openAlexAllowed({ openalex: true }), true);
+  for (const policy of [null, undefined, {}, { openalex: false }, { openalex: 'true' }, [true], 'true']) assert.equal(openAlexAllowed(policy), false, JSON.stringify(policy));
+  const wanted = { title: 'Optuna: A Next-generation Hyperparameter Optimization Framework', year: 2019, firstAuthor: 'Takuya Akiba', arxivID: null };
+  const routes: Routes = { 'api.openalex.org/works': () => json({ results: [work({ locations: [{ landing_page_url: 'https://arxiv.org/abs/1907.10902' }] })] }),
+    'api.datacite.org/dois': () => json({ data: [] }) };
+  const run = async (options: Parameters<typeof paperFinder>[3]) => {
+    const calls: string[] = [];
+    const result = await paperFinder(null as never, undefined, fetcher(routes, calls), options).findPaper(wanted, signal(), { web: true });
+    return { result, openAlex: calls.filter(c => c.startsWith('api.openalex.org')).length };
+  };
+  const on = await run({ openAlex: true });
+  assert.equal(on.openAlex, 1); assert.equal(on.result.status === 'found' && on.result.paper.source_id, '1907.10902');
+  for (const options of [undefined, {}, { openAlex: false }, { openAlex: async () => false }, { openAlex: async () => { throw new Error('policy unreadable'); } }]) {
+    const off = await run(options);
+    assert.equal(off.openAlex, 0, JSON.stringify(options));
+    assert.equal(off.result.status, 'not_found');
+  }
+  let reads = 0;
+  const finder = paperFinder(null as never, undefined, fetcher(routes), { openAlex: async () => { reads++; return true; } });
+  assert.equal(reads, 0, 'the policy is not read until a title is looked up');
+  await finder.findPaper(wanted, signal(), { web: true }); await finder.findPaper(wanted, signal(), { web: true });
+  assert.equal(reads, 1, 'read once per request');
 });

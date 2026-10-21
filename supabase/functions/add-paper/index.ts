@@ -7,7 +7,7 @@ import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
-import { paperFinder } from '../_shared/find-paper.ts';
+import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { addPaper } from '../_shared/add-paper.ts';
 import { MAX_INPUT_CHARS } from '../_shared/identify.ts';
 import { edgeResolveHost } from '../_shared/edge-dns.ts';
@@ -35,16 +35,17 @@ Deno.serve(async request => {
       throw new PublicError(400, 'invalid_request');
     }
     const web = Array.isArray(body.capabilities) && body.capabilities.includes('web_import');
-    const limited = await service.rpc('worker_consume_request', { p_account_id: accountID, p_route: 'add-paper' });
+    // The search policy is read alongside the rate limit (one round trip, not two). OpenAlex is asked only when the
+    // owner's `openalex_enabled` switch says so; it is off (migration 075), and an unreadable policy keeps it off.
+    const [limited, policy] = await Promise.all([service.rpc('worker_consume_request', { p_account_id: accountID, p_route: 'add-paper' }),
+      Promise.resolve(service.rpc('worker_search_policy')).then(({ data, error }) => error ? null : data, () => null)]);
     if (limited.error) throw new PublicError(limited.error.message === 'request_rate_limit' ? 429 : 503, limited.error.message === 'request_rate_limit' ? 'rate_limited' : 'service_unavailable');
+    const openAlex = openAlexAllowed(policy);
 
     const started = Date.now();
     const budget = AbortSignal.any([request.signal, AbortSignal.timeout(BUDGET_MS)]);
     // Add is free: it never uses the paid web search (it passed the key text here, which was never called).
-    const finder = paperFinder(user);
-    // OpenAlex names DOIs until `openalex_enabled` is switched off (migration 072); a server without it keeps OpenAlex.
-    const policy = await service.rpc('worker_search_policy');
-    const openAlex = policy.error ? true : (policy.data as { openalex?: unknown } | null)?.openalex !== false;
+    const finder = paperFinder(user, undefined, fetch, { openAlex });
     const outcome = await addPaper({ fetch, resolveHost: edgeResolveHost, findPaper: finder.findPaper, importPaper: finder.importPaper, openAlex }, query, web, budget);
     // Outcomes join the reliability events (no account ids; the reader's text is never stored).
     await service.rpc('worker_record_reference_event', { p_result: outcome.status, p_route: `add_${outcome.route}`,

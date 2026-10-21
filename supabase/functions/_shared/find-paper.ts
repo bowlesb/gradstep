@@ -1,8 +1,10 @@
 // Finding a cited paper and adding it to a reader's library: shared by Ingest in chat
 // (the model names the paper) and the direct "Add to library" on a reference (no model).
-// Strict matches only: an arXiv id the citation names (its DataCite record), then OpenAlex (arXiv
-// copies, open-access PDFs), then DataCite's title search and a scholarly web search in parallel
-// (capped at 15 s). Our servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md).
+// Strict matches only: an arXiv id the citation names (its DataCite record), then, only while the owner's
+// `openalex_enabled` switch is on, OpenAlex (arXiv copies, open-access PDFs), then DataCite's title search and a
+// scholarly web search in parallel (capped at 15 s). Our servers never contact arXiv
+// (docs/architecture/ARXIV_DEVICE_ONLY.md). OpenAlex is off by owner decision (migration 075, §6.0.4): an absent,
+// unreadable or failed policy keeps it off.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FindResult, FoundPaper, PaperRequest } from './chat.ts';
 import { arxivReference } from './arxiv.ts';
@@ -10,19 +12,35 @@ import { dataciteIDURL, dataciteTitleURLs, lookupDataCite, matchPaper, type Disc
 import { publicHTTPS } from './web-source.ts';
 import type { SearchInput, SearchOutcome } from './tavily.ts';
 
+export interface FinderOptions {
+  /** `pipeline_policy.openalex_enabled` (`worker_search_policy().openalex`, migration 072; switched off by 075). Read
+   * lazily, at most once, and only when a title lookup runs. Anything but an explicit `true` keeps OpenAlex off. */
+  openAlex?: boolean | (() => Promise<boolean>);
+}
+
+/** Whether a policy reading allows OpenAlex: only an explicit `true` does (fail closed). */
+export function openAlexAllowed(policy: unknown): boolean {
+  return !!policy && typeof policy === 'object' && !Array.isArray(policy) && (policy as { openalex?: unknown }).openalex === true;
+}
+
 /** Paid search is injected already admitted; a raw provider key is never accepted. */
 export function paperFinder(user: SupabaseClient,
-  search?: (input: SearchInput, signal: AbortSignal) => Promise<SearchOutcome>, fetcher: typeof fetch = fetch) {
+  search?: (input: SearchInput, signal: AbortSignal) => Promise<SearchOutcome>, fetcher: typeof fetch = fetch, options: FinderOptions = {}) {
+  let allowed: Promise<boolean> | null = null;
+  const openAlexOn = () => allowed ??= (async () => {
+    try { return typeof options.openAlex === 'function' ? await options.openAlex() === true : options.openAlex === true; }
+    catch { return false; }
+  })();
   async function findPaper(wanted: PaperRequest, signal: AbortSignal, { web, tavily = false }: { web: boolean; tavily?: boolean }): Promise<FindResult> {
     // Stopping at the first clear match. A failed query does not hide the others; all failing is "unavailable".
     const seen: DiscoveryResult[] = [];
     let answered = false, closed: FindResult | null = null;
-    // OpenAlex first, in parallel: it answers in about a second and knows a paper's other
-    // versions (an arXiv copy under a conference title; open-access PDFs elsewhere), under
-    // the same strict match. DataCite's title search is the fallback.
+    // OpenAlex first (only with the switch on), in parallel: it answers in about a second and knows a paper's other
+    // versions (an arXiv copy under a conference title; open-access PDFs elsewhere), under the same strict match.
+    // DataCite's title search is the fallback, and the only title search with the switch off.
     const openAlex = (async (): Promise<FindResult | null> => {
       const find = openAlexFindURL(wanted);
-      if (!find) return null;
+      if (!find || !await openAlexOn()) return null;
       try {
         const response = await fetcher(find, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
           headers: { accept: 'application/json', 'user-agent': 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)' } });

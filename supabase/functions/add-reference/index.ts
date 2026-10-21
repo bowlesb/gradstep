@@ -1,12 +1,12 @@
 // Direct "Add to library" on a bibliography entry: identifies the cited paper without a model
-// (arXiv id, DOI, Crossref's citation matcher, OpenAlex) and queues it with the caller's own
+// (arXiv id, DOI, Crossref's citation matcher; OpenAlex only while its switch is on) and queues it with the caller's own
 // import, like the app's Add. No credits. Answers within ~25 s with a plain outcome the app shows.
 import { installEgressGuard } from '../_shared/egress.ts';
 import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
-import { paperFinder } from '../_shared/find-paper.ts';
+import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { MAX_REFERENCE_CHARS, resolveReference } from '../_shared/reference.ts';
 import { RpcFailure } from '../_shared/chat.ts';
 import { referenceLookupSpending } from '../_shared/provider-spending.ts';
@@ -34,7 +34,10 @@ Deno.serve(async request => {
       throw new PublicError(400, 'invalid_request');
     }
     const web = Array.isArray(body.capabilities) && body.capabilities.includes('web_import');
-    const limited = await service.rpc('worker_consume_request', { p_account_id: accountID, p_route: 'add-reference' });
+    // The search policy is read alongside the rate limit. OpenAlex is off (migration 075); unreadable keeps it off.
+    const [limited, policy] = await Promise.all([service.rpc('worker_consume_request', { p_account_id: accountID, p_route: 'add-reference' }),
+      Promise.resolve(service.rpc('worker_search_policy')).then(({ data, error }) => error ? null : data, () => null)]);
+    const openAlex = openAlexAllowed(policy);
     if (limited.error) throw new PublicError(limited.error.message === 'request_rate_limit' ? 429 : 503, limited.error.message === 'request_rate_limit' ? 'rate_limited' : 'service_unavailable');
 
     const started = Date.now();
@@ -51,8 +54,8 @@ Deno.serve(async request => {
       reference, web, consentVersion: body.consent_version, enabled: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
       apiKey: Deno.env.get('TAVILY_API_KEY'), fetcher: fetch,
     });
-    const finder = paperFinder(user, spending.search);
-    const { result, route } = await resolveReference({ fetch,
+    const finder = paperFinder(user, spending.search, fetch, { openAlex });
+    const { result, route } = await resolveReference({ fetch, openAlex,
       findPaper: (wanted, signal, options) => finder.findPaper(wanted, signal, { ...options, tavily: !!spending.search }) }, reference, web, budget)
       .catch(() => ({ result: { status: 'unavailable' as const }, route: 'none' as const }))
       .finally(spending.finish);

@@ -1,8 +1,8 @@
 // Add a paper by any identifier or link (owner, 2026-10-07: "adding a pdf needs to be absolutely
 // bullet proof"). The Add sheet sends what the reader typed or pasted: an arXiv ID or link, a DOI,
 // any web link (a landing page or a PDF), or a reference. This module says which paper it names and
-// where an open copy is, without a model: arXiv by ID, a DOI through OpenAlex (Crossref for DOIs
-// OpenAlex doesn't know), a link through the DOI or arXiv ID in it, known proceedings hosts, and
+// where an open copy is, without a model: arXiv by ID, a DOI through Crossref (OpenAlex first only while the owner's
+// `openalex_enabled` switch is on; off since migration 075), a link through the DOI or arXiv ID in it, known proceedings hosts, and
 // the page's own citation tags. Every fetch of a reader-supplied link uses the web import's checks
 // (https on a public name, every redirect hop re-resolved, private addresses refused, bounded).
 // When the paper can't be fetched by our servers the result says what the reader's own device
@@ -235,7 +235,8 @@ export interface IdentifyDeps {
   fetch: typeof fetch;
   resolveHost?: ResolveHost;
   findPaper: (wanted: PaperRequest, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
-  /** `pipeline_policy.openalex_enabled` (migration 072; default true). Off, a DOI is named by Crossref alone. */
+  /** `pipeline_policy.openalex_enabled` (migration 072; off since 075). Only an explicit `true` asks OpenAlex; absent or
+   * unreadable is off, and a DOI is named by Crossref alone (fail closed, review A15). */
   openAlex?: boolean;
 }
 
@@ -262,12 +263,12 @@ function fromCandidate(candidate: OpenAlexCandidate, web: boolean): FindResult {
   return open ? { status: web ? 'found' : 'needs_update', paper } : { status: 'closed', paper };
 }
 
-/** A DOI: OpenAlex's work (arXiv copy, open copy or closed); a DOI OpenAlex doesn't know is named by
- * Crossref and searched by title (preprints often have no DOI link); else closed under its DOI. With OpenAlex
- * switched off (`deps.openAlex === false`), every DOI takes the Crossref path. */
+/** A DOI: with OpenAlex on (`deps.openAlex === true`), OpenAlex's work (arXiv copy, open copy or closed); otherwise, and
+ * for a DOI OpenAlex doesn't know, Crossref names it and the finder searches by title (preprints often have no DOI
+ * link); else closed under its DOI. */
 export async function resolveDOI(deps: IdentifyDeps, doi: string, web: boolean, signal: AbortSignal): Promise<FindResult> {
   const select = 'id,doi,title,publication_year,authorships,locations,best_oa_location';
-  const work: Awaited<ReturnType<typeof getJSON>> = deps.openAlex === false ? { ok: false, missing: true }
+  const work: Awaited<ReturnType<typeof getJSON>> = deps.openAlex !== true ? { ok: false, missing: true }
     : await getJSON(deps.fetch, `https://api.openalex.org/works/doi:${encodeURIComponent(doi)}?select=${select}&mailto=${MAILTO}`, signal);
   if (work.ok) {
     let candidate: OpenAlexCandidate | undefined;
