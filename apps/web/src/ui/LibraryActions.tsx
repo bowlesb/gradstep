@@ -26,13 +26,14 @@ export interface ExtraAction { label: string; testID: string; applies: (item: Li
 /** Whether the library manages this paper (tags, archive, remove): every visible paper but a legacy item outside the shared catalog. */
 const managed = (item: LibraryPaper) => !(item.kind === 'item' && item.scope !== 'shared_catalog');
 
-export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void, extra?: ExtraAction, onSimilar?: (paper:LibraryPaper)=>void) {
+export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void, extraActions?: ExtraAction | readonly ExtraAction[], onSimilar?: (paper:LibraryPaper)=>void) {
+  const extra = useMemo(() => !extraActions ? [] : Array.isArray(extraActions) ? extraActions as readonly ExtraAction[] : [extraActions as ExtraAction], [extraActions]);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const current = useRef(selection), latest = useRef(library), returnTo = useRef<Selection | null>(null), latestExtra = useRef(extra);
   current.current = selection; latest.current = library; latestExtra.current = extra;
   const open: OpenMenu = useCallback((item, trigger, last) => {
-    if (!item.visible || !managed(item) && !latestExtra.current?.applies(item) || latest.current.pending.has(item.id)) return;
+    if (!item.visible || !managed(item) && !latestExtra.current.some(x => x.applies(item)) || latest.current.pending.has(item.id)) return;
     if (last === undefined && current.current?.action === 'menu' && current.current.trigger === trigger) {
       setSelection(null); return;
     }
@@ -133,7 +134,7 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
     {actions.onSimilar && <button type="button" role="menuitem" onClick={()=>{actions.close(selection,undefined,false);actions.onSimilar?.(selection.item);}}>Find similar papers</button>}
     {links.source && <button type="button" role="menuitem" onClick={()=>void share(links.source!)}>Share Source URL</button>}
     {links.gradstep && <button type="button" role="menuitem" onClick={()=>void share(links.gradstep!)}>Share Gradstep link</button>}
-    {extra?.applies(selection.item) && <button type="button" role="menuitem" data-testid={extra.testID} onClick={() => { actions.close(selection, undefined, false); extra.run(selection.item); }}>{extra.label}</button>}
+    {extra.filter(x => x.applies(selection.item)).map(x => <button key={x.testID} type="button" role="menuitem" data-testid={x.testID} onClick={() => { actions.close(selection, undefined, false); x.run(selection.item); }}>{x.label}</button>)}
     {selection.item.kind === 'import' && <button type="button" role="menuitem" onClick={() => {
       window.open(`https://arxiv.org/pdf/${selection.item.source_id}v${selection.item.source_revision}`, '_blank', 'noopener,noreferrer');
       actions.close(selection);

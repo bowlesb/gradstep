@@ -14,7 +14,10 @@ to refresh it, and select Flash in Answer options for an existing Sonnet chat.
 On 2026-10-17 at 04:43 UTC the owner's Sonnet request failed for the Anthropic account balance, again at 14:32 UTC.
 A fresh Flash probe also failed because AI Studio cannot satisfy the account's ZDR policy. Migration 086 and the
 adapter now pin Google Vertex US with explicit ZDR; seven deployed-route generations pass. Build 68 and the browser distinguish model-balance failure as
-`model_unavailable`, preserve the question and offer a different model instead of retrying the unfunded one.
+`model_unavailable`, preserve the question and offer a different model instead of retrying the unfunded one. Since
+every model now shares one OpenRouter account, the server answers a gateway 402 as `service_unavailable` with
+`retry_after: 300` instead (2026-10-21, review A13; [RESILIENCE.md](RESILIENCE.md)); `model_unavailable` now means the
+chosen model's own price card has lapsed (A4).
 Activation is established by the later published-table readback and ordinary default smoke. The dated model research below is historical.
 
 Build 65 feedback (2026-10-17 UTC; browser `91c7d07f`, TestFlight 66): the native Answer options sheet has no title or
@@ -141,8 +144,11 @@ lookup, oldest-first title phrase, then all title words; one paced request at a 
 words before a colon), the cited year within [year−3, year+1], the cited first author among the first three
 authors, and no negation-word difference; without an author the title must be exact, and titles under four words
 need author and year. A visible library entry or active import for that source reports "already in your library";
-otherwise `v2_begin_import` runs **as the user** (their JWT; the app starts chat streams with ≥ 5 minutes of token
-validity), exactly like the app's Add, so normal conversion, credit holds and quotas apply. Post-settlement work has
+otherwise the paper is imported **as the user** (their JWT; the app starts chat streams with ≥ 5 minutes of token
+validity), exactly like the app's Add, so normal conversion, credit holds and quotas apply. Since review A5
+(2026-10-21) the presence check and the import are one locked RPC, `v2_add_paper_once`, and the import's operation
+UUID is derived from the chat operation, so a finished `source_only` paper is present and a retry never queues it
+twice ([HTML_FIRST_READER.md](HTML_FIRST_READER.md#server-adds-without-duplicates-review-a5-2026-10-21-migration-120-not-deployed)). Post-settlement work has
 a 45 s budget; Stop cancels it and nothing is imported. Results are appended as inert text: queued, already in the
 library, not found, search unavailable, not openly available (with an https link), needs a newer app, or could not
 be added. A `tool_use` stop is reported as `end_turn`.
@@ -603,7 +609,7 @@ by (Opus 5/4.8, $5/$25), not Opus 5.5's.
 - A replay (`replayed: true`, any state) never calls the provider or settles; it returns `operation_replayed`. Reserve errors never settle. An ambiguous reserve transport failure is logged by operation ID for reconciliation.
 - After a hold, settlement happens exactly once on every path (success, refusal, provider error, deadline, client disconnect), through `worker_settle_chat` since 2026-10-16 (migration 079: `worker_settle_operation` and the answer's ending in one transaction). It retries only ambiguous transport failures, with identical amounts (the RPC is idempotent for equal amounts). Settled amounts never exceed the hold; overruns settle at the hold and log `chat_usage_exceeded_hold`. Recorded provider usage keeps the true estimate, and since migration 079 an overrun is a budget anomaly, never a pause by itself ([RESILIENCE.md](RESILIENCE.md#owner-decisions)).
 - What the reader pays depends on how the answer ended: [When an answer stops early](#when-an-answer-stops-early--2026-10-16).
-- Usage: final `usage.iterations` (per serving model, fallback included) or top-level usage. Without final usage: input from `message_start` and output = max(visible chars / 3, 100 tokens per elapsed second), capped at `max_tokens`. A typed HTTP rejection before `message_start` is unbilled. A lost connection before `message_start` charges the input estimate at the uncached rate. Estimates are marked `estimated: true` in `worker_record_provider_usage` units (event ID = message ID, else `operation:<id>`).
+- Usage (OpenRouter, since 2026-10-18): the final chunk's `usage` with `cost` is the exact bill. A stream cut short (Stop, dropped stream, our deadline) reads OpenRouter's generation record (≤6 reads in 7 s) and settles exact when it matches; otherwise the attempt keeps its whole ceiling as unresolved liability (`estimated: true` in `worker_record_provider_usage` units) until the reconciler resolves it. The reader is charged only the written part (`readerMicrousd`), never the estimate. A typed HTTP rejection before the stream (400/401/402/403/404/413/422/429) is unbilled.
 
 ## When an answer stops early — 2026-10-16
 
@@ -620,7 +626,7 @@ part is listed at the end of this section.
 | How it ends | What the reader's app receives | The reader pays | Recorded ending (`reason` when unpaid) |
 |---|---|---|---|
 | **Finished**: the model ended its turn (`end_turn`, `stop_sequence`, or a tool call the server completed) with something to show | `done {charged: true, credits}` | the answer's usage, plus a title, suggestions or map update that was relayed; never above the hold | `completed` |
-| **The reader pressed Stop**, and their app recorded it (`v1_chat_stop`, capability `stop_signal`) | nothing more (they left) | the answer's own usage so far; nothing if the provider had not started it | `stopped` |
+| **The reader pressed Stop**, and their app recorded it (`v1_chat_stop`, capability `stop_signal`) | nothing more (they left) | the part written so far (since 2026-10-21: OpenRouter's generation record for the input and the observed share of the output, else the observed output only; [PROVIDER_SPENDING.md](PROVIDER_SPENDING.md#stopped-answers-and-unresolved-attempts-a1-a6)); nothing if no text or tool call had arrived | `stopped` |
 | **A build without `stop_signal` closed the stream** (builds up to 60: Stop and a dropped connection look the same) | nothing more | as a Stop (unchanged) | `left` |
 | **The provider failed or overloaded**: refused before the start (429/529/5xx, its breaker open), failed mid-stream (an error event, the connection to it lost), or finished a turn with nothing to show | `error provider_unavailable {credits: 0, charged: false, reason: "provider", retry_after}` (an empty finished turn: `done {charged: false, reason: "provider"}`) | nothing | `provider` |
 | **Our server failed**: a send it could not admit or record, a fault in our code, an instance that died (the 30-minute stale-hold sweep settles those) | `error service_unavailable {credits: 0, charged: false, reason: "server", retry_after: 10}` (a dead instance sends nothing) | nothing | `server` |
@@ -629,10 +635,13 @@ part is listed at the end of this section.
 | **The connection between our server and the reader dropped** (an app with `stop_signal` that recorded no Stop) | nothing (it is gone) | nothing | `connection` |
 | **A refusal** (`stop_reason: refusal`, after any server-side fallback) | `error refused {credits: 0, charged: false, reason: "refusal"}` | nothing | `refusal` |
 
-A refusal is a refusal even if the reader also left; otherwise the reader leaving decides first, then a deadline that
-cut the answer short, then the provider's or our own failure, then a length limit. The server can only see a
-connection drop when it happens before the answer is handed to the network: an answer that finished and was written
-into a connection that then failed is charged as finished.
+A refusal is a refusal even if the reader also left; a finished turn with something to show is **completed** even if the
+reader left as it finished or afterwards (since 2026-10-21, review A12: the connection dropping during the title's
+grace, the suggestions or the map no longer makes a finished answer free; those side requests, never relayed, are
+Gradstep's). Otherwise the reader leaving while the answer was written decides first, then a deadline that cut the
+answer short, then the provider's or our own failure, then a length limit. The server can only see a connection drop
+when it happens before the answer is handed to the network: an answer that finished and was written into a
+connection that then failed is charged as finished.
 
 ### Each paid feature
 
@@ -660,6 +669,11 @@ into a connection that then failed is charged as finished.
 - The chat function logs `ending`, `charged` and `credits` in `chat_answer`. Our own causes reach it as `cause` on the
   provider outcome (`server`: an admission refused or unrecorded, a throw in our code; `limit`: `operation_ceiling`,
   the round or search bound); a failure without one is the provider's.
+- **What `done` reports (2026-10-21, review A23).** `credits`/`charged` are what the settlement recorded. A settlement
+  the database refused, or one never acknowledged, is read back (`worker_operation_outcome`); an operation still open
+  is reported `charged: false, reason: "server", credits: 0` (the stale sweep settles it that way) and the log line
+  carries `settlement: rejected|unknown`. Ingest's ledger row keeps the number of keys the model sent (`key_count`),
+  never the model-chosen names.
 - **Stop.** An app that sends `capabilities: ["stop_signal"]` calls `v1_chat_stop(p_operation_id)` (authenticated, its
   own chat operation only; `{recorded, settled}`) and waits for it, at most about 3 s, before it cancels the stream.
   When the stream closes the function asks `worker_chat_stop_requested`, once more after 1.5 s if not found; found

@@ -16,11 +16,14 @@ export async function userClient(request: Request): Promise<{ user: SupabaseClie
   const user = createClient(required('SUPABASE_URL'), required('SUPABASE_ANON_KEY'), {
     ...options, global: { ...options.global, headers: { Authorization: authorization } },
   });
-  const { data, error } = await user.auth.getUser(token);
-  if (error || !data.user) throw new PublicError(401, 'authentication_required');
-  const context = await rpc<{ account_id: string }>(user, 'v1_account_context');
-  if (context.account_id !== data.user.id) throw new PublicError(403, 'account_unavailable');
-  return { user, accountID: context.account_id };
+  // C6 (review 2026-10-21): Auth's check of the token and the account read run together (one round trip, not two);
+  // the account answer is used only after Auth accepted the same token, and must name the same user.
+  const [checked, context] = await Promise.all([user.auth.getUser(token),
+    rpc<{ account_id: string }>(user, 'v1_account_context').then(value => ({ value }), error => ({ error }))]);
+  if (checked.error || !checked.data.user) throw new PublicError(401, 'authentication_required');
+  if ('error' in context) throw context.error;
+  if (context.value.account_id !== checked.data.user.id) throw new PublicError(403, 'account_unavailable');
+  return { user, accountID: context.value.account_id };
 }
 /** The caller's login ID from a valid token, without requiring an open
  * account (account deletion must resume for an account it already closed). */

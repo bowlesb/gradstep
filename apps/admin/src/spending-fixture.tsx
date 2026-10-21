@@ -45,6 +45,13 @@ function summary(account: string | null, empty: boolean): SpendingSummary {
           observed_at: null, source: null, evidence_reference: null }] },
     external_observations: [], anomalies: { budget_paused: false, budget_eighty_percent: false, forecast_incomplete: true,
       funded_plan_over_budget: false, tavily_unverified: true, native_search_gated: true, attempt_capacity_eighty_percent: false },
+    note_assets: { period: '2026-10-01', limits: { max_blob_bytes: 2_097_180, account_bytes: 134_217_728, account_objects: 4000,
+      environment_bytes: 536_870_912, account_download_bytes_month: 536_870_912, environment_download_bytes_month: 4_294_967_296,
+      account_verify_bytes_month: 268_435_456, environment_verify_bytes_month: 1_073_741_824 },
+      stored: { bytes: empty ? 0 : 3_276_800, objects: empty ? 0 : 42, ready_bytes: empty ? 0 : 3_145_728, ready_objects: empty ? 0 : 40,
+        pending_bytes: empty ? 0 : 131_072, pending_objects: empty ? 0 : 2, oldest_pending_at: empty ? null : stamp, accounts: empty ? 0 : 3 },
+      month: { download_bytes: empty ? 0 : 9_437_184, downloads: empty ? 0 : 120, verify_bytes: empty ? 0 : 3_276_800, verifies: empty ? 0 : 42 },
+      account: account ? { bytes: 1_048_576, objects: 12, pending_objects: 0, download_bytes: 2_097_152, verify_bytes: 1_048_576 } : null },
   };
 }
 

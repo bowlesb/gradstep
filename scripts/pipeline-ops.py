@@ -2,17 +2,23 @@
 """Operator controls for the staging paper pipeline. Never prints credentials.
 
   status                      pipeline/budget/papers summary (read-only SQL)
-  budget --usd N [--disable]  set this month's platform provider budget
+  budget --usd N --actor OWNER --reason TEXT
+                              set the provider limit for this UTC month and every
+                              later month already created (owner-attributed and
+                              audited; never pauses or resumes; schema ceiling $50)
   enable | disable            turn the pipeline worker on/off
-  grant ACCOUNT CREDITS KEY   recorded operator credit grant (idempotent per KEY)
   kick                        invoke the worker once
-  resolve ATTEMPT (--job ID | --pages N)
-                              reconcile an uncertain paid submission: a found
-                              Mathpix job resumes polling; otherwise release the
-                              hold (no customer charge; N billed pages recorded)
+  tariffs                     each OpenRouter price card and when it lapses (read-only SQL)
+  tariff-renew MODEL --until DATE --actor OWNER --evidence REF --reason TEXT
+                              extend a card whose prices were re-checked (audited,
+                              at most 183 days ahead; a changed price needs a migration)
+  attempts [--hours H]        provider attempts still unknown or admitted (read-only SQL)
+  reconcile ATTEMPT ...       resolve one attempt at its provider-evidenced cost (audited)
+
+Credits are granted on the admin site (audited, capped); pausing and resuming paid work is the
+admin site's Overview control. Review A11 (2026-10-21) removed `grant` and `resolve` here.
 """
 import argparse
-import datetime
 import json
 from pathlib import Path
 import subprocess
@@ -54,9 +60,9 @@ def sql(query):
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 sub = parser.add_subparsers(dest='command', required=True)
 sub.add_parser('status'); sub.add_parser('enable'); sub.add_parser('disable'); sub.add_parser('kick')
-b = sub.add_parser('budget'); b.add_argument('--usd', type=float, required=True); b.add_argument('--disable', action='store_true')
-g = sub.add_parser('grant'); g.add_argument('account'); g.add_argument('credits', type=int); g.add_argument('key')
-r = sub.add_parser('resolve'); r.add_argument('attempt'); r.add_argument('--job'); r.add_argument('--pages', type=int)
+b = sub.add_parser('budget', help='Set the provider limit for this UTC month and later months (owner-audited; never pauses or resumes)')
+b.add_argument('--usd', type=float, required=True); b.add_argument('--actor', required=True, help='Owner account id the change is audited to')
+b.add_argument('--reason', required=True)
 # Cost audit 2026-10-14, item 1: provider attempts left `unknown` (a Stop, a deadline, a dropped stream) keep their whole
 # ceiling in the platform's reserved liability until an owner resolves them with the provider's actual cost.
 a = sub.add_parser('attempts', help='List provider attempts still unknown or admitted, oldest first'); a.add_argument('--hours', type=float, default=1.0)
@@ -65,6 +71,12 @@ c.add_argument('attempt'); c.add_argument('--actor', required=True, help='Owner 
 c.add_argument('--microusd', type=int, required=True, help='Actual provider cost in micro-USD (0 when the provider never started it)')
 c.add_argument('--evidence', required=True, help='Where the cost was read: a provider request id, message id or invoice line')
 c.add_argument('--reason', required=True); c.add_argument('--units', default='{}', help='Provider units as JSON (Tavily needs {"credits": n})')
+t = sub.add_parser('tariff-renew', help='Extend an OpenRouter price card after re-checking its prices (audited; at most 183 days ahead)')
+t.add_argument('model'); t.add_argument('--until', required=True, help='UTC date or ISO timestamp, e.g. 2027-03-01')
+t.add_argument('--actor', required=True, help='Owner account id the renewal is audited to')
+t.add_argument('--evidence', required=True, help='Where the unchanged prices were read, e.g. "openrouter endpoints 2026-12-01"')
+t.add_argument('--reason', required=True)
+sub.add_parser('tariffs')
 args = parser.parse_args()
 
 if args.command == 'status':
@@ -77,16 +89,12 @@ if args.command == 'status':
  'operations',(select coalesce(jsonb_agg(jsonb_build_object('kind',kind,'state',state,'credits',actual_credits,'ceiling',credit_ceiling,'usd',actual_microusd/1e6,'created',created_at) order by created_at desc),'[]')
    from (select * from app_private.metered_operations order by created_at desc limit 30) o)) as status""")[0]['status'], indent=1, default=str))
 elif args.command == 'budget':
-    period = datetime.date.today().replace(day=1).isoformat()
-    print(rpc('worker_set_platform_budget', {'p_period': period, 'p_limit_microusd': int(round(args.usd * 1_000_000)), 'p_enabled': not args.disable}))
+    import uuid
+    # The database picks the UTC month and carries the limit to later months; the pause switch is never changed here.
+    print(rpc('worker_owner_set_budget_limit', {'p_actor_id': args.actor, 'p_request_id': str(uuid.uuid4()),
+        'p_limit_microusd': int(round(args.usd * 1_000_000)), 'p_reason': args.reason}))
 elif args.command in ('enable', 'disable'):
     print(rpc('worker_set_pipeline_enabled', {'p_enabled': args.command == 'enable'}))
-elif args.command == 'grant':
-    print(rpc('worker_grant_credits', {'p_account_id': args.account, 'p_source': 'adjustment', 'p_external_key': 'operator:' + args.key,
-        'p_credits': args.credits, 'p_starts_at': '2026-01-01T00:00:00Z', 'p_expires_at': None, 'p_reason': 'Operator beta grant'}))
-elif args.command == 'resolve':
-    if (args.job is None) == (args.pages is None): raise SystemExit('Pass exactly one of --job or --pages')
-    print(rpc('worker_pipeline_resolve_uncertain', {'p_attempt_id': args.attempt, 'p_provider_job_id': args.job, 'p_pages_billed': args.pages}))
 elif args.command == 'attempts':
     print(json.dumps(sql(f"""select coalesce(jsonb_agg(jsonb_build_object('id',a.id,'operation',a.operation_id,'account',a.account_id,'provider',a.provider,
    'route',a.route,'model',a.model,'state',a.state,'ceiling_usd',a.ceiling_microusd/1e6,'actual_usd',a.actual_microusd/1e6,'request_id',a.provider_request_id,
@@ -96,6 +104,15 @@ elif args.command == 'reconcile':
     import uuid
     print(rpc('worker_provider_attempt_reconcile', {'p_actor_id': args.actor, 'p_request_id': str(uuid.uuid4()), 'p_attempt_id': args.attempt,
         'p_actual_microusd': args.microusd, 'p_actual_units': json.loads(args.units), 'p_evidence_reference': args.evidence, 'p_reason': args.reason}))
+elif args.command == 'tariffs':
+    print(json.dumps(sql("select coalesce(jsonb_agg(jsonb_build_object('model',model,'tariff',tariff,'valid_until',valid_until,'evidence',evidence_reference,"
+        "'days_left',round(extract(epoch from valid_until-now())/86400)) order by valid_until,model),'[]') as tariffs from app_private.openrouter_tariffs")[0]['tariffs'],
+        indent=1, default=str))
+elif args.command == 'tariff-renew':
+    import uuid
+    until = args.until if 'T' in args.until else args.until + 'T00:00:00Z'
+    print(rpc('worker_openrouter_tariff_renew', {'p_actor_id': args.actor, 'p_request_id': str(uuid.uuid4()), 'p_model': args.model,
+        'p_valid_until': until, 'p_evidence_reference': args.evidence, 'p_reason': args.reason}))
 elif args.command == 'kick':
     # The Cloud Run worker (the Edge paper-worker is retired and undeployed).
     worker = json.loads((ROOT / 'infra/staging.json').read_text())['pipeline_worker_url']

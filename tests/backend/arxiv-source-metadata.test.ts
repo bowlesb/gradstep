@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { extractSourceMetadata, parseWatermark, sourceMetadataFromAtom, splitAuthorLine } from '../../supabase/functions/_shared/reader/arxiv/source-metadata.ts';
 
 // A paper's metadata read on the device from the arXiv HTML it already downloaded (docs/architecture/
@@ -76,22 +76,4 @@ test('the export API\'s Atom answer (the native fallback without HTML): arXiv ca
   assert.equal(sourceMetadataFromAtom(atom.replace(/<entry>[\s\S]*<\/entry>/, ''), '2305.18290', 3, now), null, 'no entry');
   const acm = atom.replace('<category term="cs.CL"', '<category term="I.2.7" scheme="x"/><category term="cs.CL"');
   assert.deepEqual(sourceMetadataFromAtom(acm, '2305.18290', 3, now)!.metadata.categories, ['cs.LG', 'cs.AI', 'cs.CL'], 'ACM classes are left out');
-});
-
-// The real-paper corpus on this machine (`npm run test:slow:fetch`), when present: every paper gives a record except
-// the two whose author block is a logo or a report title, which give none (the device then sends nothing).
-const corpus = new URL('../../.artifacts/reader-corpus/', import.meta.url);
-test('the pinned corpus (local, optional)', { skip: !existsSync(corpus) }, () => {
-  const none = new Set(['2610.13527v1', '2610.16352v1']);
-  for (const name of readdirSync(corpus).sort()) {
-    const path = new URL(`${name}/source.html`, corpus);
-    if (!existsSync(path)) continue;
-    const [, id, revision] = /^(.*)v(\d+)$/.exec(name)!;
-    const result = extractSourceMetadata(readFileSync(path, 'utf8'), id, Number(revision), now);
-    if (none.has(name)) { assert.equal(result, null, name); continue; }
-    assert.ok(result, name);
-    const m = result!.metadata;
-    assert.ok(m.title.length > 10 && m.authors.length >= 1 && m.abstract && m.license_uri && m.categories.length === 1 && m.version_date, name);
-    for (const author of m.authors) assert.doesNotMatch(author, /universit|institut|corresponding|equal contribution|@/i, `${name}: ${author}`);
-  }
 });

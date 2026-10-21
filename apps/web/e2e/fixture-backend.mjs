@@ -278,12 +278,14 @@ const rpcs = {
 };
 
 // ---------- HTTP ----------
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, x-client-info', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, x-client-info, x-content-sha256', 'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS' };
 function send(response, status, body, type = 'application/json') {
   const data = body === undefined ? '' : Buffer.isBuffer(body) ? body : JSON.stringify(body);
   response.writeHead(status, { ...cors, 'Content-Type': type, 'Cache-Control': 'no-store' });
   response.end(data);
 }
+const readBytes = (request, limit) => new Promise(resolve => { const chunks = []; let total = 0, over = false;
+  request.on('data', c => { total += c.length; if (total > limit) over = true; else chunks.push(c); }); request.on('end', () => resolve(over ? null : Buffer.concat(chunks))); });
 const read = request => new Promise(resolve => { let b = ''; request.on('data', c => { b += c; }); request.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve(null); } }); });
 function sessionFor(email) {
   const token = 'fixture-' + randomUUID(), id = ACCOUNTS[email];
@@ -344,6 +346,17 @@ createServer(async (request, response) => {
     return send(response, 200, { ok: true });
   }
   // The account menu's AI credits and Subscription plan (account-assets.spec): {available, reserved, plan}.
+  // Notes (NOTES_AND_SNIPPETS.md "Blob API"): which blobs this fixture holds, and switches for the quota and download paths.
+  if (url.pathname === '/__note-assets' && request.method === 'GET') {
+    const a = account(ACCOUNTS['returning@example.test']);
+    return send(response, 200, { blobs: [...(a.noteAssets ?? new Map()).entries()].map(([id, b]) => ({ id, bytes: b.length, sha256: sha(b).toString('hex'), head: b.subarray(0, 16).toString('hex') })), puts: a.noteAssetPuts ?? [], gets: a.noteAssetGets ?? [] });
+  }
+  if (url.pathname === '/__note-assets' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
+    if (typeof p?.quota === 'boolean') a.noteQuota = p.quota;
+    if (typeof p?.offline === 'boolean') a.noteOffline = p.offline;
+    return send(response, 200, { ok: true });
+  }
   if (url.pathname === '/__store' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
     if (Number.isSafeInteger(p?.available) && Number.isSafeInteger(p?.reserved)) a.balance = { available: p.available, reserved: p.reserved };
@@ -630,6 +643,30 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
       event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile, ...(body.profile?.effort === 'auto' ? { effort } : {}) } : {}) }); response.end();
     };
     setTimeout(tick, 200); return;
+  }
+  // note-assets: the only writer of opaque snippet blobs. Idempotent PUT (same ID and digest), 409 another digest,
+  // 413 over 2 MiB + 28, 429 {code:"quota"}; GET returns the bytes as application/octet-stream with no-store.
+  const noteAsset = /^\/functions\/v1\/note-assets\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(url.pathname);
+  if (noteAsset) {
+    const blobID = noteAsset[1], assets = a.noteAssets ??= new Map();
+    if (a.noteOffline) { request.socket.destroy(); return; }
+    if (request.method === 'PUT') {
+      const declared = request.headers['x-content-sha256'], body = await readBytes(request, 2 * 1024 * 1024 + 28);
+      if (!body) return send(response, 413, { code: 'too_large' });
+      if (typeof declared !== 'string' || !/^[0-9a-f]{64}$/.test(declared) || sha(body).toString('hex') !== declared || body.length < 29) return send(response, 400, { code: 'invalid_request' });
+      const prior = assets.get(blobID);
+      if (prior && sha(prior).toString('hex') !== declared) return send(response, 409, { code: 'conflict' });
+      if (!prior && a.noteQuota) return send(response, 429, { code: 'quota' });
+      assets.set(blobID, body); (a.noteAssetPuts ??= []).push(blobID);
+      return send(response, 200, { state: 'ready', bytes: body.length });
+    }
+    if (request.method === 'GET') {
+      const body = assets.get(blobID);
+      if (!body) return send(response, 404, { code: 'not_found' });
+      (a.noteAssetGets ??= []).push(blobID);
+      response.writeHead(200, { ...cors, 'Content-Type': 'application/octet-stream', 'Cache-Control': 'private, no-store' }); response.end(body); return;
+    }
+    return send(response, 405, { code: 'method_unavailable' });
   }
   if (url.pathname === '/functions/v1/reader-artifact'  && request.method === 'GET') {
     const itemID = url.searchParams.get('item_id'), entry = a.entries.get('item:' + itemID);

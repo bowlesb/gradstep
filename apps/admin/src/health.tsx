@@ -15,9 +15,10 @@ const usd = (micro: number, digits = 2) => new Intl.NumberFormat('en-US', { styl
 // Sub-cent amounts (an overrun on one small request) in micro-USD, so they never read as $0.000.
 const precise = (micro: number) => micro < 10_000 ? `${micro.toLocaleString()} micro-USD` : usd(micro, micro >= 1_000_000 ? 2 : 4);
 const dollarsShort = (micro: number) => micro >= 100_000_000 ? usd(micro, 0) : micro >= 1_000_000 ? usd(micro, 2) : usd(micro, micro ? 3 : 0);
-const PROVIDERS: Record<string, string> = { anthropic: 'Anthropic (chat, podcast review)', deepseek: 'DeepSeek (chat, podcast scripts)', openrouter: 'OpenRouter (Google chat)', google: 'Google (podcast voices)',
+// Every model call goes through OpenRouter since 2026-10-18 (migration 089); the direct providers remain only as history.
+const PROVIDERS: Record<string, string> = { openrouter: 'OpenRouter (all AI: chat, tags, podcasts)', anthropic: 'Anthropic direct (retired 2026-10-18)', deepseek: 'DeepSeek direct (retired 2026-10-18)', google: 'Google direct voices (retired 2026-10-18)',
   tavily: 'Tavily (web search)', mathpix: 'Mathpix (retired OCR)', ingest: 'Paper lookups' };
-const providerTone = (p: string) => ['anthropic', 'deepseek', 'google', 'tavily'].includes(p) ? `p-${p}` : 'p-other';
+const providerTone = (p: string) => ['openrouter', 'anthropic', 'deepseek', 'google', 'tavily'].includes(p) ? `p-${p}` : 'p-other';
 const CODES: Record<string, string> = { metadata_unavailable: 'Couldn’t find the paper', script_evidence_rejected: 'Script failed its evidence check',
   provider_unavailable: 'Provider unavailable', insufficient_credits: 'Not enough credits', script_incomplete: 'Script came back incomplete',
   speech_rejected: 'Voice provider refused the script', source_too_large: 'Paper too long for an episode', unknown: 'Unknown' };
@@ -187,12 +188,24 @@ function derive(data: HealthData, budget: Budget | null) {
     const top = Object.entries(data.reliability.podcast_failure_codes).sort((a, b) => b[1] - a[1])[0];
     attention.push({ tone: 'warning', text: `${data.reliability.podcasts_failed} of ${data.use.podcasts_started} podcast episodes failed${top ? `, most often “${codeName(top[0])}”` : ''}.` });
   }
+  // Review A4 (migration 0101): a price card lapsing within six weeks. Chat stops offering its model a day before.
+  for (const t of data.tariffs?.expiring ?? []) {
+    const days = Math.ceil((Date.parse(t.valid_until) - Date.parse(data.generated_at)) / 86_400_000);
+    attention.push({ tone: 'warning', text: days > 0
+      ? `The OpenRouter price card for ${t.model} ends in ${plural(days, 'day')} (${formatDay(t.valid_until.slice(0, 10), dayLong)}). Check the current price, then renew it with scripts/pipeline-ops.py tariff-renew; chat stops offering the model a day before.`
+      : `The OpenRouter price card for ${t.model} has ended: the model is not offered and its requests are refused. Renew it after checking the current price (scripts/pipeline-ops.py tariff-renew).` });
+  }
+  // Review A6 (migration 0102): unresolved attempts the automatic reconciler cannot settle keep their ceilings reserved.
+  const r = data.reconciliation, manual = r ? r.gave_up + r.without_generation + r.other_providers : 0;
+  if (r && manual > 0) attention.push({ tone: 'warning', text: `${plural(manual, 'provider attempt')} cannot be reconciled automatically (${[
+    r.gave_up ? `${r.gave_up} without an OpenRouter record after 12 tries` : '', r.without_generation ? `${r.without_generation} lost before OpenRouter named the generation` : '',
+    r.other_providers ? `${r.other_providers} from retired direct providers` : ''].filter(Boolean).join(', ')}) and still reserve ${dollarsShort(r.manual_held_microusd)}. Reconcile each with the provider's evidence (scripts/pipeline-ops.py attempts, then reconcile).` });
   // Our servers never contact arXiv (ARXIV_DEVICE_ONLY.md §6.5): any attempt in the last hour, refused or not, is shown.
   const arxiv = (data.providers?.last_hour ?? []).find(r => r.provider === 'arxiv');
   if (arxiv && arxiv.calls > 0) attention.push({ tone: 'warning', text: `Our servers tried to reach arXiv ${arxiv.calls.toLocaleString()} time${arxiv.calls === 1 ? '' : 's'} in the last hour. They must never contact arXiv: find the caller in the logs (event arxiv_egress).` });
   // Outside providers (RESILIENCE.md): a breaker open now, or 5 % or more of the last hour's calls failing (with 20 or more calls).
   for (const breaker of data.providers?.breakers ?? []) {
-    attention.push({ tone: 'warning', text: `${providerName(breaker.provider)} kept failing, so calls to it are paused${breaker.reopen_at && breaker.state === 'open'
+    attention.push({ tone: 'warning', text: `${providerName(breaker.provider)}${breaker.scope ? ` (${breaker.scope.replace(/_/g, " → ")})` : ""} kept failing, so calls to it are paused${breaker.reopen_at && breaker.state === 'open'
       ? ` until ${clock.format(new Date(breaker.reopen_at))}` : ' while one test call checks it'}; only the features that use it are affected.` });
   }
   for (const r of data.providers?.last_hour ?? []) {
@@ -210,6 +223,10 @@ function derive(data: HealthData, budget: Budget | null) {
       ? `Billing refusals in the last hour: ${who}. Current model calls use OpenRouter. Inspect the affected attempts in Spending and check the recorded billing provider's credit balance.`
       : `Billing refusals in the last 24 hours: ${who} (last at ${billing.last_at ? new Date(billing.last_at).toLocaleTimeString() : 'unknown'}). Current model calls use OpenRouter; check the attempts in Spending for their billing provider.` });
   }
+  // Account deletion (migration 128): the worker's sweep retries with back-off; a deletion unfinished 30 days after the
+  // account closed still holds personal rows or files and needs a look (scripts/finish-account-deletion.mjs).
+  const deletions = data.account_deletions;
+  if (deletions && deletions.stalled > 0) attention.push({ tone: 'warning', text: `${plural(deletions.stalled, 'account deletion has', 'account deletions have')} not finished more than 30 days after the account closed${deletions.top_code ? ` (most often “${codeName(deletions.top_code)}”)` : ''}. Personal data or files remain; check worker_account_deletion_status.` });
   if (data.reliability.reports_open) attention.push({ tone: 'info', text: `${plural(data.reliability.reports_open, 'support report is', 'support reports are')} open.` });
   const errorTotals = new Map<string, number>();
   for (const day of data.providers?.daily ?? []) for (const [p, n] of Object.entries(day.by_provider)) errorTotals.set(p, (errorTotals.get(p) ?? 0) + n.failed + n.throttled);

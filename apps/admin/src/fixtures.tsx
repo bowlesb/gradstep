@@ -249,6 +249,7 @@ export function AccountsFixture() {
       setAccounts(list => list.map(a => a.id === id ? { ...a, status: disabled ? 'disabled' as const : 'active' as const } : a));
       return wait({ disabled });
     },
+    revokeAdmission: (email: string) => wait({ existing_login: accounts.some(a => a.email === email.toLowerCase() && a.status !== 'closed') }),
   }), [accounts]);
   return <Shell tabs={['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Accounts" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>

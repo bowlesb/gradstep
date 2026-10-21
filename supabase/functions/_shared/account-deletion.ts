@@ -21,7 +21,8 @@ export interface DeletionBegin {
 }
 
 /** Only these folders may be emptied for an account: its private folder, its
- * support folder, its PDF uploads folder, and its private conversions' raw/ and reader/ folders. */
+ * support folder, its PDF uploads folder, its private conversions' raw/ and reader/ folders, its private episode
+ * folders and its encrypted note images. */
 export function allowedPrefix(accountID: string, bucket: string, prefix: string): boolean {
   if (bucket === 'paper-assets') return prefix === `private/${accountID}/` || /^(raw|reader)\/[0-9a-f]{64}\/$/.test(prefix);
   if (bucket === 'support') return prefix === `${accountID}/`;
@@ -29,9 +30,19 @@ export function allowedPrefix(accountID: string, bucket: string, prefix: string)
   // The account's private episodes and the paper text its devices sent for them (migration 070).
   if (bucket === 'podcast-assets') return prefix === `private/${accountID}/`;
   if (bucket === 'private-content') return prefix === `podcast-sources/${accountID}/`;
+  // Encrypted note images (migration 095): the account's own folder only.
+  if (bucket === 'note-assets') return prefix === `${accountID}/`;
   return false;
 }
-export interface DeletionOutcome { complete: boolean; step?: 'files' | 'finish' | 'login'; code?: 'deletion_scan_incomplete' | 'asset_write_uncertain' }
+/** Buckets whose folders are listed again after removal and must then be empty before deletion is finished. */
+const VERIFIED_BUCKETS = new Set(['note-assets']);
+export interface DeletionOutcome { complete: boolean; step?: 'files' | 'finish' | 'login'; code?: 'deletion_scan_incomplete' | 'asset_write_uncertain' | 'deletion_unverified' }
+
+/** A folder still listed objects after their removal; deletion is not finished. */
+class UnverifiedDeletion extends Error {
+  readonly code = 'deletion_unverified';
+  constructor() { super('deletion_unverified'); }
+}
 
 async function retry<T>(attempts: number, work: () => Promise<T>): Promise<T> {
   let last: unknown;
@@ -81,10 +92,12 @@ export async function completeAccountDeletion(service: SupabaseClient, accountID
     // Folders: the account's private and support folders and its private
     // conversions' raw/reader folders (validated; anything else is ignored).
     const prefixes = begun?.prefixes ?? (begun?.private_prefix ? [{ bucket: PAPER_BUCKET, prefix: begun.private_prefix }] : []);
+    const verify: { bucket: string; prefix: string }[] = [];
     for (const { bucket, prefix } of prefixes) {
       if (!allowedPrefix(accountID, bucket, prefix)) continue;
       if (!byBucket.has(bucket)) byBucket.set(bucket, new Set());
       for (const path of await retry(3, () => listPrefix(service, bucket, prefix))) byBucket.get(bucket)!.add(path);
+      if (VERIFIED_BUCKETS.has(bucket)) verify.push({ bucket, prefix });
     }
     for (const [bucket, paths] of byBucket) {
       const all = [...paths];
@@ -93,8 +106,12 @@ export async function completeAccountDeletion(service: SupabaseClient, accountID
         await retry(3, async () => { const { error } = await service.storage.from(bucket).remove(batch); if (error) throw new Error('storage_remove_failed'); });
       }
     }
+    // A complete second listing must find nothing before the inventory rows go (the finish step).
+    for (const { bucket, prefix } of verify) {
+      if ((await retry(3, () => listPrefix(service, bucket, prefix))).length) throw new UnverifiedDeletion();
+    }
   } catch (error) {
-    return { complete: false, step: 'files', ...(error instanceof IncompleteDeletionScan ? { code: error.code } : {}) };
+    return { complete: false, step: 'files', ...(error instanceof IncompleteDeletionScan || error instanceof UnverifiedDeletion ? { code: error.code } : {}) };
   }
   try {
     await retry(3, async () => {
@@ -120,16 +137,29 @@ export async function closePodcastWork(service: SupabaseClient, accountID: strin
 }
 
 /** Finishes deletions left incomplete (login still linked, rows written in a
- * race, files not removed). Run by the paper worker on every invocation. */
+ * race, files not removed). Run by the paper worker on every invocation. Each
+ * outcome is reported (migration 128): a failure backs the account off, so one
+ * that cannot finish never holds every slot, and a stall reaches Health. */
 export async function sweepAccountDeletions(service: SupabaseClient, log: (fields: Record<string, unknown>) => void): Promise<void> {
   const pending = await service.rpc('worker_account_deletions_pending', { p_limit: 3 });
   if (pending.error || !Array.isArray(pending.data)) return;
   for (const accountID of pending.data as string[]) {
     await closePodcastWork(service, accountID);
     const begun = await service.rpc('worker_delete_account_begin', { p_account_id: accountID });
-    if (begun.error) { log({ event: 'account_deletion_sweep_failed', account_id: accountID, step: 'begin' }); continue; }
+    if (begun.error) {
+      log({ event: 'account_deletion_sweep_failed', account_id: accountID, step: 'begin' });
+      await reportSweep(service, accountID, false, 'begin', begun.error.message === 'account_busy' ? 'account_busy' : 'begin_failed');
+      continue;
+    }
     const outcome = await completeAccountDeletion(service, accountID, begun.data);
     log({ event: outcome.complete ? 'account_deletion_swept' : 'account_deletion_sweep_failed', account_id: accountID, step: outcome.step,
       ...(outcome.code ? { code: outcome.code } : {}) });
+    await reportSweep(service, accountID, outcome.complete, outcome.complete ? null : outcome.step ?? null, outcome.code ?? null);
   }
+}
+
+/** Best effort: a database before migration 128 has no such function, and the sweep proceeds as before. */
+async function reportSweep(service: SupabaseClient, accountID: string, complete: boolean, step: string | null, code: string | null): Promise<void> {
+  try { await service.rpc('worker_account_deletion_attempt', { p_account_id: accountID, p_complete: complete, p_step: step, p_code: code }); }
+  catch { /* the next sweep tries again */ }
 }

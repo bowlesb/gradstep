@@ -49,6 +49,33 @@ exact destination, without accepting token fragments, ambiguous mixed code/error
 The known invitation refusal becomes an actionable inline error; cancellation remains distinct. Old clients can
 benefit from server admission independently of a later native release.
 
+### Revocation and transfer gaps — review A21, October 21, designed before migration 127
+
+The review found three gaps in 091. (1) There was no way to withdraw an invitation retained for a deleted account or
+a mistyped address except hand-written SQL. (2) The deletion trigger admitted every verified address on the login at
+that moment, so a tester could hand their invitation to someone else by changing the login's email (the new owner
+confirms the change) and then deleting the account; linking another person's Apple or Google identity did the same.
+(3) `worker_admin_admit_email` refused only an Auth ban, but disabling sign-in commits `accounts.spending_suspended`
+and the revocation in the database before the Edge function bans the login in Auth; an admit in that window allowed a
+disabled tester again.
+
+Migration 127 (supersedes "Linked provider addresses are admitted separately" above):
+- **Revoke.** `worker_admin_revoke_email(p_actor_id, p_email, p_reason)` (service role, after the Edge function's
+  owner/MFA gate; it rechecks the owner) records `allowed=false` for the exact address hash, with the owner as
+  authority, and writes a `beta_revocation` audit row with the owner's reason (validated like every admin reason),
+  whether the address had an invitation and whether a current login uses it. It refuses an address that an open
+  owner account signs in with (`owner_cannot_be_disabled`), so the owner cannot lock themselves out. A revocation only
+  stops a future account being created with that address; an existing login is stopped with Disable sign-in, and the
+  response says when one exists. Admin › Accounts gains "Withdraw an invitation" (`revoke_admission` action of
+  `admin-accounts`). A later admit of the same address re-allows it (an explicit owner decision).
+- **Only admitted addresses return.** The deletion trigger no longer creates admissions. Every address that could
+  create a login already has a row (the 091 seed of existing verified addresses, the owner's admits, the recorded
+  owner recovery), and those rows already survive deletion, so dropping the trigger changes nothing for them. An
+  address that only reached the login later (an email change, or a linked Apple/Google identity) is not invited by
+  deleting the account; a person who signed up with an admitted address returns with that address.
+- **A disabled tester stays disabled.** Admitting refuses (`account_disabled`) when any open account whose login has
+  a verified address with that hash is `spending_suspended`, as well as on an Auth ban.
+
 Verified rollout, October 19: migrations **091–093** are applied with matching hashes; the hook is enabled and
 email confirmation remains required. A live unknown public signup returns **403 `beta_invitation_required`**.
 `scripts/configure-beta-admission.py` waits for Auth configuration propagation only on the previous

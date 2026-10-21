@@ -6,8 +6,9 @@ import { installEgressGuard } from '../_shared/egress.ts';
 import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
+import { readRequestJSON } from '../_shared/bounded-json.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
-import { paperFinder } from '../_shared/find-paper.ts';
+import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { addPaper } from '../_shared/add-paper.ts';
 import { MAX_INPUT_CHARS } from '../_shared/identify.ts';
 import { edgeResolveHost } from '../_shared/edge-dns.ts';
@@ -18,6 +19,8 @@ installProviderHealth('add-paper', serviceClient);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUDGET_MS = 25_000;
+/** The JSON body: an operation id, the reader's text (at most 2,000 characters, up to 4 bytes each) and capabilities. */
+const MAX_BODY_BYTES = 16 * 1024;
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -29,22 +32,25 @@ Deno.serve(async request => {
     const { accountID, user } = await userClient(request);
     const service = serviceClient();
     let body: { operation_id?: unknown; query?: unknown; capabilities?: unknown };
-    try { body = await request.json(); } catch { throw new PublicError(400, 'invalid_request'); }
+    // Bounded before parsing (review A24): the input is at most 2,000 characters plus a few fields.
+    body = await readRequestJSON(request, MAX_BODY_BYTES) as typeof body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PublicError(400, 'invalid_request');
     const query = typeof body.query === 'string' ? body.query.trim() : '';
     if (typeof body.operation_id !== 'string' || !UUID.test(body.operation_id) || !query || [...query].length > MAX_INPUT_CHARS) {
       throw new PublicError(400, 'invalid_request');
     }
     const web = Array.isArray(body.capabilities) && body.capabilities.includes('web_import');
-    const limited = await service.rpc('worker_consume_request', { p_account_id: accountID, p_route: 'add-paper' });
+    // The search policy is read alongside the rate limit (one round trip, not two). OpenAlex is asked only when the
+    // owner's `openalex_enabled` switch says so; it is off (migration 075), and an unreadable policy keeps it off.
+    const [limited, policy] = await Promise.all([service.rpc('worker_consume_request', { p_account_id: accountID, p_route: 'add-paper' }),
+      Promise.resolve(service.rpc('worker_search_policy')).then(({ data, error }) => error ? null : data, () => null)]);
     if (limited.error) throw new PublicError(limited.error.message === 'request_rate_limit' ? 429 : 503, limited.error.message === 'request_rate_limit' ? 'rate_limited' : 'service_unavailable');
+    const openAlex = openAlexAllowed(policy);
 
     const started = Date.now();
     const budget = AbortSignal.any([request.signal, AbortSignal.timeout(BUDGET_MS)]);
     // Add is free: it never uses the paid web search (it passed the key text here, which was never called).
-    const finder = paperFinder(user);
-    // OpenAlex names DOIs until `openalex_enabled` is switched off (migration 072); a server without it keeps OpenAlex.
-    const policy = await service.rpc('worker_search_policy');
-    const openAlex = policy.error ? true : (policy.data as { openalex?: unknown } | null)?.openalex !== false;
+    const finder = paperFinder(user, undefined, fetch, { openAlex, requestID: body.operation_id });
     const outcome = await addPaper({ fetch, resolveHost: edgeResolveHost, findPaper: finder.findPaper, importPaper: finder.importPaper, openAlex }, query, web, budget);
     // Outcomes join the reliability events (no account ids; the reader's text is never stored).
     await service.rpc('worker_record_reference_event', { p_result: outcome.status, p_route: `add_${outcome.route}`,

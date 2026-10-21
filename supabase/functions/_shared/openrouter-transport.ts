@@ -21,10 +21,16 @@ export class OpenRouterNotDispatched extends Error {
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LABEL = /^[a-z][a-z0-9_/-]{0,63}$/;
+/** `predispatched` (C6, migration 0107): the metadata already recorded with the admission in the same transaction. The
+ * send goes ahead only when the request's own metadata is exactly that; anything else asks the database, which refuses a
+ * second dispatch, so nothing different from what was recorded can be sent. */
 export function rpcAttribution(deps: { accountID: string; operationID: string; rpc(name: string, params: Record<string, unknown>): Promise<unknown> },
-  attemptID: string, feature: string, caller: string): OpenRouterAttribution {
+  attemptID: string, feature: string, caller: string, predispatched?: OpenRouterDispatch): OpenRouterAttribution {
+  let used = false;
   return { accountID: deps.accountID, operationID: deps.operationID, attemptID, feature, caller,
     async dispatch(metadata) {
+      if (predispatched && !used && metadata.transport_model === predispatched.transport_model && metadata.endpoint === predispatched.endpoint
+        && metadata.feature === predispatched.feature && metadata.caller === predispatched.caller) { used = true; return true; }
       try {
         return await deps.rpc('worker_openrouter_dispatch', { p_account_id: deps.accountID, p_operation_id: deps.operationID,
           p_attempt_id: attemptID, p_metadata: metadata }) === true;

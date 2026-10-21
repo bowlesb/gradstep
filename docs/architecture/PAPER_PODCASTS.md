@@ -424,6 +424,18 @@ Since migration 076 (2026-10-16) the paper text a device sends for a private epi
 made, fails or is canceled ("The paper text is deleted once the episode is made" below); only the episode's own
 transcript and audio stay, private to the account.
 
+**Device-source records leave with the account (review A16, 2026-10-21; migration 125).** Each device episode keeps a
+`podcast_device_sources` row: the owner, the paper's membership id, its arXiv id and revision, the title and authors the
+device sent, and the digests of its text. The row is immutable and no deletion step removed it, so a deleted account
+kept a record of which papers it made episodes of. It is personal library data, not a financial record: the job, its
+metered operation, provider attempts and ledger rows stay under the account's random UUID exactly as before (the
+de-identified billing record), while the device-source rows are deleted. Migration 125 replaces the row's immutability
+trigger with one that permits a DELETE only inside the same account's deletion transaction (the existing
+`app_private.deleting_account` setting that `worker_delete_account_begin` sets; any other update or delete is still
+refused), wraps `worker_delete_account_begin` to delete the account's rows after the earlier steps, counts them in
+`worker_account_deletion_status.personal_rows`, and removes the rows already left by accounts closed before the
+migration. Deletion refuses while a podcast operation is unsettled (unchanged), so no running job loses its source.
+
 ## Acceptance and operator visibility
 
 Read-only admin views add provider costs/reservations/unknowns by route and release, customer charged versus
@@ -1764,6 +1776,20 @@ Migration `202610160076_podcast_source_deletion.sql` and the worker change:
   unfinished job needs the same text. A job requeued after a transient refusal (073) is unfinished, so it keeps its
   text. A cancel (no worker run ending) wakes the worker.
 - **Unused uploads** (a quote never started) are scheduled a day after upload by the sweep.
+- **Reserved before written (review A17, 2026-10-21; migration 126).** `podcast?action=source` used to upload first and
+  only then call `worker_podcast_source_register`, which applied the 64 MiB per-account and 2 GiB overall quotas; a
+  refused registration left the object in Storage with no `stored_objects` row (only the deletion prefix sweep would
+  find it), there was no request limit, and the podcast switch did not apply, so any tester could add storage while
+  podcasts were off. Now the function first calls `worker_podcast_source_reserve(p_account, p_sha256, p_bytes,
+  p_path)` for the upload's own path. In one transaction it requires an open, unsuspended account and podcast
+  generation switched on with a certified asset inventory (the quote's gate), consumes the new `podcast-source` rate
+  rule (20 per account and 200 overall per hour, the same as `podcast-generate`), serializes per account and then on
+  the overall quota, checks both quotas, and inserts the object row as `pending`. Only then does the function upload
+  and confirm with the unchanged `worker_podcast_source_register`, which turns that pending row `verified`. A failed
+  or lost upload, or a failed confirmation, leaves a pending row that already counts against the quotas; the existing
+  day-old sweep schedules it (`pending` included) and the worker deletes the path, an absent object being no error.
+  Replaying the same path returns its row without consuming another request. The registration function's own insert
+  path stays for the build deployed before 126; the current function never reaches it.
 - **The worker deletes.** After every run (`runPodcast` → `sweepPodcastSources`, 50 at a time, skipped within 15 s of
   the deadline) the worker asks `worker_podcast_source_cleanup`, removes the paths from Storage (an absent object is
   not an error) and confirms with `worker_podcast_source_cleanup_confirm`; a failure is logged

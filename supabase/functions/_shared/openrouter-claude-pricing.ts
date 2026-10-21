@@ -1,7 +1,6 @@
 // Reviewed OpenRouter Google Vertex US endpoint rates, 2026-10-17. Independent of direct Anthropic's rate card.
 export const ROUTER_CLAUDE_ENDPOINT = 'google-vertex/us';
 export const ROUTER_CLAUDE_TARIFF = 'openrouter-claude-vertex-us-20261017';
-export const ROUTER_CLAUDE_PRICE_EXPIRES = Date.parse('2027-01-01T00:00:00Z');
 const MODELS: Readonly<Record<string, string>> = Object.freeze({
   'claude-haiku-5-5': 'anthropic/claude-haiku-5.5',
   'claude-sonnet-5-5': 'anthropic/claude-sonnet-5.5',
