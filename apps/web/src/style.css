@@ -786,13 +786,13 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .back-long { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .back-short { display: none; }
 @container center (max-width: 760px) { .back-long { display: none; } .back-short { display: inline; } }
-/* Library row marks (PaperDeviceCopy, ReaderModel.isNew): a check for a paper that opens at once, a cloud for one
-   still to download; a dot for a paper added in the last three days and never opened. */
+/* Library row marks (PaperDeviceCopy): a check for a paper that opens at once, a cloud for one still to download.
+   A paper added in the last three days and never opened says New in plain secondary words (ReaderModel.isNew; build 75). */
 .papers .device.device, .compact-meta .device.device { color: var(--accent); }
 .compact-meta .device { display: inline-block; margin-right: 5px; font-size: 12px; line-height: 1; }
 .compact-meta .device.cloud { color: var(--muted); }
 .device.unavailable { color: var(--problem); }
-.new-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin: 0 6px 1px 0; vertical-align: middle; flex: none; }
+.new-label { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 .tag.on { background: var(--accent); color: var(--accent-text); }
 button.tag.on:hover { background: var(--accent); color: var(--accent-text); filter: brightness(1.05); }
 /* Dates: one line in a wide column, the day over the time when narrow (PaperTableDate). */

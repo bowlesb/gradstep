@@ -62,11 +62,19 @@ export function deviceCopy(entry: ClientEntry, prepared: boolean): DeviceCopy | 
     return { kind: 'cloud', glyph: '☁︎', label: 'Not on this device yet; downloads when you open it' };
   return { kind: 'unavailable', glyph: '!', label: 'No readable copy on this device' };
 }
-/** The row's marks before its first author: "new" (added in the last three days, never opened) and the device copy. */
-function RowMarks({ isNew, copy }: { isNew: boolean; copy: DeviceCopy | null }) {
-  return <>{isNew && <span className="new-dot" title="Added recently, not opened yet" data-testid="new-dot"><span className="visually-hidden">New</span></span>}
-    {copy && <span className={`device ${copy.kind}`} title={copy.label} aria-label={copy.label} role="img" data-testid="device-badge">{copy.glyph}</span>}</>;
+/** The row's device copy before its first author. */
+function RowMarks({ copy }: { copy: DeviceCopy | null }) {
+  return copy && <span className={`device ${copy.kind}`} title={copy.label} aria-label={copy.label} role="img" data-testid="device-badge">{copy.glyph}</span>;
 }
+/** A paper added in the last three days and never opened on this device (owner, build 42: an indicator for recently
+ * added unread papers) as plain secondary words where "—" (never opened) would be. Build 75 (AK1U): the accent dot
+ * beside the device check was "confusing". */
+function NewLabel() {
+  return <span className="new-label" title="Added recently, not opened yet" data-testid="new-label">New<span className="visually-hidden">, not opened yet</span></span>;
+}
+/** Where a row's New goes: the Opened column, else Progress, else beside the device mark (the first of them shown). */
+const newSlot = (columns: readonly LibraryColumn[]): 'opened' | 'progress' | 'device' | null =>
+  columns.includes('opened') ? 'opened' : columns.includes('progress') ? 'progress' : columns.includes('device') ? 'device' : null;
 
 /** Rows, counts, tags and the filtered, sorted list for one library view. Shared by the table, rail and compact list. */
 export function useLibraryModel(library: Library, current: Map<string, Activity>, view: LibraryQuery, visible = true) {
@@ -417,6 +425,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
   // authors show under the title (no Authors column), their line (owner, build 58), so the row never grows when its
   // details arrive.
   const adding = entry.kind === 'import' && !entry.metadata && ['accepted', 'resolving', 'acquiring'].includes(entry.phase);
+  const fresh = isNew ? newSlot(columns) : null;
   return (
     <tr ref={measure} data-index={index} data-row-key={row.key} aria-rowindex={index + 2}
       className={`${row.readable ? 'readable' : 'pending'}${adding ? ' adding' : ''}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
@@ -430,7 +439,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
         {busy && <span className="status active">Updating…</span>}
         <span className="inline-action"><RowAction row={row} busy={busy} retry={retry} remove={remove} run={run} /></span>
       </td>
-      {columns.includes('device') && <td className="col-device"><RowMarks isNew={isNew} copy={deviceCopy(entry, onDevice)} /></td>}
+      {columns.includes('device') && <td className="col-device"><RowMarks copy={deviceCopy(entry, onDevice)} />{fresh === 'device' && <> <NewLabel /></>}</td>}
       {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{compactAuthors(authors) || <span className="faint">—</span>}</td>}
       {columns.includes('year') && <td className="col-year">{row.year ?? '—'}</td>}
       {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
@@ -439,7 +448,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
           title={t === activeTag ? `Show all papers` : `Show papers tagged “${t}”`}>{t}</button>))}</span>
         : <span className="faint">—</span>}</td>}
       {columns.includes('added') && <td className="col-added"><TableDate ms={row.added} /></td>}
-      {columns.includes('opened') && <td className="col-opened"><TableDate ms={opened} /></td>}
+      {columns.includes('opened') && <td className="col-opened">{fresh === 'opened' ? <NewLabel /> : <TableDate ms={opened} />}</td>}
       {columns.includes('progress') && <td className="col-progress">
         {progress ? (
           <span className="import-progress" data-testid="import-progress">
@@ -448,7 +457,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
           </span>
         ) : row.readable ? (
           readingProgress !== null ? <span className="reading-progress"><progress className="accent" max={1} value={readingProgress} aria-label={`${Math.round(readingProgress * 100)}% read`} />
-            <span className="fine">{Math.round(readingProgress * 100)}%</span></span> : <span className="faint">—</span>
+            <span className="fine">{Math.round(readingProgress * 100)}%</span></span> : fresh === 'progress' ? <NewLabel /> : <span className="faint">—</span>
         ) : <span className="faint">—</span>}
       </td>}
     </tr>
@@ -484,7 +493,8 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query, prep
               {row.readable && isLibraryPaper(entry)
                 ? <a className="compact-link" href={`/paper/${entry.id}`} aria-current={entry.id === currentID ? 'page' : undefined}
                     onClick={e => { e.preventDefault(); onOpen(entry); }}><span className="compact-title">{row.title}</span>
-                    <span className="compact-meta"><RowMarks isNew={isReaderPaper(entry) && isNewPaper(entry, !!a)} copy={deviceCopy(entry, !!prepared?.(entry))} />{meta}</span>
+                    <span className="compact-meta"><RowMarks copy={deviceCopy(entry, !!prepared?.(entry))} />
+                      {isReaderPaper(entry) && isNewPaper(entry, !!a) && <><NewLabel />{meta ? ' · ' : ''}</>}{meta}</span>
                     {a && <progress className="accent mini" max={1} value={a.progress} aria-label={`${Math.round(a.progress * 100)}% read`} />}</a>
                 : <span className="compact-link disabled"><span className="compact-title">{row.title}</span><span className="compact-meta">{row.status?.text ?? meta}</span></span>}
             </li>

@@ -37,7 +37,9 @@ test('Feed → reading: Add prepares the paper here with its percent, In library
  // The library marks it new (never opened) and on this device (prepared in this tab).
  await page.getByTestId('back-to-library').click();
  const row=page.getByTestId('paper-row').filter({hasText:'Paper 2604.01001'}); // the fixture's title for an added paper
- await expect(row.getByTestId('new-dot')).toBeVisible();
+ // New in words where "—" would be, no accent dot (owner, build 75).
+ await expect(row.getByTestId('new-label')).toBeVisible(); await expect(row.getByTestId('new-label')).toHaveText('New, not opened yet');
+ await expect(row.locator('.new-dot')).toHaveCount(0);
  await expect(row.getByTestId('device-badge')).toHaveAttribute('aria-label','On this device (prepared in this tab)');
  await expect(page.getByTestId('paper-row').filter({hasText:'Direct Preference Optimization'}).getByTestId('device-badge')).toHaveAttribute('aria-label',/^Not on this device yet/);
  await page.screenshot({path:`../../.artifacts/parity-web-library-after-${test.info().project.name}.png`});
@@ -50,7 +52,7 @@ test('Feed → reading: Add prepares the paper here with its percent, In library
  expect(documents).toBe(1);
  // Opened: no longer new.
  await page.getByTestId('back-to-library').click();
- await expect(row.getByTestId('new-dot')).toHaveCount(0);
+ await expect(row.getByTestId('new-label')).toHaveCount(0);
 });
 
 test('a tag chip filters by its tag, shows which one is active, and clears when tapped again',async({page,request})=>{
