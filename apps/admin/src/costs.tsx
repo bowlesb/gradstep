@@ -121,7 +121,7 @@ export function Costs({ api = liveCostsApi, reloadKey }: { api?: CostsApi; reloa
       </div>
       {!rows.length && <p className="empty">{data.accounts.length ? 'Only test accounts had activity.' : 'No AI activity in the last 30 days.'}</p>}
       {data.truncated && <p className="notice" role="status">Showing the {plural(data.accounts.length, 'account')} with the highest cost of {plural(data.accounts_with_activity, 'account')} with activity.</p>}
-      <p className="footnote">From Gradstep's ledger: each model call's cost as OpenRouter reported it, an estimate where no bill arrived, and the ceiling still held by calls not yet resolved (not counted as cost). "Held", "Calls" and "Credits charged" follow the selected window. Titles, suggestions and Study maps count as chat. Web searches use the prepaid Tavily plan. Accounts are named by their pseudonymous ID; OpenRouter receives that ID as each request's <code>user</code>, so its Activity page filters to the same account.</p>
+      <p className="footnote">From Gradstep's ledger: each model call's cost as OpenRouter reported it, an estimate where no bill arrived, and the ceiling still held by calls not yet resolved (not counted as cost). "Held", "Calls" and "Credits charged" follow the selected window. Titles, suggestions, Study turns and the paper explainer count as chat. Web searches use the prepaid Tavily plan. Accounts are named by their pseudonymous ID; OpenRouter receives that ID as each request's <code>user</code>, so its Activity page filters to the same account.</p>
     </section>}
   </div>;
 }

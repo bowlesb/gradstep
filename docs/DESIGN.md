@@ -112,6 +112,21 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   Save snippet, Show in the paper and Ask about this part. A new follow-up is added only if it returns words into the
   same walkthrough. [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Extract the subfigure removed".
 
+- **Study mode** (owner, 2026-10-22: "'Study Mode' is too complex… have 'Enter Study Mode – Quiz me and help me learn' as an
+  entry in the suggested questions"): no map, journey or state display. The entry is a row after the starter questions in
+  an empty paper chat and the last suggested question under an answer (a command: one tap sends the opening turn); the
+  chat's ⋯ keeps Study mode / End study mode. While studying, one slim row sits above the message box — the words
+  **Study mode**, then **Hint**, **Explain instead** (each sends at once) and **Stop** (leaves the mode, sends nothing) —
+  and the message box reads "Your answer". The tutor's turns are ordinary answers (citations, math, copy, snippets);
+  no suggestions beside them. [LEARNING_GUIDE.md](proposals/LEARNING_GUIDE.md).
+
+- **Paper AI Explainer** (owner, 2026-10-22: "in the Paper Settings, have an option that takes you to an optional AI
+  Explainer, with background list, and a diagram… with the opening to a chat"): Paper ⋯ › **AI Explainer** opens a page in
+  the figure explainer's look and top row (the Open in Chat symbol, the same handoff into Chat): "In short", **Background**
+  (one line per prerequisite with its ¶ links), **How it fits together** (one diagram drawn on the device; tap for full
+  screen) and the explainer's conversation at the bottom. It streams with the figure explainer's progress rules and is
+  kept per paper (Your assets › Paper explanations).
+
 - **Contents discovery** (owner, 2026-10-18): open at full height. On touch devices, double-tapping article text opens
   Contents; links, equations, figures, reference entries and selections retain their own actions. Long-press selection
   remains available, and Mac double-click still selects text. Above the four tabs, show “Double tap anywhere while

@@ -2,6 +2,41 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Study mode and the paper's AI Explainer (owner request 2026-10-22; agent decisions, reversible)
+
+Owner: "'Study Mode' is too complex and not a polished enough UX for now… have 'Enter Study Mode – Quiz me and help me
+learn' as an entry in the suggested questions… a mode that asks questions, and backs off a bit if concepts need to be
+explained a bit first… [Knowledge Journey diagrams] should be part of a generic 'AI Explainer' feature for the entire
+paper… in the Paper Settings… with background list, and a diagram… with the opening to a chat… in the questions that are
+sometimes listed in the chat, have options like 'Create a mermaid diagram explaining the background of X'." Design and
+the prompt evaluation: [proposals/LEARNING_GUIDE.md](proposals/LEARNING_GUIDE.md); contract:
+[CHAT.md](architecture/CHAT.md#study-mode--reworked-2026-10-22-server-on-staging-apps-and-browser-local).
+
+- **The knowledge map is removed, not redesigned.** No map, journey, concept list or state chips in Study mode; the
+  conversation is the product, with one slim row above the message box (Study mode · Hint · Explain instead · Stop).
+  The useful part of the old map (a diagram of how concepts connect) moved to the paper's AI Explainer, about the paper
+  rather than about the reader.
+- **The entry sends at once.** "Enter Study Mode – Quiz me and help me learn" is a command, not a question to edit, so
+  one tap enters the mode and sends the opening turn; Hint and Explain instead send too. Every other suggestion still
+  only fills the message box. Reversible if accidental taps cost readers credits.
+- **The learner state is the tutor's own hidden notes in its reply** (one request per turn, instead of a second Haiku
+  request that rebuilt a map without the paper). The server strips and checks them and the device sends them back; they
+  live in memory with the open chat, are never stored or logged, and a lost copy is re-derived from the conversation.
+  Open for the owner: keep them with the conversation (a sealed field) so Study mode resumes after relaunch.
+- **Older builds keep working**: their `study` map is accepted and ignored; they get the new tutor and an empty map.
+- **The tutor prompt was chosen by evaluation**, six iterations on simulated learners (strong, weak with hint and
+  explain-instead, a persistent misconception) over Attention and PPO, Gemini 3.8 Flash and one Sonnet 5.5 check, $0.73
+  of the $1 allowed. Changes it drove: no stock praise, one-thing questions, one idea per explanation, teach before asking
+  at intro/core level, misconceptions kept in focus until dropped, look backs only to earlier ideas, no talk about the
+  method.
+- **The paper's AI Explainer is a chat action with a streamed JSON reply** like the figure walkthrough (same cache, same
+  progress rules), its diagram drawn on the device from entries and links (deterministic Mermaid, so it cannot fail to
+  parse the way a model-written diagram can). It is **settled as an ordinary answer** (`answer`) rather than adding a
+  settlement action: a migration numbered after the parallel usage work's unapplied 0144 would have made that work's
+  deploy fail the applied-prefix check. A dedicated settlement action can be added later in sequence.
+- **Visual suggestions**: at most one of the model's follow-ups may ask for a diagram or visual of something concrete;
+  the generic diagram/visual rows show only when it doesn't.
+
 ## Figure explainer: streamed, at low effort (owner request 2026-10-22; agent decision with evidence, reversible)
 
 Owner: "On the Figure AI explainer, I like the experience, but it's very very slow. Can we make it much much faster?" and
@@ -1682,6 +1717,8 @@ Details and contract: [chat](architecture/CHAT.md#models-effort-and-length-2026-
 
 
 ## Study: an adaptive tutor on one paper (owner asked 2026-10-14; agent decisions, experimental, reversible)
+
+*Superseded 2026-10-22 by "Study mode and the paper's AI Explainer" above: the knowledge map and its Haiku update are removed.*
 
 Owner: "an experimental feature that combines quizzes you and teaches you about a paper… adaptive… display [the
 mental model] in some type of flow, html, or graph." Decisions taken to build a first slice to learn from

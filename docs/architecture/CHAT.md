@@ -67,6 +67,15 @@ Three additions to the same request/stream contract, built once on the server an
   the message box (nothing is sent until the reader sends), and the next question clears them. They are never
   written to encrypted history. Old clients neither send the flag nor pay for it.
 
+**Visual suggestions (2026-10-22, owner: "have options like 'Create a mermaid diagram explaining the background of X' (and
+equivalently, you can use html as well sometimes)").** With Visual answers on, the suggestion request's instructions let
+at most one of the questions ask for a picture of something concrete from the paper or answer ("Create a diagram
+explaining the background of X", "Draw how X works step by step", "Show X as a visual"); the server keeps only the first
+such question (`isVisualFollowUp`) and none when Visual answers are off. The clients show their generic "Draw a diagram" /
+"Create a visual explanation" rows only when no model question is visual, and add "Enter Study Mode – Quiz me and help me
+learn" last in paper chats. Live on staging: one of three DPO suggestions was "Create a diagram explaining how the DPO loss
+turns preference pairs into an implicit reward".
+
 Costs: the suggestion request is held with the answer at its largest possible size (every excerpt at its limit,
 `FOLLOW_UP_HOLD_PARAMS`) and frozen in the quote (`follow_ups_model`, `follow_ups_max_tokens`,
 `follow_ups_ceiling_microusd`); a real one is about 1,000 input and 60 output Haiku tokens, under a tenth of a cent,
@@ -74,57 +83,76 @@ and about 1–2 s after the answer's last text. The first design offered the too
 own turn; the live check on 2026-10-14 showed Sonnet at low effort ending its turn without calling it, so the forced
 side request replaced it (one mechanism, model-independent, testable).
 
-## Study — 2026-10-14 (experimental; staging)
+## Study mode — reworked 2026-10-22 (server on staging; apps and browser local)
 
-Owner direction (2026-10-14): "an experimental feature that combines quizzes you and teaches you about a paper. It
-uses its knowledge of you to ask questions, and backs up when it seems like you don't know, and if you do know, it
-either goes deeper where applicable, or goes to a new tangential topic within the context of the paper… It should
-make clear the mental model that is being built up of your knowledge, and display it in some type of flow, html, or
-graph." This is the first slice, built to learn from; the product angle is still open
-([proposals/LEARNING_GUIDE.md](../proposals/LEARNING_GUIDE.md)).
+Owner, 2026-10-22: "'Study Mode' is too complex and not a polished enough UX… have 'Enter Study Mode – Quiz me and help me
+learn' as an entry in the suggested questions, and then, we have a mode that asks questions, and backs off a bit if
+concepts need to be explained a bit first — we need more clever thinking and a good prompt for this." Design, prompt
+evaluation and history: [proposals/LEARNING_GUIDE.md](../proposals/LEARNING_GUIDE.md); decision:
+[DECISIONS](../DECISIONS.md#study-mode-and-the-papers-ai-explainer-owner-request-2026-10-22-agent-decisions-reversible).
+It replaces the 2026-10-14 slice (a knowledge map rebuilt after each answer by a forced Haiku request and shown as a
+map, journey and concept list), whose UI is removed from every client.
 
-- **One mechanism, no new storage.** A study is an ordinary paper conversation whose turns carry `action: "study"`.
-  It needs the paper numbered on the device (local context v2), because the tutor cites `[¶N]`; a selection may
-  start it on a passage but is not required (the only action without one). The reader's **knowledge map** is the
-  state: concepts with a state (`unknown` could not answer · `learning` taught, not verified · `known` answered once ·
-  `verified` answered a second, different check), links between them (`prerequisite`, `deeper`, `related`), the
-  concept in focus, the journey (ids in the order explored, revisits included) and the step planned next
-  (`calibrate|teach|verify|deeper|tangent|revisit`). The client sends the map with every study turn (an empty map
-  first) and keeps the one that comes back; the server stores nothing, logs counts only, and the map is never written
-  to encrypted history or the browser (it lives with the open chat, in memory; a new chat or sign-out drops it).
-- **The tutor** (`chat-study.ts`, `STUDY_INSTRUCTIONS`): one step and exactly one bold question per turn, under 180
-  words. It judges the reader's last answer (correct, partly, not yet; never flattery), then teaches from the paper
-  with citations when the answer was wrong or partial and asks a simpler check, verifies once after teaching with a
-  different check, goes deeper on a known concept or moves to a related one, and returns to an earlier `unknown` or
-  `learning` concept once the focus is solid. On the first turn it asks a calibrating question. The map goes in the
-  system prompt after the paper (the action's own text), so the cached paper is reused; the profile's length
-  instructions are left out (the tutor's length is its own); no web search.
-- **The map update** is a forced tool call to Claude Haiku 5.5 after the answer (`update_study_map`, like follow-ups):
-  it reads the previous map, the reader's answer (the first turn is "none") and the tutor's reply, never the paper,
-  and returns the whole updated map (states change only on evidence; the tutor's final question sets the focus and
-  extends the journey). The server validates it (`studyMap`): the shape must be usable (concept arrays, at most 60
-  concepts / 120 links / 16 KiB, every concept with a usable id, label and state), while one careless element is
-  repaired rather than fatal (an id in label form is slugged, a link to an unknown concept, a self link, a duplicate
-  or a journey entry off the map is dropped, a long label or note is cut). The first live study on 2026-10-14 lost
-  its third map update to the strict version of this check, hence the tolerance. The map is relayed once as SSE
-  `study {map}` before `done`; an unusable or late (12 s) update leaves the client's map as it was. Follow-up suggestions are refused beside a study (the tutor's question is the follow-up).
-- **Cost:** the update request is held with the answer at its largest (`STUDY_HOLD_PARAMS`: a full map and both
-  excerpts at their limits) and frozen in the quote (`study_model`, `study_max_tokens`, `study_ceiling_microusd`); a
-  real update is about 1,500 input and 300 output Haiku tokens. `chat_answer` logs `study: written|unusable|failed|skipped`
-  and `study_concepts` (a count, never a name).
-- **Clients.** Browser: "Study this paper" in the empty paper chat and beside the title; a knowledge-map panel above
-  the message box (summary line, "Now: concept · step", Map as a Mermaid flowchart in the sandboxed diagram frame,
-  Journey as chips in order, Concepts with state, note, links and `¶N` buttons that land in the paper; End study).
-  Native: "Study this paper" in the empty paper chat and the chat's "…" menu; a knowledge-map bar above the message
-  box with View (a sheet: Map/Journey/Concepts, the Mermaid canvas drawn by the diagram renderer) and End study; the
-  message box reads "Your answer". The fixture backends tutor deterministically for the journeys.
+- **One request per turn.** A study is an ordinary paper conversation whose turns carry `action: "study"` (paper mode,
+  local context v2, a selection optional, `follow_ups` refused, no web search, the profile's length instructions left
+  out). The tutor's instructions (`chat-study.ts`, `STUDY_INSTRUCTIONS`, v6 after six evaluated iterations) follow the
+  cached paper: feedback, then a step forward or a short explanation with an easier check (backing off when the reader
+  is wrong, unsure, asks for a hint or "explain instead"), teaching before asking about a new idea, misconceptions named
+  and kept in focus, a "Quick look back" at an earlier shaky idea every three or four questions, difficulty by level
+  (intro / core / deep), and one bold question that asks one thing; 60–150 words; `\( \)` math; single `[¶N]` markers.
+- **Hidden notes, written by the tutor.** After its question the tutor appends `<study_state>{turn, level, concepts:
+  [{name, status: new|shaky|ok|solid, asked: [turn], paras: [N]}], next}</study_state>`. The server's
+  `StudyStateFilter` removes everything between the tags from the stream (holding back a possible tag prefix at the end
+  of a piece; a block anywhere, or unterminated, is swallowed), checks the notes (`studyState`: repaired rather than
+  refused, at most 12 concepts and 4 KB) and relays them once as SSE `study_state {state}` before `done`, only from a
+  finished reply. The device keeps them with the open chat (memory only) and sends them back as `study_state` with the
+  next turn; they follow the instructions in the prompt. Nothing of them is stored or logged by the server
+  (`chat_answer` logs `study: written|unusable|none`, `study_concepts` (a count) and `study_legacy`).
+- **Older builds** (2026-10-14 to TestFlight 81) still send `study: {map}`: accepted (an object ≤ 16 KB, in the digest)
+  and ignored; they get the new tutor with the notes hidden and no `study` event, so their map stays empty. The
+  `update_study_map` request, its hold and the quote's `study_*` fields are gone.
+- **Cost:** an ordinary answer (~2 credits a turn on Gemini at medium, measured live; the notes are ~100 output tokens).
+- **Clients** (filled in from the client work below): "Enter Study Mode – Quiz me and help me learn" after the starter
+  questions in an empty paper chat and as the last suggested question; one tap sends the opening turn; a slim row above
+  the message box (Study mode · Hint · Explain instead · Stop); placeholder "Your answer"; the chat ⋯ keeps Study mode /
+  End study mode.
+- **Evidence:** `tests/backend/chat.test.ts` (validation, the filter at every split size, events, old maps, cut-off and
+  unusable notes, no search, settlement); `scripts/study-eval.mjs` (simulated learners, $0.73 in all; LEARNING_GUIDE.md);
+  live on staging (`chat-live-smoke.mjs --study`, DPO, Gemini: four turns, first text 2.7–4.8 s, notes never in the text).
+
+## Paper AI Explainer — 2026-10-22 (server on staging; apps and browser local)
+
+Owner, 2026-10-22: "in the Paper Settings, have an option that takes you to an optional AI Explainer, with background
+list, and a diagram illustrating how the concepts fit together, with the opening to a chat if the user wants it (same
+button icon to chat interface animation as in the figure AI explainer)."
+
+- **Request:** the paper chat's own request (same tools and capabilities, so it reads the chat's cached paper) with
+  `action: "paper_explainer"`: paper mode, local context v2, exactly one user turn, no selection, no figures, no title or
+  suggestions, no web search. Effort `low` when automatic or Gemini (as the figure view); 3,500 output tokens plus the
+  effort's thinking.
+- **Output:** one JSON object in the reply (`chat-paper-explainer.ts`, `PAPER_EXPLAINER_INSTRUCTIONS`): `items` (the
+  count, for the progress bar), `summary`, `background` (4–8 prerequisite concepts, each `{id, name, line, paragraphs}`),
+  `ideas` (2–5: the method and its parts, the main result last with its headline number), `links` (`{from, to, label}`,
+  4–14). Checked by `paperExplainer` (bounded, ids slugged, `[¶N]` and Markdown out of lines, paragraphs within the
+  paper, unknown or self links dropped).
+- **Stream:** `paper_progress {stage: reading|writing, characters?, items?}`, `paper_summary {summary}`, `paper_item {kind:
+  background|idea, index, item}` as each entry closes (`PaperExplainerStream`, checked exactly as the final one), then
+  `paper_explainer {format: "paper-explainer-v1", summary, background, ideas, links}` and `done`. Unusable JSON: the
+  explainer's words (or the model's) as `delta`; a cut-off reply keeps its streamed entries and is not charged.
+- **Settlement:** recorded as an ordinary answer (`answer`; `chat_answer` logs `paper_explainer` with counts), so no
+  migration was needed.
+- **On the device:** the diagram is drawn from the entries and links (`paperExplainerMermaid`: a top-down flowchart,
+  background and ideas styled apart, labels sanitized; the shared fixture `tests/fixtures/paper-explainer.json` holds the
+  expected source and the progress values both clients reproduce).
+- **Evidence:** backend tests (validation, checks, streaming at every split size, fallback, cut-off); live on staging
+  (DPO): Gemini summary 5.2 s, whole 9.9 s, 2 credits; Sonnet summary 3.3 s, whole 12.4 s, 5 credits; streamed = final.
 
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off; "cloud-ai-v3" adds figures, "cloud-ai-v4" DeepSeek, [below](#chat-redesign-from-build-57-feedback--2026-10-16)), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study](#study--2026-10-14-experimental-staging)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study?: {concepts, links, focus, journey, next}} ` (`study` is required with `action: "study"` and refused otherwise; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off; "cloud-ai-v3" adds figures, "cloud-ai-v4" DeepSeek, [below](#chat-redesign-from-build-57-feedback--2026-10-16)), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study mode](#study-mode--reworked-2026-10-22-server-on-staging-apps-and-browser-local)) | "paper_explainer" (paper mode with local context v2, exactly one turn, no selection or figures; [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study_state?: {turn, level, concepts, next} (≤ 4 KB), study?: {…} (an older build's map, ≤ 16 KB, ignored)} ` (`study_state` and `study` only with `action: "study"`, both optional since 2026-10-22; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
 - `GET` (2026-10-08) returns the versioned profile table, below.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study {map}` (2026-10-14, [Study](#study--2026-10-14-experimental-staging)), `done {stop_reason, credits, usage, model?, profile, charged, reason?}` (`model`/`profile` since 2026-10-08; `charged`/`reason` since 2026-10-16, [below](#when-an-answer-stops-early--2026-10-16)), `error {code, credits?, charged?, reason?}` (`credits` since 2026-10-14: what the failed answer cost the reader; since 2026-10-16 every error after the hold carries `credits: 0, charged: false` and a `reason`, and an error without `charged` came before anything was held) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study_state {state}` (2026-10-22; the 2026-10-14 `study {map}` is no longer sent), `paper_progress`, `paper_summary`, `paper_item`, `paper_explainer` (2026-10-22, [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)), `done {stop_reason, credits, usage, model?, profile, charged, reason?}` (`model`/`profile` since 2026-10-08; `charged`/`reason` since 2026-10-16, [below](#when-an-answer-stops-early--2026-10-16)), `error {code, credits?, charged?, reason?}` (`credits` since 2026-10-14: what the failed answer cost the reader; since 2026-10-16 every error after the hold carries `credits: 0, charged: false` and a `reason`, and an error without `charged` came before anything was held) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel; then the follow-up suggestions, from the finished answer) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
@@ -660,7 +688,7 @@ connection that then failed is charged as finished.
 | Paid feature | Finishes (the reader pays) | Ends early (nothing) | Its side requests |
 |---|---|---|---|
 | **Chat answer**, and the selection actions (Explain, Why it matters, Related) | a finished turn with text, a diagram, a visual, figure parts or a figure request | every unpaid row above | **Title** (Haiku, beside the answer): paid only with a completed answer whose title was relayed; failed, unusable or abandoned after its 4 s grace, or with an answer that ended early, it is Gradstep's. **Follow-ups**: asked only after a finished answer (since 2026-10-16 not after `max_tokens`); relayed → paid; failed, unusable or later than 8 s → Gradstep's. |
-| **Study turn** | the tutor's reply finished | as an answer | **Map update**: asked only after a finished reply; relayed → paid; failed, unusable or later than 12 s → Gradstep's, and the map stays as it was |
+| **Study turn** | the tutor's reply finished | as an answer | None since 2026-10-22: the tutor's notes are part of its reply (relayed as `study_state` only from a finished reply). The 2026-10-14 map update request is retired. |
 | **Equation view** (symbols) | the model's JSON, or its words shown as the description | cut at its 2,000-token allowance (`limit`); no words at all (`provider`) | — |
 | **Equation background** | finished prose | as an answer | — |
 | **Figure view** (walkthrough, FIGURE_VIEW.md) | the checked walkthrough, or its words shown as the description | cut at its allowance (`limit`); nothing usable to show (`provider`) | — |
