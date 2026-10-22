@@ -2,7 +2,7 @@
 // (the chat's own, with exactly this figure), the crop arithmetic, and the session's request and cache.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SSEParser, makeRequest, requestBody, type LocalPaperContext, type StreamEvent } from '../src/lib/chat';
-import { cropRect, cropStyle, cropCoverage, paddedCropStyle, cardTypeLabel, displayBox, figureBox, figureKey, figureNoun, figureTurn, isFigureAction, parseFigureWalkthrough, sectionHeading, type FigureResult } from '../src/lib/figure-view';
+import { cropRect, cropStyle, cropCoverage, paddedCropStyle, cardHeadingLabel, cardTypeLabel, displayBox, figureBox, figureKey, figureNoun, figureTurn, isFigureAction, parseFigureWalkthrough, sectionHeading, type FigureResult } from '../src/lib/figure-view';
 
 const server = vi.hoisted(() => ({ requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -360,6 +360,9 @@ describe('complete-figure presentation', () => {
     const box = {x:0,y:0,w:0.5,h:1};
     const parsed = parseFigureWalkthrough({...event,sections:['concept','related_work','future',undefined].map(kind => ({...section(box),kind}))})!;
     expect(parsed.sections.map(cardTypeLabel)).toEqual(['Concept','Related work','Panel','Panel']);
+    // A label that only repeats the type is not shown twice (build-83 feedback "Concept · Concept").
+    const concept = parsed.sections[0];
+    expect(['Concept', ' concept ', '(b)'].map(label => cardHeadingLabel({ ...concept, label }))).toEqual(['Concept', 'Concept', 'Concept · (b)']);
     expect(parsed.sections.map(s => !!s.box)).toEqual([false,false,true,true]);
     expect(cropCoverage(parsed.sections,size)).toBeLessThan(1);
   });

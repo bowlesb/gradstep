@@ -370,7 +370,7 @@ struct FigureExplainView: View {
             // The heading looks the same either way (only the ⋯ waits, faint), so nothing changes but the ⋯ when it is done.
             let heading = HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text([section.typeLabel, section.label].filter { !$0.isEmpty }.joined(separator: " · "))
+                    Text(section.headingLabel)
                         .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
                     Text(section.title).font(.headline).foregroundStyle(.primary).multilineTextAlignment(.leading)
                 }

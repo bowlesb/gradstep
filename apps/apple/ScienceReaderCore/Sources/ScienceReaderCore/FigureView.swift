@@ -53,6 +53,11 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
         }
         /// The part as the figure names it ("(a)", "Left panel"); may be empty.
         public let label: String
+        /// The card's heading line: its type, then its label unless the label only repeats the type ("Concept · Concept").
+        public var headingLabel: String {
+            let named = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            return [typeLabel, named.caseInsensitiveCompare(typeLabel) == .orderedSame ? "" : named].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
         public let title: String
         /// Markdown with `\( \)` math and `[¶N]` citations.
         public let text: String

@@ -10,7 +10,7 @@ import { ExplainerModelDialog } from './ChatProfile';
 import type { ContextualHost } from './ContextualChat';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
-import { cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection, type FigureStreamProgress } from '../lib/figure-view';
+import { cropCoverage, cardHeadingLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection, type FigureStreamProgress } from '../lib/figure-view';
 import { boxFractions } from '../lib/figure-crops';
 import { matchSections } from '../lib/figure-structure';
 import { captionLetters, type FramedPart } from '../lib/figure-framing';
@@ -243,7 +243,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
           const aspect = (p: FramedPart, im: { width: number; height: number }) => ((p.frame[2] - p.frame[0]) * im.width) / ((p.frame[3] - p.frame[1]) * im.height);
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
-              <h4><span className="figure-section-label">{[cardTypeLabel(s), s.label].filter(Boolean).join(' · ')}</span><span>{s.title}</span></h4>
+              <h4><span className="figure-section-label">{cardHeadingLabel(s)}</span><span>{s.title}</span></h4>
               {/* A part's actions once the walkthrough is in (a streamed part is final only then). */}
               <MenuButton icon="more" label={`${heading}: options`} testID={`figure-section-menu-${i}`} disabled={streaming}>{close => <>
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-simpler-item" disabled={!!more && more.phase !== 'failed'}

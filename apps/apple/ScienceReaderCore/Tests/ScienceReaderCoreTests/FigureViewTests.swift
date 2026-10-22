@@ -64,6 +64,10 @@ import Testing
         let rows = ["concept", "related_work", "future"].map { kind in row.merging(["kind": kind]) { _, new in new } } + [row]
         let walk = try #require(FigureWalkthrough.validated(Self.json(["format": FigureWalkthrough.format, "sections": rows])))
         #expect(walk.sections.map(\.typeLabel) == ["Concept", "Related work", "Panel", "Panel"])
+        // A label that only repeats the type is not shown twice (build-83 feedback "Concept · Concept").
+        let labelled = ["Concept", " concept ", "(b)"].map { label in row.merging(["kind": "concept", "label": label]) { _, new in new } }
+        let headed = try #require(FigureWalkthrough.validated(Self.json(["format": FigureWalkthrough.format, "sections": labelled])))
+        #expect(headed.sections.map(\.headingLabel) == ["Concept", "Concept", "Concept · (b)"])
         #expect(walk.sections.map { $0.box != nil } == [false, false, true, true])
         let old = try JSONDecoder().decode(FigureWalkthrough.Section.self, from: Self.json(row))
         #expect(old.cardKind == .panel)

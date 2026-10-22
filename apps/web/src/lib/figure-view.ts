@@ -162,3 +162,8 @@ export function cropCoverage(sections: FigureSection[], image: { width: number; 
   return area / (image.width * image.height);
 }
 export const cardTypeLabel = (s: FigureSection) => s.kind === 'concept' ? 'Concept' : s.kind === 'related_work' ? 'Related work' : 'Panel';
+/** The card's heading line: its type, then its label unless the label only repeats the type ("Concept · Concept"). */
+export function cardHeadingLabel(s: FigureSection): string {
+  const type = cardTypeLabel(s), label = s.label.trim();
+  return label && label.toLowerCase() !== type.toLowerCase() ? `${type} · ${label}` : type;
+}
