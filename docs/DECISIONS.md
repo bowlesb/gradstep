@@ -1,6 +1,25 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Figure explainer: streamed, at low effort (owner request 2026-10-22; agent decision with evidence, reversible)
+
+Owner: "On the Figure AI explainer, I like the experience, but it's very very slow. Can we make it much much faster?" and
+"it's unusable at this speed. Also it needs a progress bar." The experience is kept (summary, then part cards as
+confidence-framed viewports); what changed is how fast it arrives:
+
+- **Streamed.** The walkthrough is asked for as JSON in the model's reply (Gemini Flash returns a tool call only whole,
+  measured), read incrementally on the server and relayed part by part, each checked exactly as the final walkthrough is;
+  the final `figure` event is unchanged for older builds. A real progress bar on both clients (stages, then "part k of
+  N" from the model's announced count, else the figure's own sub-figures or caption letters).
+- **Low effort for the figure view** (`figure`, `figure_simpler`) when the reader chose Gemini Flash (its profiles have no
+  effort choice) or left the effort automatic; an effort chosen for a Claude model stays. The published chat default
+  (Gemini Flash, medium) is unchanged for every other chat request. Evidence, four real figures (DPO 1 and 2, PRISM 5,
+  Memory-efficient subspace optimization 1): Gemini at medium thought for up to 3,800 tokens and showed nothing for
+  19–45 s; at low it read the same panels, values and legends with a box on every panel part, summary on screen in
+  ~3–4.5 s and the whole walkthrough in 8–11 s, at about two thirds of the cost. Haiku 5.5 at low was fastest but drew no
+  boxes on three of four figures and once wrote malformed JSON; Sonnet 5.5 at low matched Gemini's speed at 2–3× the cost
+  (and once returned no usable part). Gemini Flash stays the figures default. Record: FIGURE_VIEW.md "Speed".
 
 ## PDFs without arXiv HTML: keep developing the on-device model; no Mathpix (owner, 2026-10-21)
 

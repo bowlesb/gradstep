@@ -218,7 +218,7 @@ async function figureRequest(body, token) {
     const at = Date.now() - started;
     if (name === 'figure_summary') { out.marks.summary_ms ??= at; out.streamed.summary = payload.summary; }
     else if (name === 'figure_section') { out.marks.sections_ms.push(at); out.streamed.sections[payload.index] = payload.section; }
-    else if (name === 'figure_progress') out.marks.progress.push([at, payload.stage, payload.sections ?? null, payload.characters ?? null]);
+    else if (name === 'figure_progress') out.marks.progress.push([at, payload.stage, payload.characters ?? null, payload.parts ?? null]);
     else if (name === 'figure') out.marks.figure_ms = at;
     else if (name === 'done' || name === 'error') out.marks.done_ms = at;
     if (name === 'delta') out.text += payload.text; else if (name === 'figure') out.figure = payload;

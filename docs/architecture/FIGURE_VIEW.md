@@ -1,5 +1,106 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Speed: a streamed walkthrough at low effort, with a progress bar — 2026-10-22 (server on staging; clients local)
+
+Owner, 2026-10-22: "I like the experience, but it's very very slow. Can we make it much much faster?" and "it's unusable
+at this speed. Also it needs a progress bar." The experience is unchanged (one walkthrough: summary, then part by part,
+each part a confidence-framed viewport into the whole figure); it now arrives part by part, sooner, with a progress bar.
+Decision record: [DECISIONS](../DECISIONS.md#figure-explainer-streamed-at-low-effort-owner-request-2026-10-22-agent-decision-with-evidence-reversible).
+
+**Where the time went (measured before any change).** The server held the walkthrough back until the whole
+`figure_walkthrough` call was written and checked, so nothing showed until the end, and the figures default (Gemini 3.8
+Flash, which the profiles fix at medium effort) thought for up to 3,800 tokens first. Gemini also returns a tool call
+**whole, in one chunk** at the end of its turn (OpenRouter, Vertex route; measured: 1 chunk of 3,400–5,400 characters),
+so streaming the tool call's arguments alone could never show it sooner. Our own server stages are small: the request
+reached the model 0.8–1.4 s after it was sent (authentication, admission, balance, the paper's membership, the hold,
+the provider attempt) and the reader had `done` 0.2–0.4 s after the model finished. The image is about 1,600 of
+37,000–49,000 input tokens (the paper, read from the chat's cache) and was left as it is (it is also what crops and
+viewports are cut from).
+
+**What changed (server, `chat.ts`, `chat-figure-view.ts`; deployed to staging 2026-10-22 02:17 UTC).**
+- **Written as JSON in the reply.** `FIGURE_INSTRUCTIONS` ask for one JSON object in the reply — `{"parts": N, "summary":
+  …, "sections": [{…}, …]}`, the tool's own fields after a count — instead of the tool call (every model streams reply
+  text). The tool stays in the chat's tools (the cached prefix is unchanged, test) and a call is still accepted and also
+  streamed (Claude streams tool arguments in ~10-character pieces). Escaping is asked for explicitly (`\\(`…`\\)` inside
+  JSON strings); a code fence or words around the object are ignored.
+- **Read incrementally** (`FigureWalkthroughStream`): a character scanner keeps the open containers and each object's key;
+  the summary is relayed when its string closes and each part when its object closes, parsed from its own slice and
+  checked by `figureSection` — the one check the final walkthrough uses, so the streamed parts are exactly the final
+  parts. A malformed part is left out without swallowing the next one; a cut-off object keeps its complete parts.
+- **Events** (action `figure` only; builds that predate them ignore unknown events, test of both parsers'
+  `default` branches; the final `figure` event is unchanged):
+  ```
+  event: figure_progress   data: {"stage":"reading"}                              (the model was asked)
+  event: figure_progress   data: {"stage":"writing","characters":615,"parts":4}   (≤ every 400 ms; parts once announced)
+  event: figure_summary    data: {"summary":"…"}
+  event: figure_section    data: {"index":0,"section":{"label":"(a)","title":"…","text":"…","paragraphs":[…],"box":{…}}}
+  …
+  event: figure            data: {"format":"figure-walkthrough-v1","summary":"…","sections":[…]}   (as before)
+  event: done              data: {…,"profile":"gemini-low-standard","charged":true}
+  ```
+  The final walkthrough prefers the source that streamed (reply or call); when neither parses whole (cut off at its
+  allowance, or a malformed later part) it is the parts that streamed, so `figure` never takes back a part the device
+  was shown (cut off: `done {charged:false, reason:"limit"}` as before). An unreadable object is never shown as words.
+  Logs add `source`, `streamed` and `first_part_ms` (counts and times only).
+- **Low effort** (`figureViewEffort`) for `figure` and `figure_simpler` when the reader chose Gemini Flash or an automatic
+  effort; an effort chosen for a Claude model stays. The profile, quote and `done.profile` say so
+  (`gemini-low-standard`); `openRouterChatParams` now sends Gemini the request's effort (every chat profile still sends
+  medium). The allowance is the walkthrough's 6,000 tokens plus low's thinking.
+- **One round trip fewer:** the paper's membership is read alongside the price-card and balance checks.
+
+**Measured.** Model alone (`scripts/figure-speed.mjs`: the server's own request through the production adapter, straight
+to OpenRouter; cache read unless noted), seconds from sending:
+
+| Figure | Configuration | First token | Summary | Whole | Out (reasoning) | Parts / boxes | Cost |
+|---|---|---|---|---|---|---|---|
+| DPO 2 | Gemini medium, tool (before) | 6.3 | 18.8 (all at once) | 19.0 | 2,294 (984) | 2 / 2 | $0.0155 |
+| DPO 2 | Gemini low, tool | 10.0 | 10.0 (all at once) | 10.0 | 1,288 | 2 / 2 | $0.0099 |
+| DPO 2 | **Gemini low, JSON reply** | 2.3–2.4 | 2.8 | 9.6–11.3 | 1,005–1,414 | 2 / 2 | $0.0089–0.0105 |
+| DPO 2 | Gemini minimal, JSON reply | 1.6–2.2 | 2.3–3.1 | 10.5–11.7 | 1,213–1,243 | 2 / 2 | $0.0098 |
+| DPO 2 | Gemini medium, JSON reply | 3.4 | 8.4 | 14.1 | 2,011 (952) | 2 / 2 | $0.0129 |
+| DPO 2 | Haiku 5.5 low, tool | 1.2 | 2.0 | 6.2 | 1,218 | 2 / **0** | $0.0015 |
+| DPO 2 | Haiku 5.5 medium, tool | 3.0 | 9.2 | 13.8 | 2,832 (1,319) | 2 / 2 | $0.0024 |
+| DPO 2 | Sonnet 5.5 low, tool | 1.7 | 2.7 | 9.4 | 1,221 | 2 / 2 | $0.0242 (cold $0.23, no usable part) |
+| DPO 1 | Gemini medium, tool (before) | 17.4 | 32.6 | 32.6 | 2,297 (1,415) | 2 / 2 | $0.0155 |
+| DPO 1 | **Gemini low, JSON reply** | 3.2 | 3.7 | 8.5 | 691 | 2 / 2 | $0.0074 |
+| DPO 1 | Haiku low, tool | 3.0 | 8.1 | 10.0 | 1,710 (957) | 2 / **0** | $0.0017 |
+| PRISM 5 (3 images) | Gemini medium, tool (before) | 6.3 | 45.2 | 45.4 | 5,256 (3,821) | 3 / 3 | $0.0258 |
+| PRISM 5 | **Gemini low, JSON reply** | 2.6 | 3.1 | 11.2 | 1,383 | 3 / 3 | $0.0091 |
+| PRISM 5 | Haiku low, tool | 2.5 | 3.3 | 9.9 | 1,632 | 4 / **0** | $0.0075 |
+| Subspace opt. 1 (3 images) | Gemini medium, tool (before) | 24.5 | 24.5 | 24.6 | 1,215 | 3 / 3 | $0.0125 |
+| Subspace opt. 1 | **Gemini low, JSON reply** | 3.8 | 4.5 | 11.0 | 1,144 | 3 / 3 | $0.0103 |
+| Subspace opt. 1 | Haiku low, tool | 3.1 | 3.9 | 5.7 | 649 | **0** (malformed box) | $0.0162 (cold) |
+
+The "before" Gemini-medium rows each wrote the cache (first request on that paper); a Gemini cache write alone adds
+4–8 s to the first token (DPO 2 at low: 10.4 s written, 2.0 s read). Quality, side by side (records under
+`.artifacts/figure-speed/`): at low, Gemini read the same panels, axes, ranges, values and legend entries as at medium,
+with a box on every panel part, the sub-figure labels the structure note gave and `[¶N]` citations in every part; its
+texts are a little shorter (700–1,300 characters). Two low runs under a first JSON-reply wording (without the escaping
+line) wrote some `$…$` math; with the deployed wording the three later records hold 52 `\(…\)` and no `$`. Haiku at low drew no boxes on three figures and wrote a
+malformed box that ended its turn on the fourth; Sonnet at low was as fast as Gemini at 2–3× the cost, and its one cold
+run returned no usable part. **Gemini Flash stays the figures default, at low effort.**
+
+Through the deployed function on staging (`node scripts/chat-live-smoke.mjs --figure-view=2,1 --figure-walkthrough-only
+--profile=gemini-medium-standard`, as the apps send it; disposable accounts; server stages from the database: the
+quote, the provider attempt's dispatch and finish, the settlement), seconds from the request:
+
+| Figure | | Reading shown | First visible (summary) | First part | Whole walkthrough | Model dispatched → finished | Cost |
+|---|---|---|---|---|---|---|---|
+| DPO 2 | before | – | 24.1 (all at once) | 24.1 | 24.1 | 1.40 → 23.72 | $0.0167 |
+| DPO 2 | after | 0.8 | 7.2 | 11.3 | 15.4 | 0.89 → 15.26 | $0.0118 |
+| DPO 1 | before | – | 13.8 (all at once) | 13.8 | 13.8 | 0.92 → 13.48 | $0.0115 |
+| DPO 1 | after | 0.7 | 4.6 | 6.8 | 9.4 | 0.78 → 9.11 | $0.0081 |
+| PRISM 5 (four parts) | after | 0.9 | 6.7 | 8.8 | 15.6 | 0.97 → 15.35 | $0.0098 |
+
+Gemini's own first-token time varied 3.3–5.7 s on staging against 2–4 s in the direct runs; in every run the streamed parts
+equalled the final walkthrough. Records: `.artifacts/figure-view/2026-10-22T02-02-00-800Z-2305.18290v3.json` (before),
+`…T02-18-42-277Z-2305.18290v3.json`, `…T02-20-46-434Z-2610.14704v1.json` (after). Spend for this work: $0.50 direct
+(ledger `.artifacts/figure-speed/spend.json`) and $0.06 on staging.
+
+**Open.** Gemini's five-minute prompt cache: a walkthrough more than five minutes after the paper's last request writes
+the paper again (4–8 s more before the first token and ~$0.03); a longer Gemini cache TTL would change every Gemini chat's
+cost and is left for a separate decision. Not measured on a phone (paused).
+
 ## Structure first and the count check — 2026-10-21 (local source; not released, not deployed)
 
 Integration steps 1 and 3 of [subfigure detector round 3](../reviews/SUBFIGURE_DETECTOR_20261023.md): 15.7 % of arXiv
