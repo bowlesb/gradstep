@@ -1,5 +1,45 @@
 # Implementation status
 
+## Pricing accepted: free AI pool, plans, Spend vs income, alerts, owner switches — 2026-10-22 UTC (server and admin on staging; apps and browser local, not released)
+
+Owner: "I will take your defaults", then "the complexity of the pricing system and what debug strategies I'll have if my
+spend somehow becomes very high in relation to my incoming money." Plain-language overview:
+[PRICING_HOW_IT_WORKS](PRICING_HOW_IT_WORKS.md); operator steps: [RUNBOOK_SPENDING](RUNBOOK_SPENDING.md); decisions:
+[DECISIONS](DECISIONS.md#pricing-accepted-with-safeguards-against-spend-outrunning-income-owner-2026-10-22-built-staging).
+
+- **Server (staging):** migrations **0150** (free AI pool on the existing hold machinery, accepted products and annual
+  months, `ai_controls` switches, Spend vs income, alerts with a 10-minute pg_cron/pg_net tick) and **0151** (Sandbox
+  purchases reported as test money). Applied 06:41 and 06:48 UTC after encrypted backups
+  `.artifacts/backups/20261022T064011Z-eeffccb218a0` and `20261022T064745Z-580cc1b48cea`. Chat function deployed 06:45 UTC
+  from this branch merged with main (figures default Gemini, streamed equations kept): switch refusals before any hold,
+  no web search on free answers, Gemini defaults under "cheaper models only". Resend key stored in Vault; alerts go to the
+  owner account's address (no `OWNER_ALERT_EMAIL` set). Deploy suites: 18 passed; `budget.health` fails on the
+  existing 81% of October's $40 (not raised).
+- **Admin (staging):** Admin › Spend vs income (Pages `faa47296`, admin.gradstep.ai): headline figures, spend by
+  funding/feature/model, estimated proceeds by product, free pool with audited resize, seven switches with a 7-day
+  preview and two-step confirm, alerts with delivery state.
+- **Live read-only checks (06:50 UTC):** ledger ends 0150, 0151; `ai_controls` at the accepted defaults; seven products
+  (Standard 600/$7.99/intro $3.99, Pro 2,000, yearly plans, 300/700 packs, 400 kept); the first tick raised **50% and
+  80%** for October ($32.32 of $40) and sent one digest, Resend answered **200**; October spend by funding: granted $11.53,
+  Sandbox purchases $4.48, platform $3.38, your testing $1.49, free $0 (no free-tier account exists yet: 50 of 51 open
+  accounts are synthetic checks, the other is the owner's testing allowance).
+- **Apps and browser (local):** Settings › AI credits gains **Plan** with the ⓘ explainer and **Free AI this month**; the
+  free-AI messages replace "not enough credits" where they explain it (chat, figures, equations, recommendations); new
+  products listed (StoreKit shows those on sale); Standard shows as Plus; `model_unavailable` reworded. Browser parity in
+  the account menu.
+- **App Store:** nothing changed. Read-only plan `node scripts/asc-pricing-plan.mjs`
+  (`.artifacts/pricing/asc-plan-readonly-20261022.txt`): 8 API changes and 5 manual steps await the owner (OWNER_ACTIONS 13).
+- **Evidence:** `npm test` passes (backend incl. new chat switch tests, browser units incl. `free-ai.test.ts`);
+  `npm run test:database` passes (834 steps; `free_ai_and_spend.sql`, the 12-reader pool concurrency check: 4 admitted,
+  free worst case $0.48 ≤ $0.50 pool); Playwright `pricing.spec.ts` and `account-assets.spec.ts` desktop/phone 17 pass;
+  admin loopback journey `scripts/check-spend-income.mjs` passes (`.artifacts/spend-income/`); native Core `swift test`
+  416 + 28 pass, app unit tests 42 pass, iPhone 17 Simulator journeys `testPlanAndFreeAIInSettings` and
+  `testAnAnswerRefusedWhenTheMonthsFreeAIIsUsedUp` light/dark pass (`.artifacts/pricing-native/`), Mac Catalyst builds,
+  test build after merging main succeeds. Not verified: physical device (paused), iPad/Mac UI journeys, a real
+  Production purchase, inbox delivery of the alert (Resend accepted it).
+- **For other branches:** migration `202610220145_paper_explainer_action.sql` (branch `worktree-agent-a19dafdce0ac1d1c6`,
+  not applied) must be renumbered above 0151 before it is deployed: the ledger only accepts migrations in order.
+
 ## Full screen on touch; equation explainer streamed; figures default Gemini again — 2026-10-22 UTC (server on staging; apps and browser local, not released)
 
 Owner: "when you try to click into a subfigure and zoom. The transition needs to be improved … whenever you try to interact
