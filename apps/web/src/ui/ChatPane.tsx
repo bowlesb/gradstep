@@ -20,6 +20,7 @@ import { Icon, iconName } from './icons';
 import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { isVisualFollowUp, STUDY_ENTRY, STUDY_EXPLAIN, STUDY_HINT } from '../lib/study';
+import { sessionBalance, useFreeAIRefusal } from './free-ai';
 import { PapersInAnswer, type AnswerPapers } from './AnswerPapers';
 import { AnswerSelectionBar, formulaPick, useAnswerSelection } from './AnswerSelection';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
@@ -91,6 +92,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const branches = useMemo(() => c.conversationID ? chat.history.state.conversationBranches(c.conversationID) : [], [chat, c.conversationID, historyVersion]);
   const [showFollowUps, setShowFollowUps] = useState(false);
   const diagrams = useMemo(() => chat.history.state.diagramsByMessage(), [chat, historyVersion]);
+  // Free AI (migration 0150): why free credits couldn't pay for this answer, from a fresh balance read.
+  const freeBalance = useMemo(() => sessionBalance(chat), [chat]);
+  const freeRefusal = useFreeAIRefusal(c.issue, freeBalance, chat.retryProfile(c).model);
   // An answer with figure parts whose text marks where they go shows them inline (and the whole figure under it).
   const inlineParts = (entityID: string) => {
     const d = diagrams.get(entityID), text = messages.find(m => m.payload.entityID === entityID)?.payload.text ?? '';
@@ -348,7 +352,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
             onClick={startStudy}><Icon name="cap" size={13} /> {STUDY_ENTRY}</button>}
         </div>; })()}
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
-      {c.issue && <div className="chat-issue" role="alert"><p>{failureText(c.issue)}</p>
+      {c.issue && <div className="chat-issue" role="alert"><p>{freeRefusal ?? failureText(c.issue)}</p>
         {c.issue === 'local_save' && !retired && <button className="secondary small" onClick={() => void chat.retryDeviceSave(c)}>Retry device save</button>}
         {canAnswer && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
         {c.answer && !retired && <button className="secondary small" onClick={() => void chat.retry(c)}>Retry saving</button>}

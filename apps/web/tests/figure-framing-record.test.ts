@@ -17,16 +17,19 @@ describe('the framing record', () => {
     expect(framingRecords()).toEqual([]);
   });
 
-  it('keeps one geometry-only record per card with the final view and what the reader did', () => {
+  it('keeps one geometry-only record per card: how it was first opened, how often, and the full-screen view it was left at', () => {
     framingShown('a', init()); framingShown('a', init());
-    framingChanged('a', { view: [0.123456, 0, 1, 1], zoomed: true });
-    framingChanged('a', { expanded: true });
-    framingChanged('missing', { expanded: true });
+    expect(framingRecords()[0]).toMatchObject({ expanded: false, opened: null, opens: 0, zoomed: false, panned: false });
+    framingChanged('a', { opened: 'pinch' });
+    framingChanged('a', { zoomed: true });
+    framingChanged('a', { view: [0.123456, 0, 1, 1] });
+    framingChanged('a', { opened: 'tap' });
+    framingChanged('missing', { opened: 'tap' });
     const [record, ...rest] = framingRecords();
     expect(rest).toEqual([]);
     expect(record).toEqual({ ...init(), frame: [0.3521, -0.02, 1.0074, 1.02], region: [0.45, 0.0319, 0.9941, 0.99], finalView: [0.1235, 0, 1, 1],
-      zoomed: true, panned: false, expanded: true });
-    expect(Object.keys(record).sort()).toEqual(['box', 'expanded', 'figure', 'finalView', 'frame', 'level', 'panned', 'part', 'parts', 'region', 'surface', 'zoomed']);
+      zoomed: true, panned: false, expanded: true, opened: 'pinch', opens: 2 });
+    expect(Object.keys(record).sort()).toEqual(['box', 'expanded', 'figure', 'finalView', 'frame', 'level', 'opened', 'opens', 'panned', 'part', 'parts', 'region', 'surface', 'zoomed']);
   });
 
   it('is bounded and forgotten on sign-out', () => {

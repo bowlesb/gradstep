@@ -751,13 +751,14 @@ final class ReaderModel {
         }
     }
     private var scenarioProfiles: [String: String] = ReaderModel.storedScenarioProfiles()
-    /// Saved activity choices. Once (owner 2026-10-22: figures default to Sonnet): a figures choice equal to the old
-    /// recommended default (`gemini-medium-standard`, what a reader got by keeping the recommendation) is forgotten so
-    /// figures follow the new default; the flag keeps a later explicit Gemini choice.
+    /// Saved activity choices. Once (owner, 2026-10-22: "Let's try Gemini instead of Sonnet for Figures then"): a figures
+    /// choice equal to the short-lived Sonnet default (`sonnet-low-standard`, what a reader got by keeping that default) is
+    /// forgotten so figures follow the default again (Gemini Flash); the flag keeps a later explicit Sonnet choice, and any
+    /// other saved choice is never touched. (It replaces the morning's migration, which let go of a saved Gemini choice.)
     static func storedScenarioProfiles(_ defaults: UserDefaults = .standard) -> [String: String] {
         var saved = defaults.dictionary(forKey: scenarioProfilesKey) as? [String: String] ?? [:]
         if !defaults.bool(forKey: figuresDefaultMigrationKey) {
-            if saved[AIUseCase.figures.rawValue] == "gemini-medium-standard" {
+            if saved[AIUseCase.figures.rawValue] == "sonnet-low-standard" {
                 saved[AIUseCase.figures.rawValue] = nil
                 defaults.set(saved, forKey: scenarioProfilesKey)
             }
@@ -765,15 +766,15 @@ final class ReaderModel {
         }
         return saved
     }
-    static let scenarioProfilesKey = "ai.scenarioProfiles", figuresDefaultMigrationKey = "ai.figuresDefaultSonnet.migrated"
+    static let scenarioProfilesKey = "ai.scenarioProfiles", figuresDefaultMigrationKey = "ai.figuresDefaultGemini.migrated"
     /// The figures activity's own default (never the general chat default): the server's `default_figures` when the
-    /// table offers it, else Sonnet at low effort and standard length when offered (or before the table loads), else
-    /// the chat default as before.
+    /// table offers it, else Gemini Flash (standard length; the figure view runs it at low effort) when offered (or before
+    /// the table loads), else the chat default.
     static func figuresDefault(table: ChatProfileTable?, chatDefault: ChatProfileChoice) -> ChatProfileChoice {
         if let figures = table?.figuresDefault { return figures }
-        let sonnet = ChatProfileChoice(model: .sonnet, effort: .low, length: .standard)
-        guard let table else { return sonnet }
-        return table.offers(sonnet) ? sonnet : chatDefault
+        let gemini = ChatProfileChoice(model: .gemini, effort: .medium, length: .standard)
+        guard let table else { return gemini }
+        return table.offers(gemini) ? gemini : chatDefault
     }
     private var scenarioLocals: [String: String] = UserDefaults.standard.dictionary(forKey: "ai.scenarioLocals") as? [String: String] ?? [:]
     var pendingAIChoice: ChatProfileChoice?
@@ -2214,6 +2215,7 @@ final class ReaderModel {
             if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
         }
         try? KeychainVault.deleteAll(namesContaining: "\(environment).\(accountID.wire).")
+        AIUsageProvenanceStore(environment: environment, accountID: accountID).forget()
     }
 
     /// Sign-out clears presentation immediately; wait here before retiring any
@@ -3987,8 +3989,11 @@ final class ReaderModel {
     // MARK: - Cloud answers
 
     var chatTransport: (any ChatTransport)? {
-        (chatTransportOverride ?? backend).map { IdleBoundedChatTransport(base: $0, idle: chatIdleDeadline) }
+        // Your AI usage: each cloud operation's conversation kind and paper are remembered on this device (AIUsageService.swift).
+        (chatTransportOverride ?? backend).map { UsageRecordingChatTransport(base: IdleBoundedChatTransport(base: $0, idle: chatIdleDeadline), environment: usageEnvironment) }
     }
+    /// The environment that names this device's per-account usage record.
+    var usageEnvironment: String { configuration?.environment ?? "local" }
     /// How long an answer may send nothing before it ends as interrupted (the server pings every 15 s). Tests shorten it
     /// (`--chat-idle-deadline=<seconds>`, Debug only).
     @ObservationIgnored var chatIdleDeadline: Duration = {
@@ -4715,7 +4720,8 @@ final class ReaderModel {
                                                      studyNotes: turn.studyNotes, visualAnswers: visualAnswers, figures: figures)
             }
         } catch ChatTransportError.rejected(let code) {
-            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: code)
+            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: code, premium: ReaderModel.isPremium(choices.profile.model))
+            if code == "insufficient_credits" { Task { await self.refreshCreditBalance() } }
             return
         } catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
@@ -4777,7 +4783,8 @@ final class ReaderModel {
                 case .followUps(let questions): followUps = questions
                 case .studyState(let notes): studyNotes = notes
                 // The explainers' own events; an ordinary answer never gets them.
-                case .equation, .figure, .figureProgress, .figureSummary, .figureSection, .paperProgress, .paperSummary, .paperItem, .paperExplainer: break
+                case .equation, .figure, .figureProgress, .figureSummary, .figureSection, .equationProgress, .equationSummary, .equationSymbol,
+                     .paperProgress, .paperSummary, .paperItem, .paperExplainer: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits
@@ -4968,7 +4975,10 @@ final class ReaderModel {
         if generation.turn.action == .study, resolution.status == .complete, issue == nil, let study, chatStudies[generation.turn.composerID] != nil {
             chatStudies[generation.turn.composerID] = StudySession(notes: study)
         }
-        if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits) }
+        if let issue {
+            chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits,
+                                                                            premium: ReaderModel.isPremium(generation.profile.model))
+        }
         // A repeated save asked the server for nothing: the balance and library refreshes already ran.
         guard !resealing else { return }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
@@ -5048,6 +5058,13 @@ final class ReaderModel {
             let event = generation.event(text: text.boundedForPrivateEvent(), status: .interrupted, profile: generation.labelProfile)
             _ = try? localPersistence.acceptWrite { local in try await local.appendBatch([(id: id, event: event)], deviceID: deviceID) }
         }
+    }
+
+    /// Free AI never pays for these (migration 0150; docs/PRICING_HOW_IT_WORKS.md).
+    nonisolated static func isPremium(_ model: ChatProfileChoice.Model) -> Bool { model == .sonnet || model == .opus }
+    /// The text for an `insufficient_credits` refusal: why free AI didn't pay (from the balance), else the usual message.
+    func creditsMessage(_ fallback: String, premium: Bool = false) -> String {
+        FreeAIText.message(for: creditBalance?.free, premiumModel: premium) ?? fallback
     }
 
     @ObservationIgnored private var creditBalanceAt: Date?

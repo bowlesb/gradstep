@@ -20,6 +20,18 @@ const CODE = '123456';
 const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
 const CHAT_PROFILES_AUTO = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 const CHAT_PROFILES_GEMINI = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-gemini.json', import.meta.url), 'utf8'));
+// Your AI usage (migration 0144): the shared page (tests/fixtures/ai-usage.json), this account's own chat requests on top
+// as the server would list them, and thirty older answers so the list pages. /__usage sets failures and empty accounts.
+const USAGE_FIXTURE = JSON.parse(readFileSync(new URL('../../../tests/fixtures/ai-usage.json', import.meta.url), 'utf8')).page;
+function usageRows(a) {
+  const base = Date.parse('2026-10-22T04:40:00Z');
+  const asked = a.chatRequests.map((r, n) => ({ ...USAGE_FIXTURE.operations[0], id: r.operation_id, created_at: new Date(Date.now() - 1000 * (a.chatRequests.length - n)).toISOString(),
+    settled_at: now(), activity: r.action === 'study' ? 'study' : r.action === 'equation' || r.action === 'equation_background' ? 'equation_explainer'
+      : r.action === 'figure' || r.action === 'figure_simpler' ? 'figure_explainer' : 'chat', credits: 3 })).reverse();
+  const older = Array.from({ length: 30 }, (_, n) => ({ ...USAGE_FIXTURE.operations[8], id: `14400000-0000-4000-8003-${String(n).padStart(12, '0')}`,
+    created_at: new Date(base - 3_600_000 * (n + 2)).toISOString(), settled_at: new Date(base - 3_600_000 * (n + 2) + 15_000).toISOString(), credits: 2 }));
+  return [...asked, ...USAGE_FIXTURE.operations, ...older];
+}
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -208,8 +220,29 @@ const rpcs = {
     return null;
   },
   v1_credit_balance: (id, a) => a.balance ?? { available: 1000, reserved: 0 },
+  v1_ai_usage: (_id, a, p) => {
+    const activities = ['chat', 'figure_explainer', 'equation_explainer', 'study', 'related_papers', 'why_it_matters', 'add_paper', 'diagram_repair', 'podcast',
+      'recommendations', 'tags', 'paper_lookup', 'web_search', 'paper_ocr', 'diagram', 'other'];
+    if (!Number.isSafeInteger(p.p_days) || p.p_days < 1 || p.p_days > 366 || !Number.isSafeInteger(p.p_limit) || p.p_limit < 1 || p.p_limit > 50
+      || (p.p_activity !== null && !activities.includes(p.p_activity)) || (p.p_before_created_at === null) !== (p.p_before_id === null)) throw pg('invalid_usage_query');
+    if (a.usageFail) throw pg('request_failed');
+    a.usageQueries = [...(a.usageQueries ?? []), p];
+    const all = a.usageEmpty ? [] : usageRows(a).filter(o => p.p_days >= 30 || Date.parse(o.created_at) > Date.parse('2026-10-22T02:00:00Z'));
+    const shown = all.filter(o => p.p_activity === null || o.activity === p.p_activity);
+    const start = p.p_before_id === null ? 0 : shown.findIndex(o => o.id === p.p_before_id) + 1;
+    const page = shown.slice(start, start + p.p_limit), more = shown.length > start + p.p_limit;
+    const sum = (rows, k) => rows.reduce((t, o) => t + (o[k] ?? 0), 0);
+    const totals = rows => ({ operations: rows.length, credits: sum(rows, 'credits'), credits_held: sum(rows, 'credits_held'), input_tokens: sum(rows, 'input_tokens'),
+      cached_tokens: sum(rows, 'cached_tokens'), cache_write_tokens: sum(rows, 'cache_write_tokens'), output_tokens: sum(rows, 'output_tokens'), searches: sum(rows, 'searches'), audio_ms: sum(rows, 'audio_ms') });
+    const counts = [...new Set(all.map(o => o.activity))].map(activity => ({ activity, operations: all.filter(o => o.activity === activity).length,
+      credits: sum(all.filter(o => o.activity === activity), 'credits') })).sort((x, y) => y.credits - x.credits || y.operations - x.operations);
+    return { generated_at: now(), since: '2026-09-23T00:00:00+00:00', days: p.p_days, activity: p.p_activity, limit: p.p_limit, operations: page,
+      totals: start ? null : totals(shown), activities: start ? null : counts,
+      next: more ? { created_at: page.at(-1).created_at, id: page.at(-1).id } : null };
+  },
   // The active subscription (migration 018): none unless a journey sets one (/__store).
-  v1_store_summary: (id, a) => a.storePlan ? { plan: a.storePlan, product_id: `ai.gradstep.${a.storePlan}.monthly`, expires_at: '2026-11-16T00:00:00Z' } : { plan: null },
+  v1_store_summary: (id, a) => a.storePlan ? { plan: a.storePlan, product_id: `ai.gradstep.${a.storePlan}.monthly`, expires_at: '2026-11-16T00:00:00Z',
+    ...(a.storePeriod ? { period_months: a.storePeriod } : {}) } : { plan: null },
   // The reader's Stop (migration 079): its own chat operation only; recorded before the app cancels the stream.
   v1_chat_stop: (_id, a, body) => {
     if (typeof body.p_operation_id !== 'string' || !a.chatRequests.some(r => r.operation_id === body.p_operation_id)) throw pg('operation_unavailable');
@@ -335,6 +368,10 @@ createServer(async (request, response) => {
     // 'slow' (~350 ms a step, its parts ~700 ms apart), 'step' (each step waits for POST /__figure-step, so a journey
     // sees every state), or 'old' (a server before 2026-10-22: only the whole `figure`, after a pause).
     if (['fast', 'slow', 'step', 'old'].includes(p?.figureStream)) a.figureStream = p.figureStream;
+    // equationStream: the same for the equation's symbols (EQUATION_VIEW.md "Streamed explanation"); 'step' shares
+    // POST /__figure-step; 'error' fails after the summary and one symbol; 'cut' ends at its allowance after two symbols
+    // (no final `equation`, done not charged).
+    if (['fast', 'slow', 'step', 'old', 'error', 'cut'].includes(p?.equationStream)) a.equationStream = p.equationStream;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
@@ -377,10 +414,19 @@ createServer(async (request, response) => {
   }
   if (url.pathname === '/__store' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
-    if (Number.isSafeInteger(p?.available) && Number.isSafeInteger(p?.reserved)) a.balance = { available: p.available, reserved: p.reserved };
+    if (Number.isSafeInteger(p?.available) && Number.isSafeInteger(p?.reserved)) a.balance = { available: p.available, reserved: p.reserved,
+      // Free AI (migration 0150): the balance's `free` object as a journey sets it (null off the free tier).
+      ...(p.free !== undefined ? { free: p.free } : {}) };
     if (p?.plan === null || typeof p?.plan === 'string') a.storePlan = p.plan;
+    if (p?.period_months === 1 || p?.period_months === 12) a.storePeriod = p.period_months;
     return send(response, 200, { ok: true });
   }
+  if (url.pathname === '/__usage' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
+    a.usageFail = p?.fail === true; a.usageEmpty = p?.empty === true;
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__usage-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { queries: a.usageQueries ?? [] }); }
   if (url.pathname === '/__search-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { server: a.serverSearches ?? [] }); }
   if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests, stops: a.chatStops }); }
   if (url.pathname === '/__large-library' && request.method === 'POST') {
@@ -645,12 +691,39 @@ createServer(async (request, response) => {
       return;
     }
     if (body.action === 'equation') {
-      event('equation', { format: 'equation-symbols-v1', summary: 'It squares x: the value multiplied by itself.', symbols: [
+      const explained = { format: 'equation-symbols-v1', summary: 'It squares x: the value multiplied by itself.', symbols: [
         { symbol: 'x', latex: 'x', meaning: 'The value the paper squares.', source: 'paper', paragraph: 2 },
         { symbol: '²', latex: '^{2}', meaning: 'Squaring: a number multiplied by itself.', source: 'general' },
         // No LaTeX from the model: the text itself is typeset.
-        { symbol: 'L_DPO(π_θ; π_ref)', meaning: 'The loss, named as the paper names it.', source: 'general' }] });
-      event('done', { stop_reason: 'end_turn', credits: 2 }); return response.end();
+        { symbol: 'L_DPO(π_θ; π_ref)', meaning: 'The loss, named as the paper names it.', source: 'general' }] };
+      // As the server streams it (chat.ts relaySymbols): the stream opens, Reading, the writing's progress (the JSON's
+      // characters so far, the count announced), the summary, each symbol at its place, then the whole `equation` and done.
+      response.write(': open\n\n');
+      const mode = a.equationStream ?? 'fast';
+      const end = () => { event('equation', explained); event('done', { stop_reason: 'end_turn', credits: 2, charged: true }); response.end(); };
+      if (mode === 'old') { a.timers.push(setTimeout(end, 900)); return; }
+      const n = explained.symbols.length, writing = characters => () => event('equation_progress', { stage: 'writing', characters, symbols: n });
+      let characters = 12 + JSON.stringify(explained.summary).length;
+      const steps = [() => event('equation_progress', { stage: 'reading' }), writing(Math.round(characters / 2)), writing(characters),
+        () => event('equation_summary', { summary: explained.summary })];
+      explained.symbols.forEach((symbol, index) => {
+        const start = characters; characters += JSON.stringify(symbol).length + 1;
+        steps.push(writing(Math.round((start + characters) / 2)), writing(characters), () => event('equation_symbol', { index, symbol }));
+      });
+      if (mode === 'error') { steps.splice(9); steps.push(() => { event('error', { code: 'provider_unavailable', charged: false, reason: 'provider' }); response.end(); }); }
+      else if (mode === 'cut') { steps.splice(12); steps.push(() => { event('done', { stop_reason: 'max_tokens', credits: 0, charged: false, reason: 'limit' }); response.end(); }); }
+      else steps.push(end);
+      a.figureWaiting = [];
+      const next = () => {
+        if (response.destroyed) return;
+        steps.shift()(); a.figureLeft = steps.length;
+        if (!steps.length) return;
+        if (mode === 'step') a.figureWaiting.push(next);
+        else a.timers.push(setTimeout(next, mode === 'slow' ? 350 : 25));
+      };
+      a.figureLeft = steps.length;
+      if (mode === 'step') a.figureWaiting.push(next); else next();
+      return;
     }
     if (body.action === 'equation_background') {
       // Several paragraphs, a heading and a list, streamed in small pieces as the model writes them.

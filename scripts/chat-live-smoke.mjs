@@ -362,6 +362,9 @@ try {
   token = signin.json.access_token; secrets.add(token);
   const balance = await rpc('v1_credit_balance', {}, token);
   log(`balance ${balance.available} available`);
+  // The published defaults (GET chat), so a run records which defaults the deployed function offers.
+  const table = await http(`${env.SUPABASE_URL}/functions/v1/chat`, { headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` } });
+  if (table.status === 200) log(`published defaults: recommended ${JSON.stringify(table.json?.default_recommended ?? null)}, figures ${JSON.stringify(table.json?.default_figures ?? null)}`);
 
   // 3. DPO v3 metadata membership (source_only, no PDF).
   const membershipID = randomUUID();

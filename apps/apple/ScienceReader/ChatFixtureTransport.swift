@@ -9,7 +9,9 @@ import ScienceReaderCore
 /// `research`: a table, papers named by arXiv ID and DOI, and a Sources list.
 /// `figure_parts`: an answer about the sample's Figure 1 that marks where its two parts go, and the parts.
 /// `equation`: plain answers; the equation view's requests (actions `equation`, `equation_background`) are answered in
-/// every mode — symbols as the live server sends them, background as a short cited text.
+/// every mode — symbols streamed as the live server sends them (progress, summary, each symbol, then the final
+/// `equation`; `--equation-fixture-old-server` sends only the final one, `--equation-fixture-step-ms=<n>` slows it),
+/// background as a short cited text.
 /// `figure_walkthrough`: plain answers; the figure view's requests (actions `figure`, `figure_simpler`) are answered in
 /// every mode — a three-part walkthrough of the sample's Figure 1 with one crop and `[¶N]` links, streamed as the server
 /// streams it (progress, summary, each part, then the final `figure`; `--figure-fixture-old-server` sends only the final
@@ -111,6 +113,39 @@ struct ChatFixtureTransport: ChatTransport {
                   box: .init(x: 0.01, y: 0.34, w: 0.98, h: 0.32)),
             c])
     }
+    /// `--equation-fixture-old-server`: the symbols as a server before 2026-10-22 sends them, only the final `equation`.
+    static var equationOldServer: Bool { ProcessInfo.processInfo.arguments.contains("--equation-fixture-old-server") }
+    /// `--equation-fixture-step-ms=<n>`: the pause between the streamed symbols' steps (default 250 ms).
+    static var equationStep: Duration {
+        let value = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--equation-fixture-step-ms=") }
+            .flatMap { Int($0.dropFirst("--equation-fixture-step-ms=".count)) }
+        return .milliseconds(min(10_000, max(50, value ?? 250)))
+    }
+    /// The symbols streamed as the server of 2026-10-22 streams them: `reading`, then `writing` with the characters of the
+    /// JSON so far and the announced count, the summary, and each symbol in order; the caller sends the final `equation`.
+    static func streamSymbols(_ symbols: EquationSymbols, _ continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation) async throws {
+        let step = equationStep
+        func size<T: Encodable>(_ value: T) -> Int { (try? JSONEncoder().encode(value).count) ?? 0 }
+        try await Task.sleep(for: .milliseconds(300))
+        continuation.yield(.equationProgress(.init(stage: .reading)))
+        try await Task.sleep(for: step)
+        var written = 30 + size(symbols.summary)
+        let count = symbols.symbols.count
+        continuation.yield(.equationProgress(.init(stage: .writing, characters: written / 2, symbols: count)))
+        try await Task.sleep(for: step)
+        continuation.yield(.equationProgress(.init(stage: .writing, characters: written, symbols: count)))
+        continuation.yield(.equationSummary(symbols.summary))
+        for (index, symbol) in symbols.symbols.enumerated() {
+            let length = size(symbol)
+            try await Task.sleep(for: step)
+            continuation.yield(.equationProgress(.init(stage: .writing, characters: written + length / 2, symbols: count)))
+            try await Task.sleep(for: step)
+            written += length
+            continuation.yield(.equationProgress(.init(stage: .writing, characters: written, symbols: count)))
+            continuation.yield(.equationSymbol(index: index, symbol: symbol))
+        }
+    }
+
     /// `--figure-fixture-old-server`: the walkthrough as a server before 2026-10-22 sends it, only the final `figure`.
     static var figureOldServer: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-old-server") }
     /// `--figure-fixture-step-ms=<n>`: the pause between the streamed walkthrough's steps (default 450 ms; journeys that
@@ -203,7 +238,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.finish(); return
                     }
                     if request.action == .equation {
-                        try await Task.sleep(for: .milliseconds(400))
+                        if Self.equationOldServer { try await Task.sleep(for: Self.equationStep * 3) } else { try await Self.streamSymbols(Self.equationSymbols, continuation) }
                         continuation.yield(.equation(Self.equationSymbols))
                         continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
@@ -448,7 +483,17 @@ struct ChatFixtureTransport: ChatTransport {
         try await Task.sleep(for: .milliseconds(1500))
     }
 
-    func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 480, reserved: 0) }
+    /// `--chat-fixture-free=usable|pool` (migration 0150): a free-tier balance, with free AI left or the month's pool used up.
+    func creditBalance(accountID: UUID) async throws -> CreditBalance {
+        let free = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--chat-fixture-free=") }.map { String($0.dropFirst("--chat-fixture-free=".count)) }
+        var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+        let nextMonth = utc.date(byAdding: .month, value: 1, to: utc.dateInterval(of: .month, for: Date())!.start)
+        switch free {
+        case "usable": return CreditBalance(available: 32, reserved: 0, free: FreeAI(monthly: 50, available: 32, usable: true, resumesAt: nextMonth))
+        case "pool": return CreditBalance(available: 0, reserved: 0, free: FreeAI(monthly: 50, available: 40, usable: false, reason: .pool, resumesAt: nextMonth))
+        default: return CreditBalance(available: 480, reserved: 0)
+        }
+    }
 
     static var serverHasProfiles: Bool { !ProcessInfo.processInfo.arguments.contains("--chat-fixture-no-profiles") }
 

@@ -8,8 +8,8 @@ const fixture = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/T
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const C = id(900), D = id(901);
 it('an unavailable cloud model asks for another choice without offering the same retry', () => {
-  expect(failureText('model_unavailable')).toContain('Choose another AI model');
-  expect(failureText('model_unavailable')).toContain('provider account has insufficient funds');
+  expect(failureText('model_unavailable')).toContain('Choose another model');
+  expect(failureText('model_unavailable')).toContain('isn’t available right now');
   expect(failureText('model_unavailable')).toContain('Your AI credits were not charged');
   expect(retryable('model_unavailable')).toBe(false);
   expect(retryable('provider_unavailable')).toBe(true);

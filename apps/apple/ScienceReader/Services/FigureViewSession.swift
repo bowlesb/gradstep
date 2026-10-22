@@ -319,6 +319,12 @@ enum FigureViewOutcome {
         catch { guard !Task.isCancelled else { return }; part.state = Self.failure("transport") }
         guard !Task.isCancelled, self.model?.readerSessionID == scope else { return }
         if part.state == .loading { part.state = Self.failure("transport") }
+        // Free AI that couldn't pay says why (migration 0150): the balance is read again once.
+        if part.state == .failed(Self.noCredits, retryable: true), let reader = self.model {
+            await reader.refreshCreditBalance()
+            guard !Task.isCancelled, reader.readerSessionID == scope else { return }
+            part.state = .failed(reader.creditsMessage(Self.noCredits, premium: ReaderModel.isPremium(key.profile.model)), retryable: true)
+        }
         if walking {
             // Only the final walkthrough is kept or shown at the end: parts streamed without it are dropped (a failure shows
             // today's failure, not a partial walkthrough).
@@ -357,9 +363,10 @@ enum FigureViewOutcome {
 
     private func endProgress() { progress = nil }
 
+    private static let noCredits = "Not enough credits for this. Your balance is in Settings."
     private static func failure(_ code: String) -> State {
         switch code {
-        case "insufficient_credits": .failed("Not enough credits for this. Your balance is in Settings.", retryable: true)
+        case "insufficient_credits": .failed(noCredits, retryable: true)
         default: .failed(ChatFailureText.message(for: code), retryable: ChatFailureText.isRetryable(code))
         }
     }

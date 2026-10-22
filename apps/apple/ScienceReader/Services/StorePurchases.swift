@@ -3,11 +3,20 @@ import StoreKit
 
 /// App Store products sold in the app. The credits each grants are set on the
 /// server (migration 018); see docs/architecture/PURCHASES.md.
+/// Plans (2026-10-22, DECISIONS.md "Pricing accepted"): `standard` is Plus. StoreKit leaves out any product that is not on
+/// sale, so the list works before and after the App Store Connect changes; the retired 400 pack stays so earlier
+/// purchasers still restore.
 enum StoreProducts {
     static let pro = "com.sciencereader.ios.pro.monthly"
+    static let proAnnual = "com.sciencereader.ios.pro.annual"
     static let standard = "com.sciencereader.ios.standard.monthly"
+    static let plusAnnual = "com.sciencereader.ios.standard.annual"
+    static let pack300 = "com.sciencereader.ios.credits.300"
+    static let pack700 = "com.sciencereader.ios.credits.700"
     static let pack = "com.sciencereader.ios.credits.400"
-    static let all = [pro, standard, pack]
+    static let packs = [pack300, pack700, pack]
+    static let all = [pro, proAnnual, standard, plusAnnual, pack300, pack700, pack]
+    static func icon(_ id: String) -> String { packs.contains(id) ? "plus.circle" : [pro, proAnnual].contains(id) ? "sparkles" : "star" }
 }
 
 /// The server's verdict on one reported transaction.
@@ -66,17 +75,23 @@ struct StoreVerificationDiagnostic: Decodable, Equatable, Sendable {
 struct StoreSummary: Decodable, Equatable, Sendable {
     let plan: String?
     let expiresAt: Date?
-    enum CodingKeys: String, CodingKey { case plan, expiresAt = "expires_at" }
-    init(plan: String?, expiresAt: Date?) { self.plan = plan; self.expiresAt = expiresAt }
+    /// 1 or 12 (migration 0150); absent from older servers.
+    let periodMonths: Int?
+    enum CodingKeys: String, CodingKey { case plan, expiresAt = "expires_at", periodMonths = "period_months" }
+    init(plan: String?, expiresAt: Date?, periodMonths: Int? = nil) { self.plan = plan; self.expiresAt = expiresAt; self.periodMonths = periodMonths }
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         plan = try container.decodeIfPresent(String.self, forKey: .plan)
+        periodMonths = try container.decodeIfPresent(Int.self, forKey: .periodMonths)
         // Postgres timestamps may carry microseconds; whole seconds are enough here.
         expiresAt = try container.decodeIfPresent(String.self, forKey: .expiresAt).flatMap { value in
             ISO8601DateFormatter().date(from: value.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression))
         }
     }
-    var planName: String? { plan.map { $0 == "pro" ? "Pro" : $0 == "standard" ? "Standard" : $0.capitalized } }
+    /// `standard` is sold as Plus (2026-10-22).
+    var planName: String? {
+        plan.map { ($0 == "pro" ? "Pro" : $0 == "standard" ? "Plus" : $0.capitalized) + (periodMonths == 12 ? " (yearly)" : "") }
+    }
 }
 
 protocol StoreSyncTransport: Sendable {

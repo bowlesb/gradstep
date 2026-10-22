@@ -95,6 +95,15 @@ final class StorePurchaseTests: XCTestCase {
         XCTAssertEqual(summary.planName, "Pro")
         XCTAssertEqual(summary.expiresAt, ISO8601DateFormatter().date(from: "2026-11-05T16:12:03Z"))
         XCTAssertNil(try JSONDecoder().decode(StoreSummary.self, from: Data(#"{"plan":null}"#.utf8)).planName)
+        // 2026-10-22: `standard` is sold as Plus; annual plans say so (migration 0150's period_months).
+        XCTAssertEqual(try JSONDecoder().decode(StoreSummary.self, from: Data(#"{"plan":"standard","period_months":1}"#.utf8)).planName, "Plus")
+        XCTAssertEqual(try JSONDecoder().decode(StoreSummary.self, from: Data(#"{"plan":"standard","period_months":12}"#.utf8)).planName, "Plus (yearly)")
+        XCTAssertEqual(try JSONDecoder().decode(StoreSummary.self, from: Data(#"{"plan":"pro","period_months":12}"#.utf8)).planName, "Pro (yearly)")
+        XCTAssertEqual(StoreProducts.all.count, 7)
+        XCTAssertTrue(StoreProducts.all.contains("com.sciencereader.ios.credits.400"), "earlier pack purchasers still restore")
+        XCTAssertEqual(StoreProducts.packs, ["com.sciencereader.ios.credits.300", "com.sciencereader.ios.credits.700", "com.sciencereader.ios.credits.400"])
+        XCTAssertEqual(StoreProducts.icon(StoreProducts.proAnnual), "sparkles"); XCTAssertEqual(StoreProducts.icon(StoreProducts.pack700), "plus.circle")
+        XCTAssertEqual(StoreProducts.icon(StoreProducts.plusAnnual), "star")
     }
 
     func testOnlySafePurchaseDiagnosticsReachReports() throws {

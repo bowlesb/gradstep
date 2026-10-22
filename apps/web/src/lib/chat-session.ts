@@ -15,7 +15,7 @@ import type { VerifiedBundle } from './bundle';
 // final or interrupted answer retires its turn atomically. A turn whose owning tab died reopens as interrupted. Nothing
 // is ever re-requested automatically. Without the journal, private text stays in memory only.
 import { BackendError, config, rpc } from './backend';
-import { parseBalance } from './account-summary';
+import { parseBalance, type CreditBalance } from './account-summary';
 import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, interruptionNote, makeRequest, recordStop, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { available, isProfileChoice, isStandard, sameProfile, parseProfileID, ProfileTableLoader, requestProfile, STANDARD_PROFILE, withChoice, type ProfileChoice, type ProfileTable } from './chat-profiles';
@@ -28,7 +28,7 @@ import type { Journal, StoredDraft, StoredTurn } from './journal';
 import type { NotesStore } from './notes-store';
 import { STUDY_OPENING, type StudyNotes } from './study';
 import { PAPER_EXPLAINER_TURN, paperExplainerKey, type PaperExplainerItem, type PaperExplainerResult, type PaperStreamProgress } from './paper-explainer';
-import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
+import { EQUATION_FORMAT, equationKey, equationTurn, type EquationAction, type EquationResult, type EquationSymbol } from './equation';
 import { FIGURE_WALKTHROUGH_FORMAT, figureKey, figureName, figureTurn, type FigureAction, type FigureResult, type FigureSection, type FigureStreamProgress } from './figure-view';
 import type { FigureProgressStage } from './figure-progress';
 import { MAX_KEPT_PER_KIND, boundKept, type KeptEntry } from './kept-explanations';
@@ -141,24 +141,26 @@ export const AI_DEFAULTS_GUIDE = {
   general: 'General chat answers questions that aren’t about a paper. Speed usually matters most, so a fast, low-cost model fits.',
   paper: 'Paper chat reads the whole paper with each question. A balanced model handles most questions; a stronger one helps with long derivations and critique.',
   equations: 'Equation explanations walk through symbols and derivations, which reward careful reasoning, so a stronger model is often worth the extra credits.',
-  figures: 'Figures and tables: the model looks at the figure’s image as well as its caption, so it must read images (every cloud model listed does). Sonnet is the default: it reads dense plots carefully and its walkthrough starts appearing within seconds. Speed differs by model: DeepSeek writes more slowly, and much more slowly at a higher effort.',
+  figures: 'Figures and tables: the model looks at the figure’s image as well as its caption, so it must read images (every cloud model listed does). Gemini Flash is the default: it reads plots closely at a low cost, and its walkthrough starts appearing within seconds. Sonnet is a little quicker to start and also careful, at about three times the cost. Speed differs by model: DeepSeek writes more slowly, and much more slowly at a higher effort.',
   podcasts: 'Podcasts: the writer drafts and checks a whole episode script, a long output, so its cost adds up and longer episodes cost more. The voices are the same whichever writer you choose.',
 } as const;
 /** One activity's ⓘ: what it does, then the general considerations. */
 export const aiDefaultsGuide = (activity: AIActivity) => `${AI_DEFAULTS_GUIDE[activity]}\n\n${AI_DEFAULTS_GUIDE.overview}\n\n${AI_DEFAULTS_GUIDE.whenToChange}`;
 const contextualKey = (documentID: string, anchor: TextAnchor) => JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
 const scenarioKey = 'gradstep.ai.scenarios.v1';
-/** The figures default before 2026-10-22 (Gemini Flash · medium · Standard, the recommended default then). A figures
- * choice saved equal to it is let go once (`figuresDefaultV2`, kept in the same object), so the reader gets the new
- * default (Sonnet); an explicit Gemini choice made after that sticks. */
-const OLD_FIGURES_DEFAULT: ProfileChoice = { model: 'gemini', effort: 'medium', length: 'standard' };
+/** The short-lived figures default of 2026-10-22 (Sonnet · low · Standard; owner, later that day: "Let's try Gemini
+ * instead of Sonnet for Figures then"). A figures choice saved equal to it is let go once (`figuresDefaultV3`, kept in
+ * the same object), so the reader follows the default again (Gemini Flash); an explicit Sonnet choice made after that
+ * sticks, and any other saved choice is never touched. */
+const OLD_FIGURES_DEFAULT: ProfileChoice = { model: 'sonnet', effort: 'low', length: 'standard' };
+const FIGURES_GEMINI: ProfileChoice = { model: 'gemini', effort: 'medium', length: 'standard' };
 export function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
   try {
     const stored=localStorage.getItem(scenarioKey), value=JSON.parse(stored??'{}');
     const choices: Partial<Record<AIUseCase,ProfileChoice>> = Object.fromEntries(['general','paper','equations','figures'].flatMap(k=>isProfileChoice(value?.[k])?[[k,{model:value[k].model,effort:value[k].effort,length:value[k].length}]]:[]));
-    if (stored !== null && value?.figuresDefaultV2 !== true) {
+    if (stored !== null && value?.figuresDefaultV3 !== true) {
       if (choices.figures && sameProfile(choices.figures, OLD_FIGURES_DEFAULT)) delete choices.figures;
-      try { localStorage.setItem(scenarioKey, JSON.stringify({ ...choices, figuresDefaultV2: true })); } catch { /* per-browser convenience only */ }
+      try { localStorage.setItem(scenarioKey, JSON.stringify({ ...choices, figuresDefaultV3: true })); } catch { /* per-browser convenience only */ }
     }
     return choices;
   } catch { return {}; }
@@ -200,7 +202,7 @@ export class ChatSession {
   noteStore: NotesStore | null = null;
   readonly composers = new Map<string, Composer>();
   readonly selected = new Map<string, string>();
-  balance: { available: number; reserved: number; unlimited_testing?: boolean } | null = null;
+  balance: CreditBalance | null = null;
   journalState: JournalState;
   private listeners = new Set<() => void>();
   private version = 0;
@@ -357,15 +359,15 @@ export class ChatSession {
   }
   /** Use the recommended default for an activity: its saved choice is let go (figures: the table's figures default). */
   resetScenarioProfile(kind:AIUseCase) { delete this.scenarioChoices[kind]; this.saveScenarios(); this.publish(); }
-  private saveScenarios() { try {localStorage.setItem(scenarioKey,JSON.stringify({...this.scenarioChoices,figuresDefaultV2:true}));} catch {} }
-  /** The figures activity's default (owner, 2026-10-22: "change the default to Sonnet for that one"): the table's
-   * `default_figures`, else Sonnet · low · Standard where offered, else the server's general default. Never this
-   * browser's general choice: a figure's image wants a model chosen for figures. */
+  private saveScenarios() { try {localStorage.setItem(scenarioKey,JSON.stringify({...this.scenarioChoices,figuresDefaultV3:true}));} catch {} }
+  /** The figures activity's default (owner, 2026-10-22: "Let's try Gemini instead of Sonnet for Figures then"): the
+   * table's `default_figures`, else Gemini Flash · Standard where offered (the figure view runs it at low effort), else
+   * the server's general default. Never this browser's general choice: a figure's image wants a model chosen for figures. */
   get figuresDefault(): ProfileChoice {
     const table = this.profiles.table;
     if (!table) return STANDARD_PROFILE;
     if (table.figuresDefault && available(table, table.figuresDefault)) return table.figuresDefault;
-    if (available(table, STANDARD_PROFILE)) return STANDARD_PROFILE;
+    if (available(table, FIGURES_GEMINI)) return FIGURES_GEMINI;
     const auto = table.autoDefault;
     return auto ? withChoice(table, table.defaultChoice, { model: auto.model, length: auto.length }) : table.defaultChoice;
   }
@@ -745,8 +747,26 @@ export class ChatSession {
   async equation(documentID: string, input: { equationID: string; latex: string; number: string | null }, action: EquationAction,
     update: (result: EquationResult) => void, signal: AbortSignal, choice?: ProfileChoice): Promise<EquationResult> {
     this.allowed();
-    let result: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null };
-    const finish = (issue: string | null) => { result = { ...result, phase: issue ? 'failed' : 'done', issue }; update(result); return result; };
+    // The symbols stream (EQUATION_VIEW.md "Streamed explanation"): the summary and each symbol are shown as they arrive,
+    // a symbol once those before it have (in order; a repeat is ignored), with where the writing is for the progress bar.
+    // The final `equation` replaces what streamed and is what is kept; an end without it keeps the streamed symbols when
+    // there is at least one (the server's own rule), else it is a failure; an error drops them. Progress is never kept.
+    let result: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null,
+      ...(action === 'equation' ? { progress: { stage: 'preparing', summary: false, parts: 0, characters: 0, charactersAtLast: 0, announced: null } } : {}) };
+    let summary: string | null = null, final = false;
+    const streamed: EquationSymbol[] = [];
+    const inOrder = () => { let n = 0; while (streamed[n]) n++; return n; };
+    const progressed = (change: Partial<FigureStreamProgress>) => {
+      const was = result.progress;
+      if (!was) return;
+      const stage = change.stage && STAGES.indexOf(change.stage) > STAGES.indexOf(was.stage) ? change.stage : was.stage;
+      result = { ...result, progress: { ...was, ...change, stage } };
+    };
+    const finish = (issue: string | null) => {
+      const { progress: _, ...rest } = result;
+      const keepStreamed = !issue && !final && !!result.symbols?.symbols.length;
+      result = { ...rest, symbols: final || keepStreamed ? result.symbols : null, phase: issue ? 'failed' : 'done', issue }; update(result); return result;
+    };
     if (this.retiredStorage) return finish('storage_retired');
     if (!this.deps.readConsent()) return finish('consent_required');
     const reference = this.reference(documentID), local = reference && this.sourcePapers.get(reference.membershipID);
@@ -765,11 +785,28 @@ export class ChatSession {
     try { request.localContext = localChatContext(reference, bundle); } catch { return finish('local_reader_unavailable'); }
     const controller = cancellation([this.signal, signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
     try {
-      for await (const event of this.deps.stream(this.account, request, controller.signal)) {
+      // The server has the request once its stream opens: Reading, from a server that sends no progress as well.
+      const opened = () => { if (result.phase === 'loading' && result.progress) { progressed({ stage: 'reading' }); update(result); } };
+      const shown = () => { if (!final) result = { ...result, symbols: { format: EQUATION_FORMAT, summary: summary ?? '', symbols: streamed.slice(0, inOrder()) } }; };
+      for await (const event of this.deps.stream(this.account, request, controller.signal, opened)) {
         if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
-        else if (event.type === 'equation') { result = { ...result, symbols: event.symbols }; update(result); }
-        else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null }; finish(event.code); break; }
-        else if (event.type === 'done') { result = { ...result, credits: event.credits, ...(event.model ? { model: event.model } : {}) }; finish(result.symbols || result.text.trim() ? null : 'provider_unavailable'); break; }
+        else if (event.type === 'equation') { final = true; result = { ...result, symbols: event.symbols }; progressed({ stage: 'done', parts: event.symbols.symbols.length }); update(result); }
+        else if (event.type === 'equation_progress' && result.progress && !final) {
+          progressed(event.stage === 'reading' ? { stage: 'reading' }
+            : { stage: 'writing', characters: Math.max(result.progress.characters, event.characters ?? 0), ...(event.symbols ? { announced: event.symbols } : {}) });
+          update(result);
+        }
+        else if (event.type === 'equation_summary' && result.progress && !final && summary === null) {
+          summary = event.summary; progressed({ stage: 'writing', summary: true, charactersAtLast: result.progress.characters }); shown(); update(result);
+        }
+        else if (event.type === 'equation_symbol' && result.progress && !final && !streamed[event.index]) {
+          streamed[event.index] = event.symbol; progressed({ stage: 'writing', parts: inOrder(), charactersAtLast: result.progress.characters }); shown(); update(result);
+        }
+        else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
+        else if (event.type === 'done') {
+          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason, ...(event.model ? { model: event.model } : {}) };
+          finish((final && result.symbols) || result.symbols?.symbols.length || result.text.trim() ? null : 'provider_unavailable'); break;
+        }
       }
       if (result.phase === 'loading') finish('transport');
     } catch (error) {
@@ -1313,7 +1350,8 @@ export class ChatSession {
         else if (event.type === 'study_state') nextNotes = event.state;
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
-        else if (event.type === 'equation' || event.type === 'figure' || event.type === 'figure_progress' || event.type === 'figure_summary' || event.type === 'figure_section'
+        else if (event.type === 'equation' || event.type === 'equation_progress' || event.type === 'equation_summary' || event.type === 'equation_symbol'
+          || event.type === 'figure' || event.type === 'figure_progress' || event.type === 'figure_summary' || event.type === 'figure_section'
           || event.type === 'paper_progress' || event.type === 'paper_summary' || event.type === 'paper_item' || event.type === 'paper_explainer') {
           /* the equation, figure and paper explainers' own events; a chat never asks for them */ }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; end = { credits: event.credits, charged: event.charged }; break; }

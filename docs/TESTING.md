@@ -1,5 +1,38 @@
 # Fast and slow tests
 
+## Full screen on touch; streamed equation explanation — October 22
+
+Fast: backend `tests/backend/chat.test.ts` (the symbols stream in any chunking, count, cut-off and malformed symbols;
+events to the device, final `equation` unchanged; symbols at low effort; `default_figures` Gemini), browser
+`tests/equation-progress.test.ts` (writes `tests/fixtures/equation-progress.json` with `UPDATE_PROGRESS_FIXTURE=1`),
+`equation-stream.test.ts`, `figure-framing-record.test.ts`, `figures-default.test.ts`; Core `swift test --filter
+"EquationViewTests|FigureProgressTests|FigureFramingTests|ChatProfilesTests"`; app `FiguresDefaultTests`,
+`FigureViewAppTests`. Slow, opt-in: Playwright `e2e/figure-view.spec.ts` (full-screen transition, gestures, reduced
+motion; the mid-transition check is Chromium-only) and `e2e/equation-view.spec.ts` (fixture `equationStream`
+fast/slow/step/old/error/cut); native `FigureViewJourneyTests/testTouchingAPartOpensFullScreenFromItsCard` (+`Dark`;
+`TEST_RUNNER_FIGURE_FULLSCREEN_SLOW=<n>` slows the motion, default 8; photograph it from outside with `xcrun simctl io
+<sim> screenshot` in a loop, since XCUITest waits for animations to end before its own screenshots) and
+`WorkflowJourneyTests/testEquationSymbolsStreamWithAProgressBar` (+`Dark`, `testAnOlderServersEquationSymbolsStillShow`;
+`--equation-fixture-step-ms`, `--equation-fixture-old-server`). Paid, explicit: `node scripts/equation-speed.mjs
+--equation=6 --configs=gemini-medium,gemini-low,sonnet-low` (model alone, straight to OpenRouter, durable ledger) and
+`node scripts/chat-live-smoke.mjs --equation=symbols --equation-runs=2 --profile=…` (staging, disposable account; prints
+the stream's timings and the published defaults; without `--profile` it asks with Sonnet, which writes its own cache).
+Screenshots under `.artifacts/figure-fullscreen/` and `.artifacts/equation-progress/`.
+
+## Your AI usage and collapsible snippet cards — October 22
+
+Fast (in `npm test`): backend `tests/backend/ai-usage.test.ts` (every chat action, provider route and operation kind has a
+reader-facing name; server, browser and Swift names identical; no dollar or private fields); browser `ai-usage.test.ts`
+(writes `tests/fixtures/ai-usage.json` expectations with `UPDATE_USAGE_FIXTURE=1`) and `note-collapse.test.ts`. Core
+`swift test --filter "AIUsageTests|NoteCollapseTests"` (same fixtures). Database: `npm run test:database`, or alone
+`python3 scripts/test-database.py --account-usage-only` (`tests/database/account_usage.sql`). Slow, opt-in: Playwright
+`npx playwright test ai-usage.spec.ts notes.spec.ts --project=desktop --project=phone` (screenshots under
+`.artifacts/ai-usage-20261022/` and `.artifacts/snippets-20261022/`); native, one at a time on an iPhone Simulator,
+`-only-testing:ScienceReaderUITests/AIUsageJourneyTests/<test>` and `NotesJourneyTests/testSnippetCardsCollapseAndRemember`,
+`testSnippetCardsDarkAndLargeText` (`TEST_RUNNER_GS_SCREENSHOT_DIR` for screenshots). Paid, explicit:
+`node scripts/ai-usage-live-check.mjs` (staging, two disposable accounts, one Haiku question ≈ $0.001; reads the row back
+and checks a second account sees nothing; deletes both).
+
 ## Streamed figure walkthrough and progress bar — October 22
 
 Fast: backend `tests/backend/chat.test.ts` (the stream scanner in any chunking, malformed and cut-off parts, the
@@ -46,6 +79,15 @@ Fast: browser `tests/figure-framing.test.ts` and `tests/figure-framing-record.te
 only takes screenshots) and native `FigureViewJourneyTests/testPartsAreFramedByConfidenceAndExpandToTheWholeFigure`
 (and `…Dark`; launch arguments `--figure-fixture-panels --figure-fixture-loose`; `TEST_RUNNER_FIGURE_FRAMING_STAGE=before`).
 Screenshots under `.artifacts/figure-framing/`.
+
+## Pricing, free AI pool and spending safeguards — October 22 UTC
+
+Fast (in `npm test`): `tests/backend/chat.test.ts` (switch refusals, no search on free answers, cheaper defaults), browser
+`tests/free-ai.test.ts` and `tests/account-assets.test.ts`, native Core `FreeAITextTests`. Database:
+`python3 scripts/test-database.py --pricing-only` (`free_ai_and_spend.sql` and the 12-reader pool concurrency check; also in
+the final phase). Slow, opt-in: Playwright `e2e/pricing.spec.ts`; admin loopback journey
+`npm run dev:admin -- --port <free port>` then `SPEND_INCOME_PREVIEW=http://127.0.0.1:<port> node scripts/check-spend-income.mjs`
+(screenshots `.artifacts/spend-income/`); native Settings/chat journeys (see the pricing entry in IMPLEMENTATION_STATUS).
 
 ## AI recommendations — October 21 UTC
 

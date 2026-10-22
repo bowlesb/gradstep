@@ -15,6 +15,7 @@ import { ExplainerModelDialog } from './ChatProfile';
 import { Dialog, SheetTop } from './common';
 import { ContextualChat, promoteContextual, type ContextualHost } from './ContextualChat';
 import { Diagram } from './Diagram';
+import { sessionBalance, useFreeAIRefusal } from './free-ai';
 import { Icon } from './icons';
 
 /** What the reader's host offers the explainer: the chat's consent and its requests (ChatSession.paperExplainer). */
@@ -80,6 +81,9 @@ export function PaperExplainerDialog({ manifest, title, host, onClose, onCite }:
   const controller = useRef<AbortController | null>(null);
   const lastShown = useRef<number | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
+  // Free AI (migration 0150): why free credits couldn't pay for the explainer, from a fresh balance read.
+  const freeBalance = useMemo(() => sessionBalance(host.context?.chat), [host.context?.chat]);
+  const freeRefusal = useFreeAIRefusal(result?.issue, freeBalance, profile?.model);
 
   const run = () => {
     controller.current?.abort();
@@ -161,7 +165,7 @@ export function PaperExplainerDialog({ manifest, title, host, onClose, onCite }:
           <h3 id="paper-diagram">How it fits together</h3>
           <Diagram title="How it fits together" source={mermaid} />
         </section>}
-        {result.phase === 'failed' && <div className="equation-issue" role="alert" data-testid="paper-explainer-issue"><p>{failureText(result.issue ?? 'provider_unavailable')}</p>
+        {result.phase === 'failed' && <div className="equation-issue" role="alert" data-testid="paper-explainer-issue"><p>{(result.issue === 'insufficient_credits' && freeRefusal) || failureText(result.issue ?? 'provider_unavailable')}</p>
           {result.issue !== 'invalid_request' && result.issue !== 'storage_retired' && <button className="secondary small" onClick={run} data-testid="paper-explainer-retry">Try again</button>}
           {result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => setChoosing(true)} data-testid="paper-explainer-change">Change AI</button>}</div>}
         {(result.model || profile) && <p className="fine answer-by" data-testid="paper-explainer-model">{result.model ? modelName(result.model) : modelOption(table, profile!.model).label}</p>}

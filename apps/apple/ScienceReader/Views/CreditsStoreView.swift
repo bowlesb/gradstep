@@ -22,11 +22,17 @@ struct CreditsStoreView: View {
                 } else if !model.canPurchase {
                     deviceNotReady
                 } else if model.creditBalance?.unlimitedTesting == true {
-                    ContentUnavailableView("Unlimited testing", systemImage: "infinity",
-                                           description: Text("You don’t need to buy credits for this account. Your testing allowance replenishes automatically."))
+                    ContentUnavailableView {
+                        Label("Unlimited testing", systemImage: "infinity")
+                    } description: {
+                        Text("You don’t need to buy credits for this account. Your testing allowance replenishes automatically.")
+                    } actions: {
+                        // What each request used, still worth seeing with unlimited testing (owner, 2026-10-22).
+                        NavigationLink("Your AI usage") { AIUsageView(model: model) }.accessibilityIdentifier("store.aiUsage.unlimited")
+                    }
                 } else if model.storeOwnershipKnown {
-                    StoreView(ids: model.planOwnedElsewhere ? [StoreProducts.pack] : StoreProducts.all) { product in
-                        Image(systemName: product.id == StoreProducts.pack ? "plus.circle" : product.id == StoreProducts.pro ? "sparkles" : "star")
+                    StoreView(ids: model.planOwnedElsewhere ? StoreProducts.packs : StoreProducts.all) { product in
+                        Image(systemName: StoreProducts.icon(product.id))
                             .font(.title2).foregroundStyle(Color.accentColor).accessibilityHidden(true)
                     }
                     .productViewStyle(.compact)
@@ -110,10 +116,19 @@ struct CreditsStoreView: View {
             }
             Text("Credits pay for AI answers, searches and podcast generation. Reading papers is free.")
                 .font(.footnote).foregroundStyle(.secondary)
-            NavigationLink {
-                CreditUsageView()
-            } label: {
-                Label("How credits are used", systemImage: "questionmark.circle")
+            HStack(spacing: 20) {
+                NavigationLink {
+                    CreditUsageView()
+                } label: {
+                    Label("How credits are used", systemImage: "questionmark.circle")
+                }
+                // Owner, 2026-10-22: each request with its tokens and the credits it used.
+                NavigationLink {
+                    AIUsageView(model: model)
+                } label: {
+                    Label("Your AI usage", systemImage: "list.bullet.rectangle")
+                }
+                .accessibilityIdentifier("store.aiUsage")
             }
             .font(.subheadline)
         }
@@ -124,7 +139,7 @@ struct CreditsStoreView: View {
 
     private var footer: some View {
         VStack(spacing: 8) {
-            Text("Plans renew monthly until you cancel in \(subscriptionSettingsPath). Plan credits are added each month and don’t carry over; purchased credits never expire.")
+            Text("Plans renew monthly or yearly until you cancel in \(subscriptionSettingsPath). Plan credits are added each month and don’t carry over; credit packs never expire.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 24) {
                 Button(restoring ? "Restoring…" : "Restore purchases") {
@@ -177,8 +192,8 @@ private struct CreditUsageView: View {
                 Text("If an episode fails its quality checks, no customer credits are charged. Short, 10-minute and 20-minute profiles have their own maximums shown before you start.")
             } header: { Text("Podcasts") }
             Section {
-                Text("Standard includes 800 credits and Pro includes 1,800. A light mix of new papers and chats leaves room for occasional audio; many long papers, deep answers or private episodes use the balance faster.")
-                Text("You can read and play ready shared episodes without generating them. Eligible shared paper preparation can also avoid repeating Mathpix work.")
+                Text("Plus includes 600 credits a month and Pro 2,000, monthly or yearly. Free accounts get 50 credits a month for the fast models while this month’s free AI lasts. A light mix of papers and chats fits Plus; Sonnet every day fits Pro.")
+                Text("You can read and play ready shared episodes without generating them.")
             } header: { Text("Plans and sharing") }
             Section {
                 Text("Before paid work starts, Gradstep reserves a bounded maximum. When it finishes, it settles measured provider usage. A failed or interrupted action does not silently spend more than its disclosed limit.")

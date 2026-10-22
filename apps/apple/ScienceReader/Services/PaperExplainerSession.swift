@@ -111,6 +111,12 @@ struct PaperExplainerContext {
         catch { guard !Task.isCancelled else { return }; ending = Self.failure("transport") }
         guard !Task.isCancelled, model?.readerSessionID == scope else { return }
         if ending == .loading { ending = Self.failure("transport") }
+        // Free AI that couldn't pay says why (migration 0150): the balance is read again once.
+        if ending == Self.failure("insufficient_credits"), let reader = model {
+            await reader.refreshCreditBalance()
+            guard !Task.isCancelled, reader.readerSessionID == scope else { return }
+            ending = .failed(reader.creditsMessage(Self.noCredits, premium: ReaderModel.isPremium(key.profile.model)), retryable: true)
+        }
         // Only the final explainer is kept; a failure drops what streamed (the failure shows with Try again).
         explainer = ending == .done ? (tracker.final ?? tracker.explainerSoFar) : nil
         text = words
@@ -130,9 +136,10 @@ struct PaperExplainerContext {
         if progress != next { progress = next }
     }
 
+    private static let noCredits = "Not enough credits for this. Your balance is in Settings."
     private static func failure(_ code: String) -> State {
         switch code {
-        case "insufficient_credits": .failed("Not enough credits for this. Your balance is in Settings.", retryable: true)
+        case "insufficient_credits": .failed(noCredits, retryable: true)
         default: .failed(ChatFailureText.message(for: code), retryable: ChatFailureText.isRetryable(code))
         }
     }

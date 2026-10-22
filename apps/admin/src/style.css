@@ -220,3 +220,8 @@ dialog.modal{background:#181a23;border-color:#272a37;box-shadow:0 24px 70px rgba
 .costs .check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:12px;font-weight:500}.costs .check input{width:auto}.costs .metric small{display:block;margin-top:8px;color:#818898;font-size:12px}
 @media(prefers-color-scheme:dark){.costs-table tr.cost-detail>td{background:#14161e}.breakdown caption{color:#c4c8d6}.breakdown tbody th{color:#d2d5e1}}
 @media(max-width:650px){.costs-table{min-width:640px}.costs .section-heading{flex-wrap:wrap}}
+.switch-list{list-style:none;margin:8px 0 0;padding:0}.switch-list li{border-top:1px solid #edf0f5;padding:16px 0}.switch-list li:first-child{border-top:0}.switch-list .switch-head{display:flex;gap:10px;align-items:center}.switch-list .muted{margin:6px 0 0}.switch-list .inline-form{margin-top:12px;max-width:none}.switch-list .inline-form label{min-width:200px}.switch-preview{margin:10px 0 0;font-size:13px;padding:9px 12px;border-radius:7px;background:#f3f4fb;color:#3f4455}.switch-list li.switch-on .switch-head strong{color:#8a5a0f}
+.spend-income .inline-form .narrow{flex:0 0 150px}.alerts-list li{grid-template-columns:118px 190px minmax(0,1fr) auto}.spend-income .breakdown small{display:block}
+@media(prefers-color-scheme:dark){.switch-list li{border-color:#272a37}.switch-preview{background:#20222d;color:#d2d5e1}.switch-list li.switch-on .switch-head strong{color:#f3c26e}}
+@media(max-width:650px){.spend-income .inline-form .narrow{flex:none}.alerts-list li{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"kind time" "what source"}}
+.spend-income .breakdown{min-width:0}

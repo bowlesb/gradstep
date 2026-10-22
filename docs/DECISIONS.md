@@ -2,6 +2,117 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Pricing accepted, with safeguards against spend outrunning income (owner, 2026-10-22; built, staging)
+
+Owner, verbatim: *"I will take your defaults"* (on [PRICING_PROPOSAL_20261022](proposals/PRICING_PROPOSAL_20261022.md)),
+then *"the complexity of the pricing system and what debug strategies I'll have if my spend somehow becomes very high
+in relation to my incoming money."* The figures default moves to Gemini Flash (low), handled separately by another
+agent. How it works in plain words: [PRICING_HOW_IT_WORKS](PRICING_HOW_IT_WORKS.md); what to do when spend is high:
+[RUNBOOK_SPENDING](RUNBOOK_SPENDING.md).
+
+**App Store Connect (owner approved, 2026-10-22: "I approve"):** `node scripts/asc-pricing-plan.mjs --apply
+--owner-approved=2026-10-22` made all eight API changes and the read-back matched: Plus $7.99 with one introductory
+offer, Plus yearly $79.99, Pro 2,000 credits, Pro yearly $199.99, packs 300 and 700. The new products show "Missing
+metadata" until the owner adds review screenshots; removing `credits.400` from sale and submitting the products with
+the next version are manual (OWNER_ACTIONS #13).
+
+| Accepted | Value |
+|---|---|
+| Free | 50 credits a month (≈ 15 answers), fast models only (Gemini Flash, DeepSeek, Haiku), no web search, podcasts or premium models; at most 20 a day and $0.25 of provider cost per account a month |
+| Free pool | **$15 a month** across every free account: the owner's whole subsidy, enforced before any model call. When it is used up: "This month's free AI has all been used. It comes back on November 1." Paying users are unaffected |
+| Plus | $7.99/month or $79.99/year, 600 credits a month (`standard.*`; shown as "Plus") |
+| Pro | $19.99/month or $199.99/year, 2,000 credits a month |
+| Packs | $4.99 = 300, $9.99 = 700, never expire. `credits.400` is retired for new sales and still records for earlier buyers |
+| First month of Plus | $3.99 introductory offer (pay up front, new subscribers); no free trial |
+| Students | No student price at launch (Plus yearly is the student price) |
+| Apple | Enroll in the Small Business Program (15%) before the first Production sale; the proceeds estimate assumes 15% |
+| Tavily | Move to the free tier at the November 6 renewal (saves $30/month) |
+| Dollar balance | The 2026-10-20 dollar-balance design ([DOLLAR_BALANCE](architecture/DOLLAR_BALANCE.md)) is **dropped**: credits, described as "about N answers" |
+| Gemini, 2027-01-01 | Gemini 3.8 Flash list prices double (a default answer ≈ 3 → ≈ 5 credits). Before mid-December: switch the chat default to DeepSeek V4.1 Flash or Haiku 5.5, or keep Gemini and change the "about N answers" copy |
+
+**Implementation choices (agent, reversible):**
+
+- One extra rule in the existing reservation, no new money system: free credits are a `free` bucket; an operation they
+  fund is marked, and its worst case is checked against the pool and the account's share under the same budget →
+  account lock (migration 0150). Free spend therefore cannot pass the pool, even with concurrent requests (database
+  test with 12 simultaneous readers).
+- The pool's **growth rule** (max($15, 10% of last month's proceeds)) is shown in Admin as a suggestion; only the owner
+  changes the pool, audited. Nothing raises a limit automatically; the $100/month budget is unchanged.
+- Free answers don't offer web search (the chat function decides; prepaid search is kept for paying readers). An
+  answer that falls back from free credits to plan or pack credits behaves as before.
+- The App Store changes are a read-only plan until the owner approves:
+  `node scripts/asc-pricing-plan.mjs` (see PRICING_HOW_IT_WORKS §App Store). No product, price or offer was changed.
+- Annual plans grant one month of credits at a time (first at purchase, the rest at each monthly anniversary).
+- Safeguards: Admin › **Spend vs income**; emailed alerts (50/80/100% of the provider limit, free pool used up, spend
+  above 0.6× proceeds), each once a month; owner switches (pause free AI, pause podcasts / recommendations / figures /
+  equations, cheaper models only, pause all AI) with a 7-day dry-run preview, audited and reversible. Recommended
+  external backstop: a credit limit on the OpenRouter key itself (OWNER_ACTIONS).
+
+## Figures default: Gemini Flash again (owner decision 2026-10-22; deployed to staging, clients local)
+
+Owner, 2026-10-22, after the pricing proposal (docs/proposals/PRICING_PROPOSAL_20261022.md): "Let's try Gemini instead of
+Sonnet for Figures then." Supersedes the morning's Sonnet default (below, under "Figure explainer: streamed, at low effort").
+- The server publishes `default_figures` = `gemini-medium-standard` (Gemini's one published profile; the figure view runs
+  it at low effort, `done.profile` `gemini-low-standard`), only where Gemini is offered. Chat function deployed to staging
+  2026-10-22 05:58 UTC after backup `.artifacts/backups/20261022T055356Z-4a3671a898cc`, from the deployed study-mode build
+  plus this change (so neither undoes the other); read back from `GET chat`.
+- Apps and browser: the figures activity falls back to Gemini Flash when the table lacks `default_figures` but offers
+  Gemini (apps also before the table loads), else the chat default. The morning's one-time migration is reversed: a saved
+  figures choice equal to the Sonnet default (`sonnet-low-standard`) is let go once (`ai.figuresDefaultGemini.migrated`,
+  browser `figuresDefaultV3`); any other saved choice (DeepSeek, Gemini, Opus, Haiku…) is kept, and an explicit Sonnet
+  choice made after the migration sticks. The figures ⓘ text names Gemini Flash as the default and Sonnet as a little
+  quicker at about three times the cost.
+- Measured basis (FIGURE_VIEW.md "Speed"): Gemini at low read the same panels, values and boxes as Sonnet low; summary
+  in ~3–7 s, whole walkthrough 8–15 s; ~$0.008–0.012 a walkthrough on a cached paper vs Sonnet's ~$0.022 (and $0.24 for
+  Sonnet's first request on a paper).
+
+## Equation explainer streamed; figure parts full screen on touch (owner request 2026-10-22; agent decisions with evidence, reversible)
+
+Owner, 2026-10-22: "I like the changes. The one issue is when you try to click into a subfigure and zoom. The transition
+needs to be improved. My suggestion is that whenever you try to interact with it, it becomes a full screen thing, with the
+outline fading away … but you can easily navigate, using the entire full screen, the entire extent of the figure, with
+not really any in-between … But overall, the equations AI explainer needs the same progress with the progress bar."
+
+- **Figure parts: no in-card zoom; any touch opens full screen in one motion** from the card's place and framing, the
+  outline fading over ~1 s while the whole figure is the reader's to pan and zoom (zoom limits sized to the whole figure;
+  double tap toggles whole ↔ part). Choices made: a *sideways* drag opens (an up-or-down drag stays the page's scroll, so
+  reading the walkthrough is unchanged); the **Whole figure / Show part** control stays in the full-screen top row (the
+  one non-gesture way for VoiceOver, Switch Control and keyboard users), as does the **Full screen** button under a card
+  (discoverable); the apps' whole-figure card at the top of the walkthrough behaves the same way; the Mac keeps its
+  window-sized sheet, which fades in rather than moving from the card. The local framing record gains `opened` / `opens`.
+  FIGURE_VIEW.md "Full screen on touch".
+- **Equation symbols streamed** like the figure walkthrough (summary, then each symbol as written, checked exactly as the
+  final `equation`, which is unchanged for older builds), under the same progress bar ("Explaining symbol k of N" only once
+  the model has announced N). EQUATION_VIEW.md "Streamed explanation".
+- **Equation symbols at low effort** for Gemini Flash and automatic effort (an effort chosen for a Claude model stays;
+  background unchanged). Evidence (DPO's loss and gradient): Gemini low listed the same symbols and paragraphs as medium
+  and reached its summary in 4.5–5.3 s against 2.7–9.0 s at medium (medium sometimes thought ~800 tokens first); live on
+  staging the default went from 9.3–12.3 s with nothing shown to the summary in 2.9–5.6 s and everything in 6.5–8.8 s.
+- **Equations default model unchanged** (the chat's default, Gemini Flash recommended). Sonnet 5.5 at low was a little
+  faster to the summary (2.6–3.6 s) and as fast overall (7.2–8.4 s), with comparable symbols, but costs ~3× per
+  explanation on a cached paper ($0.019–0.021 vs $0.006) and, unlike the chat's own model, writes the paper to its own
+  cache the first time (~$0.23 on DPO); the equation view was designed to reuse the chat's cache. Not changed without the
+  owner; reversible by publishing an equations default like `default_figures`.
+
+## Your AI usage (owner request 2026-10-22; agent decisions, reversible)
+
+Owner: "a table of my recent AI token spend for all the different activities … rows ordered by time, each row being an
+activity, and the exact cost, so that a user can figure out where their credits are going." Built as Settings › AI
+credits › Your AI usage (and from Get credits; the browser's account menu), on a new read-only RPC `v1_ai_usage`
+(migration 0144) over the existing ledger. Decisions:
+
+- **Credits and tokens, no dollars.** The app presents no credit-to-dollar conversion and dollar settlement is design
+  only, so rows show the credits actually settled (or held while running) and the provider-reported tokens. Whether to
+  add dollars is OWNER_ACTIONS #12. Provider dollar cost stays in Admin › Costs.
+- **One row per metered request**, its extra calls (chat title, suggested questions, study map, searches, podcast
+  script/check/audio) shown as parts of that row, because they are one charge.
+- **Paper titles never reach the server.** The device remembers which conversation kind and library paper each of its
+  own operations was for (ids only, on that device) and names the paper from its library; requests from another device
+  show the activity only. The server's ledger is not extended with paper or mode.
+- Stopped, failed (not charged), in-progress and free (paid by Gradstep) rows are labeled; free work that reached no
+  provider is left out.
+Details: [Operations](architecture/OPERATIONS_AND_BILLING.md#your-ai-usage--2026-10-22).
+
 ## Study mode and the paper's AI Explainer (owner request 2026-10-22; agent decisions, reversible)
 
 Owner: "'Study Mode' is too complex and not a polished enough UX for now… have 'Enter Study Mode – Quiz me and help me
@@ -55,7 +166,7 @@ confidence-framed viewports); what changed is how fast it arrives:
   ~3–4.5 s and the whole walkthrough in 8–11 s, at about two thirds of the cost. Haiku 5.5 at low was fastest but drew no
   boxes on three of four figures and once wrote malformed JSON; Sonnet 5.5 at low matched Gemini's speed at 2–3× the cost
   (and once returned no usable part). Record: FIGURE_VIEW.md "Speed".
-- **Figures default: Claude Sonnet 5.5 at low effort** (owner, 2026-10-22: "I think we should probably change the default
+- *Superseded the same day by "Figures default: Gemini Flash again" (above).* **Figures default: Claude Sonnet 5.5 at low effort** (owner, 2026-10-22: "I think we should probably change the default
   to Sonnet for that one", after "I tried Sonnet, it was much faster than DeepSeek"). Published as `default_figures`
   (`sonnet-low-standard`); new readers, readers with no saved figures choice (the activity no longer inherits the general
   chat default) and readers whose saved choice was the old recommended `gemini-medium-standard` (migrated once) start

@@ -28,7 +28,7 @@ import XCTest
         cloud.tap()
         let change = app.buttons["equation.changeAI"]
         XCTAssertTrue(change.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "provider account has insufficient funds")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "This AI model isn’t available right now")).firstMatch.exists)
         let capture = XCTAttachment(screenshot: app.screenshot()); capture.name = "Provider balance failure with inline recovery"; capture.lifetime = .keepAlways; add(capture)
         change.tap()
         app.buttons["ai.chooseModel"].tap()

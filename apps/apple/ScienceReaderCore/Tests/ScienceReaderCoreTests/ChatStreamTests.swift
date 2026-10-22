@@ -176,9 +176,9 @@ import Testing
         #expect(!ChatFailureText.isRetryable("refused"))
         #expect(ChatFailureText.isRetryable("provider_unavailable"))
         #expect(!ChatFailureText.isRetryable("model_unavailable"))
-        #expect(ChatFailureText.message(for: "model_unavailable").contains("provider account has insufficient funds"))
+        #expect(ChatFailureText.message(for: "model_unavailable") == "This AI model isn’t available right now. Your AI credits were not charged. Choose another model in AI options, or try again later.")
         #expect(ChatFailureText.message(for: "model_unavailable").contains("Your AI credits were not charged"))
-        #expect(ChatFailureText.message(for: "model_unavailable").contains("Choose another AI model"))
+        #expect(ChatFailureText.message(for: "model_unavailable").contains("Choose another model in AI options"))
     }
 
     @Test func figureRequestsAreParsedAndOfferedOnlyWithTheLocalPaper() throws {

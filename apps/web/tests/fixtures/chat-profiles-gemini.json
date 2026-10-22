@@ -19,8 +19,8 @@
     "length": "standard"
   },
   "default_figures": {
-    "model": "sonnet",
-    "effort": "low",
+    "model": "gemini",
+    "effort": "medium",
     "length": "standard"
   },
   "models": [

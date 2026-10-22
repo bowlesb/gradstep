@@ -1,5 +1,134 @@
 # Implementation status
 
+## Pricing accepted: free AI pool, plans, Spend vs income, alerts, owner switches — 2026-10-22 UTC (server and admin on staging; apps and browser local, not released)
+
+Owner: "I will take your defaults", then "the complexity of the pricing system and what debug strategies I'll have if my
+spend somehow becomes very high in relation to my incoming money." Plain-language overview:
+[PRICING_HOW_IT_WORKS](PRICING_HOW_IT_WORKS.md); operator steps: [RUNBOOK_SPENDING](RUNBOOK_SPENDING.md); decisions:
+[DECISIONS](DECISIONS.md#pricing-accepted-with-safeguards-against-spend-outrunning-income-owner-2026-10-22-built-staging).
+
+- **Server (staging):** migrations **0150** (free AI pool on the existing hold machinery, accepted products and annual
+  months, `ai_controls` switches, Spend vs income, alerts with a 10-minute pg_cron/pg_net tick) and **0151** (Sandbox
+  purchases reported as test money). Applied 06:41 and 06:48 UTC after encrypted backups
+  `.artifacts/backups/20261022T064011Z-eeffccb218a0` and `20261022T064745Z-580cc1b48cea`. Chat function deployed 06:45 UTC
+  from this branch merged with main (figures default Gemini, streamed equations kept): switch refusals before any hold,
+  no web search on free answers, Gemini defaults under "cheaper models only". Resend key stored in Vault; alerts go to the
+  owner account's address (no `OWNER_ALERT_EMAIL` set). Deploy suites: 18 passed; `budget.health` fails on the
+  existing 81% of October's $40 (not raised).
+- **Admin (staging):** Admin › Spend vs income (Pages `faa47296`, admin.gradstep.ai): headline figures, spend by
+  funding/feature/model, estimated proceeds by product, free pool with audited resize, seven switches with a 7-day
+  preview and two-step confirm, alerts with delivery state.
+- **Live read-only checks (06:50 UTC):** ledger ends 0150, 0151; `ai_controls` at the accepted defaults; seven products
+  (Standard 600/$7.99/intro $3.99, Pro 2,000, yearly plans, 300/700 packs, 400 kept); the first tick raised **50% and
+  80%** for October ($32.32 of $40) and sent one digest, Resend answered **200**; October spend by funding: granted $11.53,
+  Sandbox purchases $4.48, platform $3.38, your testing $1.49, free $0 (no free-tier account exists yet: 50 of 51 open
+  accounts are synthetic checks, the other is the owner's testing allowance).
+- **Apps and browser (local):** Settings › AI credits gains **Plan** with the ⓘ explainer and **Free AI this month**; the
+  free-AI messages replace "not enough credits" where they explain it (chat, figures, equations, recommendations); new
+  products listed (StoreKit shows those on sale); Standard shows as Plus; `model_unavailable` reworded. Browser parity in
+  the account menu.
+- **App Store:** nothing changed. Read-only plan `node scripts/asc-pricing-plan.mjs`
+  (`.artifacts/pricing/asc-plan-readonly-20261022.txt`): 8 API changes and 5 manual steps await the owner (OWNER_ACTIONS 13).
+- **Evidence:** `npm test` passes (backend incl. new chat switch tests, browser units incl. `free-ai.test.ts`);
+  `npm run test:database` passes (834 steps; `free_ai_and_spend.sql`, the 12-reader pool concurrency check: 4 admitted,
+  free worst case $0.48 ≤ $0.50 pool); Playwright `pricing.spec.ts` and `account-assets.spec.ts` desktop/phone 17 pass;
+  admin loopback journey `scripts/check-spend-income.mjs` passes (`.artifacts/spend-income/`); native Core `swift test`
+  416 + 28 pass, app unit tests 42 pass, iPhone 17 Simulator journeys `testPlanAndFreeAIInSettings` and
+  `testAnAnswerRefusedWhenTheMonthsFreeAIIsUsedUp` light/dark pass (`.artifacts/pricing-native/`), Mac Catalyst builds,
+  test build after merging main succeeds. Not verified: physical device (paused), iPad/Mac UI journeys, a real
+  Production purchase, inbox delivery of the alert (Resend accepted it).
+- **For other branches:** migration `202610220145_paper_explainer_action.sql` (branch `worktree-agent-a19dafdce0ac1d1c6`,
+  not applied) must be renumbered above 0151 before it is deployed: the ledger only accepts migrations in order.
+
+## Full screen on touch; equation explainer streamed; figures default Gemini again — 2026-10-22 UTC (server on staging; apps and browser local, not released)
+
+Owner: "when you try to click into a subfigure and zoom. The transition needs to be improved … whenever you try to interact
+with it, it becomes a full screen thing, with the outline fading away … with not really any in-between … the equations AI
+explainer needs the same progress with the progress bar"; later: "Let's try Gemini instead of Sonnet for Figures then."
+Design: [FIGURE_VIEW.md "Full screen on touch"](architecture/FIGURE_VIEW.md#full-screen-on-touch--2026-10-22-apps-and-browser-local-not-released),
+[EQUATION_VIEW.md "Streamed explanation"](architecture/EQUATION_VIEW.md); decisions:
+[DECISIONS](DECISIONS.md#equation-explainer-streamed-figure-parts-full-screen-on-touch-owner-request-2026-10-22-agent-decisions-with-evidence-reversible),
+[figures default](DECISIONS.md#figures-default-gemini-flash-again-owner-decision-2026-10-22-deployed-to-staging-clients-local).
+
+- **Server (staging; no migration).** Equation symbols stream (`equation_progress`, `equation_summary`, `equation_symbol`;
+  final `equation` unchanged), read by `JsonListStream` (now shared with the figure walkthrough); symbols at low effort for
+  Gemini/auto; `default_figures` = Gemini Flash (run at low). Chat function deployed 04:46 UTC (backup
+  `.artifacts/backups/20261022T044455Z-d8a4cfd1ad90`, deploy suite 19/0); the study-mode agent's 05:12 deploy carried the
+  equation streaming; redeployed 05:58 UTC from that deployed build plus the figures default (backup
+  `…/20261022T055356Z-4a3671a898cc`), so neither change undoes the other. Suite at 05:55: 18 pass, 1 fail —
+  `budget.health`: the staging platform budget is at 80 % ($32.08 of $40 this month; unrelated to this code). Read back:
+  `GET chat` publishes `default_figures` Gemini; live equation runs stream.
+- **Live, before → after** (DPO's loss, staging, disposable accounts): the default (Gemini) showed nothing for 9.3–12.3 s
+  then everything; now the summary at 2.9–5.9 s, first symbol 3.3–6.5 s, everything 6.5–8.9 s, same 2 credits. Sonnet low:
+  summary 3.0–4.2 s, everything 7.7–8.5 s, 4 credits warm / 45 with its cache write. Model alone: EQUATION_VIEW.md "Speed".
+- **Apps (iPhone/iPad/Mac) and browser:** part cards (and the apps' whole-figure card) open full screen on any touch in one
+  motion from the card (matched geometry; outline fades over ~1 s; double tap whole ↔ part; close back onto the card;
+  Reduce Motion cross-fade); streamed equation symbols under the shared progress bar with placeholders; framing record
+  `opened`/`opens`; figures default Gemini with the Sonnet default let go once; new figures ⓘ text.
+- **Evidence.** `npm test` passes (backend 717; browser units incl. new `equation-progress`, `equation-stream`, updated
+  `figure-framing-record`, `figures-default`); `swift test` filters `EquationViewTests|FigureProgressTests|FigureViewTests|
+  FigureFramingTests|ChatProfilesTests` pass; app `FiguresDefaultTests` 3/3 and `FigureViewAppTests` pass (iPhone 17 Pro
+  Simulator, iOS 26.4). Native journeys on that Simulator, one at a time: `testTouchingAPartOpensFullScreenFromItsCard`
+  light and dark (pass; the dark one also failed once at launch on "The paper is ready" while a screenshot loop ran, then
+  passed), `testEquationSymbolsStreamWithAProgressBar` light/dark, `testAnOlderServersEquationSymbolsStillShow`,
+  `testEquationViewDescribesSymbolsAndLeadsToThePaperAndTheChat`, and the existing `testExplainWalksThroughAFigure…`,
+  `testPartsAreFramedByConfidence…` (updated: a tap opens full screen on the part) and `testTheWalkthroughStreams…`.
+  Playwright: `figure-view.spec.ts` desktop + phone 29 pass / 5 skip (real-paper cases need `.artifacts/reader-sweep`;
+  the mid-transition rectangle check is Chromium-only); `equation-view.spec.ts` desktop + phone 18 pass. Mac Catalyst:
+  the app builds for Mac Catalyst (unsigned compile; its journeys were not run).
+- **Screenshots (reviewed).** Native: `.artifacts/figure-fullscreen/native/` — `{light,dark}-opening-start-on-the-card.jpg`,
+  `{light,dark}-opening-mid-transition.jpg`, `{light,dark}-closing-mid-transition.jpg` (Simulator frames with the motion
+  slowed 40×), and `light/`, `dark/` (card, settled with outline, outline faded, whole figure); `.artifacts/equation-progress/native/shots/`
+  (bar and placeholders, mid-stream, done; light/dark; older server). Browser: `.artifacts/figure-fullscreen/web/`
+  (opening start, mid-transition, settled with outline, faded, whole, reduced motion; desktop and phone, light/dark) and
+  `.artifacts/equation-progress/web/`.
+- **Spend:** ≈ $0.87 of the $1 allowed (EQUATION_VIEW.md "Speed").
+- **Not done / open:** TestFlight and the browser deploy (not asked); physical phone (paused); iPad and Mac journeys of the
+  new full-screen viewer not run (Mac builds; it keeps its window-sized sheet and fades instead of moving from the card).
+  A later deploy of the chat function from a branch without commit "Figures default back to Gemini Flash" would put
+  Sonnet back as the published figures default.
+
+## Your AI usage — 2026-10-22 UTC (server on staging; apps and browser local, not released)
+
+Owner: "a table of my recent AI token spend for all the different activities … each row being an activity, and the exact
+cost, so that a user can figure out where their credits are going." Settings › AI credits › Your AI usage (and Get
+credits, including its Unlimited testing page; browser account menu): one row per metered request, newest first, with
+activity, the paper's title from this device's library, model, tokens, credits; Stopped / Didn't finish · not charged /
+In progress / Free labeled; parts on opening a row; activity chips, period in ⋯, totals, ⓘ; 25 a page, more on
+scrolling. Credits and tokens only (no dollars: OWNER_ACTIONS #12). Design: [Operations](architecture/OPERATIONS_AND_BILLING.md#your-ai-usage--2026-10-22).
+
+- **Server (staging):** migration `202610220144_account_ai_usage.sql` (`v1_ai_usage`, read only; rate rule
+  `account-usage`) applied 05:43 UTC by `scripts/deploy-staging.py staging --functions` (no function changed) after the
+  encrypted backup `.artifacts/backups/20261022T054157Z-a9f669e7a1b6` (25 objects, 10.3 MB database). Deploy checks 17
+  pass, 3 skip, 1 warn, 1 fail — the fail and warn are the month's provider budget already at 80 % ($32.08 of $40 spent
+  before this change; `budget.health`), unrelated to it.
+- **Live read-back** (`node scripts/ai-usage-live-check.mjs`, record `.artifacts/ai-usage-20261022/live-check.json`): a
+  disposable account asked one general question on Haiku 5.5 (low, brief, no title/suggestions; 970 in / 4 out tokens,
+  ≈ $0.001 provider cost, 1 synthetic credit); `v1_ai_usage` returned exactly that operation — chat, completed, 1
+  credit, `anthropic/claude-haiku-5.5`, the same tokens — with totals; a second disposable account saw nothing; anonymous
+  (401) and a bad query refused; both accounts deleted through account-delete.
+- **Evidence (local):** `npm run test:database` passed (95 s; `tests/database/account_usage.sql`: own rows only, a second
+  and an empty account see nothing, activities/outcomes/parts/tokens, three keyset pages without gaps, totals, filter,
+  window, closed account refused, read only); `tests/backend/ai-usage.test.ts` 5/5 (every chat action, route and kind
+  named; server and both clients' names identical; no dollar or private fields); browser `ai-usage.test.ts` 5/5 and Core
+  `AIUsageTests` 6/6 against the shared `tests/fixtures/ai-usage.json`; Playwright `ai-usage.spec.ts` desktop + phone 6/6;
+  native `AIUsageJourneyTests` on an iPhone 17 Pro Simulator (run one at a time). Screenshots:
+  `.artifacts/ai-usage-20261022/` (`usage-iphone-{light,dark}-{list,parts}.png`, `browser-{desktop,phone}-{light,dark}-{list,parts}.png`).
+- **Not done:** iPad/Mac journeys (the wide column layout is built, not screenshot-checked), browser deploy, TestFlight,
+  physical phone (paused). Requests made on another device show their activity without a paper (titles stay on the
+  device that asked).
+
+## Collapsible snippet cards — 2026-10-22 UTC (apps and browser local, not released)
+
+Owner request: each snippet in a collection is its own card with the crop/quotation in a framed inner box; a chevron
+collapses it to one line (time · short paper title · first words of the comment), remembered per device (never synced);
+the collection's ⋯ adds Collapse all / Expand all. iPhone/iPad/Mac share the SwiftUI view; the browser matches it and
+the shared fixture `tests/fixtures/notes/collapsed-lines.json`. Evidence: Core `NoteCollapseTests`, browser
+`note-collapse.test.ts`, native `NotesJourneyTests.testSnippetCardsCollapseAndRemember` /
+`testSnippetCardsDarkAndLargeText` (iPhone 17 Pro Simulator), Playwright `notes.spec.ts` desktop + phone; screenshots in
+`.artifacts/snippets-20261022/`. Not run: iPad/Mac journeys, physical device (paused). Details:
+[Notes and snippets](architecture/NOTES_AND_SNIPPETS.md#collapsible-snippet-cards-owner-2026-10-22-local-source-not-released).
+
 ## TestFlight 81 and browser release — 2026-10-22 UTC
 
 iOS and Mac build 81 uploaded; browser redeployed. Adds since 80: the streamed figure walkthrough (summary and each

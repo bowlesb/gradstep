@@ -440,6 +440,8 @@ progress.mini { height: 3px; margin-top: 4px; }
 /* The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough"): a thin progress bar where the next words will appear,
    the stage under it, and a static skeleton of what is on its way (the bar is the only motion, none with Reduce Motion). */
 .figure-pending { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.equation-pending { padding: 10px 0 4px; }
+.equation-pending + .equation-symbols.loading { margin-top: 4px; }
 .figure-progress { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .figure-progress-track { position: relative; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .figure-progress-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: inherit; background: var(--accent); transition: width .35s ease; }
@@ -470,7 +472,32 @@ progress.mini { height: 3px; margin-top: 4px; }
 .viewport-outline[hidden] { display: none; }
 .zoom-crop { margin: 2px 0 12px; }
 /* A tall figure (a multi-image figure's stacked images) keeps its shape: narrower, never squeezed into the height. */
-.fullscreen-figure .figure-viewport { cursor: grab; max-height: calc(100dvh - 170px); max-width: min(100%, calc((100dvh - 170px) * var(--aspect, 100))); margin-inline: auto; }
+.figure-viewport[role=button]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* A part's full screen (FIGURE_VIEW.md "Full screen on any interaction"): the whole figure across the whole viewport, opened
+   from its card in one transition (FigureViewport.tsx sets the layer's transform and clip), the part's outline (and soft veil)
+   fading after it; a slim bar on top. */
+dialog.figure-fullscreen { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+  background: transparent; overflow: hidden; color: var(--text); }
+dialog.figure-fullscreen::backdrop { background: transparent; }
+.figure-fullscreen-backdrop { position: absolute; inset: 0; background: var(--bg); }
+.figure-fullscreen-layer { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform, clip-path; }
+.figure-fullscreen-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; outline: none; }
+.figure-fullscreen-stage:active { cursor: grabbing; }
+.figure-fullscreen-stage img { pointer-events: none; }
+.figure-fullscreen-stage .viewport-outline, .figure-fullscreen-stage .viewport-veil { opacity: 1; transition: opacity 1s ease 350ms; }
+.figure-fullscreen-stage.outline-fading .viewport-outline, .figure-fullscreen-stage.outline-fading .viewport-veil { opacity: 0; }
+.figure-fullscreen-stage.outline-shown .viewport-outline, .figure-fullscreen-stage.outline-shown .viewport-veil { transition: none; }
+.figure-fullscreen-bar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 6px; padding: max(8px, env(safe-area-inset-top)) 10px 8px 16px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line);
+  transition: opacity 200ms ease; }
+.figure-fullscreen-bar[data-phase=opening], .figure-fullscreen-bar[data-phase=closing] { opacity: 0; pointer-events: none; }
+.figure-fullscreen-bar h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.figure-fullscreen-bar button { flex: none; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  /* The outline shows for a second, then goes, without a fade. */
+  .figure-fullscreen-stage .viewport-outline, .figure-fullscreen-stage .viewport-veil { transition: opacity 0s linear 1s; }
+  .figure-fullscreen-bar { transition: none; }
+}
 .figure-simpler { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); min-width: 0; }
 .figure-simpler-head { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 @media (max-width: 640px) { .figure-frame.compact { height: 38dvh; } }
@@ -661,9 +688,9 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 /* The account menu's AI credits and Subscription plan (native Settings › AI credits): words with an ⓘ, the value right. */
 .menu-facts { display: flex; flex-direction: column; gap: 0; margin: 2px 0; padding: 2px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .menu-fact { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; padding: 0 4px 0 8px; font-size: 13.5px; }
-.menu-fact > span:first-child { display: inline-flex; align-items: center; gap: 2px; }
+.menu-fact > span:first-child { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .menu-fact.fine { min-height: 22px; font-size: 12px; }
-.menu-fact-value { font-variant-numeric: tabular-nums; color: var(--muted); }
+.menu-fact-value { font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
 .menu-group { display: flex; flex-direction: column; gap: 2px; }
 /* All diagrams (Your assets): one row per diagram, newest first; one opens as in its answer. */
 .diagram-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }

@@ -10,6 +10,7 @@ import {
   statusText, streamRecommend, type RecommendCount, type RecommendedPaper,
 } from '../lib/recommend';
 import { Dialog, MenuButton } from './common';
+import { accountBalance, useFreeAIRefusal } from './free-ai';
 import type { useLibrary } from './useLibrary';
 import './recommend.css';
 
@@ -26,6 +27,8 @@ export interface Recommender {
   catalogAvailable: boolean;
   catalogName: string;
   run: RecommendationRun | null;
+  /** The signed-in account (its balance explains a free-AI refusal). */
+  account?: string;
   open: boolean;
   setOpen(open: boolean): void;
 }
@@ -87,7 +90,7 @@ export function useRecommendations(account: string, library: Library): Recommend
   }, [account]);
 
   return {
-    eligible: eligibleSeed, note, catalogAvailable, catalogName, run, open, setOpen,
+    eligible: eligibleSeed, note, catalogAvailable, catalogName, run, open, setOpen, account,
     paper: (entry, count) => { if (eligibleSeed(entry)) begin('paper', [entry], count, title(entry)); },
     catalog: count => {
       const seeds = catalogSeeds(latest.current.entries, inCatalog);
@@ -121,6 +124,9 @@ export function RecommendDialog({ recommender }: { recommender: Recommender }) {
   const state = useSyncExternalStore(subscribe, () => run?.state ?? null);
   const [undoing, setUndoing] = useState(false);
   useEffect(() => setUndoing(false), [run]);
+  // Free AI (migration 0150): why free credits couldn't pay, from a fresh balance read (recommendations use a fast model).
+  const freeBalance = useMemo(() => accountBalance(recommender.account), [recommender.account]);
+  const freeRefusal = useFreeAIRefusal(state?.error?.code, freeBalance);
   if (!run || !state) return null;
   const close = () => recommender.setOpen(false);
   const running = state.phase === 'searching' || state.phase === 'choosing';
@@ -150,7 +156,7 @@ export function RecommendDialog({ recommender }: { recommender: Recommender }) {
           </li>;
         })}
       </ul>}
-      {state.error && <div className="recommend-error"><p className="issue" role="alert">{state.error.message}</p>
+      {state.error && <div className="recommend-error"><p className="issue" role="alert">{freeRefusal ?? state.error.message}</p>
         {state.error.retryable && <button type="button" className="secondary small" data-testid="recommend-retry" onClick={() => void run.retry()}>Try again</button>}</div>}
       {footer && <p className="recommend-footer" role="status" data-testid="recommend-footer">{footer}</p>}
       {running && <p className="fine recommend-price">{creditLabel(RECOMMEND_CREDITS)}, only if papers are added. You can close this; they’re still added.</p>}

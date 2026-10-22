@@ -101,9 +101,21 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   actual crop"): a part of a figure is never a cropped-away bitmap but a viewport into the whole figure, always on the
   figure's white. How tightly it frames the part follows its confidence: tight (looks as a crop with its white margin),
   looser with the part outlined, or the whole figure with the part outlined — an unobtrusive outline (2 pt, the light
-  accent in both appearances), never a fallback message. Tap expands to the whole figure (the part outlined, starting
-  from its frame); pinch reveals what is around it; double tap returns. A caption that names its panels caps the parts;
-  extras are outlines on the whole figure. Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Parts as viewports".
+  accent in both appearances), never a fallback message. A caption that names its panels caps the parts; extras are
+  outlines on the whole figure. Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Parts as viewports".
+  *Full screen on touch* (owner, 2026-10-22: "whenever you try to interact with it, it becomes a full screen thing … with
+  not really any in-between"): a card never zooms or pans in place (the page scrolls over it). Any touch — tap, double
+  tap, pinch, sideways drag, VoiceOver activate, keyboard, or the Full screen button — opens the full-screen viewer in one
+  motion from the card's own place and framing; the part's outline fades over about a second while the whole figure is
+  the reader's to pan and zoom (double tap: whole figure ↔ part); X, Escape or a swipe down returns onto the card. Reduce
+  Motion: a cross-fade, the outline shown briefly. [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Full screen on touch".
+
+- **Explainer progress** (owner, 2026-10-22: "it needs a progress bar"; "the equations AI explainer needs the same
+  progress"): the figure walkthrough and the equation's symbols arrive piece by piece under one progress bar: a stage label
+  always, "part k of N" / "symbol k of N" and a filled bar only when N is known, never backwards; placeholders where the
+  result will appear, the bar below the last piece shown (nothing above moves), fading at the end; VoiceOver hears stage
+  changes only; Reduce Motion: nothing pulses or fades. [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Speed",
+  [EQUATION_VIEW.md](architecture/EQUATION_VIEW.md) "Streamed explanation".
 
 - **One AI result per explainer** (owner, 2026-10-21: "Let's not do extract the subfigure … consistently create one good
   product experience in the AI result that comes back"): the figure walkthrough is the only result; looking closer is
@@ -166,6 +178,13 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
 - **New papers**: a paper added in the last three days and not opened on this device says **New** in plain secondary
   words where "—" would be (the Progress cell; the list's details line), not a dot (owner, build 75: "The purple dot
   beside the checkmark is confusing"; the signal itself is the build 42 request).
+- **Usage table** (Your AI usage, owner 2026-10-22): one row per request, newest first. On a phone the Rows pattern —
+  activity `.headline`, the paper `.subheadline` secondary (≤ 2 lines), "time · model · tokens" `.footnote` secondary,
+  the credits trailing in `.subheadline` semibold with an outcome word under it (orange only for Didn't finish and Being
+  checked). At regular width (≥ 640 pt, not accessibility text sizes) and in the browser: columns Time · Activity ·
+  Model · Tokens · Cost under a quiet `.footnote` header. A tap opens the row's parts beneath it (no animation with
+  Reduce Motion). Chips follow Filters; the period is a ⋯ submenu; the totals carry the ⓘ. Code: `Views/AIUsageView.swift`;
+  browser `ui/UsageDialog.tsx`, `usage.css`.
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.
@@ -176,6 +195,16 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   edge; Mac hover a quiet fill. Solid in every mode (nothing changes with Reduce Transparency); Increase Contrast draws
   an opaque edge. Swipe and long-press actions work as on rows. Code: `ContentCard` / `.contentCard(selected:)` in
   `DesignSystem.swift`; browser `.note-row` in `notes.css`. Paper tables and chat lists stay rows.
+  *Snippet entries* (owner, 2026-10-22: "a bit cleaner separation still between the cards with the actual snippet itself
+  being a slightly more clear 'box' in a card"): each entry in a collection's stream is the same card (10 pt apart, the
+  day label 6 pt above its first card; no timeline line), and its crop or quotation sits in an inner **snippet box**:
+  10 pt continuous corners, the grouped tertiary fill (one step from the card in both appearances), a 1 pt separator
+  edge (opaque with Increase Contrast), 8 pt around a crop. A leading chevron (44 pt target; VoiceOver "Collapse
+  snippet"/"Expand snippet", value Collapsed/Expanded) folds the card to one line — time · short paper title (20
+  characters on a phone, 32 wider) · first words of the comment, wrapping to three lines at accessibility sizes; the
+  line itself also expands it. Remembered per device, never synced; the collection's ⋯ starts with **Collapse all** /
+  **Expand all** (each only when it changes something). No animation with Reduce Motion. Code: `NoteEntryView`,
+  `.snippetBox()` in `NotesViews.swift`, `NoteCollapsedLine` in Core; browser `.note-entry`, `.snippet-frame`.
 
 Each UI change follows the [visual check loop](VISUAL_CHECK.md); significant redesigns get an independent audit
 against this page.

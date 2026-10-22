@@ -70,7 +70,7 @@ def current_schema_phase(sources, names):
     run('createdb', [template])
     try:
         run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', 'postgres', '-c', f'ALTER DATABASE "{template}" SET timezone TO \'UTC\''], capture_output=True)
-        for source in [ROOT / 'tests/database/bootstrap.sql', *sources]:
+        for source in [ROOT / 'tests/database/bootstrap.sql', *sources, ROOT / 'tests/database/general_pre_pricing.sql']:
             run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', template, '-f', str(source)], capture_output=True, text=True)
         for name in names:
             suite = ROOT / f'tests/database/{name}.sql'
@@ -104,6 +104,9 @@ parser.add_argument('--note-assets-only', action='store_true', help='Run the enc
 parser.add_argument('--spending-fixes-only', action='store_true', help='Run the 2026-10-21 spending review fixtures (migrations 0100 and later).')
 parser.add_argument('--server-add-only', action='store_true', help='Run the server add-once fixture (migration 120) only.')
 parser.add_argument('--recommendations-only', action='store_true', help='Run the AI recommendations fixture (migration 0143) only.')
+parser.add_argument('--account-usage-only', action='store_true', help='Run the Your AI usage fixture (migration 0144) only.')
+parser.add_argument('--general-only', action='store_true', help='Run only the general suites against the current schema.')
+parser.add_argument('--pricing-only', action='store_true', help='Run the free AI pool, pricing, switches and spend alert fixtures (migration 0150) only.')
 args = parser.parse_args()
 # Review 2026-10-21 (docs/reviews/WEB_SERVER_REVIEW_20261021.md): spending, budget and reconciliation fixes, in
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
@@ -131,6 +134,15 @@ if args.server_add_only:
     raise SystemExit(0)
 if args.recommendations_only:
     phase([*all_migrations, ROOT / 'tests/database/recommendations.sql'], [])
+    raise SystemExit(0)
+if args.account_usage_only:
+    phase([*all_migrations, ROOT / 'tests/database/account_usage.sql'], [])
+    raise SystemExit(0)
+if args.general_only:
+    current_schema_phase(all_migrations, CURRENT_GENERAL)
+    raise SystemExit(0)
+if args.pricing_only:
+    phase([*all_migrations, ROOT / 'tests/database/free_ai_and_spend.sql'], ['free_ai_pool_concurrency'])
     raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/beta_admission_revocation.sql'], [])
@@ -165,7 +177,7 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 
 # Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
 # function's anon/authenticated reach. First in its phase, before any fixture creates objects.
-phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.

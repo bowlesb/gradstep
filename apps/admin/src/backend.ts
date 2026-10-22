@@ -115,6 +115,10 @@ export async function rpc<T>(name: string, parameters: Record<string, unknown> =
       report_unavailable: 'This report is not available to your account.',
       fixed_build_required: 'Enter the build that contains the fix.',
       budget_not_configured: 'Provider spending has not been configured.',
+      invalid_switch: 'That switch is not available.',
+      invalid_reason: 'Enter a reason of 3 to 500 characters.',
+      invalid_pool: 'Enter a pool from $0 to $50.',
+      rate_limited: 'Too many requests. Wait a minute and try again.',
     };
     const message = errors[error.message] ?? 'The request could not be completed. Your changes were not confirmed.';
     // A database refusal (it carries a SQLSTATE) is final for this request; a lost answer is not.

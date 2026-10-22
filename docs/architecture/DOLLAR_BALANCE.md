@@ -1,5 +1,10 @@
 # Dollar balance and OpenRouter usage
 
+**Superseded and dropped (owner, 2026-10-22: accepted the pricing defaults).** Readers keep credits, described as
+"about N answers"; at zero markup every App Store sale loses money. See [PRICING_HOW_IT_WORKS](../PRICING_HOW_IT_WORKS.md)
+and [DECISIONS](../DECISIONS.md#pricing-accepted-with-safeguards-against-spend-outrunning-income-owner-2026-10-22-built-staging).
+Kept as a historical design record.
+
 Owner direction, October 20: show remaining dollars, each user's complete OpenRouter request log, and a category
 view; remove customer-facing credits. **No app markup for now.** This is the implementation design, not a claim
 that dollar settlement has been deployed.
@@ -8,6 +13,10 @@ Status: design only. Exact dollar settlement, the self-service usage APIs and cl
 implemented or enabled. The October 20 parity release retains existing accounting on every platform. An unfinished
 receipt-precision prototype is retained locally at `.artifacts/parity-20261020/pending-dollar-receipts.patch`;
 it was removed from the release source because the deployed receipt RPC does not yet accept its new fields.
+
+Related, built 2026-10-22: **Your AI usage** lists each request's credits and tokens from the existing ledger
+(`v1_ai_usage`, migration 0144; [Operations](OPERATIONS_AND_BILLING.md#your-ai-usage--2026-10-22)). It is the credit-unit
+precursor of the request log above, not dollar settlement; a dollar column waits on this design and OWNER_ACTIONS #12.
 
 ## Financial authority
 

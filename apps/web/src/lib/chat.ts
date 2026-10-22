@@ -8,8 +8,9 @@ import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './
 import { studyNotes, type StudyNotes } from './study';
 import { parsePaperExplainer, parsePaperItem, type PaperExplainer, type PaperExplainerItem, type PaperExplainerKind } from './paper-explainer';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
-import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
+import { equationSummary, isEquationAction, MAX_SYMBOLS, parseEquationSymbol, parseEquationSymbols, type EquationSymbol, type EquationSymbols } from './equation';
 import { figureSummary, isFigureAction, MAX_SECTIONS, parseFigureSection, parseFigureWalkthrough, type FigureSection, type FigureWalkthrough } from './figure-view';
+import { provenanceFor, rememberProvenance } from './ai-usage';
 
 // v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md); v4
 // (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
@@ -127,6 +128,12 @@ export type StreamEvent =
   | { type: 'figure_request'; figure: string }
   /** The equation view's symbols (action `equation`, servers from 2026-10-15; equation.ts). */
   | { type: 'equation'; symbols: EquationSymbols }
+  /** The streamed symbols (action `equation`, servers from 2026-10-22; EQUATION_VIEW.md "Streamed explanation"), all
+   * before `equation`: where the writing is (`reading`, then `writing` with the JSON's characters and, once announced,
+   * how many symbols it will list), its summary and each checked symbol at its place. */
+  | { type: 'equation_progress'; stage: 'reading' | 'writing'; characters?: number; symbols?: number }
+  | { type: 'equation_summary'; summary: string }
+  | { type: 'equation_symbol'; index: number; symbol: EquationSymbol }
   /** The figure view's walkthrough (action `figure`, servers from 2026-10-16; figure-view.ts). */
   | { type: 'figure'; walkthrough: FigureWalkthrough }
   /** The streamed walkthrough (action `figure`, servers from 2026-10-22; FIGURE_VIEW.md "Streamed walkthrough"), all
@@ -250,6 +257,20 @@ export class SSEParser {
         const symbols = parseEquationSymbols(v);
         return symbols ? { type: 'equation', symbols } : null;
       }
+      // The streamed symbols: informational, checked as the `equation` event's rows; anything unusable is dropped, never
+      // fatal (the final `equation` is the explanation).
+      case 'equation_progress': {
+        if (v?.stage === 'reading') return { type: 'equation_progress', stage: 'reading' };
+        const characters = v?.characters, count = v?.symbols;
+        if (v?.stage !== 'writing' || !Number.isSafeInteger(characters) || (characters as number) < 0) return null;
+        const announced = Number.isSafeInteger(count) && (count as number) >= 1 && (count as number) <= MAX_SYMBOLS ? count as number : undefined;
+        return { type: 'equation_progress', stage: 'writing', characters: characters as number, ...(announced ? { symbols: announced } : {}) };
+      }
+      case 'equation_summary': return typeof v?.summary === 'string' ? { type: 'equation_summary', summary: equationSummary(v.summary) } : null;
+      case 'equation_symbol': {
+        const index = v?.index, symbol = parseEquationSymbol(v?.symbol);
+        return Number.isSafeInteger(index) && (index as number) >= 0 && (index as number) < MAX_SYMBOLS && symbol ? { type: 'equation_symbol', index: index as number, symbol } : null;
+      }
       case 'figure': {
         // Informational: a walkthrough that is not usable is dropped, never fatal (the view then shows the words).
         const walkthrough = parseFigureWalkthrough(v);
@@ -337,6 +358,8 @@ export async function recordStop(account: string, operationID: string, signal?: 
  * has its request from a server that sends no `figure_progress`. */
 export async function* streamAnswer(account: string, request: ChatRequest, signal: AbortSignal, opened?: () => void): AsyncGenerator<StreamEvent> {
   const parser = new SSEParser();
+  // Your AI usage names this operation's conversation and paper from what this browser knew (lib/ai-usage.ts); kept here only.
+  rememberProvenance(account, request.operationID, provenanceFor(request));
   for await (const chunk of functionStream('chat', requestBody(request), { account, signal, maximum: MAX_STREAM_BYTES, minimumValidity: 300 })) {
     if (opened) { const open = opened; opened = undefined; open(); }
     for (const event of parser.consume(chunk)) yield event;
@@ -401,7 +424,7 @@ export function failureText(code: string): string {
     case 'reader_unprepared': return 'This paper couldn’t be prepared in this browser. No answer was requested; try again.';
     case 'document_unavailable': return 'This paper isn’t ready for questions yet. Try again after it finishes processing.';
     case 'provider_unavailable': return 'The AI service couldn’t finish this answer. Try again.';
-    case 'model_unavailable': return 'The AI provider refused this request because Gradstep’s provider account has insufficient funds. Your AI credits were not charged. Choose another AI model or try again after the service is funded.';
+    case 'model_unavailable': return 'This AI model isn’t available right now. Your AI credits were not charged. Choose another model in AI options, or try again later.';
     case 'refused': return 'This request can’t be answered. Try rephrasing your question.';
     case 'invalid_request': return 'This conversation couldn’t be sent. Try starting a new chat.';
     case 'operation_replayed': return 'This answer was already requested. Try again to request a new one.';
