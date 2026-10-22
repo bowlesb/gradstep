@@ -6,13 +6,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   activityLabel, activityName, compact, creditsText, grouped, modelLabel, outcomeLabel, parseUsagePage, partLabel, periodLabel, provenanceFor,
-  recallProvenance, rememberProvenance, forgetProvenance, tokensText, totalsText, USAGE_ACTIVITIES, type UsageProvenance,
+  recallProvenance, rememberProvenance, forgetProvenance, slicesSummary, tokensText, totalsText, usageSlices, USAGE_ACTIVITIES, type UsageActivityCount,
+  type UsageProvenance, type UsageSlice,
 } from '../src/lib/ai-usage';
 
 const FIXTURE = resolve(__dirname, '../../../tests/fixtures/ai-usage.json');
 const fixture = JSON.parse(readFileSync(FIXTURE, 'utf8')) as {
-  page: unknown; provenance: Record<string, UsageProvenance>; models: string[]; numbers: number[];
-  expected: { rows: unknown[]; totals: string; models: string[]; compact: string[]; chips: string[] };
+  page: unknown; provenance: Record<string, UsageProvenance>; models: string[]; numbers: number[]; slice_cases: UsageActivityCount[][];
+  expected: { rows: unknown[]; totals: string; models: string[]; compact: string[]; chips: string[]; slices: unknown[] };
 };
 
 function render() {
@@ -27,6 +28,12 @@ function render() {
     models: fixture.models.map(modelLabel),
     compact: fixture.numbers.map(compact),
     chips: page.activities!.map(a => activityName(a.activity)),
+    // The All view's ring: the page's own activities, then cases for Other, ties, slivers and nothing to compare.
+    slices: [page.activities!, ...fixture.slice_cases].map(list => {
+      const slices = usageSlices(list);
+      return { slices: slices.map(({ activity, label, credits, percent, slot, members }: UsageSlice) => ({ activity, label, credits, percent, slot, members })),
+        summary: slices.length ? slicesSummary(slices) : null };
+    }),
   };
 }
 

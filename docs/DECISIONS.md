@@ -143,6 +143,24 @@ credits › Your AI usage (and from Get credits; the browser's account menu), on
   provider is left out.
 Details: [Operations](architecture/OPERATIONS_AND_BILLING.md#your-ai-usage--2026-10-22).
 
+**Credits by activity (owner, build-82 feedback, 2026-10-22):** *"The very top before the list when on All a pie chart
+summarizing the cost types and their cost."* Agent decisions, reversible:
+
+- **A thin ring (donut) with a legend**, only in the All view, under the totals line; a filtered list has none. Slices
+  are credits per activity over the chosen period, from the first page's per-activity totals (`v1_ai_usage`
+  `activities`, the whole window), so no server change was needed.
+- **At most five segments:** the four largest activities with at least 4% of the period's credits, the rest one
+  **Other** listing what it holds (the server's own `other` is folded in). No chart when nothing has been charged or
+  one activity holds it all (the totals line already says it).
+- **Colour by size, not by activity:** slots 1–4 of the chart palette, largest first clockwise from the top, and a
+  neutral Other. Neighbours are then always adjacent palette slots, which pass the colour-blind and normal-vision
+  separation checks in light and dark (`dataviz` validator, adjacent pairs incl. the wrap to slot 1); fixed colours
+  per activity cannot (any two of 16 activities can touch, and only three palette colours pass all pairs). The legend
+  names every segment with its credits and share, so colour never carries meaning alone.
+- **Credits only** (no dollars; OWNER_ACTIONS #12). Shares are whole percent, half up, with "<1%" for a sliver and
+  ">99%" beside one, computed identically on every device (`tests/fixtures/ai-usage.json`).
+- **A named segment or legend row chooses that activity's chip**; Other is not a filter.
+
 ## Study mode and the paper's AI Explainer (owner request 2026-10-22; agent decisions, reversible)
 
 Owner: "'Study Mode' is too complex and not a polished enough UX for now… have 'Enter Study Mode – Quiz me and help me

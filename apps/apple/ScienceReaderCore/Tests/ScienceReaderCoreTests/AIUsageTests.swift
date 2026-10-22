@@ -52,6 +52,32 @@ import Testing
         #expect(try #require(page.activities).map(\.activity.name) == expected["chips"] as? [String])
     }
 
+    /// The All view's ring (owner, build 82): the page's activities, then the fixture's cases for Other, ties, slivers and
+    /// nothing to compare, segment for segment as the browser draws them.
+    @Test func theRingIsTheBrowsers() throws {
+        let page = try AIUsagePage.decode(try Self.pageData())
+        let cases = try #require(Self.fixture["slice_cases"] as? [Any]).map { list in
+            try JSONDecoder().decode([AIUsageActivityCount].self, from: JSONSerialization.data(withJSONObject: list))
+        }
+        let expected = try #require((Self.fixture["expected"] as? [String: Any])?["slices"] as? [[String: Any]])
+        let inputs = [try #require(page.activities)] + cases
+        #expect(inputs.count == expected.count)
+        for (input, want) in zip(inputs, expected) {
+            let slices = AIUsageFormat.slices(input)
+            let rows = try #require(want["slices"] as? [[String: Any]])
+            #expect(slices.count == rows.count)
+            for (slice, row) in zip(slices, rows) {
+                #expect(slice.activity?.rawValue == row["activity"] as? String)
+                #expect(slice.label == row["label"] as? String)
+                #expect(slice.credits == (row["credits"] as? NSNumber)?.int64Value)
+                #expect(slice.percent == row["percent"] as? String)
+                if let slot = slice.slot { #expect(row["slot"] as? Int == slot) } else { #expect(row["slot"] as? String == "other") }
+                #expect(slice.members == row["members"] as? [String])
+            }
+            #expect((slices.isEmpty ? nil : AIUsageFormat.slicesSummary(slices)) == want["summary"] as? String)
+        }
+    }
+
     @Test func thePageDecodes() throws {
         let page = try AIUsagePage.decode(try Self.pageData())
         #expect(page.days == 30 && page.activity == nil && page.operations.count == 9)

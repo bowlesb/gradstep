@@ -2,8 +2,8 @@ import XCTest
 
 /// Your AI usage (owner, 2026-10-22) over local fixtures (`AIUsageFixture.swift`; no network, no paid request): a paper
 /// question asked here appears first as "Paper chat" with the paper's title from this device's library; the shared
-/// fixture's rows say Stopped, Didn't finish and In progress; a row opens to its parts; an activity chip filters with its
-/// totals; more rows load as the list scrolls; the period is in ⋯. Light and dark screenshots (GS_SCREENSHOT_DIR).
+/// fixture's rows say Stopped, Didn't finish and In progress; a row opens to its parts; the All view's ring of credits by
+/// activity, whose legend chooses a chip; an activity chip filters with its totals; more rows load as the list scrolls; the period is in ⋯. Light and dark screenshots (GS_SCREENSHOT_DIR).
 @MainActor
 final class AIUsageJourneyTests: XCTestCase {
     private let sample = "paper.aaaaaaaa-0000-0000-0000-000000000001"
@@ -28,6 +28,12 @@ final class AIUsageJourneyTests: XCTestCase {
     }
     private var device: String { UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone" }
     private func row(_ id: String, _ app: XCUIApplication) -> XCUIElement { app.buttons["usage.row.14400000-0000-4000-8001-\(id)"] }
+    /// A row further down: the list is lazy (the ring and earlier runs' answers can push it below the fold).
+    private func revealed(_ id: String, _ app: XCUIApplication) -> XCUIElement {
+        let element = row(id, app)
+        for _ in 0..<12 where !(element.exists && element.isHittable) { app.swipeUp() }
+        return element
+    }
     private func rows(_ app: XCUIApplication) -> XCUIElementQuery { app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "usage.row.")) }
 
     private func openUsage(_ app: XCUIApplication) {
@@ -65,11 +71,15 @@ final class AIUsageJourneyTests: XCTestCase {
             let mine = rows(app).matching(NSPredicate(format: "label BEGINSWITH %@", "Paper chat, Reading machine learning papers")).firstMatch
             XCTAssertTrue(mine.waitForExistence(timeout: 10), "The question asked here, as a paper chat with its paper")
             XCTAssertTrue(mine.label.contains("3 credits") && mine.label.contains("Claude Sonnet 5.5"), mine.label)
-            XCTAssertTrue(row("000000000003", app).label.contains("Stopped") && row("000000000003", app).label.contains("1 credit,"))
-            XCTAssertTrue(row("000000000004", app).label.contains("Didn’t finish · not charged"))
-            XCTAssertTrue(row("000000000005", app).label.contains("Up to 30") && row("000000000005", app).label.contains("In progress"))
-            XCTAssertTrue(row("000000000007", app).label.contains("Tags") && row("000000000007", app).label.contains("Free"))
             save("usage-\(device)-\(appearance)-list")
+            // In list order (newest first), scrolling down only.
+            let tags = revealed("000000000007", app)
+            XCTAssertTrue(tags.label.contains("Tags") && tags.label.contains("Free"), tags.label)
+            let running = revealed("000000000005", app)
+            XCTAssertTrue(running.label.contains("Up to 30") && running.label.contains("In progress"), running.label)
+            XCTAssertTrue(revealed("000000000004", app).label.contains("Didn’t finish · not charged"))
+            let stopped = revealed("000000000003", app)
+            XCTAssertTrue(stopped.label.contains("Stopped") && stopped.label.contains("1 credit,"), stopped.label)
 
             // A row opens to its parts.
             let passage = row("000000000001", app)
@@ -90,17 +100,27 @@ final class AIUsageJourneyTests: XCTestCase {
         openUsage(app)
         let totals = app.staticTexts["usage.totals"]
         XCTAssertTrue(row("00000000000b", app).waitForExistence(timeout: 10))
-        // An activity chip and its totals.
+        // Credits by activity, in the All view (owner, build 82): the ring in words, a legend row per named segment.
+        let ring = app.descendants(matching: .any)["usage.ring"]
+        XCTAssertTrue(ring.waitForExistence(timeout: 5))
+        XCTAssertTrue(ring.label.hasPrefix("Credits by activity: ") && ring.label.contains("Podcast 55 credits"), ring.label)
+        save("usage-\(device)-light-ring")
+        // A legend row chooses its activity's chip, as the chip itself does; a filtered list has no ring.
+        let legend = app.buttons["usage.legend.podcast"]
+        XCTAssertTrue(legend.exists); legend.tap()
         let podcast = app.buttons["usage.chip.podcast"]
-        XCTAssertTrue(podcast.waitForExistence(timeout: 5)); podcast.tap()
+        XCTAssertTrue(podcast.waitForExistence(timeout: 5))
+        XCTAssertTrue(podcast.isSelected, "The legend chose the podcast chip")
         let only = row("000000000006", app)
         XCTAssertTrue(only.waitForExistence(timeout: 5))
         XCTAssertEqual(rows(app).count, 1, "Only the podcast")
         XCTAssertTrue(totals.label.hasPrefix("55 credits · 1 request"), totals.label)
         XCTAssertFalse(app.buttons["usage.chip.web_search"].exists, "Only activities in the period")
+        XCTAssertFalse(ring.exists, "The ring is the All view's")
         save("usage-\(device)-light-chip")
         app.buttons["usage.chip.all"].tap()
         XCTAssertTrue(row("00000000000b", app).waitForExistence(timeout: 5))
+        XCTAssertTrue(ring.waitForExistence(timeout: 5))
         // More rows as the list scrolls: 38 in the fixture, 25 a page.
         let last = app.buttons["usage.row.14400000-0000-4000-8003-000000000029"]
         for _ in 0..<20 where !last.exists { app.swipeUp() }
@@ -125,6 +145,7 @@ final class AIUsageJourneyTests: XCTestCase {
         openUsage(app)
         XCTAssertTrue(app.staticTexts["No AI usage in the last 30 days"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["usage.chip.all"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["usage.ring"].exists)
         app.terminate()
         app = launch("light", ["--usage-fixture-fail-once"])
         openUsage(app)

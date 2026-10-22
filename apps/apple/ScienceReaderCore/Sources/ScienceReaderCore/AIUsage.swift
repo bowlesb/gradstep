@@ -166,6 +166,19 @@ public struct AIUsageActivityCount: Decodable, Equatable, Sendable {
     public let credits: Int64
 }
 
+/// One ring segment and legend row: a named activity, or Other (everything small or past the fourth). `slot` is the
+/// colour's place in the chart palette (0–3 by size; nil is Other's neutral): neighbours on the ring are always adjacent
+/// slots, the order the palette is validated for (docs/DESIGN.md "Credits by activity").
+public struct AIUsageSlice: Equatable, Sendable, Identifiable {
+    public let activity: AIUsageActivity?
+    public let label: String
+    public let credits: Int64
+    public let percent: String
+    public let slot: Int?
+    public let members: [String]
+    public var id: String { label }
+}
+
 public struct AIUsageCursor: Codable, Equatable, Sendable {
     /// Exactly as the server sent it (microseconds), so the next page starts after this row.
     public let createdAt: String
@@ -291,6 +304,49 @@ public enum AIUsageFormat {
         }
     }
     public static func creditsText(_ op: AIUsageOperation) -> String { creditsText(outcome: op.outcome, credits: op.credits, held: op.creditsHeld) }
+
+    // MARK: Credits by activity (owner, build 82: "a pie chart summarizing the cost types and their cost")
+
+    /// At most four named segments, each at least 4% of the period's credits; the rest is one Other.
+    public static let sliceNamed = 4, sliceMinShare = 0.04
+
+    /// The ring for the All view, or [] when there is nothing to compare (no credits, or one activity holds them all).
+    public static func slices(_ activities: [AIUsageActivityCount]) -> [AIUsageSlice] {
+        let charged = activities.filter { $0.credits > 0 }.sorted {
+            $0.credits != $1.credits ? $0.credits > $1.credits : $0.activity.name.localizedCaseInsensitiveCompare($1.activity.name) == .orderedAscending
+        }
+        let total = charged.reduce(Int64(0)) { $0 + $1.credits }
+        guard total > 0, charged.count >= 2 else { return [] }
+        var named: [AIUsageActivityCount] = [], rest: [AIUsageActivityCount] = []
+        for (index, item) in charged.enumerated() {
+            if index < sliceNamed, Double(item.credits) >= Double(total) * sliceMinShare, item.activity != .other { named.append(item) } else { rest.append(item) }
+        }
+        var out = named.enumerated().map { index, item in
+            AIUsageSlice(activity: item.activity, label: item.activity.name, credits: item.credits, percent: percentText(item.credits, of: total),
+                         slot: index, members: [])
+        }
+        if !rest.isEmpty {
+            let credits = rest.reduce(Int64(0)) { $0 + $1.credits }
+            out.append(AIUsageSlice(activity: nil, label: "Other", credits: credits, percent: percentText(credits, of: total), slot: nil,
+                                    members: rest.filter { $0.activity != .other }.map(\.activity.name)))
+        }
+        return out.count < 2 ? [] : out
+    }
+
+    /// A share in whole percent, half up ("<1%" for a sliver, ">99%" beside one), integer arithmetic so every device
+    /// writes the same.
+    public static func percentText(_ part: Int64, of total: Int64) -> String {
+        let n = (part * 200 + total) / (total * 2)
+        return n < 1 ? "<1%" : n >= 100 && part < total ? ">99%" : "\(n)%"
+    }
+
+    /// The chart in words (its accessibility label): "Credits by activity: Podcast 55 credits, 85%; Chat 7 credits, 11%; …".
+    public static func slicesSummary(_ slices: [AIUsageSlice]) -> String {
+        "Credits by activity: " + slices.map { s in
+            "\(s.label) \(grouped(s.credits)) \(s.credits == 1 ? "credit" : "credits"), \(s.percent)"
+                + (s.members.isEmpty ? "" : " (\(s.members.joined(separator: ", ")))")
+        }.joined(separator: "; ")
+    }
 
     /// 950 → "950", 1,500 → "1.5k", 20,000 → "20k", 1,250,000 → "1.3M" (JavaScript's Math.round: halves up).
     public static func compact(_ n: Int64) -> String {

@@ -285,6 +285,46 @@ export function totalsText(t: UsageTotals): string {
   return pieces.join(' · ');
 }
 
+// ---------- Credits by activity (owner, build 82: "a pie chart summarizing the cost types and their cost") ----------
+
+/** One ring segment and legend row: a named activity, or Other (everything small or past the fourth). `slot` is the
+ * colour's place in the chart palette (0–3 by size; Other is the neutral): neighbours on the ring are always adjacent
+ * slots, the order the palette is validated for (docs/DESIGN.md "Credits by activity"). */
+export interface UsageSlice { activity: UsageActivity | null; label: string; credits: number; percent: string; slot: number | 'other'; members: string[] }
+/** At most four named segments, each at least 4% of the period's credits; the rest is one Other. */
+export const SLICE_NAMED = 4, SLICE_MIN_SHARE = 0.04;
+
+/** The ring for the All view, or [] when there is nothing to compare (no credits, or one activity holds them all). */
+export function usageSlices(activities: readonly UsageActivityCount[]): UsageSlice[] {
+  const charged = activities.filter(a => a.credits > 0)
+    .sort((a, b) => b.credits - a.credits || activityName(a.activity).localeCompare(activityName(b.activity)));
+  const total = charged.reduce((sum, a) => sum + a.credits, 0);
+  if (!total || charged.length < 2) return [];
+  const named = charged.filter((a, i) => i < SLICE_NAMED && a.credits >= total * SLICE_MIN_SHARE && a.activity !== 'other');
+  const rest = charged.filter(a => !named.includes(a));
+  const slices: UsageSlice[] = named.map((a, i) => ({ activity: a.activity, label: activityName(a.activity), credits: a.credits,
+    percent: percentText(a.credits, total), slot: i, members: [] }));
+  if (rest.length) {
+    const credits = rest.reduce((sum, a) => sum + a.credits, 0);
+    slices.push({ activity: null, label: 'Other', credits, percent: percentText(credits, total), slot: 'other',
+      members: rest.filter(a => a.activity !== 'other').map(a => activityName(a.activity)) });
+  }
+  return slices.length < 2 ? [] : slices;
+}
+
+/** A share in whole percent, half up ("<1%" for a sliver, ">99%" beside one), integer arithmetic so every device
+ * writes the same. */
+export function percentText(part: number, total: number): string {
+  const n = Math.floor((part * 200 + total) / (total * 2));
+  return n < 1 ? '<1%' : n >= 100 && part < total ? '>99%' : `${n}%`;
+}
+
+/** The chart in words (its accessible name): "Credits by activity: Podcast 55 credits, 85%; Chat 7 credits, 11%; …". */
+export function slicesSummary(slices: readonly UsageSlice[]): string {
+  return 'Credits by activity: ' + slices.map(s => `${s.label} ${grouped(s.credits)} ${s.credits === 1 ? 'credit' : 'credits'}, ${s.percent}`
+    + (s.members.length ? ` (${s.members.join(', ')})` : '')).join('; ');
+}
+
 /** The ⓘ beside the totals: what affects cost (the same words in the apps). */
 export const USAGE_INFO = 'What a request costs depends on how much the model reads and writes. A paper chat sends the paper with each question; '
   + 'questions soon after reuse a cached copy, which costs much less. Longer conversations, longer answers, higher effort and larger models cost '

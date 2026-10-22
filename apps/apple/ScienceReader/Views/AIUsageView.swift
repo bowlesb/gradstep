@@ -25,6 +25,10 @@ struct AIUsageView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 summary
                 if screen.activities.count > 1 { chips }
+                // Credits by activity, in the All view only (owner, build 82).
+                if screen.activity == nil, let totals = screen.totals, case let slices = AIUsageFormat.slices(screen.activities), !slices.isEmpty {
+                    AIUsageRing(slices: slices, total: totals.credits) { screen.activity = $0 }
+                }
                 content
             }
             .frame(maxWidth: columns ? 980 : DesignMetrics.column)

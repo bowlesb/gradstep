@@ -1,12 +1,52 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  activityLabel, activityName, creditsText, loadUsage, modelLabel, outcomeLabel, partLabel, periodLabel, recallProvenance, tokensText, totalsText,
-  USAGE_INFO, USAGE_PERIODS, type UsageActivity, type UsageActivityCount, type UsageCursor, type UsageOperation, type UsageProvenance, type UsageTotals,
+  activityLabel, activityName, creditsText, grouped, loadUsage, modelLabel, outcomeLabel, partLabel, periodLabel, recallProvenance, slicesSummary,
+  tokensText, totalsText, usageSlices, USAGE_INFO, USAGE_PERIODS, type UsageActivity, type UsageActivityCount, type UsageCursor, type UsageOperation,
+  type UsageProvenance, type UsageSlice, type UsageTotals,
 } from '../lib/ai-usage';
 import { Dialog, formatDateTime, InfoTip, SheetTop } from './common';
 import './usage.css';
 
 const PERIOD_KEY = 'gradstep.usage-period';
+
+/** Credits by activity for the All view, as the apps' AIUsageRing: a thin ring (largest first, clockwise from the top,
+ * a surface gap between segments) and a legend with each name, its credits and share. A named segment or row chooses
+ * that activity's chip; Other lists what it holds. The legend carries every value, so colour never stands alone. */
+function UsageRing({ slices, total, onChoose }: { slices: UsageSlice[]; total: number; onChoose: (a: UsageActivity) => void }) {
+  const R = 44, C = 2 * Math.PI * R, GAP = 2;
+  const sum = slices.reduce((n, s) => n + s.credits, 0) || 1;
+  let start = 0;
+  const color = (s: UsageSlice) => `var(--viz-${s.slot === 'other' ? 'other' : s.slot + 1})`;
+  return <figure className="usage-ring" data-testid="usage-ring">
+    <div className="usage-ring-plot">
+      <svg viewBox="0 0 112 112" role="img" aria-label={slicesSummary(slices)}>
+        <g transform="rotate(-90 56 56)">
+          {slices.map(s => {
+            const length = s.credits / sum * C, offset = start; start += length;
+            const choose = s.activity ? () => onChoose(s.activity!) : undefined;
+            return <circle key={s.label} cx="56" cy="56" r={R} fill="none" stroke={color(s)} strokeWidth="14"
+              strokeDasharray={`${Math.max(length - GAP, 0.75)} ${C}`} strokeDashoffset={-(offset + GAP / 2)}
+              className={choose ? 'usage-ring-segment choosable' : 'usage-ring-segment'} onClick={choose} data-testid={`usage-ring-${s.activity ?? 'other'}`}>
+              <title>{`${s.label}: ${grouped(s.credits)} ${s.credits === 1 ? 'credit' : 'credits'}, ${s.percent}`}</title>
+            </circle>;
+          })}
+        </g>
+      </svg>
+      <div className="usage-ring-total" aria-hidden="true"><strong>{grouped(total)}</strong><span>{total === 1 ? 'credit' : 'credits'}</span></div>
+    </div>
+    <ul className="usage-legend" aria-label="Credits by activity">
+      {slices.map(s => {
+        const content = <><span className="usage-swatch" style={{ background: color(s) }} aria-hidden="true" />
+          <span className="usage-legend-name">{s.label}{s.members.length > 0 && <span className="usage-legend-members">{s.members.join(', ')}</span>}</span>
+          <span className="usage-legend-value">{grouped(s.credits)} <span className="muted">· {s.percent}</span></span></>;
+        return <li key={s.label}>{s.activity
+          ? <button type="button" className="usage-legend-row" onClick={() => onChoose(s.activity!)} data-testid={`usage-legend-${s.activity}`}
+              aria-label={`${s.label}, ${grouped(s.credits)} ${s.credits === 1 ? 'credit' : 'credits'}, ${s.percent}. Show only ${s.label}`}>{content}</button>
+          : <div className="usage-legend-row" data-testid="usage-legend-other">{content}</div>}</li>;
+      })}
+    </ul>
+  </figure>;
+}
 function savedPeriod(): number {
   try { const n = Number(localStorage.getItem(PERIOD_KEY)); return (USAGE_PERIODS as readonly number[]).includes(n) ? n : 30; } catch { return 30; }
 }
@@ -63,6 +103,8 @@ export function UsageDialog({ account, paperTitle, onClose }: {
     try { localStorage.setItem(PERIOD_KEY, String(value)); } catch { /* a per-browser convenience only */ }
   };
   const chips = activities.length > 1 ? activities : [];
+  // The All view's credits by activity (owner, build 82), from the period's per-activity totals (the whole window).
+  const slices = useMemo(() => activity ? [] : usageSlices(activities), [activity, activities]);
 
   return <Dialog open onClose={onClose} title="Your AI usage" className="usage-dialog" wide>
     <SheetTop onClose={onClose} testID="usage-close" trailing={
@@ -80,6 +122,7 @@ export function UsageDialog({ account, paperTitle, onClose }: {
       {chips.map(a => <button key={a.activity} className={activity === a.activity ? 'chip selected' : 'chip'} aria-pressed={activity === a.activity}
         onClick={() => setActivity(a.activity)} data-testid={`usage-chip-${a.activity}`}>{activityName(a.activity)}</button>)}
     </div>}
+    {slices.length > 0 && totals && <UsageRing slices={slices} total={totals.credits} onChoose={setActivity} />}
     {state === 'failed' && !rows.length ? <div className="usage-empty" data-testid="usage-error"><p className="issue" role="alert">Couldn’t load your AI usage.</p>
       <button className="button" onClick={() => load(null)}>Try again</button></div>
       : state === 'loading' && !rows.length ? <div className="usage-empty" role="status" aria-label="Loading your AI usage"><div className="spinner" /></div>

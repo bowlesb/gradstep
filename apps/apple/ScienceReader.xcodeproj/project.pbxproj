@@ -104,6 +104,7 @@
 		3B2C11614452FA53057A0BB0 /* DeviceApprovalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2AF682F191DAAA468C083F /* DeviceApprovalViews.swift */; };
 		3BD501A920FB577AEDFFDDD5 /* AIChoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CDE7F36423B7D249440590B /* AIChoiceView.swift */; };
 		3BDC3D01CE09D0FDBD1725E8 /* LibraryCommandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */; };
+		3C49B5DC2F9DE9AC135D6619 /* AIUsageRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9E38C1E180E579FE1FE620 /* AIUsageRing.swift */; };
 		3CC8C9EFC434C307A4BE7B6F /* SourceMetadataReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3084DEE040B695B9B273FCC /* SourceMetadataReporter.swift */; };
 		3CDEE394FE5D8123D2224D19 /* NativeSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */; };
 		3DEE5223C0B99C7B1A5CE572 /* ImportProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E617F5CD2460736D3FF9755B /* ImportProgressTests.swift */; };
@@ -300,6 +301,7 @@
 		BB29C39A25BFC22D6019C3D2 /* PodcastPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 456DE2782C3ABCD1E9D8CD7C /* PodcastPlayer.swift */; };
 		BB789A68504EB01EA15320EA /* UnsentDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E7F302ABE65AC6232843382 /* UnsentDraftTests.swift */; };
 		BBEDFC71B3662A5B04825DD3 /* DeviceModelReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDA405B1BC529221D0FEDDF3 /* DeviceModelReading.swift */; };
+		BCF399FC7DEFA96BCF3083D4 /* AIUsageRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9E38C1E180E579FE1FE620 /* AIUsageRing.swift */; };
 		BD61C87712AF1CD757EE22C7 /* ChatTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C36B2248A31D7B202EA750 /* ChatTransportTests.swift */; };
 		BD8EBEF9406873866116633B /* RecommendationJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D558D57E602AA9DEA893E216 /* RecommendationJourneyTests.swift */; };
 		BF0C2383A841C6893CDC4A02 /* ChatHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1EE828CB7FE38FB7CE66E3 /* ChatHistory.swift */; };
@@ -696,6 +698,7 @@
 		FCB86C221E1C6004E7485C6E /* LibrarySearchModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySearchModelTests.swift; sourceTree = "<group>"; };
 		FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandCoordinator.swift; sourceTree = "<group>"; };
 		FF2AF682F191DAAA468C083F /* DeviceApprovalViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceApprovalViews.swift; sourceTree = "<group>"; };
+		FF9E38C1E180E579FE1FE620 /* AIUsageRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIUsageRing.swift; sourceTree = "<group>"; };
 		FFDCE7A02D5BC2DE24DC1F5E /* WorkflowFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowFixture.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -975,6 +978,7 @@
 				E5FA8F3CB6F8807D5768936D /* AdvancedPaperSearch.swift */,
 				8CDE7F36423B7D249440590B /* AIChoiceView.swift */,
 				4E4DEDB86ECBEE16E85D3880 /* AIScenarioDefaults.swift */,
+				FF9E38C1E180E579FE1FE620 /* AIUsageRing.swift */,
 				538EF54F0A07FE4F03FFF334 /* AIUsageView.swift */,
 				204F9DAEB8BEC731D0394736 /* AssetsExportRow.swift */,
 				6CCA6B141496516544EC2620 /* AuthenticationView.swift */,
@@ -1334,6 +1338,7 @@
 				67812B2CCC325A73BD5DAE79 /* AIChoiceView.swift in Sources */,
 				845D68318D0EE8F57980216F /* AIScenarioDefaults.swift in Sources */,
 				D017B61192CFE10FCE3B0F14 /* AIUsageFixture.swift in Sources */,
+				3C49B5DC2F9DE9AC135D6619 /* AIUsageRing.swift in Sources */,
 				FEA8A975B58E0F233310EAA6 /* AIUsageService.swift in Sources */,
 				CC657316A18579DD46002A0D /* AIUsageView.swift in Sources */,
 				33BD5512E640C2243C3889E2 /* AddPaperFixture.swift in Sources */,
@@ -1601,6 +1606,7 @@
 				3BD501A920FB577AEDFFDDD5 /* AIChoiceView.swift in Sources */,
 				CE140E5181DFEF52FE18BC62 /* AIScenarioDefaults.swift in Sources */,
 				0450EBBE1FF2EF58CCD23FAC /* AIUsageFixture.swift in Sources */,
+				BCF399FC7DEFA96BCF3083D4 /* AIUsageRing.swift in Sources */,
 				6F4D64352E40C7CEDE4FA483 /* AIUsageService.swift in Sources */,
 				6A5D6E658F985C707E48BAFE /* AIUsageView.swift in Sources */,
 				45D99E7FDC45A814B298F9F2 /* AddPaperFixture.swift in Sources */,

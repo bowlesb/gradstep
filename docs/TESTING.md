@@ -28,6 +28,16 @@ fast/slow/step/old/error/cut); native `FigureViewJourneyTests/testTouchingAPartO
 the stream's timings and the published defaults; without `--profile` it asks with Sonnet, which writes its own cache).
 Screenshots under `.artifacts/figure-fullscreen/` and `.artifacts/equation-progress/`.
 
+## Credits by activity (Your AI usage › All) — October 22
+
+Fast (in `npm test`): browser `ai-usage.test.ts` renders the ring's slices and words for the page's activities and the
+fixture's `slice_cases` (Other, ties, a sliver, one activity, nothing charged) into `tests/fixtures/ai-usage.json`
+(`UPDATE_USAGE_FIXTURE=1`); Core `swift test --filter AIUsageTests` (`theRingIsTheBrowsers`) checks the same expectations.
+Slow, opt-in: Playwright `npx playwright test ai-usage.spec.ts --project=desktop --project=phone` (the ring's words,
+legend chooses a chip, none when filtered or empty; screenshots `.artifacts/ai-usage-20261022/*-ring.png`); native
+`-only-testing:ScienceReaderUITests/AIUsageJourneyTests` on an iPhone Simulator (`TEST_RUNNER_GS_SCREENSHOT_DIR` for
+`usage-iphone-light-ring.png`).
+
 ## Your AI usage and collapsible snippet cards — October 22
 
 Fast (in `npm test`): backend `tests/backend/ai-usage.test.ts` (every chat action, provider route and operation kind has a

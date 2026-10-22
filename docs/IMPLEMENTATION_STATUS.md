@@ -1,5 +1,19 @@
 # Implementation status
 
+## Credits by activity in Your AI usage — 2026-10-22 UTC (apps and browser local, not released)
+
+Owner, build-82 feedback: "The very top before the list when on All a pie chart summarizing the cost types and their
+cost." Your AI usage › All now shows a thin ring of the period's credits by activity under the totals line, with a
+legend (name, credits, share); a segment or legend row chooses that activity's chip; Other gathers activities under 4%
+or past the fourth. iPhone/iPad/Mac (`Views/AIUsageRing.swift`, Swift Charts) and the browser (`UsageRing`, inline SVG).
+No server change: the slices come from `v1_ai_usage`'s per-activity totals. Decisions:
+[DECISIONS](DECISIONS.md#your-ai-usage-owner-request-2026-10-22-agent-decisions-reversible); spec: DESIGN.md "Credits by
+activity". Evidence: `npm test` passes; Core `swift test` AIUsageTests 7/7 (`theRingIsTheBrowsers` against the shared
+fixture); Playwright `ai-usage.spec.ts` desktop + phone 6/6 (light and dark); iPhone 17 Simulator `AIUsageJourneyTests` 3/3
+(the ring's words, legend chooses the chip, none when filtered or empty; the list check now scrolls to rows the ring
+pushes below the fold); Mac Catalyst builds; Core `swift test` 437 pass. Screenshots `.artifacts/ai-usage-20261022/*-ring.png`,
+`.artifacts/ai-usage-ring-native/`. Not verified: iPad and Mac journeys, physical device (paused).
+
 ## TestFlight 83 and browser release — 2026-10-22 UTC
 
 iOS and Mac build 83 uploaded; browser redeployed. Adds since 82 (owner's build-82 feedback): the paper AI Explainer's

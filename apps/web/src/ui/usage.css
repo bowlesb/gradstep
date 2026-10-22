@@ -46,3 +46,29 @@ button.usage-row:focus-visible { outline: 2px solid var(--focus); outline-offset
   .usage-parts { padding: 4px 4px 10px 12px; }
   .usage-parts li { grid-template-columns: 1fr; gap: 0; padding: 4px 0; }
 }
+
+/* Credits by activity (All view): a thin ring and its legend. Colours by size, from the chart palette's validated
+   adjacent order (slots 1–4) and a neutral Other; the legend carries every value (docs/DESIGN.md "Credits by activity"). */
+:root { --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100; --viz-other: #8c8a85; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-other: #6b6a66; }
+}
+:root[data-theme="dark"] { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-other: #6b6a66; }
+.usage-ring { margin: 2px 0 6px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.usage-ring-plot { position: relative; width: 112px; height: 112px; flex: none; }
+.usage-ring-plot svg { width: 100%; height: 100%; display: block; }
+.usage-ring-segment.choosable { cursor: pointer; }
+.usage-ring-segment.choosable:hover { stroke-width: 16; }
+.usage-ring-total { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.usage-ring-total strong { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.usage-ring-total span { font-size: 11px; color: var(--muted); }
+.usage-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1 1 150px; min-width: 0; max-width: 360px; }
+.usage-legend-row { min-height: 28px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; width: 100%; padding: 4px 6px;
+  border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; }
+button.usage-legend-row { cursor: pointer; }
+button.usage-legend-row:hover { background: var(--row-hover); }
+button.usage-legend-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.usage-swatch { width: 10px; height: 10px; border-radius: 3px; align-self: center; }
+.usage-legend-name { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.usage-legend-members { color: var(--muted); font-size: 12px; }
+.usage-legend-value { font-variant-numeric: tabular-nums; white-space: nowrap; }

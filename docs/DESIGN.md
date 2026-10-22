@@ -185,6 +185,15 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   Model · Tokens · Cost under a quiet `.footnote` header. A tap opens the row's parts beneath it (no animation with
   Reduce Motion). Chips follow Filters; the period is a ⋯ submenu; the totals carry the ⓘ. Code: `Views/AIUsageView.swift`;
   browser `ui/UsageDialog.tsx`, `usage.css`.
+- **Credits by activity** (Your AI usage › All, owner build 82): a 112 pt ring (inner radius 74%, 1 pt angular inset /
+  2 px surface gap between segments) with the period's credits in its centre, and a legend beside it (stacked under it at
+  accessibility text sizes): swatch, name (Other lists its members in `.caption` secondary), "credits · share" trailing
+  in tabular digits. At most four named segments plus Other, coloured by size from the chart palette — light
+  `#2a78d6 #eb6834 #1baf7a #eda100`, Other `#8c8a85`; dark `#3987e5 #d95926 #199e70 #c98500`, Other `#6b6a66` — so
+  neighbours are always adjacent slots (validated for colour-blind and normal-vision separation on both surfaces).
+  Text never takes a series colour. Tapping a named segment or legend row chooses its chip. The ring's accessibility
+  label is the whole chart in words. Code: `Views/AIUsageRing.swift`; browser `UsageRing` in `ui/UsageDialog.tsx`;
+  slices `AIUsageFormat.slices` / `usageSlices`.
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.

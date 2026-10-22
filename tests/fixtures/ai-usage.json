@@ -505,6 +505,111 @@
   999999,
   1250000
  ],
+ "slice_cases": [
+  [
+   {
+    "activity": "chat",
+    "operations": 1,
+    "credits": 400
+   },
+   {
+    "activity": "figure_explainer",
+    "operations": 1,
+    "credits": 300
+   },
+   {
+    "activity": "equation_explainer",
+    "operations": 1,
+    "credits": 150
+   },
+   {
+    "activity": "study",
+    "operations": 1,
+    "credits": 100
+   },
+   {
+    "activity": "podcast",
+    "operations": 1,
+    "credits": 30
+   },
+   {
+    "activity": "tags",
+    "operations": 1,
+    "credits": 15
+   },
+   {
+    "activity": "web_search",
+    "operations": 1,
+    "credits": 5
+   }
+  ],
+  [
+   {
+    "activity": "chat",
+    "operations": 1,
+    "credits": 970
+   },
+   {
+    "activity": "figure_explainer",
+    "operations": 1,
+    "credits": 25
+   },
+   {
+    "activity": "tags",
+    "operations": 1,
+    "credits": 5
+   }
+  ],
+  [
+   {
+    "activity": "chat",
+    "operations": 1,
+    "credits": 10
+   },
+   {
+    "activity": "study",
+    "operations": 1,
+    "credits": 0
+   }
+  ],
+  [],
+  [
+   {
+    "activity": "study",
+    "operations": 1,
+    "credits": 5
+   },
+   {
+    "activity": "figure_explainer",
+    "operations": 1,
+    "credits": 5
+   }
+  ],
+  [
+   {
+    "activity": "other",
+    "operations": 1,
+    "credits": 60
+   },
+   {
+    "activity": "chat",
+    "operations": 1,
+    "credits": 40
+   }
+  ],
+  [
+   {
+    "activity": "chat",
+    "operations": 1,
+    "credits": 999
+   },
+   {
+    "activity": "figure_explainer",
+    "operations": 1,
+    "credits": 1
+   }
+  ]
+ ],
  "expected": {
   "rows": [
    {
@@ -701,6 +806,183 @@
    "Recommendations",
    "Study",
    "Tags"
+  ],
+  "slices": [
+   {
+    "slices": [
+     {
+      "activity": "podcast",
+      "label": "Podcast",
+      "credits": 55,
+      "percent": "85%",
+      "slot": 0,
+      "members": []
+     },
+     {
+      "activity": "chat",
+      "label": "Chat",
+      "credits": 7,
+      "percent": "11%",
+      "slot": 1,
+      "members": []
+     },
+     {
+      "activity": "figure_explainer",
+      "label": "Figure explainer",
+      "credits": 3,
+      "percent": "5%",
+      "slot": 2,
+      "members": []
+     }
+    ],
+    "summary": "Credits by activity: Podcast 55 credits, 85%; Chat 7 credits, 11%; Figure explainer 3 credits, 5%"
+   },
+   {
+    "slices": [
+     {
+      "activity": "chat",
+      "label": "Chat",
+      "credits": 400,
+      "percent": "40%",
+      "slot": 0,
+      "members": []
+     },
+     {
+      "activity": "figure_explainer",
+      "label": "Figure explainer",
+      "credits": 300,
+      "percent": "30%",
+      "slot": 1,
+      "members": []
+     },
+     {
+      "activity": "equation_explainer",
+      "label": "Equation explainer",
+      "credits": 150,
+      "percent": "15%",
+      "slot": 2,
+      "members": []
+     },
+     {
+      "activity": "study",
+      "label": "Study",
+      "credits": 100,
+      "percent": "10%",
+      "slot": 3,
+      "members": []
+     },
+     {
+      "activity": null,
+      "label": "Other",
+      "credits": 50,
+      "percent": "5%",
+      "slot": "other",
+      "members": [
+       "Podcast",
+       "Tags",
+       "Web search"
+      ]
+     }
+    ],
+    "summary": "Credits by activity: Chat 400 credits, 40%; Figure explainer 300 credits, 30%; Equation explainer 150 credits, 15%; Study 100 credits, 10%; Other 50 credits, 5% (Podcast, Tags, Web search)"
+   },
+   {
+    "slices": [
+     {
+      "activity": "chat",
+      "label": "Chat",
+      "credits": 970,
+      "percent": "97%",
+      "slot": 0,
+      "members": []
+     },
+     {
+      "activity": null,
+      "label": "Other",
+      "credits": 30,
+      "percent": "3%",
+      "slot": "other",
+      "members": [
+       "Figure explainer",
+       "Tags"
+      ]
+     }
+    ],
+    "summary": "Credits by activity: Chat 970 credits, 97%; Other 30 credits, 3% (Figure explainer, Tags)"
+   },
+   {
+    "slices": [],
+    "summary": null
+   },
+   {
+    "slices": [],
+    "summary": null
+   },
+   {
+    "slices": [
+     {
+      "activity": "figure_explainer",
+      "label": "Figure explainer",
+      "credits": 5,
+      "percent": "50%",
+      "slot": 0,
+      "members": []
+     },
+     {
+      "activity": "study",
+      "label": "Study",
+      "credits": 5,
+      "percent": "50%",
+      "slot": 1,
+      "members": []
+     }
+    ],
+    "summary": "Credits by activity: Figure explainer 5 credits, 50%; Study 5 credits, 50%"
+   },
+   {
+    "slices": [
+     {
+      "activity": "chat",
+      "label": "Chat",
+      "credits": 40,
+      "percent": "40%",
+      "slot": 0,
+      "members": []
+     },
+     {
+      "activity": null,
+      "label": "Other",
+      "credits": 60,
+      "percent": "60%",
+      "slot": "other",
+      "members": []
+     }
+    ],
+    "summary": "Credits by activity: Chat 40 credits, 40%; Other 60 credits, 60%"
+   },
+   {
+    "slices": [
+     {
+      "activity": "chat",
+      "label": "Chat",
+      "credits": 999,
+      "percent": ">99%",
+      "slot": 0,
+      "members": []
+     },
+     {
+      "activity": null,
+      "label": "Other",
+      "credits": 1,
+      "percent": "<1%",
+      "slot": "other",
+      "members": [
+       "Figure explainer"
+      ]
+     }
+    ],
+    "summary": "Credits by activity: Chat 999 credits, >99%; Other 1 credit, <1% (Figure explainer)"
+   }
   ]
  }
 }

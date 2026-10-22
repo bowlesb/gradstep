@@ -56,6 +56,13 @@ for (const scheme of ['light', 'dark'] as const) test(`Your AI usage: rows, labe
   await expect(row('000000000005')).toContainText('In progress'); await expect(row('000000000005')).toContainText('Up to 30');
   await expect(row('000000000007')).toContainText('Tags'); await expect(row('000000000007')).toContainText('Free');
   await expect(row('000000000006')).toContainText('Podcast'); await expect(row('000000000006')).toContainText('55 credits');
+  // Credits by activity (All view, owner build 82): the ring's words name every segment; the largest first.
+  const ring = usage.getByTestId('usage-ring');
+  await expect(ring).toBeVisible();
+  await expect(ring.getByRole('img')).toHaveAccessibleName('Credits by activity: Chat 70 credits, 55%; Podcast 55 credits, 43%; Other 3 credits, 2% (Figure explainer)');
+  await expect(usage.getByTestId('usage-legend-podcast')).toContainText('55');
+  await expect(ring.locator('.usage-legend li')).toHaveCount(await ring.locator('circle').count());
+  await page.screenshot({ path: `${SHOTS}/browser-${info.project.name}-${scheme}-ring.png` });
   await page.screenshot({ path: `${SHOTS}/browser-${info.project.name}-${scheme}-list.png` });
 
   // A row's parts: the answer, its suggestions and title, the search.
@@ -82,8 +89,16 @@ for (const scheme of ['light', 'dark'] as const) test(`Your AI usage: rows, labe
   await expect(usage.locator('.usage-list > li')).toHaveCount(1);
   await expect(usage.getByTestId('usage-totals')).toHaveText(/Last 30 days · Podcast: 55 credits · 1 request · 108k tokens$/);
   await expect(usage.getByTestId('usage-chip-web_search')).toHaveCount(0);
+  // The ring is the All view's: a filtered list has no chart.
+  await expect(usage.getByTestId('usage-ring')).toHaveCount(0);
   await usage.getByTestId('usage-chip-all').click();
   await expect(usage.locator('.usage-list > li')).toHaveCount(25);
+  // A legend row chooses its activity's chip.
+  await usage.getByTestId('usage-legend-chat').click();
+  await expect(usage.getByTestId('usage-chip-chat')).toHaveAttribute('aria-pressed', 'true');
+  await expect(usage.getByTestId('usage-totals')).toContainText('Last 30 days · Chat:');
+  await usage.getByTestId('usage-chip-all').click();
+  await expect(usage.getByTestId('usage-ring')).toBeVisible();
 
   // What affects cost, behind ⓘ.
   await expect(usage.getByTestId('usage-info')).toHaveAccessibleDescription(/cached copy/);
@@ -107,6 +122,7 @@ test('Your AI usage: empty, then a failure with Try again', async ({ page, reque
   let usage = await openUsage(page);
   await expect(usage.getByTestId('usage-empty')).toContainText('No AI usage in the last 30 days');
   await expect(usage.locator('.usage-chips')).toHaveCount(0);
+  await expect(usage.getByTestId('usage-ring')).toHaveCount(0);
   await usage.getByTestId('usage-close').click();
   await request.post(`${API}/__usage`, { data: { fail: true } });
   usage = await openUsage(page);
