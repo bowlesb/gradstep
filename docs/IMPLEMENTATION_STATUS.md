@@ -1,5 +1,34 @@
 # Implementation status
 
+## Study mode reworked, the paper's AI Explainer, App Store pricing applied — 2026-10-22 UTC (server and browser released; TestFlight 82 pending the import gate)
+
+- **Study mode** (owner: "too complex"): "Enter Study Mode – Quiz me and help me learn" is a starter in an empty paper
+  chat and always the last suggestion after an answer. Studying is the paper chat with a tutor that asks one question at
+  a time and backs off when the reader asks for an explanation; a slim row above the composer offers Hint · Explain
+  instead · Stop. The tutor's hidden notes on the reader (`study_state`) ride in the answer and are filtered out of what
+  the reader sees; the old study map, its tool call and the Study screens are gone (old builds' map requests are
+  accepted and ignored).
+- **The paper's AI Explainer** (paper ⋯ › AI Explainer): In short, Background and Key ideas with ¶ links ("Back to AI
+  Explainer" after a jump), a concept diagram, its own conversation with Open in Chat; streamed with the explainers'
+  progress bar; kept per paper revision and model (Settings › Your assets › Paper explanations). Settles as an ordinary
+  answer (no migration); Your AI usage lists it as Chat.
+- **Visual suggestions:** a generic "draw a diagram / visual explanation" suggestion only when the model offered no picture.
+- **Free AI refusals** in both paper explainers (browser and apps), as in chat, figures and equations.
+- **Server:** chat function deployed 13:40 UTC from main `c8768872` (pricing switches and Study mode together) after
+  backup `.artifacts/backups/20261022T133918Z-98774b4e5c63`; deploy suites 18 passed, `budget.health` fails on the
+  existing 81% of October's $40.
+- **Live (staging, DPO):** Sonnet: summary 3.7 s, first entry 4.5 s, whole explainer 13.2 s, 47 credits ($0.23, mostly the
+  one-hour cache write of the paper). Gemini Flash low (the default): summary 16.3 s, whole explainer 21.3 s, 2 credits.
+  Streamed entries equal the final ones in both.
+- **Browser:** deployed to app.gradstep.ai (Pages `f67bba68`).
+- **App Store Connect (owner approved, "I approve"):** `asc-pricing-plan.mjs --apply --owner-approved=2026-10-22` made the
+  8 API changes; read-back matches (Plus $7.99 + $3.99 first month, Plus yearly $79.99, Pro 2,000 credits, Pro yearly
+  $199.99, packs 300/700). Manual steps left: OWNER_ACTIONS 13.
+- **Evidence:** `npm test` passes; Core `swift test` 433 pass; iPhone 17 Simulator `StudyExplainerJourneyTests` 3/3 pass
+  after the merge. The branch's agent reported the journeys on iPad Pro 13 and Mac Catalyst before the merge; not rerun.
+  Known older failures, unrelated: ChatVisualTests consent v5, two Podcast length-limit tests, LibraryModelTests (local
+  artifacts), ChatControlsTests (expects DeepSeek in the picker). Not verified: physical device (paused).
+
 ## Pricing accepted: free AI pool, plans, Spend vs income, alerts, owner switches — 2026-10-22 UTC (server and admin on staging; apps and browser local, not released)
 
 Owner: "I will take your defaults", then "the complexity of the pricing system and what debug strategies I'll have if my
@@ -37,8 +66,8 @@ spend somehow becomes very high in relation to my incoming money." Plain-languag
   `testAnAnswerRefusedWhenTheMonthsFreeAIIsUsedUp` light/dark pass (`.artifacts/pricing-native/`), Mac Catalyst builds,
   test build after merging main succeeds. Not verified: physical device (paused), iPad/Mac UI journeys, a real
   Production purchase, inbox delivery of the alert (Resend accepted it).
-- **For other branches:** migration `202610220145_paper_explainer_action.sql` (branch `worktree-agent-a19dafdce0ac1d1c6`,
-  not applied) must be renumbered above 0151 before it is deployed: the ledger only accepts migrations in order.
+- **For other branches:** the paper explainer's migration was dropped instead (it settles as an answer); see the Study
+  mode entry above.
 
 ## Full screen on touch; equation explainer streamed; figures default Gemini again — 2026-10-22 UTC (server on staging; apps and browser local, not released)
 
