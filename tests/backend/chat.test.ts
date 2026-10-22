@@ -12,12 +12,13 @@ import { routerDeepSeekRates, ROUTER_DEEPSEEK_TARIFF } from '../../supabase/func
 import { openRouterChat } from '../../supabase/functions/_shared/openrouter-chat.ts';
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
-import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
+import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, isVisualFollowUp, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
 import { EQUATION_MAX_TOKENS, equationSymbols, paragraphCount } from '../../supabase/functions/_shared/chat-equation.ts';
 import { figureBox, figureDetail, figureDetailMaxTokens, figureMaxTokens, figureViewEffort, figureWalkthrough, FigureWalkthroughStream, figureWalkthroughText, offeredBoxes,
   type FigureStreamItem } from '../../supabase/functions/_shared/chat-figure-view.ts';
 import { openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
-import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_MAX_TOKENS, studyMap, UPDATE_STUDY_MAP_TOOL } from '../../supabase/functions/_shared/chat-study.ts';
+import { STUDY_STATE_LIMITS, studyState, StudyStateFilter, studyStateFromText } from '../../supabase/functions/_shared/chat-study.ts';
+import { paperExplainer, paperExplainerMaxTokens, PaperExplainerStream, paperExplainerText, type PaperExplainerStreamItem } from '../../supabase/functions/_shared/chat-paper-explainer.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
   canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
@@ -1677,142 +1678,262 @@ test('a numbered local context (v2) asks for grounded citations; v1 and server-h
   assert.doesNotMatch(chatInstructions('general', null, false, { citations: true }), /\[¶12\]/);
 });
 
-// Study (chat-study.ts): a tutored turn carries the reader's knowledge map; a forced Haiku request updates it after the answer.
-const studyContext = { ...localContext, format: 'reader-local-context-v2' };
-const studyBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: studyContext, action: 'study', study: EMPTY_STUDY_MAP,
-  messages: [{ role: 'user', text: 'Start studying this paper.' }], ...overrides });
-const sampleMap = { concepts: [{ id: 'scaling', label: 'Scaled dot-product attention', state: 'learning', paragraphs: [3, 4], note: 'Confuses d_k with d_model' },
-  { id: 'softmax', label: 'Softmax saturation', state: 'unknown', paragraphs: [4] }],
-  links: [{ from: 'softmax', to: 'scaling', kind: 'prerequisite' }], focus: 'scaling', journey: ['scaling', 'softmax', 'scaling'], next: 'verify' };
+// Study mode (chat-study.ts, reworked 2026-10-22): the tutor writes its hidden notes in its own reply; the server removes
+// them from the stream, checks them and relays them once as `study_state`; the device sends them back with the next turn.
+const studyText = Array.from({ length: 30 }, (_, i) => `[¶${i + 1}] Paragraph ${i + 1} device-only-context-marker.`).join('\n');
+const studyContext = { ...localContext, format: 'reader-local-context-v2', text: studyText };
+const studyBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: studyContext, action: 'study',
+  messages: [{ role: 'user', text: 'Quiz me and help me learn this paper.' }], ...overrides });
+const sampleNotes = { turn: 2, level: 'core', concepts: [{ name: 'Scaled dot-product attention', status: 'shaky', asked: [1, 2], paras: [3, 4] },
+  { name: 'Softmax saturation', status: 'new', asked: [2], paras: [4] }], next: 'check scaling from a new angle; revisit softmax at turn 5' };
+const legacyMap = { concepts: [{ id: 'scaling', label: 'Scaled dot-product attention', state: 'learning', paragraphs: [3, 4] }], links: [], focus: 'scaling', journey: ['scaling'], next: 'verify' };
 const studyHarness = (options: Parameters<typeof harness>[0] = {}) =>
   harness({ ...options, script: { worker_local_chat_context: () => ({ title: 'Attention' }), ...options.script } });
-function studyOutcome(map: unknown, changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
-  return completeOutcome({ messageID: 'msg_study', model: HAIKU, stopReason: 'tool_use',
-    toolCalls: [{ name: 'update_study_map', input: map }],
-    attempts: [{ model: HAIKU, estimated: false, billedMicrousd: 170, usage: { input: 700, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 200 } }], ...changes });
-}
+const notesBlock = (notes: unknown) => `<study_state>${JSON.stringify(notes)}</study_state>`;
 
-test('a Study turn is a paper action on numbered local context that carries a validated map and no follow-ups', () => {
-  const parsed = validateChatRequest(studyBody({ study: sampleMap }));
-  assert.equal(parsed.action, 'study'); assert.deepEqual(parsed.study, sampleMap); assert.equal(parsed.selection, null);
-  // The map is part of the digest: the same question over a different map is a different request.
-  assert.notEqual(canonicalRequest(parsed), canonicalRequest(validateChatRequest(studyBody())));
-  assert.match(canonicalRequest(parsed), /"study":\{"concepts"/);
+test('a Study turn is a paper action on numbered local context; the notes are optional, checked and digested; an old map is accepted and ignored', () => {
+  const first = validateChatRequest(studyBody());
+  assert.equal(first.action, 'study'); assert.equal(first.studyState, undefined); assert.equal(first.selection, null);
+  const later = validateChatRequest(studyBody({ study_state: sampleNotes }));
+  assert.deepEqual(later.studyState, sampleNotes);
+  assert.notEqual(canonicalRequest(later), canonicalRequest(first), 'the notes are part of the digest');
+  assert.match(canonicalRequest(later), /"study_state":\{"turn":2/);
+  // A 2026-10-14 build still sends its knowledge map: accepted (in the digest), never read by the tutor.
+  const old = validateChatRequest(studyBody({ study: legacyMap }));
+  assert.deepEqual(old.legacyStudy, legacyMap); assert.equal(old.studyState, undefined); assert.match(canonicalRequest(old), /"study":\{"concepts"/);
+  // Notes that can't be read are repaired or dropped rather than refused.
+  assert.deepEqual(validateChatRequest(studyBody({ study_state: { turn: 'x', concepts: 'none' } })).studyState, { turn: 1, level: 'core', concepts: [], next: '' });
   for (const [label, change] of Object.entries({
-    'no map': { study: undefined }, 'null map': { study: null }, 'map without links': { study: { concepts: [] } },
-    'unknown state': { study: { ...sampleMap, concepts: [{ ...sampleMap.concepts[0], state: 'mastered' }] } },
-    'too many concepts': { study: { ...sampleMap, concepts: Array.from({ length: 61 }, (_, i) => ({ id: `c${i}`, label: 'c', state: 'known', paragraphs: [] })) } },
-    'general mode': { mode: 'general', local_context: undefined },
-    'server document': { document_id: documentID, local_context: undefined },
-    'unnumbered context (v1)': { local_context: localContext },
-    'follow-ups beside the tutor': { follow_ups: true },
+    'notes not an object': { study_state: 'turn 2' }, 'notes too large': { study_state: { ...sampleNotes, next: 'n'.repeat(5_000) } },
+    'map not an object': { study: [1] }, 'map too large': { study: { concepts: 'x'.repeat(20_000) } },
+    'general mode': { mode: 'general', local_context: undefined }, 'server document': { document_id: documentID, local_context: undefined },
+    'unnumbered context (v1)': { local_context: localContext }, 'follow-ups beside the tutor': { follow_ups: true },
   })) assert.throws(() => validateChatRequest(studyBody(change as Record<string, unknown>)), { code: 'invalid_request' }, label);
-  // Only Study carries a map.
-  assert.throws(() => validateChatRequest(paperBody({ study: EMPTY_STUDY_MAP })), { code: 'invalid_request' });
-  // A selection may start the study on a passage; it is not required.
+  // Only Study carries notes or a map.
+  assert.throws(() => validateChatRequest(paperBody({ study_state: sampleNotes })), { code: 'invalid_request' });
+  assert.throws(() => validateChatRequest(paperBody({ study: legacyMap })), { code: 'invalid_request' });
   assert.equal(validateChatRequest(studyBody({ selection: { quote: 'divide by sqrt(d_k)' } })).selection, 'divide by sqrt(d_k)');
 });
 
-test('the map validator survives one careless element: bad links, journey entries and self links are dropped, long text is cut, ids are slugged', () => {
-  const cleaned = studyMap({ ...sampleMap, concepts: [{ id: 'scaling', label: ' Scaled\u0000 dot-product ', state: 'known', paragraphs: [4, 3, 3, 0, 1e9], note: '' },
-    { id: 'softmax', label: 'Softmax', state: 'unknown', paragraphs: [] }], links: [...sampleMap.links, ...sampleMap.links, { from: 'softmax', to: 'softmax', kind: 'related' }], focus: null, next: 'sideways' })!;
-  assert.deepEqual(cleaned.concepts[0], { id: 'scaling', label: 'Scaled dot-product', state: 'known', paragraphs: [3, 4] });
-  assert.equal(cleaned.links.length, 1, 'duplicate links collapse and a self link is dropped'); assert.equal(cleaned.focus, null); assert.equal(cleaned.next, 'calibrate', 'an unknown next step calibrates');
-  assert.equal(studyMap({ ...sampleMap, concepts: [...sampleMap.concepts, { id: 'scaling', label: 'dup', state: 'known', paragraphs: [] }] })!.concepts.length, 2, 'a duplicate id keeps the first');
-  // A model's id in label form is slugged, and links and the journey written with that form still resolve.
-  const slugged = studyMap({ concepts: [{ id: 'Reference Model', label: 'Reference model', state: 'learning', paragraphs: [] }, { id: 'kl', label: 'KL penalty', state: 'unknown', paragraphs: [] }],
-    links: [{ from: 'Reference Model', to: 'kl', kind: 'related' }, { from: 'kl', to: 'ghost', kind: 'deeper' }], focus: 'Reference Model', journey: ['kl', 'ghost', 'Reference Model'], next: 'teach' })!;
-  assert.deepEqual(slugged.concepts.map(c => c.id), ['reference-model', 'kl']); assert.deepEqual(slugged.links, [{ from: 'reference-model', to: 'kl', kind: 'related' }]);
-  assert.equal(slugged.focus, 'reference-model'); assert.deepEqual(slugged.journey, ['kl', 'reference-model']);
-  assert.equal(studyMap({ ...sampleMap, concepts: [{ id: '---', label: 'x', state: 'known', paragraphs: [] }], links: [], journey: [], focus: null }), null, 'no usable id is fatal');
-  assert.equal(studyMap({ ...sampleMap, focus: 'ghost' })!.focus, null, 'a focus off the map is dropped, not fatal');
-  const long = studyMap({ ...sampleMap, concepts: [{ ...sampleMap.concepts[0], label: 'L'.repeat(100), note: 'n'.repeat(200) }, sampleMap.concepts[1]] })!;
-  assert.equal([...long.concepts[0].label].length, 80); assert.ok(long.concepts[0].label.endsWith('…')); assert.equal([...long.concepts[0].note!].length, 160);
-  assert.deepEqual(studyMap(EMPTY_STUDY_MAP), EMPTY_STUDY_MAP);
-  // The model's largest possible map fits the request the hold is sized for.
-  assert.ok(promptCharacters(STUDY_HOLD_PARAMS) > 16_000);
+test('the notes checker repairs what a model writes: unknown values fall back, names are cleaned, duplicates keep the newest, lists are bounded', () => {
+  const checked = studyState({ turn: 3, level: 'expert', next: ' revisit\u0000 <softmax> ', concepts: [
+    { name: ' Softmax ', status: 'mastered', asked: [3, 1, 1, 0, 9_999], paras: [40, 2, 2] },
+    { name: '', status: 'ok' }, 'junk', { name: 'softmax', status: 'ok', asked: [2], paras: [4] },
+    ...Array.from({ length: 20 }, (_, i) => ({ name: `Concept ${i}`, status: 'ok', asked: [1], paras: [1] })),
+  ] }, 30)!;
+  assert.equal(checked.level, 'core', 'an unknown level is core'); assert.equal(checked.next, 'revisit softmax');
+  assert.equal(checked.concepts.length, STUDY_STATE_LIMITS.concepts, 'at most 12 concepts, the newest kept');
+  assert.ok(!checked.concepts.some(c => c.name.toLowerCase() === 'softmax'), 'the oldest concepts give way to newer ones');
+  const small = studyState({ turn: 3, concepts: [{ name: ' Softmax ', status: 'mastered', asked: [3, 1, 1, 0, 9_999], paras: [40, 2, 2] }, { name: 'softmax', status: 'ok', asked: [2], paras: [4] }] }, 30)!;
+  assert.deepEqual(small.concepts, [{ name: 'softmax', status: 'ok', asked: [2], paras: [4] }], 'a repeated name keeps the newest');
+  assert.deepEqual(studyState({ concepts: [{ name: 'A', status: 'mastered', asked: [3, 1, 1, 0, 9_999], paras: [40, 2, 2] }] }, 30)!.concepts[0],
+    { name: 'A', status: 'new', asked: [1, 3], paras: [2] }, 'an unknown status is new; turns and paragraphs bounded, unique and sorted');
+  assert.equal(studyState(null), null); assert.equal(studyState([sampleNotes]), null);
+  assert.equal(studyStateFromText('```json\n' + JSON.stringify(sampleNotes) + '\n```', 30)!.turn, 2, 'a code fence around the notes is ignored');
+  assert.equal(studyStateFromText('not json', 30), null);
 });
 
-test('Study: the tutor sees the map after the paper, the map request runs after the answer and is relayed once before done', async () => {
+test('the notes filter hides the block wherever it is and however the stream splits it, and shows everything else', () => {
+  const visible = 'Right: dividing by √d_k keeps the logits small [¶4].\n\n**What happens to softmax gradients without it?**\n\n';
+  const reply = `${visible}${notesBlock(sampleNotes)}`;
+  for (const size of [1, 2, 3, 5, 7, 13, 64, reply.length]) {
+    const filter = new StudyStateFilter(); let shown = '';
+    for (let i = 0; i < reply.length; i += size) shown += filter.push(reply.slice(i, i + size));
+    const end = filter.finish(); shown += end.text;
+    assert.equal(shown, visible, `split every ${size}`); assert.deepEqual(studyStateFromText(end.raw, 30), sampleNotes, `notes, split every ${size}`);
+  }
+  // Notes written first, words after them, an unterminated block, a lone '<' and a near-miss tag.
+  const first = new StudyStateFilter();
+  assert.equal(first.push(`${notesBlock(sampleNotes)}\n**Question?**`) + first.finish().text, '\n**Question?**');
+  const open = new StudyStateFilter();
+  assert.equal(open.push('Answer. <study_state>{"turn": 1, "conc') + open.finish().text, 'Answer. ');
+  const plain = new StudyStateFilter();
+  assert.equal(plain.push('x < y and <study') + plain.push('_notes> stay') + plain.finish().text, 'x < y and <study_notes> stay');
+  const tail = new StudyStateFilter();
+  assert.equal(tail.push('ends with <stu') + tail.finish().text, 'ends with <stu', 'a held-back prefix that never became a tag is shown at the end');
+  assert.equal(new StudyStateFilter().finish().raw, null);
+});
+
+test('Study: the tutor protocol and the previous notes follow the paper; the notes never reach the reader and come back once as study_state', async () => {
   const sent: ModelRequest[] = [];
-  let answered = 0;
   const h = studyHarness({ generate: async (params, stream) => {
     sent.push(params);
-    if (params.model === HAIKU) { assert.equal(answered, 1, 'the map request waits for the answer'); return studyOutcome({ ...sampleMap, journey: ['scaling', 'softmax', 'scaling', 'scaling'] }); }
-    stream.onText('Partly right. '); stream.onText('**What does dividing by √d_k keep small?**'); answered++;
+    stream.onText('Partly right: the scaling keeps logits small [¶4]. '); stream.onText('**What would softmax do with very large logits?**\n\n<study_');
+    stream.onText(`state>${JSON.stringify({ ...sampleNotes, turn: 3 })}</study_state>`);
     return completeOutcome();
   } });
-  await runChat(h.deps, studyBody({ study: sampleMap, messages: [{ role: 'user', text: 'Start studying this paper.' }, { role: 'assistant', text: '**What is d_k?**' },
+  await runChat(h.deps, studyBody({ study_state: sampleNotes, messages: [{ role: 'user', text: 'Quiz me and help me learn this paper.' }, { role: 'assistant', text: '**What is d_k?**' },
     { role: 'user', text: 'The key dimension, I think (reader-answer-marker)' }] }), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'study', 'done']);
-  assert.deepEqual(h.events[2].data, { map: { ...sampleMap, journey: ['scaling', 'softmax', 'scaling', 'scaling'] } });
-  // The answer's prompt: the tutor protocol and the map follow the paper (cached), no length instructions, no search.
-  const answer = sent[0];
-  const system = (answer.system as { text: string }[]).map(block => block.text).join('\n');
-  assert.match(system, /one step per turn/); assert.match(system, /<study_map>\{"concepts":\[\{"id":"scaling"/);
-  assert.ok(system.indexOf('device-only-context-marker') < system.indexOf('<study_map>'), 'the map follows the paper');
-  assert.ok(!/Length:|Answer length/i.test(system.slice(system.indexOf('<study_map>'))), 'no profile length after the map');
-  assert.deepEqual(answer.tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts']);
-  // The map request: previous map, the reader's answer, the tutor's reply; never the paper.
-  const update = sent[1];
-  assert.equal(update.max_tokens, STUDY_MAX_TOKENS); assert.deepEqual(update.tools, [UPDATE_STUDY_MAP_TOOL]); assert.deepEqual(update.tool_choice, { type: 'tool', name: 'update_study_map' });
-  const input = JSON.stringify(update.messages);
-  assert.match(input, /<study_map>/); assert.match(input, /reader-answer-marker/); assert.match(input, /<tutor_reply>Partly right\. \*\*What does dividing/);
-  assert.ok(!input.includes('device-only-context-marker'), 'the map request never reads the paper');
-  // Charged with the answer, held at the map request's largest size, frozen in the quote.
+  assert.equal(h.generations(), 1, 'one request per turn: no separate map request');
+  const shown = h.events.filter(e => e.event === 'delta').map(e => (e.data as { text: string }).text).join('');
+  assert.equal(shown, 'Partly right: the scaling keeps logits small [¶4]. **What would softmax do with very large logits?**\n\n');
+  assert.ok(!JSON.stringify(h.events.filter(e => e.event === 'delta')).includes('study_state'), 'the notes never reach the reader as text');
+  assert.deepEqual(h.events.slice(-2).map(e => e.event), ['study_state', 'done']);
+  assert.deepEqual(h.events.at(-2)!.data, { state: { ...sampleNotes, turn: 3 } });
+  const system = (sent[0].system as { text: string }[]).map(block => block.text).join('\n');
+  assert.match(system, /you are now their tutor/); assert.match(system, /back off/); assert.match(system, /<study_state>\{"turn":2,"level":"core"/);
+  assert.ok(system.indexOf('device-only-context-marker') < system.indexOf('you are now their tutor'), 'the tutor follows the cached paper');
+  assert.ok(!/Length:|Answer length/i.test(system.slice(system.indexOf('you are now their tutor'))), 'no profile length after the tutor');
+  assert.ok(!sent[0].tools?.some(t => t.name === 'search_web'), 'no search for the tutor');
+  // No side request: nothing extra held or quoted.
   const quote = h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
-  assert.equal(quote.study_model, HAIKU); assert.equal(quote.study_max_tokens, STUDY_MAX_TOKENS);
-  assert.equal(quote.study_ceiling_microusd, holdForParams(STUDY_HOLD_PARAMS).microusd); assert.equal(STUDY_HOLD_PARAMS.model, HAIKU);
-  assert.equal(quote.max_searches, 0);
-  const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.params;
-  assert.equal(Number(settle.p_actual_microusd), priceAttempts([...completeOutcome().attempts, ...studyOutcome(sampleMap).attempts]));
-  // Logged as counts only.
-  assert.equal(h.answers[0].study, 'written'); assert.equal(h.answers[0].study_concepts, 2);
-  assert.ok(!JSON.stringify(h.logs).includes('Softmax'), 'concept names are never logged');
+  assert.ok(!('study_model' in quote) && !('follow_ups_model' in quote));
+  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_action, 'study');
+  assert.equal(Number(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_microusd), priceAttempts(completeOutcome().attempts));
+  assert.equal(h.answers[0].study, 'written'); assert.equal(h.answers[0].study_concepts, 2); assert.equal(h.answers[0].study_legacy, false);
+  assert.ok(!JSON.stringify([...h.logs, ...h.answers]).includes('Softmax'), 'concept names are never logged');
 });
 
-test('Study: the first turn is no answer; unusable, failed or slow map requests leave the map unchanged and the answer completes', async () => {
+test('Study: the first turn has no notes block; unusable or missing notes leave the answer whole; an old build gets no study event', async () => {
   const first = studyHarness({ generate: async (params, stream) => {
-    if (params.model === HAIKU) {
-      assert.match(JSON.stringify(params.messages), /<reader_answer>none: the first turn<\/reader_answer>/);
-      return studyOutcome({ concepts: [{ id: 'attention', label: 'Attention', state: 'learning', paragraphs: [1] }], links: [], focus: 'attention', journey: ['attention'], next: 'calibrate' });
-    }
-    stream.onText('**In one sentence, what problem does attention solve?**'); return completeOutcome(); } });
+    const system = (params.system as { text: string }[]).map(block => block.text).join('\n');
+    assert.ok(!/<study_state>\{"turn":\d/.test(system), 'no previous notes on the first turn');
+    stream.onText('One question at a time. **What problem does attention solve?**\n'); stream.onText(notesBlock({ turn: 1, level: 'intro', concepts: [{ name: 'Attention', status: 'new', asked: [1], paras: [1] }], next: 'start' }));
+    return completeOutcome(); } });
   await runChat(first.deps, studyBody(), first.emit, new AbortController().signal);
-  assert.deepEqual(first.events.map(e => e.event), ['delta', 'study', 'done']);
-  assert.equal((first.events[1].data as { map: { focus: string } }).map.focus, 'attention');
-  const invalid = studyHarness({ generate: async (params, stream) => {
-    if (params.model === HAIKU) return studyOutcome({ concepts: [{ id: 'x', label: 'x', state: 'fluent', paragraphs: [] }], links: [], focus: null, journey: [], next: 'teach' });
-    stream.onText('x'); return completeOutcome(); } });
-  await runChat(invalid.deps, studyBody(), invalid.emit, new AbortController().signal);
-  assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']); assert.equal(invalid.answers[0].study, 'unusable');
-  const failed = studyHarness({ generate: async (params, stream) => {
-    if (params.model === HAIKU) throw new Error('provider down');
-    stream.onText('x'); return completeOutcome(); } });
-  await runChat(failed.deps, studyBody(), failed.emit, new AbortController().signal);
-  assert.deepEqual(failed.events.map(e => e.event), ['delta', 'done']); assert.equal(failed.answers[0].study, 'failed');
-  assert.ok(Number(failed.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_microusd) > priceAttempts(completeOutcome().attempts));
-  const slow = studyHarness({ generate: async (params, stream) => {
-    if (params.model === HAIKU) { await new Promise(resolve => stream.signal.addEventListener('abort', resolve, { once: true })); return studyOutcome(null, { status: 'failed', failure: 'aborted', stopReason: null }); }
-    stream.onText('x'); return completeOutcome(); } });
-  slow.deps.studyTimeoutMs = 20;
-  await runChat(slow.deps, studyBody(), slow.emit, new AbortController().signal);
-  assert.deepEqual(slow.events.map(e => e.event), ['delta', 'done']);
-  // A refused answer makes no map request; a plain answer makes none and holds nothing for one.
+  assert.deepEqual(first.events.map(e => e.event), ['delta', 'study_state', 'done']);
+  const broken = studyHarness({ generate: async (_params, stream) => { stream.onText('**Q?**<study_state>{not json</study_state>'); return completeOutcome(); } });
+  await runChat(broken.deps, studyBody(), broken.emit, new AbortController().signal);
+  assert.deepEqual(broken.events.map(e => e.event), ['delta', 'done']); assert.equal(broken.answers[0].study, 'unusable');
+  const none = studyHarness({ generate: async (_params, stream) => { stream.onText('**Q?**'); return completeOutcome(); } });
+  await runChat(none.deps, studyBody(), none.emit, new AbortController().signal);
+  assert.deepEqual(none.events.map(e => e.event), ['delta', 'done']); assert.equal(none.answers[0].study, 'none');
+  // A reply cut off at its length keeps no notes (the device keeps its previous ones).
+  const cut = studyHarness({ generate: async (_params, stream) => { stream.onText(`**Q?**${notesBlock(sampleNotes)}`); return completeOutcome({ stopReason: 'max_tokens' }); } });
+  await runChat(cut.deps, studyBody(), cut.emit, new AbortController().signal);
+  assert.ok(!cut.events.some(e => e.event === 'study_state'));
+  // A 2026-10-14 build: the same tutor, the notes hidden, and no `study` map event.
+  const old = studyHarness({ generate: async (_params, stream) => { stream.onText(`**Q?**${notesBlock(sampleNotes)}`); return completeOutcome(); } });
+  await runChat(old.deps, studyBody({ study: legacyMap }), old.emit, new AbortController().signal);
+  assert.deepEqual(old.events.map(e => e.event), ['delta', 'study_state', 'done']); assert.equal(old.answers[0].study_legacy, true);
+  // A refused answer: no notes.
   const refused = studyHarness({ generate: async () => completeOutcome({ stopReason: 'refusal' }) });
   await runChat(refused.deps, studyBody(), refused.emit, new AbortController().signal);
-  assert.equal(refused.generations(), 1); assert.deepEqual(refused.events, [{ event: 'error', data: { code: 'refused', credits: 0, charged: false, reason: 'refusal' } }]);
-  const plain = studyHarness();
+  assert.deepEqual(refused.events, [{ event: 'error', data: { code: 'refused', credits: 0, charged: false, reason: 'refusal' } }]);
+  // An ordinary answer never filters or reports notes.
+  const plain = studyHarness({ generate: async (_params, stream) => { stream.onText('a <study_state> mention'); return completeOutcome(); } });
   await runChat(plain.deps, paperBody({ document_id: null, local_context: studyContext }), plain.emit, new AbortController().signal);
-  assert.ok(!('study_model' in (plain.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as object))); assert.equal(plain.answers[0].study, undefined);
+  assert.equal((plain.events[0].data as { text: string }).text, 'a <study_state> mention'); assert.equal(plain.answers[0].study, undefined);
   // Study never searches, even when search is on.
   const searching = studyHarness({ generate: async (params, stream) => {
-    if (params.model === HAIKU) return studyOutcome(EMPTY_STUDY_MAP);
     assert.ok(!params.tools?.some(t => t.name === 'web_search' || t.name === 'search_web'), 'no search tool for the tutor');
     stream.onText('x'); return completeOutcome(); } });
   searching.deps.webSearch = true; searching.deps.search = { ready: async () => true, run: async () => found };
   await runChat(searching.deps, studyBody(), searching.emit, new AbortController().signal);
   assert.equal(searching.answers[0].web_search_offered, false);
+});
+
+// The paper's AI Explainer (chat-paper-explainer.ts).
+const explainerBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: studyContext, action: 'paper_explainer',
+  capabilities: ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'], messages: [{ role: 'user', text: 'Explain this paper' }], ...overrides });
+const sampleExplainer = { items: 4, summary: 'The paper replaces recurrence with attention [¶2].', background: [
+  { id: 'b1', name: 'Softmax', line: 'Turns scores into weights; the paper applies it to **scaled** dot products [¶4].', paragraphs: [4, 4, 99] },
+  { id: 'b2', name: 'Sequence-to-sequence models', line: 'Encoder and decoder; the baseline the paper improves on.', paragraphs: [1, 2] }],
+  ideas: [{ id: 'i1', name: 'Scaled dot-product attention', line: 'Attention weights from queries and keys, scaled by \\(1/\\sqrt{d_k}\\).', paragraphs: [4] },
+    { id: 'Multi Head', name: 'Multi-head attention', line: 'Several attentions in parallel.', paragraphs: [5] }],
+  links: [{ from: 'b1', to: 'i1', label: 'normalises' }, { from: 'i1', to: 'Multi Head', label: 'is repeated in' }, { from: 'b2', to: 'i1', label: 'is replaced by' },
+    { from: 'i1', to: 'i1', label: 'self' }, { from: 'b1', to: 'ghost', label: 'x' }, { from: 'b1', to: 'i1', label: 'again' }] };
+
+test('the paper explainer is one turn on the numbered paper, without a passage, figure, title or suggestions', () => {
+  const parsed = validateChatRequest(explainerBody());
+  assert.equal(parsed.action, 'paper_explainer'); assert.equal(parsed.selection, null);
+  for (const [label, change] of Object.entries({
+    'a passage': { selection: { quote: 'x' } }, 'two turns': { messages: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }, { role: 'user', text: 'c' }] },
+    'general mode': { mode: 'general', local_context: undefined }, 'server document': { document_id: documentID, local_context: undefined },
+    'unnumbered context': { local_context: localContext }, 'a title': { topic_title: true }, 'suggestions': { follow_ups: true }, 'notes': { study_state: sampleNotes },
+  })) assert.throws(() => validateChatRequest(explainerBody(change as Record<string, unknown>)), { code: 'invalid_request' }, label);
+});
+
+test('the explainer check bounds and repairs the model output; the stream yields exactly the final entries as they complete', () => {
+  const checked = paperExplainer(sampleExplainer, 30)!;
+  assert.equal(checked.format, 'paper-explainer-v1'); assert.equal(checked.summary, 'The paper replaces recurrence with attention.');
+  assert.deepEqual(checked.background[0], { id: 'b1', name: 'Softmax', line: 'Turns scores into weights; the paper applies it to scaled dot products.', paragraphs: [4] });
+  assert.equal(checked.ideas[1].id, 'multi-head', 'an id in label form is slugged');
+  assert.deepEqual(checked.links, [{ from: 'b1', to: 'i1', label: 'normalises' }, { from: 'i1', to: 'multi-head', label: 'is repeated in' }, { from: 'b2', to: 'i1', label: 'is replaced by' }],
+    'a self link, an unknown id and a duplicate are dropped; a renamed id still resolves');
+  assert.equal(paperExplainer({ summary: 'x', background: [{ name: '' }], ideas: [] }, 30), null);
+  const many = paperExplainer({ background: Array.from({ length: 14 }, (_, i) => ({ id: 'b1', name: `B${i}` })), ideas: Array.from({ length: 9 }, (_, i) => ({ name: `I${i}` })) }, 30)!;
+  assert.equal(many.background.length, 10); assert.equal(many.ideas.length, 6);
+  assert.equal(new Set([...many.background, ...many.ideas].map(i => i.id)).size, 16, 'missing or repeated ids get the next free one');
+  assert.match(paperExplainerText(sampleExplainer, 30), /\*\*Background\*\*\n\n- \*\*Softmax\*\* — Turns scores/);
+  // Streamed in pieces of every size: the count, the summary, then each entry in order, equal to the final check.
+  const json = JSON.stringify(sampleExplainer);
+  for (const size of [1, 3, 17, json.length]) {
+    const stream = new PaperExplainerStream(30); const items: PaperExplainerStreamItem[] = [];
+    for (let i = 0; i < json.length; i += size) items.push(...stream.push(json.slice(i, i + size)));
+    assert.deepEqual(items.map(i => i.kind), ['items', 'summary', 'item', 'item', 'item', 'item'], `split every ${size}`);
+    assert.deepEqual(items.filter(i => i.kind === 'item').map(i => (i as { item: unknown }).item), [...checked.background, ...checked.ideas]);
+    assert.equal(stream.items, 4); assert.ok(stream.complete); assert.equal(stream.length, json.length);
+  }
+  // Cut off: the complete entries stay; a malformed entry is skipped without swallowing the next.
+  const cut = new PaperExplainerStream(30); cut.push(json.slice(0, json.indexOf('"ideas"') + 40));
+  assert.equal(cut.explainer()!.background.length, 2); assert.equal(cut.explainer()!.ideas.length, 0);
+  const odd = new PaperExplainerStream(30);
+  const yielded = odd.push('{"items": 2, "background": [{"name": "A", "paragraphs": [1, 2}, {"name": "B"}], "ideas": []}');
+  assert.deepEqual(yielded.filter(i => i.kind === 'item').map(i => (i as { item: { name: string } }).item.name), ['B']);
+});
+
+test('the paper explainer streams its summary and entries, then the whole explainer; it never searches, titles or suggests', async () => {
+  const sent: ModelRequest[] = [];
+  const json = JSON.stringify(sampleExplainer);
+  const h = studyHarness({ generate: async (params, stream) => {
+    sent.push(params);
+    for (let i = 0; i < json.length; i += 40) stream.onText(json.slice(i, i + 40));
+    return completeOutcome();
+  } });
+  h.deps.webSearch = true; h.deps.search = { ready: async () => true, run: async () => found };
+  await runChat(h.deps, explainerBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' } }), h.emit, new AbortController().signal);
+  const kinds = h.events.map(e => e.event);
+  assert.equal(kinds[0], 'paper_progress'); assert.deepEqual(h.events[0].data, { stage: 'reading' });
+  assert.ok(!kinds.includes('delta'), 'the JSON never reaches the reader as words');
+  assert.deepEqual(kinds.filter(k => k === 'paper_summary' || k === 'paper_item' || k === 'paper_explainer' || k === 'done'),
+    ['paper_summary', 'paper_item', 'paper_item', 'paper_item', 'paper_item', 'paper_explainer', 'done']);
+  assert.ok(h.events.some(e => e.event === 'paper_progress' && (e.data as { items?: number }).items === 4), 'the announced count reaches the progress bar');
+  const items = h.events.filter(e => e.event === 'paper_item').map(e => e.data as { kind: string; index: number });
+  assert.deepEqual(items.map(i => `${i.kind}${i.index}`), ['background0', 'background1', 'idea0', 'idea1']);
+  assert.deepEqual(h.events.find(e => e.event === 'paper_explainer')!.data, paperExplainer(sampleExplainer, 30));
+  const params = sent[0];
+  const system = (params.system as { text: string }[]).map(block => block.text).join('\n');
+  assert.match(system, /opened the AI Explainer for this whole paper/);
+  assert.ok(system.indexOf('device-only-context-marker') < system.indexOf('AI Explainer for this whole paper'), 'the instructions follow the cached paper');
+  assert.ok(!/look_at_figure with its number/.test(system), 'no figure instructions');
+  assert.equal(params.output_config?.effort, 'low', 'automatic effort writes the explainer at low');
+  assert.equal(params.max_tokens, paperExplainerMaxTokens('low'));
+  assert.ok(!params.tools?.some(t => t.name === 'search_web'));
+  assert.deepEqual(params.tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure', 'figure_walkthrough'], 'the chat\'s own tools (its cache)');
+  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_action, 'paper_explainer');
+  assert.equal(h.generations(), 1, 'no title or suggestion request');
+  assert.ok(h.logs.some(l => l.event === 'chat_paper_explainer' && l.background === 2 && l.ideas === 2 && l.links === 3));
+  // Words without JSON are the description; an unreadable object shows nothing and charges nothing.
+  const words = studyHarness({ generate: async (_params, stream) => { stream.onText('This paper is about attention [¶2].'); return completeOutcome(); } });
+  await runChat(words.deps, explainerBody(), words.emit, new AbortController().signal);
+  assert.deepEqual(words.events.map(e => e.event), ['paper_progress', 'delta', 'done']);
+  const broken = studyHarness({ generate: async (_params, stream) => { stream.onText('{"summary": "x", "background": [{"nam'); return completeOutcome(); } });
+  await runChat(broken.deps, explainerBody(), broken.emit, new AbortController().signal);
+  assert.deepEqual(broken.events.filter(e => e.event !== 'paper_progress').map(e => e.event), ['paper_summary', 'done']);
+  assert.equal(broken.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_credits, 0);
+  assert.deepEqual((broken.events.at(-1)!.data as { charged: boolean; reason: string }), { ...(broken.events.at(-1)!.data as object), charged: false, reason: 'provider' });
+  // Cut off at its allowance: the streamed entries are the explainer, not charged.
+  const cut = studyHarness({ generate: async (_params, stream) => { stream.onText(json.slice(0, json.indexOf('"ideas"'))); return completeOutcome({ stopReason: 'max_tokens' }); } });
+  await runChat(cut.deps, explainerBody(), cut.emit, new AbortController().signal);
+  const final = cut.events.find(e => e.event === 'paper_explainer')!.data as { background: unknown[]; ideas: unknown[] };
+  assert.equal(final.background.length, 2); assert.equal(final.ideas.length, 0);
+  assert.equal((cut.events.at(-1)!.data as { charged: boolean }).charged, false);
+});
+
+test('follow-up suggestions may ask for one picture when visual answers are on, never two and never when they are off', () => {
+  const offered = { questions: ['Create a diagram explaining the background of RLHF', 'Show the DPO pipeline as a visual', 'Why does DPO need a reference model?'] };
+  assert.deepEqual(followUpRequest(offered), ['Create a diagram explaining the background of RLHF', 'Why does DPO need a reference model?']);
+  assert.deepEqual(followUpRequest(offered, false), ['Why does DPO need a reference model?']);
+  for (const q of ['Create a diagram explaining the background of RLHF', 'Draw how attention flows step by step', 'Show the DPO pipeline as a visual', 'Make a flowchart of the training loop'])
+    assert.ok(isVisualFollowUp(q), q);
+  for (const q of ['Show how DPO compares to PPO', 'What does Figure 2 show?', 'Show me Figure 3', 'How is the reward model trained?'])
+    assert.ok(!isVisualFollowUp(q), q);
+  const on = followUpRequestParams({ paperTitle: 'DPO', selection: null, question: 'q', answer: 'a', visuals: true });
+  const off = followUpRequestParams({ paperTitle: 'DPO', selection: null, question: 'q', answer: 'a' });
+  assert.match((on.system as TextBlock[])[0].text, /Create a diagram explaining the background of X/);
+  assert.doesNotMatch((off.system as TextBlock[])[0].text, /diagram/);
+  assert.ok(promptCharacters(FOLLOW_UP_HOLD_PARAMS) >= promptCharacters(on), 'the hold covers the longer instructions');
 });
 
 import { sanitizeVisual, visualDocument, visualRequest } from '../../supabase/functions/_shared/chat-visual.ts';
@@ -2830,16 +2951,12 @@ test('the equation view: symbols that finished are charged; a symbols request cu
   assert.equal(settledWith(cut).p_action, 'equation_background'); assert.equal(settledWith(cut).p_ending, 'limit'); assert.equal(settledWith(cut).p_actual_credits, 0);
 });
 
-test('a Study turn pays for the tutor\'s finished reply; a map update that came back unusable is Gradstep\'s', async () => {
-  const h = studyHarness({ generate: async (params, stream) => {
-    if (params.tools?.some(tool => 'name' in tool && tool.name === 'update_study_map')) return studyOutcome({ concepts: 'not a list' });
-    stream.onText('**What does β control?**'); return completeOutcome();
-  } });
+test('a Study turn pays for the tutor\'s finished reply alone: the hidden notes are part of it, and there is no side request', async () => {
+  const h = studyHarness({ generate: async (_params, stream) => { stream.onText(`**What does β control?**${notesBlock(sampleNotes)}`); return completeOutcome(); } });
   await runChat(h.deps, studyBody(), h.emit, new AbortController().signal);
-  assert.ok(!h.events.some(e => e.event === 'study'), 'no map relayed');
-  // The tutor's 4,800 micro-USD are charged; the map's 700 x $0.10 + 200 x $0.50 = 170 are absorbed.
-  assert.deepEqual(settledWith(h), { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 4_970,
-    p_action: 'study', p_ending: 'completed', p_absorbed_microusd: 170 });
+  assert.equal(h.generations(), 1);
+  assert.deepEqual(settledWith(h), { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 4_800,
+    p_action: 'study', p_ending: 'completed', p_absorbed_microusd: 0 });
 });
 
 

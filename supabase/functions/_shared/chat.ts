@@ -15,7 +15,9 @@ import { EFFORTS, GEMINI_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, isDefaultCho
   type ChatProfile, type RequestedChoice } from './chat-profiles.ts';
 import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
-import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
+import { legacyStudyMap, STUDY_INSTRUCTIONS, STUDY_STATE_LIMITS, studyState, StudyStateFilter, studyStateForPrompt, studyStateFromText, type StudyState } from './chat-study.ts';
+import { PAPER_EXPLAINER_INSTRUCTIONS, paperExplainer, paperExplainerJSON, paperExplainerMaxTokens, PaperExplainerStream, paperExplainerText,
+  type PaperExplainer, type PaperExplainerItem, type PaperExplainerKind, type PaperExplainerStreamItem } from './chat-paper-explainer.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
@@ -86,9 +88,11 @@ export interface ChatRequest {
   topicTitle: boolean;
   /** Also suggest follow-up questions after the answer (chat-follow-ups.ts); never for Ingest or a repair. */
   followUps: boolean;
-  /** Study (`action: "study"`, chat-study.ts): the reader's knowledge map so far, as the device last received it
-   * (an empty map on the first turn). Present exactly when the action is Study. */
-  study?: StudyMap;
+  /** Study mode (`action: "study"`, chat-study.ts): the tutor's hidden notes from its previous turn, as the device last
+   * received them in a `study_state` event (absent on the first turn or when the device lost them). */
+  studyState?: StudyState;
+  /** A 2026-10-14 build's knowledge map (`study`), accepted with Study and ignored; kept only for the request digest. */
+  legacyStudy?: Record<string, unknown>;
 }
 
 /** `reader-local-context-v2` (2026-10-14) is the same snapshot with the paper's blocks numbered `[¶N]` (headings,
@@ -133,12 +137,14 @@ export const CHARGED_ENDINGS: readonly ChatEnding[] = ['completed', 'stopped', '
 const LIMIT_STOP_REASONS: readonly string[] = ['max_tokens', 'model_context_window_exceeded'];
 /** A Stop's record (v1_chat_stop) may still be on its way when the stream closes: one more look after this long. */
 export const STOP_GRACE_MS = 1_500;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'figure_detail';
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'figure_detail' | 'paper_explainer';
 // `figure_detail` is deprecated (2026-10-21): accepted from older builds only; remove once no supported build sends it
 // (chat-figure-view.ts FIGURE_ACTIONS).
-const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler', 'figure_detail'];
-/** The equation and figure views: no conversation (one turn, no title, no suggestions), and no tool result relayed. */
-const isViewAction = (action: ChatAction | null) => isEquationAction(action) || isFigureAction(action);
+const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler', 'figure_detail', 'paper_explainer'];
+/** The equation, figure and paper explainers: no conversation (one turn, no title, no suggestions), and no tool result relayed. */
+const isViewAction = (action: ChatAction | null) => isEquationAction(action) || isFigureAction(action) || action === 'paper_explainer';
+/** The hidden notes a device sends back with a Study turn: an object, at most this many bytes as JSON. */
+export const MAX_STUDY_STATE_BYTES = STUDY_STATE_LIMITS.bytes;
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
 export const DIAGRAM_FIX_MAX_BYTES = 24_000;
 /** A repair writes one diagram (no prose): a small output allowance keeps its hold and cost small. */
@@ -162,7 +168,7 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'figures', 'topic_title', 'follow_ups', 'study']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'figures', 'topic_title', 'follow_ups', 'study', 'study_state']);
   if (typeof body.consent_version !== 'string' || !CONSENT_VERSIONS.includes(body.consent_version)) invalid();
   const consentVersion = body.consent_version;
   const mode = body.mode;
@@ -202,20 +208,26 @@ export function validateChatRequest(input: unknown): ChatRequest {
     } else if (action === 'study') {
       // Study tutors the numbered paper on the device ([¶N] citations); a selection may start it on a passage.
       if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2') invalid();
+    } else if (action === 'paper_explainer') {
+      // The paper's AI Explainer: the whole numbered paper on the device, one turn, no passage.
+      if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2' || selection !== null || turns.length !== 1) invalid();
     } else if (isViewAction(action)) {
       // The equation view: the tapped equation in the numbered paper on the device, one turn (EQUATION_VIEW.md). The
       // figure view: the figure's caption (or, to explain one part more simply, that part's text), one turn (FIGURE_VIEW.md).
       if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2' || selection === null || turns.length !== 1) invalid();
     } else if (selection === null) invalid();
   }
-  // The knowledge map travels with every Study turn (an empty one first) and with nothing else.
-  let study: StudyMap | undefined;
+  // Study mode's hidden notes travel only with a Study turn (none on the first); a 2026-10-14 build's map is accepted
+  // there and ignored. Notes that can't be read are dropped rather than refused (the tutor re-derives them).
+  let notes: StudyState | undefined, legacyStudy: Record<string, unknown> | undefined;
   if (action === 'study') {
-    if (body.study === undefined || body.study === null) invalid();
-    const map = studyMap(body.study);
-    if (!map) invalid();
-    study = map;
-  } else if (body.study !== undefined && body.study !== null) invalid();
+    if (body.study !== undefined && body.study !== null) legacyStudy = legacyStudyMap(body.study) ?? invalid();
+    if (body.study_state !== undefined && body.study_state !== null) {
+      const raw = record(body.study_state);
+      if (encoder.encode(JSON.stringify(raw)).length > MAX_STUDY_STATE_BYTES) invalid();
+      notes = studyState(raw) ?? undefined;
+    }
+  } else if ((body.study !== undefined && body.study !== null) || (body.study_state !== undefined && body.study_state !== null)) invalid();
   let capabilities: string[] = [];
   if (body.capabilities !== undefined && body.capabilities !== null) {
     if (!Array.isArray(body.capabilities) || body.capabilities.length > 8) invalid();
@@ -248,8 +260,10 @@ export function validateChatRequest(input: unknown): ChatRequest {
   if (figures!.length && (!namesFigures(consentVersion) || mode !== 'paper' || action === 'ingest' || action === 'diagram_fix' || isEquationAction(action))) invalid();
   // The figure view: exactly that figure's image, from a build that has the view (its chats carry the walkthrough tool).
   if (isFigureAction(action) && (figures!.length !== 1 || !capabilities.includes(FIGURE_VIEW_CAPABILITY))) invalid();
+  // The paper's explainer carries no figure.
+  if (action === 'paper_explainer' && figures!.length) invalid();
   return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, visuals, figures: figures!, choice, topicTitle, followUps,
-    ...(localContext ? { localContext } : {}), ...(study ? { study } : {}) };
+    ...(localContext ? { localContext } : {}), ...(notes ? { studyState: notes } : {}), ...(legacyStudy ? { legacyStudy } : {}) };
 }
 
 /** Fixed key order: the reservation's request digest. */
@@ -267,7 +281,8 @@ export function canonicalRequest(request: ChatRequest): string {
     ...(request.topicTitle ? { topic_title: true } : {}),
     ...(request.followUps ? { follow_ups: true } : {}),
     ...(request.localContext ? { local_context: request.localContext } : {}),
-    ...(request.study ? { study: request.study } : {}),
+    ...(request.legacyStudy ? { study: request.legacyStudy } : {}),
+    ...(request.studyState ? { study_state: request.studyState } : {}),
   });
 }
 
@@ -356,8 +371,8 @@ const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the questio
 export interface InstructionOptions {
   /** The paper context carries [¶N] markers (local context v2): ask for grounded citations. */
   citations?: boolean;
-  /** Study: the reader's knowledge map for this turn (chat-study.ts); sent after the paper like an action's own text. */
-  studyMap?: StudyMap;
+  /** Study mode: the tutor's notes from its previous turn (chat-study.ts); sent after the paper with its instructions. */
+  studyState?: StudyState | null;
   /** Diagrams and HTML visuals may be drawn (default true; the reader's "Visual answers" setting). */
   visuals?: boolean;
 }
@@ -369,7 +384,8 @@ export function chatInstructionParts(mode: 'paper' | 'general', action: ChatActi
   const tools = action === 'ingest' ? INGEST_INSTRUCTIONS
     : `${visuals ? `${DIAGRAM_INSTRUCTIONS}\n\n${VISUAL_INSTRUCTIONS}` : NO_VISUAL_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
   const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS
-    : action === 'study' ? `${STUDY_INSTRUCTIONS}\n\n${studyMapForPrompt(options.studyMap ?? EMPTY_STUDY_MAP)}`
+    : action === 'study' ? (options.studyState ? `${STUDY_INSTRUCTIONS}\n\n${studyStateForPrompt(options.studyState)}` : STUDY_INSTRUCTIONS)
+    : action === 'paper_explainer' ? PAPER_EXPLAINER_INSTRUCTIONS
     : action === 'equation' ? EQUATION_INSTRUCTIONS : action === 'equation_background' ? EQUATION_BACKGROUND_INSTRUCTIONS
     : action === 'figure' ? FIGURE_INSTRUCTIONS : action === 'figure_simpler' ? FIGURE_SIMPLER_INSTRUCTIONS
     : action === 'figure_detail' ? FIGURE_DETAIL_INSTRUCTIONS : null;
@@ -509,7 +525,15 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'title'; data: { text: string } }
   /** Follow-up questions the answer suggested (2026-10-14), sent once before `done`; never logged or stored. */
   | { event: 'followups'; data: { questions: string[] } }
-  | { event: 'study'; data: { map: StudyMap } }
+  /** Study mode: the tutor's hidden notes on the reader (chat-study.ts), sent once before `done`; the device keeps them
+   * with the open chat and sends them back as `study_state`. Builds that predate them ignore unknown events. */
+  | { event: 'study_state'; data: { state: StudyState } }
+  /** The paper's AI Explainer (chat-paper-explainer.ts): where the model is, the summary, each entry as it is complete
+   * (checked as the final explainer checks it; `index` is its place among its kind), then the whole explainer. */
+  | { event: 'paper_progress'; data: { stage: 'reading' | 'writing'; characters?: number; items?: number } }
+  | { event: 'paper_summary'; data: { summary: string } }
+  | { event: 'paper_item'; data: { kind: PaperExplainerKind; index: number; item: PaperExplainerItem } }
+  | { event: 'paper_explainer'; data: PaperExplainer }
   /** The equation view's checked symbols (EQUATION_VIEW.md). */
   | { event: 'equation'; data: EquationSymbols }
   /** The figure view's checked walkthrough (FIGURE_VIEW.md), sent once before `done`: the whole of it, also after its
@@ -561,8 +585,6 @@ export interface ChatDependencies {
   ingestDeadlineMs?: number;
   /** Bound on the follow-up suggestion request after the answer (tests shorten it). */
   followUpTimeoutMs?: number;
-  /** Bound on the Study knowledge-map request after the answer (tests shorten it). */
-  studyTimeoutMs?: number;
   /** The caller's available credits (for the hold cap); null if unknown. */
   availableCredits?: () => Promise<number | null>;
   /** Offer web search (server setting; off by default): our search_web tool, run with `search`. */
@@ -622,7 +644,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // (chat-profiles.ts autoEffort); the quote, the request and the answer all carry the resolved profile.
   const resolved = resolveChoice(request.choice, { question: request.turns.at(-1)!.text, selection: request.selection, figures: request.figures.length });
   // The figure view thinks at low effort unless the reader chose one for a Claude model (FIGURE_VIEW.md "Speed").
-  const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler')
+  const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler' || request.action === 'paper_explainer')
     ? { ...resolved, effort: figureViewEffort(request.choice, resolved.effort) } : resolved;
   const profile = resolveProfile(choice);
   // Every answer goes to OpenRouter, so the reader's consent must name it (v5, or v6 which also names DeepSeek's route).
@@ -630,8 +652,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (profile.model === 'deepseek' && request.consentVersion !== ROUTER_CONSENT_VERSION) {
     await admitted(); throw new ChatFailure('consent_required');
   }
-  // Ingest, Why it matters (the paper only), Study (the paper only) and diagram repairs never search.
-  const search = !['ingest', 'relevance', 'diagram_fix', 'study'].includes(request.action ?? '') && deps.webSearch === true;
+  // Ingest, Why it matters (the paper only), Study and the paper's explainer (the paper only) and diagram repairs never search.
+  const search = !['ingest', 'relevance', 'diagram_fix', 'study', 'paper_explainer'].includes(request.action ?? '') && deps.webSearch === true;
   // Our search_web tool (Tavily), when its consent is given and it is ready (checked while the paper loads).
   const tavilyReady = search && namesTavily(request.consentVersion) && deps.search
     ? deps.search.ready().catch(() => false) : Promise.resolve(false);
@@ -667,15 +689,17 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // One part extracted (owner, build 62; deprecated 2026-10-21, older builds only): the same tool with one section and its
   // box, checked and held back the same way.
   const detailOnly = request.action === 'figure_detail';
-  const heldBack = symbolsOnly || walkthroughOnly || detailOnly;
+  // The paper's explainer is one JSON object in the reply, read as it arrives and relayed entry by entry.
+  const explainerOnly = request.action === 'paper_explainer';
+  const heldBack = symbolsOnly || walkthroughOnly || detailOnly || explainerOnly;
   // Flash counts reasoning against max_tokens: the live DPO symbol request used the old 2,000-token
   // allowance before completing its JSON. Keep the answer allowance plus the profile's reasoning room.
   const symbolTokens = EQUATION_MAX_TOKENS + (profile.model === 'gemini' ? EFFORTS.find(e => e.id === profile.effort)!.thinkingTokens : 0);
   // The resolved profile (above); a repair always uses the default model with its own small allowance.
   const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? symbolTokens : walkthroughOnly ? figureMaxTokens(profile.effort)
-    : detailOnly ? figureDetailMaxTokens(profile.effort) : profile.maxTokens;
+    : detailOnly ? figureDetailMaxTokens(profile.effort) : explainerOnly ? paperExplainerMaxTokens(profile.effort) : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
-    { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, ...(request.study ? { studyMap: request.study } : {}) });
+    { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, studyState: request.studyState ?? null });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
   // A Study turn has its own length (one step, one question); the profile's length would contradict it.
   const offersParts = request.visuals && request.mode === 'paper' && request.action !== 'ingest' && !repair;
@@ -688,7 +712,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     && request.capabilities.includes(FIGURE_VIEW_CAPABILITY);
   const figureView = isFigureAction(request.action);
   // The figure view's own instructions say how to read its figure; the chat's figure instructions (parts) do not apply.
-  const trailing = [instructions.action, figureView ? null : figureInstructions(request.figures, offersParts, offersLook),
+  const trailing = [instructions.action, figureView || explainerOnly ? null : figureInstructions(request.figures, offersParts, offersLook),
     repair || study || heldBack ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens, figures: request.figures.length ? figureBlocks(request.figures) : undefined,
@@ -743,9 +767,6 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
   const followUpHold = request.followUps && sidesAvailable && !repair && request.action !== 'ingest' ? holdForParams(FOLLOW_UP_HOLD_PARAMS) : null;
   if (followUpHold) hold.microusd += followUpHold.microusd;
-  // Study: the knowledge-map request after the answer is held at its largest (a full map, both excerpts at their limits).
-  const studyHold = study && sidesAvailable ? holdForParams(STUDY_HOLD_PARAMS) : null;
-  if (studyHold) hold.microusd += studyHold.microusd;
   hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
     hold.credits = available;
@@ -760,7 +781,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     reservation = await deps.rpc('worker_reserve_chat', {
       p_account_id: deps.accountID, p_id: request.operationID, p_request_sha256: `\\x${digest}`,
       p_rate_version: RATE_VERSION, p_credits: hold.credits, p_microusd: hold.microusd,
-      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair, studyHold?.microusd ?? null),
+      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair),
     }) as typeof reservation;
   } catch (error) {
     const code = RESERVE_ERRORS[reason(error)];
@@ -780,7 +801,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const stop = () => deadline.abort();
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
-  let wroteText = false, answerTail = '', answerHead = '', heldText = '';
+  let wroteText = false, answerTail = '', answerHead = '', heldText = '', notesRaw = null as string | null;
   const stats: SearchStats = { tavily: 0, credits: 0, failures: 0 };
   // Status lines go only to this reader's stream (the search query included); logs keep counts only.
   const status = (data: ChatStatus) => { if (!signal.aborted) emit({ event: 'status', data }); };
@@ -796,7 +817,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough"): the model writes it as JSON in its reply (or, as
   // before, in a figure_walkthrough call); each is read as it arrives, and the summary and every complete part, checked
   // exactly as the final walkthrough is, go to the device at once. Only one source is relayed (the first to yield).
-  const paragraphs = isFigureAction(request.action) || offersWalkthrough ? paragraphCount(paper?.text ?? '') : 0;
+  const paragraphs = isFigureAction(request.action) || offersWalkthrough || explainerOnly || study ? paragraphCount(paper?.text ?? '') : 0;
   const walkStreams = walkthroughOnly ? { text: new FigureWalkthroughStream(paragraphs), tool: new FigureWalkthroughStream(paragraphs) } : null;
   // Assigned in the stream's callbacks (declared wide so the checks after the answer see every value).
   let walkSource = null as 'text' | 'tool' | null, progressAt = -Infinity, firstPartMs = null as number | null;
@@ -819,11 +840,32 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   };
   if (walkStreams && !signal.aborted) emit({ event: 'figure_progress', data: { stage: 'reading' } });
+  // The paper's explainer, read as it arrives (as the walkthrough): the summary and each complete entry go at once.
+  const explainerStream = explainerOnly ? new PaperExplainerStream(paragraphs) : null;
+  let explainerProgressAt = -Infinity, firstItemMs = null as number | null;
+  const relayExplainer = (piece: string) => {
+    if (!explainerStream) return;
+    const items: PaperExplainerStreamItem[] = explainerStream.push(piece);
+    if (signal.aborted) return;
+    for (const item of items) {
+      if (item.kind === 'summary') emit({ event: 'paper_summary', data: { summary: item.summary } });
+      else if (item.kind === 'item') { firstItemMs ??= now() - generationStarted; emit({ event: 'paper_item', data: { kind: item.section, index: item.index, item: item.item } }); }
+    }
+    const counted = items.some(i => i.kind === 'items');
+    if (explainerStream.length && (counted || now() - explainerProgressAt >= 400)) {
+      explainerProgressAt = now();
+      emit({ event: 'paper_progress', data: { stage: 'writing', characters: explainerStream.length, ...(explainerStream.items ? { items: explainerStream.items } : {}) } });
+    }
+  };
+  if (explainerStream && !signal.aborted) emit({ event: 'paper_progress', data: { stage: 'reading' } });
+  // Study mode: the tutor's hidden notes are removed from what the reader is sent (chat-study.ts StudyStateFilter).
+  const notesFilter = study ? new StudyStateFilter() : null;
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
-      onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
-        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); relayWalk('text', text); return; }
+      onText: raw => { const text = notesFilter ? notesFilter.push(raw) : raw;
+        if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
+        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); if (explainerOnly) relayExplainer(text); else relayWalk('text', text); return; }
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       ...(walkStreams ? { onToolInput: (call: { index: number; name: string }, piece: string) => {
         if (call.name === FIGURE_WALKTHROUGH_TOOL.name) relayWalk('tool', piece);
@@ -831,6 +873,12 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       onStatus: status,
     }, { tavily, cap: searchCap }, stats);
     leftDuringAnswer = signal.aborted;
+    // A held-back possible tag start that turned out to be words is shown now, before anything else.
+    if (notesFilter) {
+      const rest = notesFilter.finish();
+      notesRaw = rest.raw;
+      if (rest.text) { if (rest.text.trim()) wroteText = true; answerTail = (answerTail + rest.text).slice(-4000); if (!signal.aborted) emit({ event: 'delta', data: { text: rest.text } }); }
+    }
     if (titling) {
       // A title still being written gets a short grace period; abandoning it still settles its attempt.
       const grace = setTimeout(stopTitle, outcome.status === 'complete' && !signal.aborted ? TITLE_GRACE_MS : 0);
@@ -855,22 +903,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // An answer that asked for a figure is not the answer: the device asks again with it, and that one gets suggestions.
   const asksForFigure = offersLook && !request.figures.length && !isEquationAction(request.action) && !!outcome.toolCalls?.some(c => c.name === 'look_at_figure');
   if (followUpHold && finished && wroteText && !asksForFigure && !signal.aborted) {
-    const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead });
-    suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now);
+    const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead,
+      visuals: request.visuals });
+    suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now, request.visuals);
     if (suggested.outcome.attempts.length) {
       outcome = { ...outcome, attempts: [...outcome.attempts, ...suggested.outcome.attempts], exact: outcome.exact && suggested.outcome.exact };
     }
   }
-  // Study: the knowledge map is updated from the exchange after the answer (the previous map, the reader's answer,
-  // the tutor's reply; never the paper). The reader's first message starts the study and is no answer.
-  let studied: StudyResult | null = null;
-  if (studyHold && request.study && finished && wroteText && !signal.aborted) {
-    const params = studyMapRequestParams({ map: request.study, answer: request.turns.length > 1 ? request.turns.at(-1)!.text : null, reply: answerHead });
-    studied = await updateStudyMap(deps.generate, params, studyHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.studyTimeoutMs ?? STUDY_TIMEOUT_MS)]), now);
-    if (studied.outcome.attempts.length) {
-      outcome = { ...outcome, attempts: [...outcome.attempts, ...studied.outcome.attempts], exact: outcome.exact && studied.outcome.exact };
-    }
-  }
+  // Study mode: the tutor's notes from this reply, checked (only from a finished reply; a cut-off one keeps the old notes).
+  const notes = notesFilter && finished ? studyStateFromText(notesRaw, paragraphs) : null;
 
   const described = symbolsOnly ? equationSymbols(heldText, paragraphCount(paper?.text ?? '')) : null;
   const symbolWords = symbolsOnly && !described ? equationFallbackText(heldText) : '';
@@ -892,13 +933,19 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // One part extracted: its section with a usable box; without one, its words (else the model's own) reach the reader
   // without a crop, and the device says the part couldn't be cropped.
   const detail = detailOnly && walkthroughCall ? figureDetail(walkthroughCall.input, paragraphs) : null;
+  // The paper's explainer: the JSON in the reply, else the entries that streamed (so the final event never takes back an
+  // entry the device was shown); without any, the explainer's words as Markdown (else the model's own) are the description.
+  const explainerInput = explainerOnly ? paperExplainerJSON(heldText) : undefined;
+  const explained = !explainerOnly ? null : (explainerInput !== undefined ? paperExplainer(explainerInput, paragraphs) : null) ?? explainerStream!.explainer();
+  const explainerWords = explainerOnly && !explained
+    ? ((explainerInput !== undefined ? paperExplainerText(explainerInput, paragraphs) : '') || (/^\s*(?:```\w*\s*)?\{/.test(heldText) ? '' : heldText.trim())).slice(0, 12_000) : '';
   const detailWords = detailOnly && !detail
     ? ((walkthroughCall ? figureWalkthroughText(walkthroughCall.input, paragraphs) : '') || heldText.trim()).slice(0, 6_000) : '';
   // How the answer ended decides whether the reader pays (owner decision 2026-10-16, CHAT.md "When an answer stops
   // early"): work that finished, or the part the reader chose to stop. Anything else that ended it costs them nothing.
   // The figure view delivers only what it shows: a walkthrough or words (its tool calls are never relayed otherwise).
   const showsWork = symbolsOnly ? !!described || !!symbolWords : walkthroughOnly ? !!walkthrough || !!walkthroughWords : detailOnly ? !!detail || !!detailWords
-    : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
+    : explainerOnly ? !!explained || !!explainerWords : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
   const ending = await answerEnding(deps, request, answer, { readerLeft: leftDuringAnswer, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
   // Provider spend (the platform budget): OpenRouter's cost of every attempt. Tavily searches within its prepaid plan
@@ -907,7 +954,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // What reached the reader: the answer's own rounds and, with a completed answer, the title, suggestions and map that
   // were relayed. A side request that failed, came back unusable or too late is Gradstep's cost.
   // Side requests are relayed only to a reader still connected (every emit below checks); one who left gets none of them.
-  const sides = ending === 'completed' && !signal.aborted ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
+  const sides = ending === 'completed' && !signal.aborted ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null] : [];
   const delivered = readerPriceAttempts(answer.attempts) + sides.reduce((sum, part) => sum + (part ? readerPriceAttempts(part.attempts) : 0), 0);
   const priced = Math.ceil(delivered + stats.credits * TAVILY_CREDIT_MICROUSD);
   // Ingest: at most one add per request, only of a strictly matched arXiv paper, only when the turn ended in the tool
@@ -946,9 +993,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed',
     ...(followUpHold ? { follow_ups: !suggested ? 'skipped' : suggested.questions ? 'written' : suggested.outcome.status === 'complete' ? 'unusable' : 'failed',
       follow_up_count: suggested?.questions?.length ?? 0 } : {}),
-    // Study: whether the map was updated and its size (never a concept name).
-    ...(studyHold ? { study: !studied ? 'skipped' : studied.map ? 'written' : studied.outcome.status === 'complete' ? 'unusable' : 'failed',
-      study_concepts: studied?.map?.concepts.length ?? request.study?.concepts.length ?? 0 } : {}) });
+    // Study mode: whether the tutor's notes came back usable, and how many concepts they hold (never a name).
+    ...(study ? { study: notes ? 'written' : notesRaw !== null ? 'unusable' : 'none', study_concepts: notes?.concepts.length ?? request.studyState?.concepts.length ?? 0,
+      study_legacy: !!request.legacyStudy } : {}) });
 
   if (signal.aborted) return;
   // Every event after the hold says whether the reader paid; when not, why (a machine-readable reason for the clients).
@@ -995,7 +1042,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       }
     }
     // A figure request: the device attaches that figure and asks again (only when none was attached; never twice).
-    const look = offersLook && !request.figures.length && !isEquationAction(request.action) ? outcome.toolCalls?.find(c => c.name === 'look_at_figure') : undefined;
+    const look = offersLook && !request.figures.length && !isEquationAction(request.action) && !explainerOnly ? outcome.toolCalls?.find(c => c.name === 'look_at_figure') : undefined;
     if (look) {
       const wanted = figureLookRequest(look.input);
       deps.log({ event: wanted ? 'chat_figure_request' : 'chat_figure_request_invalid_input', operation_id: request.operationID });
@@ -1043,10 +1090,18 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       deps.log({ event: 'chat_figure_walkthrough_in_answer', operation_id: request.operationID });
       if (words) emit({ event: 'delta', data: { text: words.slice(0, 12_000) } });
     }
+    // The paper's explainer: checked, relayed once (format paper-explainer-v1); without one, its words.
+    if (explainerOnly && !signal.aborted) {
+      deps.log({ event: explained ? 'chat_paper_explainer' : 'chat_paper_explainer_invalid_output', operation_id: request.operationID,
+        background: explained?.background.length ?? 0, ideas: explained?.ideas.length ?? 0, links: explained?.links.length ?? 0,
+        streamed: explainerStream!.count, first_item_ms: firstItemMs });
+      if (explained) emit({ event: 'paper_explainer', data: explained });
+      else if (explainerWords) emit({ event: 'delta', data: { text: explainerWords } });
+    }
     // Follow-up questions: relayed once, never stored (chat-follow-ups.ts; counted in chat_answer).
     if (suggested?.questions && !signal.aborted) emit({ event: 'followups', data: { questions: suggested.questions } });
-    // Study: the updated knowledge map, relayed once; the device keeps it with the conversation and sends it back.
-    if (studied?.map && !signal.aborted) emit({ event: 'study', data: { map: studied.map } });
+    // Study mode: the tutor's notes, relayed once; the device keeps them with the open chat and sends them back.
+    if (notes && !signal.aborted) emit({ event: 'study_state', data: { state: notes } });
     if (signal.aborted) return;
     if (title?.text) emit({ event: 'title', data: { text: title.text } });
     // A tool call ends the provider turn; the server completed it.
@@ -1115,7 +1170,7 @@ export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rat
 
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
 export function chatQuote(profile: ChatProfile, params: ModelRequest, inputTokens: number,
-  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null): Record<string, string | number | null> {
+  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean): Record<string, string | number | null> {
   // The answer and auxiliaries retain their exact billed OpenRouter model identities and reviewed cards.
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
     effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
@@ -1123,8 +1178,7 @@ export function chatQuote(profile: ChatProfile, params: ModelRequest, inputToken
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
     title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
     title_ceiling_microusd: titleMicrousd,
-    ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }),
-    ...(studyMicrousd === null ? {} : { study_model: STUDY_MODEL, study_max_tokens: STUDY_MAX_TOKENS, study_ceiling_microusd: studyMicrousd }) };
+    ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }) };
 }
 
 /** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
@@ -1140,30 +1194,15 @@ const ANSWER_HEAD_CHARACTERS = 2_400;
 interface FollowUpResult { outcome: ProviderOutcome; questions: string[] | null }
 /** One follow-up suggestion request (the tool call forced) through the same admitted provider adapter. Never throws. */
 async function suggestFollowUps(generate: NonNullable<ChatDependencies['generate']>, params: ModelRequest,
-  inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<FollowUpResult> {
+  inputEstimateTokens: number, signal: AbortSignal, now: () => number, visuals: boolean): Promise<FollowUpResult> {
   try {
     const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: () => { /* a forced tool call writes no text */ } });
     const call = outcome.status === 'complete' ? outcome.toolCalls?.find(c => c.name === SUGGEST_FOLLOW_UPS_TOOL.name) : undefined;
-    return { outcome, questions: call ? followUpRequest(call.input) : null };
+    return { outcome, questions: call ? followUpRequest(call.input, visuals) : null };
   } catch {
     return { outcome: { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
       attempts: [{ model: params.model, estimated: true, usage: { input: inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }],
       exact: false }, questions: null };
-  }
-}
-
-interface StudyResult { outcome: ProviderOutcome; map: StudyMap | null }
-/** One knowledge-map request (the tool call forced) through the same admitted provider adapter. Never throws. */
-async function updateStudyMap(generate: NonNullable<ChatDependencies['generate']>, params: ModelRequest,
-  inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<StudyResult> {
-  try {
-    const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: () => { /* a forced tool call writes no text */ } });
-    const call = outcome.status === 'complete' ? outcome.toolCalls?.find(c => c.name === UPDATE_STUDY_MAP_TOOL.name) : undefined;
-    return { outcome, map: call ? studyMap(call.input) : null };
-  } catch {
-    return { outcome: { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
-      attempts: [{ model: params.model, estimated: true, usage: { input: inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }],
-      exact: false }, map: null };
   }
 }
 

@@ -1,0 +1,469 @@
+{
+ "note": "Shared by apps/web/src/lib/paper-explainer.ts and ScienceReaderCore PaperExplainer: the diagram source each explainer draws and the progress bar for each state. Regenerate from the browser module when the rules change.",
+ "parameters": {
+  "summaryChars": 500,
+  "itemChars": 280,
+  "summaryShare": 0.1,
+  "itemsShare": 0.85,
+  "itemCap": 0.9
+ },
+ "explainers": [
+  {
+   "name": "Attention Is All You Need (Gemini 3.8 Flash, 2026-10-22 evaluation)",
+   "explainer": {
+    "format": "paper-explainer-v1",
+    "summary": "Sequence transduction models relied on recurrent or convolutional architectures whose sequential computation limited parallelization and made learning distant dependencies hard. The authors introduce the Transformer, an encoder-decoder architecture based entirely on self-attention and feed-forward sub-layers with positional encodings. It achieves state-of-the-art translation performance with 28.4 BLEU on English-to-German and 41.8 BLEU on English-to-French at significantly reduced training cost.",
+    "background": [
+     {
+      "id": "b1",
+      "name": "Encoder-Decoder Architecture",
+      "line": "A sequence modeling framework mapping an input sequence to continuous representations and decoding symbols auto-regressively; the Transformer retains this high-level structure.",
+      "paragraphs": [
+       12,
+       24,
+       26
+      ]
+     },
+     {
+      "id": "b2",
+      "name": "Recurrent and Convolutional Sequence Models",
+      "line": "Networks processing tokens sequentially or across sliding receptive fields; the paper identifies their sequential bottlenecks and long path lengths as the key limitation to overcome.",
+      "paragraphs": [
+       14,
+       15,
+       19,
+       55
+      ]
+     },
+     {
+      "id": "b3",
+      "name": "Attention Mechanisms",
+      "line": "Mechanisms that map a query and key-value pairs to a weighted sum of values; the paper extends this concept into self-attention to dispense with recurrence entirely.",
+      "paragraphs": [
+       16,
+       20,
+       31,
+       37
+      ]
+     },
+     {
+      "id": "b4",
+      "name": "Residual Connections and Layer Normalization",
+      "line": "Techniques for stabilizing gradient flow across deep networks; applied around every attention and feed-forward sub-layer in the encoder and decoder stacks.",
+      "paragraphs": [
+       28,
+       29,
+       79
+      ]
+     }
+    ],
+    "ideas": [
+     {
+      "id": "i1",
+      "name": "Scaled Dot-Product Attention",
+      "line": "A fast matrix-based attention function that divides dot products by the square root of key dimension to prevent gradient vanishing in the softmax.",
+      "paragraphs": [
+       33,
+       34,
+       36,
+       38
+      ]
+     },
+     {
+      "id": "i2",
+      "name": "Multi-Head Attention",
+      "line": "Linearly projects queries, keys, and values into multiple representation subspaces in parallel, counteracting the resolution loss of single-head averaging.",
+      "paragraphs": [
+       19,
+       40,
+       41,
+       42
+      ]
+     },
+     {
+      "id": "i3",
+      "name": "Sinusoidal Positional Encoding",
+      "line": "Fixed sinusoid functions of varying frequencies added to embeddings to inject token sequence order without recurrence or convolutions.",
+      "paragraphs": [
+       57,
+       58,
+       59,
+       60
+      ]
+     },
+     {
+      "id": "i4",
+      "name": "The Transformer Architecture",
+      "line": "A stacked architecture combining multi-head self-attention, encoder-decoder attention, and position-wise feed-forward networks within residual blocks.",
+      "paragraphs": [
+       26,
+       28,
+       29,
+       45
+      ]
+     },
+     {
+      "id": "i5",
+      "name": "State-of-the-Art Translation with Faster Training",
+      "line": "Achieved 28.4 BLEU on WMT 2014 English-to-German and 41.8 BLEU on English-to-French, outperforming prior models at a fraction of their training cost.",
+      "paragraphs": [
+       12,
+       78,
+       83,
+       84
+      ]
+     }
+    ],
+    "links": [
+     {
+      "from": "b2",
+      "to": "i4",
+      "label": "is replaced by"
+     },
+     {
+      "from": "b1",
+      "to": "i4",
+      "label": "provides backbone for"
+     },
+     {
+      "from": "b3",
+      "to": "i1",
+      "label": "formulates"
+     },
+     {
+      "from": "i1",
+      "to": "i2",
+      "label": "runs across heads in"
+     },
+     {
+      "from": "b4",
+      "to": "i4",
+      "label": "stabilizes layers in"
+     },
+     {
+      "from": "i3",
+      "to": "i4",
+      "label": "provides order to"
+     },
+     {
+      "from": "i2",
+      "to": "i4",
+      "label": "serves as sub-layers in"
+     },
+     {
+      "from": "i4",
+      "to": "i5",
+      "label": "evaluated by"
+     }
+    ]
+   },
+   "mermaid": "flowchart TD\n  n_b1[\"Encoder-Decoder Architecture\"]:::background\n  n_b2[\"Recurrent and Convolutional Sequence Models\"]:::background\n  n_b3[\"Attention Mechanisms\"]:::background\n  n_b4[\"Residual Connections and Layer Normalization\"]:::background\n  n_i1[\"Scaled Dot-Product Attention\"]:::idea\n  n_i2[\"Multi-Head Attention\"]:::idea\n  n_i3[\"Sinusoidal Positional Encoding\"]:::idea\n  n_i4[\"The Transformer Architecture\"]:::idea\n  n_i5[\"State-of-the-Art Translation with Faster Traini…\"]:::idea\n  n_b2 -->|\"is replaced by\"| n_i4\n  n_b1 -->|\"provides backbone for\"| n_i4\n  n_b3 -->|\"formulates\"| n_i1\n  n_i1 -->|\"runs across heads in\"| n_i2\n  n_b4 -->|\"stabilizes layers in\"| n_i4\n  n_i3 -->|\"provides order to\"| n_i4\n  n_i2 -->|\"serves as sub-layers in\"| n_i4\n  n_i4 -->|\"evaluated by\"| n_i5\n  classDef background fill:#eef1f8,stroke:#7a86a8,color:#1b1b1b\n  classDef idea fill:#fff1d6,stroke:#c98a12,color:#1b1b1b",
+   "text": "Sequence transduction models relied on recurrent or convolutional architectures whose sequential computation limited parallelization and made learning distant dependencies hard. The authors introduce the Transformer, an encoder-decoder architecture based entirely on self-attention and feed-forward sub-layers with positional encodings. It achieves state-of-the-art translation performance with 28.4 BLEU on English-to-German and 41.8 BLEU on English-to-French at significantly reduced training cost.\n\nBackground:\n- Encoder-Decoder Architecture: A sequence modeling framework mapping an input sequence to continuous representations and decoding symbols auto-regressively; the Transformer retains this high-level structure.\n- Recurrent and Convolutional Sequence Models: Networks processing tokens sequentially or across sliding receptive fields; the paper identifies their sequential bottlenecks and long path lengths as the key limitation to overcome.\n- Attention Mechanisms: Mechanisms that map a query and key-value pairs to a weighted sum of values; the paper extends this concept into self-attention to dispense with recurrence entirely.\n- Residual Connections and Layer Normalization: Techniques for stabilizing gradient flow across deep networks; applied around every attention and feed-forward sub-layer in the encoder and decoder stacks.\n\nKey ideas:\n- Scaled Dot-Product Attention: A fast matrix-based attention function that divides dot products by the square root of key dimension to prevent gradient vanishing in the softmax.\n- Multi-Head Attention: Linearly projects queries, keys, and values into multiple representation subspaces in parallel, counteracting the resolution loss of single-head averaging.\n- Sinusoidal Positional Encoding: Fixed sinusoid functions of varying frequencies added to embeddings to inject token sequence order without recurrence or convolutions.\n- The Transformer Architecture: A stacked architecture combining multi-head self-attention, encoder-decoder attention, and position-wise feed-forward networks within residual blocks.\n- State-of-the-Art Translation with Faster Training: Achieved 28.4 BLEU on WMT 2014 English-to-German and 41.8 BLEU on English-to-French, outperforming prior models at a fraction of their training cost."
+  },
+  {
+   "name": "syntax characters, long names, an unlabelled link",
+   "explainer": {
+    "format": "paper-explainer-v1",
+    "summary": "Edge cases.",
+    "background": [
+     {
+      "id": "b1",
+      "name": "KL \"divergence\" [D_KL(p || q)] {with} <brackets>; #hash `tick`",
+      "line": "x",
+      "paragraphs": [
+       1
+      ]
+     },
+     {
+      "id": "end",
+      "name": "A concept whose name is much longer than forty-eight characters in all",
+      "line": "",
+      "paragraphs": []
+     }
+    ],
+    "ideas": [
+     {
+      "id": "multi-head",
+      "name": "Multi-head attention",
+      "line": "y",
+      "paragraphs": [
+       2,
+       3
+      ]
+     }
+    ],
+    "links": [
+     {
+      "from": "b1",
+      "to": "multi-head",
+      "label": "is \"used\" | by (sometimes)"
+     },
+     {
+      "from": "end",
+      "to": "multi-head",
+      "label": ""
+     }
+    ]
+   },
+   "mermaid": "flowchart TD\n  n_b1[\"KL divergence D_KL p q with brackets hash tick\"]:::background\n  n_end[\"A concept whose name is much longer than forty-…\"]:::background\n  n_multi_head[\"Multi-head attention\"]:::idea\n  n_b1 -->|\"is used by sometimes\"| n_multi_head\n  n_end --> n_multi_head\n  classDef background fill:#eef1f8,stroke:#7a86a8,color:#1b1b1b\n  classDef idea fill:#fff1d6,stroke:#c98a12,color:#1b1b1b",
+   "text": "Edge cases.\n\nBackground:\n- KL \"divergence\" [D_KL(p || q)] {with} <brackets>; #hash `tick`: x\n- A concept whose name is much longer than forty-eight characters in all\n\nKey ideas:\n- Multi-head attention: y"
+  }
+ ],
+ "progress": [
+  {
+   "name": "preparing",
+   "input": {
+    "stage": "preparing",
+    "summary": false,
+    "items": 0,
+    "ideas": 0,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 9,
+    "previous": null
+   },
+   "expected": {
+    "label": "Preparing the paper…",
+    "value": null
+   }
+  },
+  {
+   "name": "reading",
+   "input": {
+    "stage": "reading",
+    "summary": false,
+    "items": 0,
+    "ideas": 0,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 9,
+    "previous": null
+   },
+   "expected": {
+    "label": "Reading the paper…",
+    "value": null
+   }
+  },
+  {
+   "name": "summary started, count announced",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "items": 0,
+    "ideas": 0,
+    "characters": 150,
+    "charactersAtLast": 0,
+    "expected": 9,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": 0.03
+   }
+  },
+  {
+   "name": "summary over its estimate stays within its share",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "items": 0,
+    "ideas": 0,
+    "characters": 2000,
+    "charactersAtLast": 0,
+    "expected": 9,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": 0.09
+   }
+  },
+  {
+   "name": "summary started, no count yet",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "items": 0,
+    "ideas": 0,
+    "characters": 150,
+    "charactersAtLast": 0,
+    "expected": null,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": null
+   }
+  },
+  {
+   "name": "summary in, first background entry begun",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 0,
+    "ideas": 0,
+    "characters": 640,
+    "charactersAtLast": 520,
+    "expected": 9,
+    "previous": 0.09
+   },
+   "expected": {
+    "label": "Writing the background, 1 of 9…",
+    "value": 0.1405
+   }
+  },
+  {
+   "name": "three background entries in, the fourth half written",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 3,
+    "ideas": 0,
+    "characters": 1500,
+    "charactersAtLast": 1360,
+    "expected": 9,
+    "previous": 0.38
+   },
+   "expected": {
+    "label": "Writing the background, 4 of 9…",
+    "value": 0.4306
+   }
+  },
+  {
+   "name": "a long entry is capped below its share",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 3,
+    "ideas": 0,
+    "characters": 3000,
+    "charactersAtLast": 1360,
+    "expected": 9,
+    "previous": 0.38
+   },
+   "expected": {
+    "label": "Writing the background, 4 of 9…",
+    "value": 0.4683
+   }
+  },
+  {
+   "name": "the first idea in: the label says key ideas",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 5,
+    "ideas": 1,
+    "characters": 2000,
+    "charactersAtLast": 1950,
+    "expected": 9,
+    "previous": 0.5
+   },
+   "expected": {
+    "label": "Writing the key ideas, 6 of 9…",
+    "value": 0.5891
+   }
+  },
+  {
+   "name": "never backwards",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 5,
+    "ideas": 1,
+    "characters": 1951,
+    "charactersAtLast": 1950,
+    "expected": 9,
+    "previous": 0.8
+   },
+   "expected": {
+    "label": "Writing the key ideas, 6 of 9…",
+    "value": 0.8
+   }
+  },
+  {
+   "name": "every announced entry in: drawing, indeterminate",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 9,
+    "ideas": 4,
+    "characters": 3000,
+    "charactersAtLast": 2900,
+    "expected": 9,
+    "previous": 0.93
+   },
+   "expected": {
+    "label": "Drawing how it fits together…",
+    "value": null
+   }
+  },
+  {
+   "name": "more entries than announced stay indeterminate",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 11,
+    "ideas": 5,
+    "characters": 3500,
+    "charactersAtLast": 3400,
+    "expected": 9,
+    "previous": 0.93
+   },
+   "expected": {
+    "label": "Drawing how it fits together…",
+    "value": null
+   }
+  },
+  {
+   "name": "no count: background, indeterminate",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 2,
+    "ideas": 0,
+    "characters": 1000,
+    "charactersAtLast": 900,
+    "expected": null,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the background…",
+    "value": null
+   }
+  },
+  {
+   "name": "no count: key ideas, indeterminate",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "items": 6,
+    "ideas": 2,
+    "characters": 2000,
+    "charactersAtLast": 1900,
+    "expected": null,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the key ideas…",
+    "value": null
+   }
+  },
+  {
+   "name": "done",
+   "input": {
+    "stage": "done",
+    "summary": true,
+    "items": 9,
+    "ideas": 4,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 9,
+    "previous": null
+   },
+   "expected": {
+    "label": "Done",
+    "value": 1
+   }
+  }
+ ]
+}

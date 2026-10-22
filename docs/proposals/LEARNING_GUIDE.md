@@ -1,117 +1,220 @@
-# Learning guide: a product extension (proposal, 2026-10-14)
+# Learning guide: Study mode, the paper's AI Explainer, visual suggestions
 
-**Status: exploratory proposal. Nothing here is built, scheduled, deployed or reflected in any schema.** Owner
-request (2026-10-14): "a slightly new product extension whereby the product is tailored to help you learn about ML
-concepts, in a tailored way that reflects the ongoing state that it maintains about you over time… you are on a
-figure, and you have a guide experience where the agent tries in real time to figure out what it needs to teach you
-or show you in order for you to fully understand the complex thing that you are looking at, with a possible and
-optional quiz component… the product focus would be partly about reading, discovery, but also AI-based acceleration
-of ease of understanding, limited to the scope of ML work."
+**Status (2026-10-22):** design below (revision 2) is what is being built: server on a branch with tests, then staging;
+apps and browser local until a release. Revision 1 (the 2026-10-14 exploratory proposal) is kept at the end as history.
+The prompt evaluation is recorded in [Evaluation](#evaluation-of-the-tutor-prompt).
 
-## The angle in one paragraph
+Owner, 2026-10-22 (verbatim): "I think 'Study Mode' is too complex and not a polished enough UX for now — my suggestion
+is to have 'Enter Study Mode – Quiz me and help me learn' as an entry in the suggested questions, and then, we have a
+mode that asks questions, and backs off a bit if concepts need to be explained a bit first — we need more clever thinking
+and a good prompt for this, better than we have right now, I'll let you think through this one more time and try to
+improve it one more pass. I'm not necessarily sure if the 'Knowledge Journey' Mermaid plots are well situated right now —
+they are sometimes useful actually; my suspicion is that they should be part of a generic 'AI Explainer' feature for the
+entire paper, and integrated as an option in the actual paper... why not this: in the Paper Settings, have an option that
+takes you to an optional AI Explainer, with background list, and a diagram illustrating how the concepts fit together,
+with the opening to a chat if the user wants it (same button icon to chat interface animation as in the figure AI
+explainer). In addition to that, in the questions that are sometimes listed in the chat, have options like 'Create a
+mermaid diagram explaining the background of X' (and equivalently, you can use html as well sometimes)."
 
-Gradstep already reads papers faithfully, answers with citations that land on the passage, and surfaces papers worth
-reading. The extension adds one thing: the app keeps a working model of what *you* understand about machine
-learning and uses it to make the hard part of a paper teachable in place, on the figure, equation or paragraph you
-are looking at, with an optional check that you got it. It is not a course and it never takes over the reader; it
-is a guide that rides along with reading and discovery, limited to ML/AI papers.
+## What was wrong with the first Study (2026-10-14 slice)
 
-## What the reader would experience
+- **Too much surface.** A knowledge-map bar above the composer, a sheet or panel with three views (Map, Journey,
+  Concepts), state chips and a legend: a second product inside the chat, asking the reader to manage a map while
+  learning. The owner found it complex and unpolished.
+- **Two requests per turn.** The tutor answered, then a separate Haiku call rebuilt the map from the tutor's reply
+  without the paper. It cost a second model call each turn, could disagree with the tutor, lost maps to validation, and
+  the map it produced was mainly for display.
+- **A weak protocol.** "Judge, then one step, one bold question" had no notion of teaching before asking about a new
+  idea, of hints, of spacing earlier ideas back in, of difficulty, or of the reader steering ("just explain it"). The
+  first question was often a hard recall question about something the reader had never been shown.
+- **The useful part was elsewhere.** A diagram of how a paper's concepts connect is helpful, but as a map of the
+  *paper* (prepare me to read this), not as a scoreboard of the reader's answers.
 
-1. **Guide me on this figure.** Long-press or select a figure (or an equation, or a dense paragraph) and choose
-   *Guide me*. The agent sees the caption, the paragraphs that reference the figure, the figure image itself, the
-   paper's numbered context, and your learner state. It decides what you need first ("you have seen KL penalties
-   in three papers, so the new idea here is the implicit reward") and explains in two to four short steps, each
-   citing the passage it draws on (`[¶N]`, already jumpable) and each ending with one check-in: "Does the y-axis
-   make sense now?" or "Want the derivation or the intuition?". The steps are a thread inside the existing chat,
-   not a new screen, so page arrangement and navigation stay as they are.
-2. **Explain at my level.** Every answer honours your level per concept rather than a global "beginner/expert"
-   slider: terse where you are solid, deeper where you have a gap, and it says which it is doing.
-3. **Optional quiz.** After a guide, or on demand: two or three questions generated from the paper and grounded in
-   its blocks, graded by the model with feedback that cites the answer's passage. Results feed the learner state.
-   Never unsolicited, never blocking.
-4. **What this paper assumes.** Before or while reading: the paper's prerequisites mapped against your state, for
-   example "Bradley–Terry model (new to you), KL-regularised RL (seen in 2 papers), LoRA (solid)". Each opens a
-   one-minute primer that cites where the paper relies on it.
-5. **Discovery that teaches.** A "learn next" lane in the Feed: the canonical paper behind a concept you keep
-   asking about, or a paper that fills a gap your quizzes exposed. The server keeps ranking on public signals as
-   today; the learner-aware part re-ranks on the device, because the learner state never leaves it.
+## 1. Study mode, reworked
 
-## The learner state: what the app would know about you
+### What the reader sees
 
-- **Content.** One record per concept from a curated ML vocabulary (start with an authored list of a few hundred
-  concepts; grow it by model extraction with `[¶N]` evidence and review): confidence (new, seen, working, solid),
-  evidence (asked about, guided, quiz right/wrong, papers read that depend on it), last touched, and a short note
-  the model wrote ("confuses the reward model with the reference model").
-- **Where it lives.** On the device, end-to-end encrypted like conversations and reading activity, synced between
-  your devices as encrypted events through the existing path. The server never reads it and keeps no analytics on
-  it; this follows the Feed's standing rule that device-only signals are used only on the device. The model receives
-  it from the device as part of the prompt, bounded (a few kilobytes), exactly as the numbered paper context is sent
-  today, and the consent copy names it.
-- **How it changes.** Explicitly: the model proposes updates through a tool (`update_learner_state`), the device
-  applies them and shows "Noted: solid on attention scaling" with Undo. Implicitly: guides completed and quiz
-  results. Always inspectable: a "What Gradstep thinks you know" screen lists every concept with its evidence; you
-  can edit, reset, or turn the guide off. Confidence decays when a concept goes untouched for months.
+- **Entry.** "Enter Study Mode – Quiz me and help me learn" is always offered in a paper chat whose paper is numbered
+  on this device (the tutor cites `[¶N]`), not dependent on the model's suggestions:
+  - in an empty paper chat, as a row after the starter questions (the graduation-cap symbol);
+  - under the newest answer, as the last item of the suggested questions;
+  - in the chat's ⋯ menu as before (**Study mode** / **End study mode**; owner, build 57).
+  One tap enters Study mode and sends the opening turn ("Quiz me and help me learn this paper."), with the selected
+  passage when there is one. Unlike a suggested question it is a command, not text to edit, so it sends at once
+  (reversible decision, [DECISIONS](../DECISIONS.md)).
+- **While studying**, one slim row above the message box replaces the old knowledge-map bar: the words **Study mode**,
+  then **Hint**, **Explain instead** and **Stop**. Hint and Explain instead send "Give me a hint." / "Explain it to me
+  instead." as the reader's turn (disabled while the tutor is answering); Stop leaves Study mode at once, sends
+  nothing, and keeps the conversation. The message box reads "Your answer". No map, no states, no legend, no counts.
+- **The conversation is the product.** Each tutor turn is short: feedback on the answer, then either a step further,
+  or a short explanation with a quick check, ending in exactly one bold question. Everything else (citations, math,
+  diagrams on request, Save snippet, copy) works as in any answer. Follow-up suggestions are not shown beside a tutor
+  turn (the tutor's question is the follow-up), so the study row is the only extra control.
+- **Leaving and coming back.** Study mode lives with the open chat (memory), as before. Reopening the conversation
+  later shows it as an ordinary chat; tapping Enter Study Mode again resumes: the tutor reads the earlier turns and
+  starts with a quick look back at an idea from before.
 
-## Why this fits the current system
+### The tutor's loop (server instructions, `STUDY_INSTRUCTIONS`)
 
-- Numbered context and citations (Agent v2) mean every teaching step can point at the block it is built on, and
-  the reader can jump there. Follow-up chips are already the UI for "what next"; guide steps are a structured form
-  of the same thing.
-- Selection actions (`related`, `relevance`, `ingest`) are the pattern: *Guide me* and *Quiz me* are two more
-  actions in the same request contract. The server owns the instructions and the step format; both clients render.
-- The reader index already carries figures with captions, alt text and asset paths, and the bridge can locate the
-  paragraphs that reference a figure. The one new transport piece is sending the figure image (bounded, about
-  1 MiB, from the HTML the reader already fetched to their device) alongside the text.
-- Credits apply unchanged: a guide step is an ordinary answer; quiz grading is a small Haiku request like follow-up
-  suggestions.
-- Podcasts could later voice a guided explanation; out of scope here.
+A calibrated loop, one focused question at a time, grounded in the paper:
 
-## What is genuinely new
+1. **Feedback first** (when the reader answered): right, partly right or not yet, in plain words; what they got right,
+   then the missing piece and the correct idea, cited `[¶N]`. Paraphrases count; no nitpicking of wording.
+2. **Choose the next move** from the answer and the hidden notes:
+   - right and sure → a step further on the same idea (why, what if, apply it), or the next idea once this one is
+     solid;
+   - partly right → fill the gap in a sentence, then the same idea from another angle;
+   - wrong, "I don't know", a guess, or a second miss → **back off**: explain the idea from the ground up in a few
+     sentences with a concrete or worked example, then an easier check (a choice between two, a single step, a
+     definition in their words);
+   - a new idea the reader has not shown they know → **teach before asking**: two or three sentences (a tiny worked
+     example when there is math), then the question;
+   - "hint" → one hint that narrows the answer without giving it, then the same question;
+   - "explain instead" → a clear explanation of the current idea, then one light check;
+   - a question from the reader → a brief answer, then back to studying.
+3. **What to ask:** the ideas needed to understand the paper (problem, key method and why it works, main equations in
+   words, evidence, limits), central idea first, then outward. Retrieval, not recognition: explain, predict, compare or
+   apply rather than repeat. **Spacing within the session:** every three or four questions, a quick look back at an
+   earlier shaky idea with a fresh question. **Difficulty follows the reader:** up after two good answers, down after a
+   miss. **No trick questions**, nothing ambiguous, nothing the paper doesn't support, no long lists to recall.
+4. **Tone and length:** warm and direct, like good office hours; encourage effort, normalise mistakes, never flatter.
+   Usually under 120 words, up to about 180 when explaining. One idea per turn. Never invent: claims about the paper
+   come from the paper with `[¶N]`; if the paper does not say, say so.
+5. **First turn:** one sentence on how it works (one question at a time; ask for a hint or an explanation any time),
+   then an approachable question on the paper's central idea, with "(If this is new to you, say so and I'll explain
+   it first.)".
 
-1. **Concept vocabulary and extraction**: an authored seed list; model extraction of "concepts this paper relies
-   on" with block evidence; tests on the corpus papers.
-2. **Learner state**: an encrypted event type, device store and sync, the inspect/edit/reset screen, prompt
-   serialisation, consent copy.
-3. **Guide action**: server instructions and a step format (`guide_step {n, of, text, check}` events), a thread
-   rendering inside chat on both surfaces, figure image attachment.
-4. **Quiz**: grounded question generation, forced-tool grading, results into the state, card rendering in chat.
-5. **Learn-next lane**: on-device re-rank of the Feed's list using the state.
-6. **Evaluation**: fixture papers plus synthetic learners with golden guides and a rubric, run in the pre-build
-   review so a change to the prompts is judged before a build (the UX review process already exists for this).
+### The hidden learner state
 
-## Risks and how to bound them
+- **Written by the tutor itself, in the same reply** (no second request): after its question the tutor appends
+  `<study_state>{…}</study_state>` with the turn number, the level the reader is ready for, the concepts taught or asked
+  (the paper's term, status `new|shaky|ok|solid`, the turns that asked about it, its paragraphs) and a few words of plan
+  ("check the KL term from a new angle; revisit Bradley–Terry around turn 6"). At most 12 concepts, 2 KB.
+- **Never shown.** The server removes the block from the stream (a filter that holds back a possible tag prefix and
+  swallows everything between the tags, wherever the model puts them), validates it, and relays it once as an SSE
+  `study_state {state}` event before `done`. The device keeps it with the open chat (memory) and sends it back as
+  `study_state` with the next study turn; the server places it after the tutor's instructions (after the paper, so the
+  cached paper is reused). It is never stored on the server, never logged (counts only), never written to history.
+- **Lossy by design.** A malformed block is dropped (the answer is unaffected); a lost state (relaunch, another device)
+  is re-derived by the tutor from the conversation, which the instructions call the truth. The state is a hint for
+  spacing and calibration, not a record of the reader.
+- **Old builds** (TestFlight ≤ 81, browser pages loaded before the deploy) still send `study: {map}` and read `study`
+  events. The server keeps accepting the old map (validated, ignored), sends the new instructions, strips the hidden
+  block for them too, and no longer makes the Haiku map request: their tutoring improves and their map stays empty
+  ("Built from your answers as you go"). No `study` event is sent any more.
 
-- **Over-tutoring.** Off until the reader taps Guide; no unsolicited quizzes; one check-in per step; a "just
-  explain it" escape on every step.
-- **A wrong model of the reader.** The state is visible, editable and reversible; every update carries evidence;
-  confidence decays; the first explanation after a wrong inference offers "I know this" to correct it in one tap.
-- **Hallucinated pedagogy.** Every step and every quiz answer key must cite blocks; a server check rejects
-  questions without resolvable citations, as Agent v2 already resolves `[¶N]`.
-- **Cost.** A guide session is three to five answers (about $0.10–0.30 on Sonnet with the prompt cache); grading
-  is about a cent. Prices show as today; the owner budget rules apply.
-- **Privacy.** The learner state is the most personal data in the app; end-to-end encrypted, never on the server in
-  the clear, named in consent.
-- **Scope.** ML only; no general courses; no spaced repetition in a first version.
+### Contract changes (`POST functions/v1/chat`)
 
-## A cheap prototype first (one to two days, no schema)
+- `action: "study"` (paper, local context v2, selection optional, `follow_ups` refused) as before; `study` (old map) is
+  now optional and ignored; new optional `study_state` object (≤ 4 KB raw, validated as below) only with `action:
+  "study"`. Both are in the request digest when sent.
+- Event `study_state {state}` with `{turn, level, concepts: [{name, status, asked: [n], paras: [N]}], next}`; the
+  `study {map}` event is retired. Quote: no `study_*` fields (no side request). Settlement action `study` unchanged.
 
-Build *Guide me on this figure* as a chat action with the caption, the referencing paragraphs and the image, a fixed
-step/check-in format, and no learner state beyond a sentence the reader types once in Settings ("I know transformers
-and PPO; new to preference optimisation"), stored encrypted on the device. Measure it on the DPO, Attention and Mamba
-figures with the UX review captures and three to five paid live runs, and judge one thing: does it find the right
-first thing to teach? Only then decide on the learner-state investment.
+## 2. Paper AI Explainer
 
-## Open questions for the owner
+### What the reader sees
 
-1. Learner state in v1: device-local per device, or synced through encrypted events from the start?
-2. Quiz grading: model-graded only, or also self-assessment ("got it / not yet") as the cheaper default?
-3. Guides as a thread in chat (recommended first: preserves page arrangement) or a stepper over the figure?
-4. Sending figure images to the provider needs new consent copy (`cloud-ai-v3`): approve in principle?
-5. Concept vocabulary: authored by you, derived from arXiv categories and paper terms, or both?
+- **Entry:** the paper's ⋯ (Paper options) gains **AI Explainer** after "Ask about this paper" (an arXiv paper on this
+  device). If this paper revision already has a kept explanation it opens at once; otherwise the model choice
+  (AIChoiceView / the browser's model picker, the paper-chat scenario) and then the request, as the figure explainer
+  does.
+- **The page** (a sheet on iPhone/iPad, the Mac's sheet, the browser's dialog), in the figure explainer's look:
+  1. the top row with the **Open in Chat** symbol (`bubble.left.and.text.bubble.right`, the figure explainer's) on the
+     right, which continues this page's conversation in the paper's Chat with the same promotion and transition the
+     figure explainer uses (`promoteContextualChat` / `promoteContextual`); the Mac and browser keep their X;
+  2. the heading **AI Explainer** with the paper's title under it and the model's name;
+  3. **In short**: two or three sentences (problem, what the paper does, main result);
+  4. **Background**: 4–8 prerequisite concepts, most fundamental first, each one line ("**Bradley–Terry model** — turns
+     pairwise preferences into a probability; DPO's loss starts from it") with its `¶N` links (each closes the page and
+     lands on the paragraph, with Back);
+  5. **How it fits together**: one Mermaid flowchart drawn on the device from the explainer's structure (background
+     concepts in one quiet style, the paper's own ideas in the accent style, labelled arrows); tap for the full-screen
+     diagram viewer. This is the useful part of the old Knowledge Journey, now about the paper;
+  6. the contextual conversation and its composer at the bottom ("Ask about this explanation"), exactly as on the
+     figure explainer.
+- **Streamed, with the figure explainer's progress rules**: a stage label always ("Preparing…", "Reading the paper…",
+  "Writing the summary…", "Writing background 2 of 6…", "Writing key idea 1 of 3…", "Drawing how it fits together…"), a
+  determinate bar only while the announced count is known and not exceeded (10 % summary, then items, each item's share
+  filled by its characters against a measured size, capped at 90 % of the item; never backwards; past the estimate it
+  turns indeterminate), the skeleton at once, items appended as they arrive (content above never moves), the diagram
+  drawn at the end, a fade out, Reduce Motion respected, one accessibility element announcing stage changes only.
+- **Kept** per paper revision and model on the device (native: the sealed explanation store, folder `paper-answers`;
+  browser: kept explanations, kind `paper`), so reopening shows it without a request. **Settings › Your assets ›
+  Paper explanations** (browser: account menu › Your assets) lists them; a row opens the paper and its explainer.
 
-## How success would be judged
+### Request and response
 
-Time to "I get it" (one-tap self-report after a guide), guide completion, quiz accuracy trend per concept, repeat
-use per paper, cost per guide session, share of steps whose citations resolve, and state edits or undos (a proxy for
-wrong inferences).
+- An ordinary paper-chat request on the chat's cached prefix (same tools and capabilities as the chat, so it reads the
+  paper from the cache): `mode: "paper"`, numbered local context v2, one user turn ("Explain this paper"), no
+  selection, no figures, `action: "paper_explainer"`, the reader's profile. Effort low when automatic or Gemini (as the
+  figure view); an effort chosen for a Claude model stays. Output allowance 3,500 tokens plus the effort's thinking.
+- The model writes one JSON object in its reply: `{"items": N, "summary": "…", "background": [{"id","name","line",
+  "paragraphs"}], "ideas": [{…}], "links": [{"from","to","label"}]}`. The server reads it incrementally
+  (`PaperExplainerStream`) and relays `paper_progress {stage, characters?, items?}`, `paper_summary {summary}`,
+  `paper_item {kind: "background"|"idea", index, item}` (each checked exactly as the final one is), then the final
+  `paper_explainer {format: "paper-explainer-v1", summary, background, ideas, links}`. Unusable JSON: the model's words
+  as `delta` (shown as the description). No title, no suggestions. Settled as `paper_explainer` (migration 0144-series,
+  additive: the settlement check gains the name).
+- Checks (`paperExplainer`): summary ≤ 600 characters; background 1–10 and ideas 1–6 entries, each a unique slug id,
+  name ≤ 60, line ≤ 240 (one line, `[¶N]` markers removed), paragraphs within the paper (≤ 6); links only between known
+  ids, no self links or duplicates, label ≤ 40, at most 24. Null when there is no entry.
+- Cost: about the figure walkthrough's (one answer of ~800–1,500 output tokens on a cached paper; Sonnet ~2–4 credits,
+  Gemini ~1).
+
+## 3. Visual suggestions in the suggested questions
+
+- The follow-up request learns whether Visual answers are on. When they are, its instructions allow **at most one** of
+  the two or three questions to ask for a picture of something concrete from this paper or answer: "Create a diagram
+  explaining the background of X" (Mermaid), "Draw how X flows step by step", or "Show X as a visual" (the HTML visual
+  answer). The server keeps only the first such question (a pattern check) and none when Visual answers are off.
+- Clients show the generic "Draw a diagram" / "Create a visual explanation" rows only when the model offered no
+  visual question (so the list stays short and specific), then the model's questions, then "Enter Study Mode – Quiz me
+  and help me learn" in paper chats. A tap fills the message box as before; the answer draws with the existing
+  `create_diagram` / `create_visual` tools.
+
+## What is removed
+
+Browser `StudyPanel.tsx`, the map types and Mermaid map in `lib/study.ts`, its styles; native `StudyMapViews.swift`,
+the map in `ChatStudy.swift`, the knowledge-map bar and sheet, the map's fixtures and journeys; the server's
+`update_study_map` request, its hold and quote fields. `chat-live-smoke.mjs --study` now prints each turn and the hidden
+state.
+
+## Evaluation of the tutor prompt
+
+Method (`scripts/study-eval.mjs`): the server's own request for each tutor turn (runChat with stub dependencies, the
+numbered paper from the browser's context builder, the production OpenRouter adapter), straight to OpenRouter under a
+spend ledger; a simulated learner (Claude Haiku 5.5, no paper, a persona brief) answers each question; transcripts and
+the hidden states recorded under `.artifacts/study-eval/`. Personas: **strong** (knows the area, answers well, sometimes
+asks for more depth), **weak** (new to the area, vague or "I don't know", asks for hints), **wrong** (confident but
+holds a specific misconception). Papers: Attention Is All You Need and PPO (short, so cheap to cache). Budget ≤ $1.
+Results and the changes made between iterations are recorded below as they are run.
+
+(Filled in by the evaluation runs.)
+
+---
+
+## History: revision 1 (exploratory proposal, 2026-10-14)
+
+Owner request (2026-10-14): "a slightly new product extension whereby the product is tailored to help you learn about ML
+concepts, in a tailored way that reflects the ongoing state that it maintains about you over time… you are on a figure,
+and you have a guide experience where the agent tries in real time to figure out what it needs to teach you or show you
+in order for you to fully understand the complex thing that you are looking at, with a possible and optional quiz
+component… the product focus would be partly about reading, discovery, but also AI-based acceleration of ease of
+understanding, limited to the scope of ML work."
+
+The proposal: a learner state kept on the device (a concept vocabulary with confidence and evidence, end-to-end
+encrypted and synced as events, inspectable and editable), a *Guide me* action on a figure, equation or passage
+(2–4 cited steps, each with a check-in), an optional grounded quiz, "what this paper assumes" mapped against the
+learner state, and a learner-aware "learn next" lane in the Feed. Risks named then still hold: over-tutoring (never
+unsolicited), a wrong model of the reader (visible, reversible), hallucinated pedagogy (every step cites blocks), cost
+and privacy (the learner state is the most personal data in the app). Since then the figure and equation explainers
+shipped the *Guide me* idea per element; revision 2 adds the paper-level explainer ("what this paper assumes") and a
+simpler Study mode. Still not built: a persistent cross-paper learner state, spaced repetition across sessions, the
+learn-next lane.
+
+Open questions carried forward for the owner:
+
+1. Keep the hidden study state with the conversation (a sealed field on the tutor's answers) so Study mode resumes
+   across relaunch and devices?
+2. A persistent, inspectable learner state across papers (revision 1's core idea): worth building after this?
