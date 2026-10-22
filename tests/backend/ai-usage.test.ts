@@ -31,14 +31,17 @@ test('every chat action the function accepts has an activity', () => {
   const actions = [...(/const CHAT_ACTIONS: readonly string\[\] = \[([^\]]*)\]/.exec(chat)![1]).matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
   assert.ok(actions.length >= 10);
   const named = quoted(activityFn);
-  for (const action of actions) assert.ok(named.has(action), `chat action ${action}`);
+  // The paper's AI Explainer settles as an answer (chat_endings.action 'answer', no migration), so it is listed as Chat.
+  const COUNTED_AS_CHAT = ['paper_explainer'];
+  for (const action of actions) assert.ok(named.has(action) || COUNTED_AS_CHAT.includes(action), `chat action ${action}`);
   // And how a settled chat names itself (chat_endings.action).
   for (const action of latestCheck('action', 'chat_endings_action_check')) if (!['answer', 'unknown'].includes(action)) assert.ok(named.has(action), `ending action ${action}`);
 });
 
 test('the chat answer\'s extra calls are their own parts', () => {
   const followUps = /name: '([a-z_]+)'/.exec(read('supabase/functions/_shared/chat-follow-ups.ts'))![1];
-  const studyMap = /name: '([a-z_]+)'/.exec(read('supabase/functions/_shared/chat-study.ts'))![1];
+  // The study map's tool is gone (Study mode's notes ride in the answer, 2026-10-22); its old calls keep their name.
+  const studyMap = 'update_study_map';
   const title = /purpose: '([a-z_]+)'/.exec(read('supabase/functions/_shared/chat.ts'))![1];
   assert.match(partFn, new RegExp(`p_feature='${followUps}' then 'suggestions'`));
   assert.match(partFn, new RegExp(`p_feature='${studyMap}' then 'study_map'`));
