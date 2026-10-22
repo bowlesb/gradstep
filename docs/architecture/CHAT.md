@@ -147,6 +147,37 @@ button icon to chat interface animation as in the figure AI explainer)."
 - **Evidence:** backend tests (validation, checks, streaming at every split size, fallback, cut-off); live on staging
   (DPO): Gemini summary 5.2 s, whole 9.9 s, 2 credits; Sonnet summary 3.3 s, whole 12.4 s, 5 credits; streamed = final.
 
+### Build-82 feedback: one Key concepts card, the cards follow into Chat, no cut-off summary, faster on Gemini — 2026-10-22
+
+Owner, on build 82: *"Is it cut off ?"*, *"Key ideas and concepts seems like two versions of the same thing and could be
+combined"*, *"When I pressed the chat button , I expected Al above content to follow me, but some did some did not"* and
+*"Oh it looks like thr cards were removed, confusing"*. Decision record: DECISIONS.md "Paper AI Explainer: one Key concepts
+card, the same cards in Chat".
+
+- **Key concepts.** The page shows Background and Key ideas as one card, "Key concepts": the background first, then the
+  paper's own ideas, each entry marked quietly ("Background" / "This paper") with a dot in the diagram's colour for its kind
+  (blue-grey / amber). The format is unchanged (`background` and `ideas` stay separate lists, so every build reads it and
+  kept explainers show merged); the prompt now says an idea never repeats a background concept. The progress bar says
+  "Writing the key concepts, k of N…" (both clients; `tests/fixtures/paper-explainer.json`).
+- **Open in Chat carries the cards.** The promoted chat context gains the explainer itself (browser `PromotedContext.
+  paperExplainer`, apps `PromotedChatContext.paperExplainer`), and the chat shows the same cards (browser
+  `PaperExplainerCards`, apps `PaperExplainerCards.swift`, one view for the page and the chat): In short, Key concepts with
+  working ¶ links, How it fits together drawn on the device and openable full size. The model still reads the plain text
+  (`explanation` / `text`) as before. Only a whole explainer is carried; one still streaming goes as text.
+- **No cut-off summary.** The live summary ran past the 600-character limit and was cut mid-number ("from 85.8% t…").
+  The prompt now asks for under 450 characters; over a limit, the server ends at the last sentence end that keeps at least
+  40% of it, else at the last whole word with "…" (`boundedText`; names and lines too). The limits stay 600/60/240, which
+  older builds accept (they drop a longer string rather than cut it).
+- **Speed** (`scripts/paper-explainer-speed.mjs`: the server's own request straight to OpenRouter, DPO, cache read;
+  seconds from sending). At `low`, Gemini 3.8 Flash's first words came after 1.5, 1.7, 2.3, 4.1, 5.3, 9.4 and 33.8 s (no
+  reasoning tokens billed; the same ~800–930 output tokens); at `minimal` after 2.1, 2.1, 2.4, 3.0 and 3.3 s, summary
+  2.9–4.4 s, whole 8.1–10.6 s, the same 8–9 entries and 8–9 links, ≈ $0.007. So the explainer on Gemini asks for
+  `minimal` reasoning (`chat.ts`; the quote still records the profile's `low`, the only efforts its table accepts; other
+  models unchanged). Live on staging after deploy (`chat-live-smoke.mjs --paper-explainer --profile=gemini-medium-standard`):
+  summary 6.0 and 8.4 s, whole 11.9 and 13.9 s, 2 credits each (before, same command at low: summary 16.3 s, whole 21.3 s;
+  the owner's own 14:07 run on a 93k-token paper took 34 s). The difference from the model-alone numbers is the service's
+  own preparation and Gemini's variable start; it is not yet explained further.
+
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.

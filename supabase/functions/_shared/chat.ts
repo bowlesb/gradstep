@@ -782,6 +782,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // ~1,800 tokens (24 s before a word of a walkthrough); without it the walkthrough read the same panels and values and
   // was whole in 15 s (FIGURE_VIEW.md "Speed"). Its route has no prompt cache to keep, so the prefix is unaffected.
   if (figureView && profile.model === 'deepseek' && profile.effort === 'low') params.thinking = { type: 'disabled' };
+  // The paper's explainer on Gemini at low effort asks for minimal reasoning: at low the first words came after 1.5–34 s
+  // (a long tail with no reasoning tokens billed), at minimal after 2.1–3.3 s in every run, with the same entries, links
+  // and length (CHAT.md "Paper AI Explainer", "Speed"). The prompt cache is unaffected (the prefix is unchanged).
+  if (explainerOnly && profile.model === 'gemini' && profile.effort === 'low') params.output_config = { ...params.output_config, effort: 'minimal' };
   // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
   const hold = holdForParams(params);
   if (searchOffered) {
@@ -1228,7 +1232,8 @@ export function chatQuote(profile: ChatProfile, params: ModelRequest, inputToken
   maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean): Record<string, string | number | null> {
   // The answer and auxiliaries retain their exact billed OpenRouter model identities and reviewed cards.
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
-    effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
+    // Gemini's `minimal` (the paper explainer) is the profile's low effort: the quote's effort is one of the profiles'.
+    effort: params.output_config?.effort === 'minimal' ? 'low' : (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
     tariff: tariffFor(params.model) ?? 'unreviewed',
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
     title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,

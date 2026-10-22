@@ -46,7 +46,12 @@ struct ChatTranscript: View {
                                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
                                 .accessibilityIdentifier("chat.promotedQuote")
                         }
-                        if !context.text.isEmpty || context.noteReturn == nil {
+                        if let explainer = context.paperExplainer {
+                            // The paper's AI Explainer follows the reader as its own cards (build 82 feedback).
+                            PaperExplainerCards(explainer: explainer, bodySize: CGFloat(fontSize), identifier: "chat.paperExplainer",
+                                                surface: Color(uiColor: .secondarySystemBackground), onCite: { model.goToCitedBlock($0) })
+                                .accessibilityElement(children: .contain).accessibilityIdentifier("chat.contextExplanation")
+                        } else if !context.text.isEmpty || context.noteReturn == nil {
                             ChatMessageText(source: context.text, fontSize: fontSize, streaming: false, speaker: "Saved explanation",
                                 identifier: "chat.contextExplanation", assistant: true, onCite: { model.goToCitedBlock($0) })
                         }

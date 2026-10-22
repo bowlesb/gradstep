@@ -21,6 +21,7 @@ import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { isVisualFollowUp, STUDY_ENTRY, STUDY_EXPLAIN, STUDY_HINT } from '../lib/study';
 import { sessionBalance, useFreeAIRefusal } from './free-ai';
+import { PaperExplainerCards } from './PaperExplainer';
 import { PapersInAnswer, type AnswerPapers } from './AnswerPapers';
 import { AnswerSelectionBar, formulaPick, useAnswerSelection } from './AnswerSelection';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
@@ -321,6 +322,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
         <h3>{promoted.label}</h3>{promoted.image && <img src={promoted.image} alt={promoted.label} style={{maxWidth:'100%'}} data-testid="promoted-image"/>}
         {promoted.noteReturn && promoted.image ? <p className="fine" data-testid="promoted-image-note">{promoted.imageSent ? 'This picture goes with your questions in this chat.'
           : 'This paper isn’t on this device, so the picture stays here; the chat knows where it came from.'}</p>
+          : promoted.paperExplainer ? <PaperExplainerCards explainer={promoted.paperExplainer} onCite={() => { /* the pane's own [¶N] handling (.cite[data-cite]) takes these */ }} />
           : <Answer text={promoted.explanation ?? promoted.quote} />}</section>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`} data-answer={m.payload.role === 'assistant' ? m.payload.entityID : undefined}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>

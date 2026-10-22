@@ -1,11 +1,10 @@
-import CryptoKit
 import ScienceReaderCore
 import SwiftUI
 
 // The paper's AI Explainer (2026-10-22; docs/proposals/LEARNING_GUIDE.md "Paper AI Explainer"): from Paper › … › AI
-// Explainer, in the figure explainer's look: the paper, "In short", the background it assumes (each one line, with the
-// paragraphs that rely on it), its key ideas, and a diagram of how they fit together (the useful part of the retired Study
-// "Knowledge Journey"), then a conversation about it with the figure explainer's Open in Chat symbol.
+// Explainer, in the figure explainer's look: the paper, then its cards (PaperExplainerCards: "In short", Key concepts —
+// the background it assumes and its own ideas, each one line with the paragraphs that rely on it — and a diagram of how they
+// fit together), then a conversation about it with the figure explainer's Open in Chat symbol, which carries the cards.
 
 struct PaperExplainView: View {
     let model: ReaderModel
@@ -17,12 +16,8 @@ struct PaperExplainView: View {
     @State private var session: PaperExplainerSession?
     @State private var chatToken: UUID?
     @State private var choosingAI = false
-    @State private var showDiagram = false
-    @State private var diagramImage: UIImage?
-    @State private var diagramFailed = false
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,7 +33,8 @@ struct PaperExplainView: View {
                 : nil,
             openChat: ExplainAction(identifier: "paperExplainer.openInChat", hint: "Continue this conversation in Chat.") {
                 guard let chatToken else { return }
-                model.promoteContextualChat(chatToken, explanation: explanationText); finish(.continueChat)
+                model.promoteContextualChat(chatToken, explanation: explanationText, paperExplainer: session?.state == .done ? session?.explainer : nil)
+                finish(.continueChat)
             }, noun: "Paper", close: close)
         .background(Color(uiColor: .systemGroupedBackground))
         .task(id: context.bundle.manifestSHA256) {
@@ -62,11 +58,6 @@ struct PaperExplainView: View {
         .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
             CloudConsentContent(accept: { session?.acceptConsent() }, decline: { session?.declineConsent() })
                 .presentationDetents([.large]).macSheetKeys()
-        }
-        .sheet(isPresented: $showDiagram) {
-            if let explainer = session?.explainer, let diagram = ChatDiagram(title: "How it fits together", source: explainer.mermaid, messageID: nil) {
-                DiagramSheet(diagram: diagram).macSheetKeys()
-            }
         }
     }
 
@@ -103,27 +94,7 @@ struct PaperExplainView: View {
         let loading = session.state == .loading
         VStack(alignment: .leading, spacing: 18) {
             if let explainer = session.explainer {
-                if !explainer.summary.isEmpty {
-                    section("In short") {
-                        Text(explainer.summary).font(.system(size: bodySize)).fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled).accessibilityIdentifier("paperExplainer.summary")
-                    }
-                }
-                if !explainer.background.isEmpty {
-                    section("Background") {
-                        ForEach(Array(explainer.background.enumerated()), id: \.offset) { index, item in
-                            itemRow(item, identifier: "paperExplainer.background.\(index + 1)")
-                        }
-                    }
-                }
-                if !explainer.ideas.isEmpty {
-                    section("Key ideas") {
-                        ForEach(Array(explainer.ideas.enumerated()), id: \.offset) { index, item in
-                            itemRow(item, identifier: "paperExplainer.idea.\(index + 1)")
-                        }
-                    }
-                }
-                if !loading, !explainer.links.isEmpty { diagram(explainer) }
+                PaperExplainerCards(explainer: explainer, loading: loading, bodySize: bodySize, onCite: cite)
                 if session.state == .done, session.notCharged {
                     Text("This explanation stopped before the end. Not charged.").font(.footnote).foregroundStyle(.secondary)
                         .accessibilityIdentifier("paperExplainer.notCharged")
@@ -144,79 +115,6 @@ struct PaperExplainView: View {
             // VoiceOver hears each new stage, not every step of the bar.
             if let label, UIAccessibility.isVoiceOverRunning { AccessibilityNotification.Announcement(label).post() }
         }
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-            content()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
-    }
-
-    /// One concept: its name, one line, and the paragraphs that rely on it (each closes the sheet and lands there, with Back).
-    private func itemRow(_ item: PaperExplainer.Item, identifier: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(item.name).font(.system(size: bodySize, weight: .semibold))
-            if !item.line.isEmpty {
-                Text(item.line).font(.system(size: bodySize * 0.92)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            if !item.paragraphs.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(item.paragraphs, id: \.self) { n in
-                        Button("¶\(n)") { cite(n) }
-                            .font(.footnote.weight(.semibold)).buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(Platform.isMac ? .small : .mini)
-                            .accessibilityLabel("Go to paragraph \(n)").accessibilityIdentifier("\(identifier).cite.\(n)")
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(identifier)
-    }
-
-    /// The diagram, drawn as an image in the page; a tap opens it full size (two fingers zoom there).
-    private func diagram(_ explainer: PaperExplainer) -> some View {
-        let source = explainer.mermaid, dark = colorScheme == .dark
-        let id = Self.diagramID(source)
-        return section("How it fits together") {
-            Button { showDiagram = true } label: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Group {
-                        if let image = diagramImage ?? DiagramPreview.cached(id, dark: dark) {
-                            Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 420)
-                        } else if diagramFailed {
-                            Label("Couldn’t draw it here", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, minHeight: 80)
-                        } else {
-                            ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    Label("Open full size", systemImage: "arrow.up.left.and.arrow.down.right").font(.footnote).foregroundStyle(Color.accentColor)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Diagram: how the paper’s ideas fit together")
-            .accessibilityValue(diagramImage != nil || DiagramPreview.cached(id, dark: dark) != nil ? "drawn" : diagramFailed ? "not drawn" : "drawing")
-            .accessibilityHint("Opens it full size")
-            .accessibilityIdentifier("paperExplainer.diagram")
-            .task(id: "\(id)-\(dark)") {
-                diagramImage = nil; diagramFailed = false
-                diagramImage = await DiagramPreview.render(id, source: source, dark: dark)
-                diagramFailed = diagramImage == nil
-            }
-        }
-    }
-
-    /// A stable identity for the drawing's cached image: a digest of its source.
-    static func diagramID(_ source: String) -> UUID {
-        let digest = Array(SHA256.hash(data: Data(source.utf8)))
-        return UUID(uuid: (digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
-                           digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]))
     }
 
     @ViewBuilder private func status(_ session: PaperExplainerSession) -> some View {

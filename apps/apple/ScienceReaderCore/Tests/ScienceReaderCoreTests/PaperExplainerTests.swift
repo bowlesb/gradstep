@@ -97,7 +97,7 @@ import Testing
         #expect(tracker.explainerSoFar?.summary == "The paper does one thing.")
         #expect(tracker.explainerSoFar?.background.map(\.id) == ["b1"]); #expect(tracker.explainerSoFar?.ideas.map(\.id) == ["i1"])
         let state = tracker.state()
-        #expect(state.label == "Writing the key ideas, 3 of 3…"); #expect(state.value != nil)
+        #expect(state.label == "Writing the key concepts, 3 of 3…"); #expect(state.value != nil)
         // The final explainer replaces what streamed.
         let final = PaperExplainer(summary: "Final.", background: [.init(id: "b1", name: "Softmax", line: "", paragraphs: [])], ideas: [], links: [])
         let replaced = tracker.apply(.paperExplainer(final)); #expect(replaced)

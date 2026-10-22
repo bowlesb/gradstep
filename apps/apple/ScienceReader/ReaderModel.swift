@@ -5929,6 +5929,8 @@ extension ReaderModel {
         var noteReturn: (noteID: UUID, entryID: UUID)? = nil
         /// Whether `image` goes with the questions (false: shown here only, for a paper not on this device).
         var imageSent = true
+        /// The paper's AI Explainer it came from: shown as the same cards (`text` is what the model reads).
+        var paperExplainer: PaperExplainer? = nil
     }
     var promotedChatContext: PromotedChatContext? { chatComposerID.flatMap { promotedChatContexts[$0] } }
 
@@ -5948,7 +5950,7 @@ extension ReaderModel {
         explainerReturn = nil
     }
     /// Keep this composer selected; sheet disappearance must not restore the previous one. No new request is made.
-    func promoteContextualChat(_ token: UUID, explanation: String, image: CGImage? = nil) {
+    func promoteContextualChat(_ token: UUID, explanation: String, image: CGImage? = nil, paperExplainer: PaperExplainer? = nil) {
         guard ownsContextualChat(token), let current = contextualChat else { return }
         let subject = "About \(current.label): " + current.quote
         let bounded = String(subject.unicodeScalars.prefix(ChatGenerationRequest.maximumSelectionScalars))
@@ -5956,7 +5958,8 @@ extension ReaderModel {
         let quote = bounded + (explanation.isEmpty || allowance == 0 ? "" : "\n\nEarlier AI explanation (may contain errors):\n" + String(explanation.unicodeScalars.prefix(allowance)))
         pendingChatProfiles[current.composer] = chatProfile
         if promotedChatContexts.count >= 8 { promotedChatContexts.removeValue(forKey: promotedChatContexts.keys.first!) }
-        promotedChatContexts[current.composer] = PromotedChatContext(label: current.label, text: String(explanation.prefix(32_000)), quote: quote, origin: current.origin, image: image)
+        promotedChatContexts[current.composer] = PromotedChatContext(label: current.label, text: String(explanation.prefix(32_000)), quote: quote, origin: current.origin, image: image,
+                                                                         paperExplainer: paperExplainer)
         contextualChat = nil
     }
 

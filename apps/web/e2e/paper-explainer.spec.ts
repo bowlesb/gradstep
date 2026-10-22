@@ -37,19 +37,19 @@ test('AI Explainer: the paper’s background, key ideas and diagram stream in un
  let last=await value();
  await step(request);
  await expect(dialog.getByTestId('paper-summary')).toContainText('trains a policy on preferences directly');
- await expect(bar).toHaveAttribute('aria-label','Writing the background, 1 of 5…');
+ await expect(bar).toHaveAttribute('aria-label','Writing the key concepts, 1 of 5…');
  await step(request,3);
  await expect(dialog.getByTestId('paper-background-item')).toHaveCount(1);
- await expect(bar).toHaveAttribute('aria-label','Writing the background, 2 of 5…');
+ await expect(bar).toHaveAttribute('aria-label','Writing the key concepts, 2 of 5…');
  expect(await value()).toBeGreaterThanOrEqual(last);last=await value();
  await page.screenshot({path:`${SHOTS}/paper-explainer-streaming-${project}-light.png`});
  await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:`${SHOTS}/paper-explainer-streaming-${project}-dark.png`});await page.emulateMedia({colorScheme:'light'});
  await step(request,6);
  await expect(dialog.getByTestId('paper-background-item')).toHaveCount(3);
- await expect(bar).toHaveAttribute('aria-label','Writing the background, 4 of 5…');
+ await expect(bar).toHaveAttribute('aria-label','Writing the key concepts, 4 of 5…');
  await step(request,3);
  await expect(dialog.getByTestId('paper-ideas-item')).toHaveCount(1);
- await expect(bar).toHaveAttribute('aria-label','Writing the key ideas, 5 of 5…');
+ await expect(bar).toHaveAttribute('aria-label','Writing the key concepts, 5 of 5…');
  expect(await value()).toBeGreaterThanOrEqual(last);
  await step(request,3);
  // Every announced entry in: the links are on their way, the bar says so without a made-up value.
@@ -74,7 +74,7 @@ test('AI Explainer: the paper’s background, key ideas and diagram stream in un
  }
  await page.emulateMedia({colorScheme:'light'});
  // A ¶ lands in the paper with Back to AI Explainer, which shows it again without a request.
- await dialog.getByTestId('paper-background').getByRole('button',{name:'Go to paragraph 2'}).first().click();
+ await dialog.getByTestId('paper-concepts').getByRole('button',{name:'Go to paragraph 2'}).first().click();
  await expect(page.getByRole('dialog',{name:'AI Explainer'})).toHaveCount(0);
  await page.getByTestId('explainer-return').click();
  await expect(page.getByRole('dialog',{name:'AI Explainer'}).getByTestId('paper-diagram')).toBeVisible();
@@ -84,6 +84,11 @@ test('AI Explainer: the paper’s background, key ideas and diagram stream in un
  await expect(page.getByRole('dialog',{name:'AI Explainer'})).toHaveCount(0);
  const promoted=page.getByTestId('chat-pane').getByTestId('promoted-context');
  await expect(promoted).toContainText('This paper');await expect(promoted).toContainText('Bradley–Terry model');
+ // The same cards follow it into the chat (build 82): the summary, Key concepts with their ¶ links, the drawn diagram.
+ await expect(promoted.getByTestId('paper-summary')).toContainText('trains a policy on preferences directly');
+ await expect(promoted.getByTestId('paper-background-item')).toHaveCount(3);await expect(promoted.getByTestId('paper-ideas-item')).toHaveCount(2);
+ await expect(promoted.getByTestId('paper-diagram').locator('iframe')).toBeVisible();
+ await expect(promoted.getByRole('button',{name:'Go to paragraph 2'}).first()).toBeVisible();
  await page.screenshot({path:`${SHOTS}/paper-explainer-open-in-chat-${project}-light.png`});
  // Your assets › Paper explanations lists it; a row reopens the paper's explainer.
  await page.getByTestId('account-menu').click();await page.getByTestId('assets-papers').click();

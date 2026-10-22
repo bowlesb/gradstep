@@ -1,5 +1,22 @@
 # Implementation status
 
+## Paper AI Explainer, build-82 feedback: Key concepts, cards in Chat, no cut-off summary, faster on Gemini — 2026-10-22 UTC (server on staging; apps and browser local, not released)
+
+- **Server (staging):** `chat` deployed 15:08 UTC from this branch (base `50dd3c50`): Gemini explainer at `minimal`
+  reasoning, summary under 450 characters asked, sentence-boundary bounding (`boundedText`), "never a background concept
+  again" in the prompt. Backup `.artifacts/backups/20261022T150936Z-f688225d1a67` (taken just after the deploy; the
+  worktree's own backup attempt failed on a missing local file; no database change). Deploy suites 18 passed;
+  `budget.health` fails on the existing 82% of October's $40.
+- **Live (staging, DPO, Gemini):** summary 6.0 / 8.4 s, whole 11.9 / 13.9 s, 2 credits each (was 16.3 / 21.3 s).
+  Model alone: `minimal` first words 2.1–3.3 s in 5/5 runs vs `low` 1.5–33.8 s (CHAT.md "Build-82 feedback").
+- **Apps and browser (local):** one "Key concepts" card with Background / This paper markers; Open in Chat shows the same
+  cards (summary, concepts with ¶ links, drawn diagram); progress says "the key concepts".
+- **Evidence:** `npm test` passes (new backend tests: minimal reasoning and its quote, bounded summaries, the streamed
+  summary bounded the same); Core `swift test` 433 pass; iPhone 17 Simulator
+  `StudyExplainerJourneyTests/testThePaperExplainerStreamsCitesDrawsAndOpensInChat` passes (now also checks the cards,
+  ¶ link and drawn diagram in Chat); Playwright `paper-explainer.spec.ts` desktop and phone pass (also checks the cards in
+  Chat). Not run: iPad and Mac journeys, physical device (paused).
+
 ## Study mode reworked, the paper's AI Explainer, App Store pricing applied — 2026-10-22 UTC (server, browser and TestFlight 82 released)
 
 - **Study mode** (owner: "too complex"): "Enter Study Mode – Quiz me and help me learn" is a starter in an empty paper

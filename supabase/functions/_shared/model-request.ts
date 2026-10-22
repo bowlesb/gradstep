@@ -47,5 +47,6 @@ export interface ModelRequest {
   tool_choice?: ToolChoice;
   /** `disabled` turns reasoning off where the route allows it; anything else asks for reasoning at `output_config.effort`. */
   thinking?: { type: string };
-  output_config?: { effort?: Effort; format?: { type: 'json_schema'; schema: Record<string, unknown> } };
+  /** `minimal` is Gemini's (the paper explainer: CHAT.md "Paper AI Explainer", "Speed"); Claude and DeepSeek take the others. */
+  output_config?: { effort?: Effort | 'minimal'; format?: { type: 'json_schema'; schema: Record<string, unknown> } };
 }

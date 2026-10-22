@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Paper AI Explainer: one Key concepts card, the same cards in Chat (owner feedback build 82, 2026-10-22; agent decisions, reversible)
+
+Owner, on TestFlight 82: *"Key ideas and concepts seems like two versions of the same thing and could be combined"*,
+*"When I pressed the chat button , I expected Al above content to follow me, but some did some did not"*, *"Oh it looks
+like thr cards were removed, confusing"* and *"Is it cut off ?"*.
+
+| Decision | Choice |
+|---|---|
+| Background and Key ideas | One "Key concepts" card, background first, each entry marked "Background" / "This paper" with the diagram's colour. The wire format keeps two lists (older builds and kept explainers unchanged). |
+| Open in Chat | The chat shows the explainer's own cards (summary, Key concepts with ¶ links, the drawn diagram) instead of flattened text; the model still reads the text. iPhone, iPad, Mac and browser share one view each. |
+| Long summaries | Asked for under 450 characters; over the 600 limit, ended at a sentence (or a whole word with "…"), never inside a word or number. Limits unchanged for older builds. |
+| Gemini speed | The explainer on Gemini asks for `minimal` reasoning: first words 2.1–3.3 s in every measured run vs 1.5–34 s at `low`, same output. |
+
+Details and measurements: [CHAT.md](architecture/CHAT.md) "Build-82 feedback".
+
 ## Pricing accepted, with safeguards against spend outrunning income (owner, 2026-10-22; built, staging)
 
 Owner, verbatim: *"I will take your defaults"* (on [PRICING_PROPOSAL_20261022](proposals/PRICING_PROPOSAL_20261022.md)),
