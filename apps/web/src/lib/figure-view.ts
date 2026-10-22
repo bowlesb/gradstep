@@ -3,6 +3,7 @@
 // sent exactly as this browser's chat sends a question about the paper, so they read the chat's cached paper.
 import type { VerifiedBundle } from './bundle';
 import { figureLabel } from './chat-figures';
+import type { FigureProgressStage } from './figure-progress';
 import type { FigureStructure } from './figure-structure';
 
 export const FIGURE_WALKTHROUGH_FORMAT = 'figure-walkthrough-v1';
@@ -27,7 +28,14 @@ export interface FigureResult {
   image: SentFigure | null;
   /** From `done`/`error` (CHAT.md "When an answer stops early"): whether the reader paid, and if not, why. Never shown as a count. */
   credits: number | null; charged?: boolean; reason?: string;
-  /** The model that answered, when the server named it (B7). */ model?: string }
+  /** The model that answered, when the server named it (B7). */ model?: string;
+  /** While a walkthrough is on its way (FIGURE_VIEW.md "Streamed walkthrough"): where it is, for the progress bar. Only
+   * while loading; never kept. */
+  progress?: FigureStreamProgress }
+/** The progress bar's inputs as the stream gives them (figure-progress.ts adds the expected count and the value last
+ * shown): the stage; whether the summary has arrived; the parts shown so far; the walkthrough's characters written (the
+ * latest `figure_progress`) and at the summary or the latest part; the number of parts the model announced (else null). */
+export interface FigureStreamProgress { stage: FigureProgressStage; summary: boolean; parts: number; characters: number; charactersAtLast: number; announced: number | null }
 export const MAX_SECTIONS = 12, MAX_BOXES = 12, MIN_BOX_SIDE = 0.04;
 
 const clean = (value: unknown, limit: number) => typeof value === 'string'
@@ -44,6 +52,23 @@ export function figureBox(value: unknown): FigureBox | null {
   return inside && !(box.w >= 0.95 && box.h >= 0.95) ? box : null;
 }
 
+/** One part of a walkthrough checked (each of the `figure` event's sections, and each streamed `figure_section`): null
+ * when unusable (no title or no words); a box that doesn't fit, or any box once `boxes` is false (the walkthrough's 12
+ * were used), is dropped and the part stays; at most 8 paragraphs, each once. */
+export function parseFigureSection(raw: unknown, boxes = true): FigureSection | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const title = clean(row.title, 120), text = clean(row.text, 1_500), label = clean(row.label, 60);
+  if (!title || !text) return null;
+  const paragraphs = (Array.isArray(row.paragraphs) ? row.paragraphs : [])
+    .filter((n): n is number => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= 99_999).slice(0, 8);
+  const kind = row.kind === 'concept' || row.kind === 'related_work' || row.kind === 'panel' ? row.kind : undefined;
+  const box = (!kind || kind === 'panel') && boxes ? figureBox(row.box) : null;
+  return { ...(kind ? { kind } : {}), label, title, text, paragraphs: [...new Set(paragraphs)], ...(box ? { box } : {}) };
+}
+/** A walkthrough's summary (the `figure` event's, and the streamed `figure_summary`), checked. */
+export const figureSummary = (value: unknown) => clean(value, 800);
+
 /** The `figure` event, as the server relays it (chat-figure-view.ts), checked again: an unusable section is left out, a
  * box that doesn't fit is dropped (its section stays), at most 12 sections and 12 boxes; an unusable event is null
  * (informational, never fatal: the view then shows the words). */
@@ -51,21 +76,15 @@ export function parseFigureWalkthrough(value: unknown): FigureWalkthrough | null
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
   if (v.format !== FIGURE_WALKTHROUGH_FORMAT || !Array.isArray(v.sections)) return null;
-  const summary = clean(v.summary, 800);
+  const summary = figureSummary(v.summary);
   const sections: FigureSection[] = [];
   let boxes = 0;
   for (const raw of v.sections) {
     if (sections.length === MAX_SECTIONS) break;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-    const row = raw as Record<string, unknown>;
-    const title = clean(row.title, 120), text = clean(row.text, 1_500), label = clean(row.label, 60);
-    if (!title || !text) continue;
-    const paragraphs = (Array.isArray(row.paragraphs) ? row.paragraphs : [])
-      .filter((n): n is number => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= 99_999).slice(0, 8);
-    const kind = row.kind === 'concept' || row.kind === 'related_work' || row.kind === 'panel' ? row.kind : undefined;
-    const box = (!kind || kind === 'panel') && boxes < MAX_BOXES ? figureBox(row.box) : null;
-    if (box) boxes++;
-    sections.push({ ...(kind ? { kind } : {}), label, title, text, paragraphs: [...new Set(paragraphs)], ...(box ? { box } : {}) });
+    const section = parseFigureSection(raw, boxes < MAX_BOXES);
+    if (!section) continue;
+    if (section.box) boxes++;
+    sections.push(section);
   }
   return sections.length ? { format: FIGURE_WALKTHROUGH_FORMAT, summary, sections } : null;
 }

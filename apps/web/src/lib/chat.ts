@@ -8,7 +8,7 @@ import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './
 import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
 import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
-import { isFigureAction, parseFigureWalkthrough, type FigureWalkthrough } from './figure-view';
+import { figureSummary, isFigureAction, MAX_SECTIONS, parseFigureSection, parseFigureWalkthrough, type FigureSection, type FigureWalkthrough } from './figure-view';
 
 // v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md); v4
 // (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
@@ -120,6 +120,12 @@ export type StreamEvent =
   | { type: 'equation'; symbols: EquationSymbols }
   /** The figure view's walkthrough (action `figure`, servers from 2026-10-16; figure-view.ts). */
   | { type: 'figure'; walkthrough: FigureWalkthrough }
+  /** The streamed walkthrough (action `figure`, servers from 2026-10-22; FIGURE_VIEW.md "Streamed walkthrough"), all
+   * before `figure`: where the writing is (`reading`: the model was asked; `writing`: the walkthrough's JSON characters so
+   * far and, once announced, how many parts it will have), then its summary and each checked part at its place. */
+  | { type: 'figure_progress'; stage: 'reading' | 'writing'; characters?: number; parts?: number }
+  | { type: 'figure_summary'; summary: string }
+  | { type: 'figure_section'; index: number; section: FigureSection }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). `charged` and, when false, `reason`
    * (servers from 2026-10-16): whether the reader paid for it (CHAT.md, "When an answer stops early"). */
   | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string; charged?: boolean; reason?: string }
@@ -240,6 +246,20 @@ export class SSEParser {
         const walkthrough = parseFigureWalkthrough(v);
         return walkthrough ? { type: 'figure', walkthrough } : null;
       }
+      // The streamed walkthrough: informational, checked as the `figure` event's parts; anything unusable is dropped,
+      // never fatal (the final `figure` is the walkthrough).
+      case 'figure_progress': {
+        if (v?.stage === 'reading') return { type: 'figure_progress', stage: 'reading' };
+        const characters = v?.characters, parts = v?.parts;
+        if (v?.stage !== 'writing' || !Number.isSafeInteger(characters) || (characters as number) < 0) return null;
+        const announced = Number.isSafeInteger(parts) && (parts as number) >= 1 && (parts as number) <= MAX_SECTIONS ? parts as number : undefined;
+        return { type: 'figure_progress', stage: 'writing', characters: characters as number, ...(announced ? { parts: announced } : {}) };
+      }
+      case 'figure_summary': return typeof v?.summary === 'string' ? { type: 'figure_summary', summary: figureSummary(v.summary) } : null;
+      case 'figure_section': {
+        const index = v?.index, section = parseFigureSection(v?.section);
+        return Number.isSafeInteger(index) && (index as number) >= 0 && (index as number) < MAX_SECTIONS && section ? { type: 'figure_section', index: index as number, section } : null;
+      }
       case 'study': {
         // A map that is not whole is dropped; the answer and the previous map are unaffected.
         const map = studyMap(v?.map);
@@ -285,10 +305,13 @@ export async function recordStop(account: string, operationID: string, signal?: 
   await rpc('v1_chat_stop', { p_operation_id: operationID }, { account, signal, maximum: 4096 });
 }
 
-/** The answer's events. The token is refreshed to at least five minutes of validity first (Ingest acts as the user afterwards). */
-export async function* streamAnswer(account: string, request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+/** The answer's events. The token is refreshed to at least five minutes of validity first (Ingest acts as the user afterwards).
+ * `opened`: called once at the stream's first bytes (the server's `: open` comment), so the figure view knows the server
+ * has its request from a server that sends no `figure_progress`. */
+export async function* streamAnswer(account: string, request: ChatRequest, signal: AbortSignal, opened?: () => void): AsyncGenerator<StreamEvent> {
   const parser = new SSEParser();
   for await (const chunk of functionStream('chat', requestBody(request), { account, signal, maximum: MAX_STREAM_BYTES, minimumValidity: 300 })) {
+    if (opened) { const open = opened; opened = undefined; open(); }
     for (const event of parser.consume(chunk)) yield event;
   }
 }

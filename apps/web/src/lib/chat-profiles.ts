@@ -70,6 +70,9 @@ export interface ProfileTable {
   estimates: Map<string, Estimate>; note: string | null;
   /** The server's automatic default (`default_auto`, 2026-10-16), when it publishes one it offers. */
   autoDefault: RequestProfile | null;
+  /** The figures activity's default (`default_figures`, 2026-10-22; owner: "change the default to Sonnet for that one"),
+   * when the table publishes one it offers (with its stored effort or automatically); else null. */
+  figuresDefault: ProfileChoice | null;
 }
 export const SUPPORTED_VERSION = 'chat-profiles-v1';
 const MAX_TABLE_BYTES = 64 * 1024;
@@ -128,7 +131,10 @@ export function decodeProfileTable(raw: unknown): ProfileTable | null {
   const defaultChoice = isProfileChoice(recommended) && estimates.has(profileID(recommended)) ? { ...recommended } : legacyDefault;
   const a = v.default_auto;
   const autoDefault = defaultChoice === legacyDefault && isRequestProfile(a) && a.effort === 'auto' && estimates.has(profileID(a)) ? { model: a.model, effort: a.effort, length: a.length } : null;
-  return { version: SUPPORTED_VERSION, defaultChoice, models: options(v.models, MODELS.filter(m => (m !== 'deepseek' || deepseekUsable) && (m !== 'gemini' || geminiUsable))), efforts: options(v.efforts, REQUEST_EFFORTS),
+  const f = v.default_figures;
+  const figuresDefault = isProfileChoice(f) && (estimates.has(profileID(f)) || estimates.has(profileID({ model: f.model, effort: 'auto', length: f.length })))
+    ? { model: f.model, effort: f.effort, length: f.length } : null;
+  return { version: SUPPORTED_VERSION, defaultChoice, figuresDefault, models: options(v.models, MODELS.filter(m => (m !== 'deepseek' || deepseekUsable) && (m !== 'gemini' || geminiUsable))), efforts: options(v.efforts, REQUEST_EFFORTS),
     lengths: options(v.lengths, LENGTHS), estimates, note: text(v.estimate_note, 200), autoDefault };
 }
 

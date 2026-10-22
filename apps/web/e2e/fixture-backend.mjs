@@ -331,6 +331,10 @@ createServer(async (request, response) => {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     // midstream: the provider fails after the first text; nothing is charged (2026-10-16, CHAT.md "When an answer stops early").
     if (['answer', 'slow', 'steady', 'scrolling', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram', 'figure_panels', 'figure_panels_loose', 'figure_subfigures', 'figure_subfigures_grouped'].includes(p?.mode)) a.chatMode = p.mode;
+    // figureStream: how a walkthrough streams (FIGURE_VIEW.md "Streamed walkthrough"): 'fast' (the default, ~25 ms a step),
+    // 'slow' (~350 ms a step, its parts ~700 ms apart), 'step' (each step waits for POST /__figure-step, so a journey
+    // sees every state), or 'old' (a server before 2026-10-22: only the whole `figure`, after a pause).
+    if (['fast', 'slow', 'step', 'old'].includes(p?.figureStream)) a.figureStream = p.figureStream;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
@@ -339,6 +343,12 @@ createServer(async (request, response) => {
     // automatic effort or DeepSeek (as staging before the 2026-10-16 deploy); true or 'auto' the table with them.
     if (p?.profiles === false || p?.profiles === 'v1') a.chatProfiles = p.profiles; else if (p?.profiles === 'gemini') a.chatProfiles = 'gemini'; else if (p?.profiles === true || p?.profiles === 'auto') a.chatProfiles = 'auto';
     return send(response, 200, { ok: true });
+  }
+  // A streaming walkthrough under figureStream 'step': its next `count` steps (default 1); how many are still to come.
+  if (url.pathname === '/__figure-step' && request.method === 'POST') {
+    const p = await read(request), a = account(ACCOUNTS['returning@example.test']), waiting = a.figureWaiting ?? [];
+    for (let n = Number.isInteger(p?.count) && p.count > 0 ? p.count : 1; n > 0 && waiting.length; n--) waiting.shift()();
+    return send(response, 200, { ok: true, waiting: waiting.length, left: a.figureLeft ?? 0 });
   }
   // AI recommendations (functions/v1/recommend): `mode` normal (scripted papers, added as imports), none_related,
   // daily_limit or in_progress (answered once, then normal); `delay` between events (ms).
@@ -555,6 +565,33 @@ createServer(async (request, response) => {
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
     const mode = a.chatMode;
+    // A walkthrough as the server streams it (chat.ts relayWalk; FIGURE_VIEW.md "Streamed walkthrough"): the stream opens,
+    // Reading, the writing's progress (its JSON's characters so far, the parts announced), the summary, each part at its
+    // place, then the whole `figure` and `done` (as figureStream says: fast, slow, step by step, or as an older server).
+    const walk = (walkthrough, credits = 6) => {
+      response.write(': open\n\n');
+      const end = () => { event('figure', walkthrough); event('done', { stop_reason: 'end_turn', credits, charged: true }); response.end(); };
+      if (a.figureStream === 'old') { a.timers.push(setTimeout(end, 900)); return; }
+      const n = walkthrough.sections.length, writing = characters => () => event('figure_progress', { stage: 'writing', characters, parts: n });
+      let characters = 40 + JSON.stringify(walkthrough.summary).length;
+      const steps = [() => event('figure_progress', { stage: 'reading' }), writing(Math.round(characters / 2)), writing(characters),
+        () => event('figure_summary', { summary: walkthrough.summary })];
+      walkthrough.sections.forEach((section, index) => {
+        const start = characters; characters += JSON.stringify(section).length + 1;
+        steps.push(writing(Math.round((start + characters) / 2)), writing(characters), () => event('figure_section', { index, section }));
+      });
+      steps.push(end);
+      a.figureWaiting = [];
+      const next = () => {
+        if (response.destroyed) return;
+        steps.shift()(); a.figureLeft = steps.length;
+        if (!steps.length) return;
+        if (a.figureStream === 'step') a.figureWaiting.push(next);
+        else a.timers.push(setTimeout(next, a.figureStream === 'slow' ? 350 : 25));
+      };
+      a.figureLeft = steps.length;
+      if (a.figureStream === 'step') a.figureWaiting.push(next); else next();
+    };
     if (mode === 'insufficient_credits') { event('error', { code: 'insufficient_credits' }); return response.end(); }
     if (mode === 'refusal') { event('delta', { text: 'Discard this refused partial' }); event('error', { code: 'refused' }); return response.end(); }
     if (body.action === 'study') {
@@ -591,11 +628,10 @@ createServer(async (request, response) => {
     // model sometimes writes it): framed loosely and outlined on the device (figure-framing.ts).
     const loose = mode === 'figure_panels_loose', rightBox = loose ? { x: 0.45, y: 0.1, w: 0.54, h: 0.8 } : { x: 0.55, y: 0.07, w: 0.44, h: 0.79 };
     if ((mode === 'figure_panels' || loose) && body.action === 'figure') {
-      event('figure', { format: 'figure-walkthrough-v1', summary: 'Figure 1 sets two results side by side [¶2].', sections: [
+      return void walk({ format: 'figure-walkthrough-v1', summary: 'Figure 1 sets two results side by side [¶2].', sections: [
         { label: 'Left plot', title: 'Reward against KL divergence', text: 'Each point is one training run; higher and further left is better [¶2].', paragraphs: [2], box: { x: 0.06, y: 0.07, w: 0.42, h: 0.79 } },
         { label: 'Right plot', title: 'Win rate against temperature', text: 'Each line is one method; the dashed line is an even match [¶2].', paragraphs: [2], box: rightBox },
         { label: '', title: 'Reading it as a whole', text: 'Together the plots make the figure’s single point.', paragraphs: [] }] });
-      event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
     }
     // figure_subfigures: a real figure of three sub-captioned images (2610.22353v1 Figure 3, figure-view.spec.ts serves the
     // paper), answered as a model answers once told the structure (FIGURE_VIEW.md "Structure first"): a concept card, then
@@ -604,21 +640,19 @@ createServer(async (request, response) => {
     if ((mode === 'figure_subfigures' || mode === 'figure_subfigures_grouped') && body.action === 'figure') {
       const concept = { kind: 'concept', label: '', title: 'How to read the three plots', text: 'Each plot follows training on the same model with and without shared experts.', paragraphs: [] };
       const c = { label: '(c)', title: 'Router variance', text: 'The router\u2019s own variance stays lower with shared experts [¶4].', paragraphs: [4] };
-      event('figure', { format: 'figure-walkthrough-v1', summary: 'Figure 3 shows that shared experts make routing less exploratory [¶4].', sections: mode === 'figure_subfigures_grouped'
+      return void walk({ format: 'figure-walkthrough-v1', summary: 'Figure 3 shows that shared experts make routing less exploratory [¶4].', sections: mode === 'figure_subfigures_grouped'
         ? [concept, { label: '(a) and (b)', title: 'Criticality and expert variance', text: 'Both top plots fall with shared experts [¶4].', paragraphs: [4], box: { x: 0, y: 0, w: 1, h: 0.66 } }, c]
         : [concept, { label: '(a)', title: 'Routing criticality', text: 'Routing criticality is lower with shared experts throughout training [¶4].', paragraphs: [4] },
           { label: '(b)', title: 'Expert variance', text: 'The variance across experts shrinks once shared experts carry the common load [¶4].', paragraphs: [4], box: { x: 0.01, y: 0.34, w: 0.98, h: 0.32 } }, c] });
-      event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
     }
     if (body.action === 'figure') {
-      // As the server relays it (FIGURE_VIEW.md "Server — as built"): one `figure` event, then `done`; one section has a box.
-      event('figure', { format: 'figure-walkthrough-v1', summary: 'The figure compares two pipelines: three stages with a reward model against one stage that trains on preferences directly [¶2].',
+      // As the server streams it (walk, above): its summary and parts, then the whole `figure` and `done`; one section has a box.
+      return void walk({ format: 'figure-walkthrough-v1', summary: 'The figure compares two pipelines: three stages with a reward model against one stage that trains on preferences directly [¶2].',
         sections: [
           { label: '(a)', title: 'The three-stage pipeline', text: 'Read left to right: preference data trains a **reward model**, which then scores samples for reinforcement learning [¶2].', paragraphs: [2] },
           { label: '(b)', title: 'The one-stage pipeline', text: 'The same preference data goes straight into a classification loss, \\(L = -\\log \\sigma(\\beta x)\\), with no reward model [¶2].', paragraphs: [2],
             box: { x: 0.5, y: 0, w: 0.5, h: 1 } },
           { label: '', title: 'Legend', text: 'Arrows show where data flows; the trophy marks the preferred response.', paragraphs: [] }] });
-      event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
     }
     if (body.action === 'figure_simpler') {
       const text = 'Start with the left half: it is the older way [¶2].\n\nA **reward model** is a second network that learns to score answers the way people did.';

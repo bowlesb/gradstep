@@ -72,6 +72,16 @@ describe('figure part framing (shared fixtures)', () => {
     });
   }
 
+  // A streamed walkthrough's parts so far are framed without the count check (their final number isn't known yet); the
+  // final walkthrough is framed with it (as FigureFramingTests.thePartsSoFarAreFramedWithoutTheCountCheck).
+  it('frames the parts so far without the count check', () => {
+    const boxes: Rect[] = [[0.02, 0.05, 0.31, 0.95], [0.35, 0.05, 0.64, 0.95]], caption = '(a) One. (b) Two. (c) Three.';
+    const sofar = frameParts(null, { width: 900, height: 300 }, { boxes, caption, labels: ['(a)', '(b)'], countCheck: false });
+    const final = frameParts(null, { width: 900, height: 300 }, { boxes, caption, labels: ['(a)', '(b)'] });
+    expect(sofar.parts.every(p => !p.reasons.includes('count') && p.level === 'medium')).toBe(true);
+    expect(final.parts.every(p => p.reasons.includes('count') && p.level === 'low')).toBe(true);
+  });
+
   it('reads panel letters from captions and labels', () => {
     for (const { caption, letters } of fixture.captionLetters) expect(captionLetters(caption)).toEqual(letters);
     for (const { label, letter } of fixture.labelLetters) expect(labelLetter(label)).toBe(letter);

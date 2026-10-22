@@ -117,6 +117,9 @@ export interface FramingInput {
   exact?: (Rect | null)[];
   /** How many sub-figures the figure's own structure has (0 without one), for the count check. */
   structureParts?: number;
+  /** False while a streamed walkthrough's parts are still arriving (their final number isn't known yet): the parts so far
+   * are framed without the count check; the final walkthrough is framed with it (the default). */
+  countCheck?: boolean;
 }
 
 /** Every part of one set (a walkthrough's boxes, a chat answer's parts, one extracted part) framed, on the ink of the image
@@ -134,7 +137,7 @@ export function frameParts(ink: FigureInk | null, image: { width: number; height
   // Count disagreement: two or more parts whose number is neither the caption's lettered panels nor the figure's own
   // sub-figures (when either is stated).
   const L = letters.length, S = input.structureParts ?? 0, N = boxes.length;
-  const disagree = N >= 2 && (L >= 2 || S >= 2) && !(L >= 2 && N === L) && !(S >= 2 && N === S);
+  const disagree = input.countCheck !== false && N >= 2 && (L >= 2 || S >= 2) && !(L >= 2 && N === L) && !(S >= 2 && N === S);
   const px = (b: Rect): Rect => [b[0] * W, b[1] * H, b[2] * W, b[3] * H];
   // Completion of the kept parts together (an extra part never becomes a crop, so it doesn't shape the others).
   const done = ink && keptIndex.length ? completeCrops(ink, keptIndex.map(k => shape[k])) : null;

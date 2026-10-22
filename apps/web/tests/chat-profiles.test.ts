@@ -242,7 +242,7 @@ describe('automatic effort and DeepSeek in the published table', () => {
 
 
 describe('Flash rollout', () => {
-  const raw = read('chat-profiles-gemini.json');
+  const raw = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-gemini.json', import.meta.url), 'utf8')); // the server's (tests/fixtures), with default_figures
   it('uses the recommended default, preserves explicit choices and names both processors', () => {
     const table = decodeProfileTable(raw)!;
     expect(table.defaultChoice).toEqual({ model: 'gemini', effort: 'medium', length: 'standard' });

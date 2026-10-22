@@ -395,7 +395,7 @@ test('crops of a real two-plot figure are completed over the ink they cut and sh
  await viewer.getByTestId('figure-explain').click();
  await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
  const left=viewer.getByTestId('figure-section-0').getByTestId('figure-crop'),right=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
- await expect(left).toBeVisible();await expect(right).toBeVisible();
+ await expect(left).toBeVisible();await expect(right).toBeVisible();await expect(viewer.getByTestId('figure-progress')).toHaveCount(0); // streamed: framed afresh once done
  await left.scrollIntoViewIfNeeded();
  await page.screenshot({path:shot('walkthrough-light')});
  await expect.soft(viewer.getByTestId('figure-coverage-fallback')).toHaveCount(0);
@@ -424,7 +424,7 @@ test('parts are framed by confidence: an imprecise box is looser and outlined, a
  await viewer.getByTestId('figure-explain').click();
  await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
  const left=viewer.getByTestId('figure-section-0').getByTestId('figure-crop'),right=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
- await expect(left).toBeVisible();await expect(right).toBeVisible();
+ await expect(left).toBeVisible();await expect(right).toBeVisible();await expect(viewer.getByTestId('figure-progress')).toHaveCount(0); // streamed: framed afresh once done
  await left.scrollIntoViewIfNeeded();
  await page.screenshot({path:shot('walkthrough-left-light')});
  await right.scrollIntoViewIfNeeded();
@@ -501,7 +501,7 @@ for(const grouped of [false,true])test(`a real multi-image figure's parts are it
  await expect(viewer.frameLocator('iframe.figure-frame').locator('figcaption')).toContainText('Shared experts make MoE routing less exploratory');
  await viewer.getByTestId('figure-explain').click();
  await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
- await expect(viewer.getByTestId('figure-summary')).toContainText('shared experts make routing less exploratory');
+ await expect(viewer.getByTestId('figure-summary')).toContainText('shared experts make routing less exploratory');await expect(viewer.getByTestId('figure-progress')).toHaveCount(0);
  // The request: the caption, then the figure's own sub-figures and their bands in the composed image.
  const sent=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests as Record<string,any>[];
  expect(sent).toHaveLength(1);
@@ -538,4 +538,131 @@ for(const grouped of [false,true])test(`a real multi-image figure's parts are it
  await expect(whole).toHaveAttribute('data-view','whole');await expect(whole.getByTestId('part-outline')).toBeVisible();
  await page.waitForTimeout(700);await page.screenshot({path:shot('expanded-b-light')});
  await page.locator('.fullscreen-figure').getByRole('button',{name:'Close',exact:true}).click();
+});
+
+// Owner, 2026-10-22: "very very slow … unusable at this speed. Also it needs a progress bar." The walkthrough streams
+// (FIGURE_VIEW.md "Streamed walkthrough"): a progress bar and a skeleton at once, the summary as soon as it is written,
+// then each part below the last, so nothing shown moves; the bar sits where the next part will appear and fades once
+// done. The fixture streams step by step (figureStream 'step', POST /__figure-step), so every state is seen.
+const streamShot=(name:string)=>`../../.artifacts/figure-streaming/browser-${name}-${test.info().project.name}.png`;
+async function explainStreaming(page:Page,request:APIRequestContext,figureStream:'step'|'old'){
+ await openFixture(page,request);
+ await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{figureStream}});
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
+ const viewer=await openFigure(page);
+ await viewer.getByTestId('figure-explain').click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ return viewer;
+}
+const step=async(request:APIRequestContext,count=1)=>(await (await request.post(`${fixtureOrigin}/__figure-step`,{data:{count}})).json()) as {waiting:number;left:number};
+/** Where an element is in the walkthrough (so the page's own scrolling doesn't count): its top and height. */
+const within=(locator:ReturnType<Page['locator']>)=>locator.evaluate(e=>{const w=e.closest('[data-testid=figure-walkthrough]')!.getBoundingClientRect(),b=e.getBoundingClientRect();return {y:Math.round(b.top-w.top),height:Math.round(b.height)};});
+
+test('the walkthrough streams under a progress bar: the summary first, then each part in order below it, nothing above moving',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ const viewer=await explainStreaming(page,request,'step');
+ const walk=viewer.getByTestId('figure-walkthrough'),bar=viewer.getByRole('progressbar'),status=viewer.getByTestId('figure-progress-status');
+ // At once: the bar (indeterminate while the model reads the figure), the summary's lines and a part's card as skeletons.
+ await expect(bar).toBeVisible();
+ await expect(viewer.getByTestId('figure-skeleton-summary')).toBeVisible();await expect(viewer.getByTestId('figure-skeleton-part')).toBeVisible();
+ await expect(bar).toHaveAttribute('aria-label','Reading the figure…');await expect(bar).toHaveAttribute('aria-valuetext','Reading the figure…');
+ await expect(bar).not.toHaveAttribute('aria-valuenow');
+ await expect(status).toHaveAttribute('aria-live','polite');await expect(status).toHaveText('Reading the figure…');
+ await expect(viewer.getByTestId('figure-progress').locator('.figure-progress-label')).toHaveText('Reading the figure…');
+ // The indeterminate bar moves (not under Reduce Motion: the next journey).
+ expect(await bar.locator('.figure-progress-fill').evaluate(e=>getComputedStyle(e).animationName)).toBe('figure-progress-slide');
+ await page.screenshot({path:streamShot('reading-light')});
+ await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:streamShot('reading-dark')});await page.emulateMedia({colorScheme:'light'});
+ // The model announces three parts: the bar is determinate from the summary on, and never goes back.
+ await step(request,2);
+ await expect(bar).toHaveAttribute('aria-label','Writing the summary…');await expect(status).toHaveText('Writing the summary…');
+ await expect(bar).toHaveAttribute('aria-valuenow',/^\d+$/);await expect(bar).toHaveAttribute('aria-valuemin','0');await expect(bar).toHaveAttribute('aria-valuemax','100');
+ const value=async()=>Number(await bar.getAttribute('aria-valuenow'));
+ let last=await value();
+ // The summary before any part; the bar moves below it, with the next part's skeleton.
+ await step(request,2);
+ await expect(viewer.getByTestId('figure-summary')).toContainText('The figure compares two pipelines');
+ await expect(viewer.getByTestId('figure-skeleton-summary')).toHaveCount(0);
+ await expect(walk.locator('.figure-section')).toHaveCount(0);
+ await expect(bar).toHaveAttribute('aria-label','Writing part 1 of 3…');
+ expect(await value()).toBeGreaterThanOrEqual(last);last=await value();
+ const summary=await within(viewer.getByTestId('figure-summary'));
+ expect((await within(viewer.getByTestId('figure-progress'))).y).toBeGreaterThan(summary.y+summary.height-1);
+ await page.screenshot({path:streamShot('summary-light')});
+ // The first part, under the summary; its menu waits for the whole walkthrough.
+ await step(request,3);
+ const first=viewer.getByTestId('figure-section-0');
+ await expect(first).toBeVisible();await expect(walk.locator('.figure-section')).toHaveCount(1);
+ await expect(bar).toHaveAttribute('aria-label','Writing part 2 of 3…');await expect(status).toHaveText('Writing part 2 of 3…');
+ expect(await value()).toBeGreaterThanOrEqual(last);last=await value();
+ await expect(viewer.getByTestId('figure-section-menu-0')).toBeDisabled();
+ const at0=await within(first);
+ expect(at0.y).toBeGreaterThan(summary.y);expect(await within(viewer.getByTestId('figure-summary'))).toEqual(summary);
+ expect((await within(viewer.getByTestId('figure-progress'))).y).toBeGreaterThan(at0.y+at0.height-1);
+ await viewer.getByTestId('figure-progress').scrollIntoViewIfNeeded();
+ await page.screenshot({path:streamShot('part-1-of-3-light')});
+ await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:streamShot('part-1-of-3-dark')});await page.emulateMedia({colorScheme:'light'});
+ // The second (it has a crop, its frame reserved as it appears) and the third, each below; nothing above moves.
+ await step(request,3);
+ await expect(walk.locator('.figure-section')).toHaveCount(2);
+ await expect(viewer.getByTestId('figure-section-1').getByTestId('figure-crop')).toBeVisible();
+ expect(await within(first)).toEqual(at0);expect(await within(viewer.getByTestId('figure-summary'))).toEqual(summary);
+ const at1=await within(viewer.getByTestId('figure-section-1'));
+ await expect(bar).toHaveAttribute('aria-label','Writing part 3 of 3…');
+ expect(await value()).toBeGreaterThanOrEqual(last);
+ await viewer.getByTestId('figure-progress').scrollIntoViewIfNeeded();
+ await page.screenshot({path:streamShot('part-2-of-3-light')});
+ await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:streamShot('part-2-of-3-dark')});await page.emulateMedia({colorScheme:'light'});
+ await step(request,3);
+ await expect(walk.locator('.figure-section')).toHaveCount(3);
+ expect(await within(first)).toEqual(at0);expect(await within(viewer.getByTestId('figure-section-1'))).toEqual(at1);
+ // Every announced part is in and the walkthrough isn't yet: no made-up value until it is done.
+ await expect(bar).toHaveAttribute('aria-label','Writing part 4…');await expect(bar).not.toHaveAttribute('aria-valuenow');
+ expect((await step(request)).left).toBe(0);
+ // Done: the bar fades out, the parts' menus open, the note that needs the whole walkthrough shows; nothing moved.
+ await expect(viewer.getByTestId('figure-progress')).toHaveCount(0);
+ await expect(viewer.getByTestId('figure-skeleton-part')).toHaveCount(0);
+ await expect(status).toHaveText('Done');
+ await expect(viewer.getByTestId('figure-section-menu-0')).toBeEnabled();
+ await expect(walk.getByTestId('figure-coverage-fallback')).toContainText('whole figure above');
+ expect(await within(first)).toEqual(at0);expect(await within(viewer.getByTestId('figure-section-1'))).toEqual(at1);
+ for(const scheme of ['light','dark'] as const){
+  await page.emulateMedia({colorScheme:scheme});
+  await viewer.getByTestId('figure-summary').scrollIntoViewIfNeeded();await page.screenshot({path:streamShot(`done-${scheme}`)});
+  await viewer.getByTestId('figure-section-2').scrollIntoViewIfNeeded();await page.screenshot({path:streamShot(`done-end-${scheme}`)});
+ }
+ await page.emulateMedia({colorScheme:'light'});
+ expect((await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(1);
+});
+
+test('under Reduce Motion the progress bar doesn’t move or fade',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await page.emulateMedia({reducedMotion:'reduce'});
+ const viewer=await explainStreaming(page,request,'step');
+ const bar=viewer.getByRole('progressbar'),motion=()=>bar.locator('.figure-progress-fill').evaluate(e=>[getComputedStyle(e).animationName,getComputedStyle(e).transitionDuration]);
+ await expect(bar).toHaveAttribute('aria-label','Reading the figure…');
+ expect(await motion()).toEqual(['none','0s']);
+ await page.screenshot({path:streamShot('reading-reduced-motion-light')});
+ await step(request,7);
+ await expect(viewer.getByTestId('figure-section-0')).toBeVisible();
+ expect(await motion()).toEqual(['none','0s']);
+ await step(request,20);
+ await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
+ // No fade: the bar goes with the walkthrough's end.
+ await expect(viewer.getByTestId('figure-progress')).toHaveCount(0,{timeout:250});
+});
+
+test('a server without progress events still shows the walkthrough: Reading the figure…, then all of it',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ // A server before 2026-10-22 sends only the whole walkthrough; Reading comes from the stream's opening.
+ const viewer=await explainStreaming(page,request,'old');
+ const old=viewer.getByRole('progressbar');
+ await expect(old).toHaveAttribute('aria-label','Reading the figure…');
+ await expect(viewer.getByTestId('figure-skeleton-summary')).toBeVisible();
+ await page.screenshot({path:streamShot('old-server-reading-light')});
+ await expect(viewer.getByTestId('figure-summary')).toContainText('The figure compares two pipelines');
+ await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
+ await expect(viewer.getByTestId('figure-progress')).toHaveCount(0);
+ await expect(viewer.getByTestId('figure-section-1').getByTestId('figure-crop')).toBeVisible();
+ await page.screenshot({path:streamShot('old-server-done-light')});
 });

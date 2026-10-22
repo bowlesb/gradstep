@@ -2,7 +2,7 @@
 // (the chat's own, with exactly this figure), the crop arithmetic, and the session's request and cache.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SSEParser, makeRequest, requestBody, type LocalPaperContext, type StreamEvent } from '../src/lib/chat';
-import { cropRect, cropStyle, cropCoverage, paddedCropStyle, cardTypeLabel, displayBox, figureBox, figureKey, figureNoun, figureTurn, isFigureAction, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
+import { cropRect, cropStyle, cropCoverage, paddedCropStyle, cardTypeLabel, displayBox, figureBox, figureKey, figureNoun, figureTurn, isFigureAction, parseFigureWalkthrough, sectionHeading, type FigureResult } from '../src/lib/figure-view';
 
 const server = vi.hoisted(() => ({ requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -51,6 +51,38 @@ describe('the walkthrough event', () => {
     const frames = (text: string) => new SSEParser().consume(new TextEncoder().encode(text));
     expect(frames(`event: figure\ndata: ${JSON.stringify(event)}\n\n`)).toEqual([{ type: 'figure', walkthrough: event }]);
     expect(frames('event: figure\ndata: {"format":"x"}\n\nevent: delta\ndata: {"text":"words"}\n\n')).toEqual([{ type: 'delta', text: 'words' }]);
+  });
+});
+
+// The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough", servers from 2026-10-22): informational events before
+// the final `figure`, checked as its parts are; anything unusable is dropped, never fatal.
+describe('the streamed walkthrough events', () => {
+  const frames = (text: string) => new SSEParser().consume(new TextEncoder().encode(text));
+  const sse = (name: string, data: unknown) => `event: ${name}\ndata: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`;
+  it('carry the stage, the characters written and the parts announced', () => {
+    expect(frames(sse('figure_progress', { stage: 'reading' }))).toEqual([{ type: 'figure_progress', stage: 'reading' }]);
+    expect(frames(sse('figure_progress', { stage: 'writing', characters: 640, parts: 3 }))).toEqual([{ type: 'figure_progress', stage: 'writing', characters: 640, parts: 3 }]);
+    // No count yet, or one out of range: the progress without it.
+    expect(frames(sse('figure_progress', { stage: 'writing', characters: 12 }) + sse('figure_progress', { stage: 'writing', characters: 20, parts: 13 })
+      + sse('figure_progress', { stage: 'writing', characters: 30, parts: 0 }))).toEqual([
+      { type: 'figure_progress', stage: 'writing', characters: 12 }, { type: 'figure_progress', stage: 'writing', characters: 20 }, { type: 'figure_progress', stage: 'writing', characters: 30 }]);
+    for (const bad of [{ stage: 'thinking' }, { stage: 'writing' }, { stage: 'writing', characters: -1 }, { stage: 'writing', characters: 1.5 }, { stage: 'writing', characters: '9' }, [], 'x'])
+      expect(frames(sse('figure_progress', bad)), JSON.stringify(bad)).toEqual([]);
+    expect(frames(sse('figure_progress', '{broken'))).toEqual([]);
+  });
+  it('carry the summary and each part at its place, checked as the final walkthrough’s', () => {
+    expect(frames(sse('figure_summary', { summary: ' Two pipelines\u0000 [¶2]. ' }))).toEqual([{ type: 'figure_summary', summary: 'Two pipelines [¶2].' }]);
+    expect(frames(sse('figure_summary', { summary: 'x'.repeat(900) }))[0]).toMatchObject({ summary: 'x'.repeat(800) });
+    expect(frames(sse('figure_summary', { summary: 3 }) + sse('figure_summary', {}))).toEqual([]);
+    expect(frames(sse('figure_section', { index: 1, section: event.sections[1] }))).toEqual([{ type: 'figure_section', index: 1, section: event.sections[1] }]);
+    // The same checks as the walkthrough's sections: a box that doesn't fit goes (its part stays), paragraphs bounded.
+    expect(frames(sse('figure_section', { index: 0, section: { label: 'z', title: 'Outside', text: 'Past the edge.', paragraphs: [0, 4, 4], box: { x: 0.8, y: 0, w: 0.3, h: 0.5 } } })))
+      .toEqual([{ type: 'figure_section', index: 0, section: { label: 'z', title: 'Outside', text: 'Past the edge.', paragraphs: [4] } }]);
+    for (const bad of [{ index: 0, section: { title: 'No words', text: ' ' } }, { index: -1, section: event.sections[0] }, { index: 12, section: event.sections[0] },
+      { index: 1.5, section: event.sections[0] }, { index: '0', section: event.sections[0] }, { index: 0 }, { index: 0, section: [] }])
+      expect(frames(sse('figure_section', bad)), JSON.stringify(bad)).toEqual([]);
+    // Dropped, never fatal: what follows still arrives.
+    expect(frames(sse('figure_section', '{') + sse('delta', { text: 'words' }))).toEqual([{ type: 'delta', text: 'words' }]);
   });
 });
 
@@ -128,7 +160,7 @@ describe('the figure view in the chat session', () => {
     let turn = 0;
     const chat = new ChatSession(account, history, owner.signal, {
       readConsent: () => consent, writeConsent: () => {},
-      stream: async function* (_account, request) { server.requests.push(request); for (const e of answers[Math.min(turn++, answers.length - 1)]) yield e; },
+      stream: async function* (_account, request, _signal, opened) { server.requests.push(request); opened?.(); for (const e of answers[Math.min(turn++, answers.length - 1)]) yield e; },
     });
     chat.setSourcePapers(new Map([[member, { reference, load: async () => bundle as any }]]));
     return chat;
@@ -153,6 +185,67 @@ describe('the figure view in the chat session', () => {
     expect(server.requests[1]).toMatchObject({ action: 'figure_simpler', selection: part.text, turns: [{ role: 'user', text: 'Figure 1 (a)' }] });
     expect(chat.savedFigure(bundle.manifestSHA256, 'b-3', 'figure_simpler', part.key)).toEqual(simpler);
     expect(chat.savedFigure(bundle.manifestSHA256, 'b-3', 'figure_simpler', '1::One stage')).toBeNull();
+  });
+  // The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough"): shown as it arrives, replaced by the final one.
+  const [s0, s1] = event.sections as any[];
+  const done: StreamEvent = { type: 'done', stopReason: 'end_turn', credits: 5, charged: true };
+  it('builds the walkthrough as it streams, with the progress bar’s inputs, and keeps only the final one', async () => {
+    const final = { ...event, summary: 'Two pipelines, finally [¶2].' };
+    const chat = await setup([[{ type: 'figure_progress', stage: 'reading' }, { type: 'figure_progress', stage: 'writing', characters: 200, parts: 2 },
+      { type: 'figure_progress', stage: 'writing', characters: 120 } as StreamEvent, // never goes back
+      { type: 'figure_summary', summary: 'Two pipelines [¶2].' }, { type: 'figure_progress', stage: 'writing', characters: 900, parts: 2 },
+      { type: 'figure_section', index: 0, section: s0 }, { type: 'figure_section', index: 0, section: s1 }, // a repeat is ignored
+      { type: 'figure_progress', stage: 'writing', characters: 1_700, parts: 2 }, { type: 'figure_section', index: 1, section: s1 },
+      { type: 'figure', walkthrough: final as any }, done]]);
+    const seen: FigureResult[] = [];
+    const walk = await chat.figure(member, { figureID: 'b-3' }, 'figure', r => seen.push(r), new AbortController().signal);
+    const loading = seen.filter(r => r.phase === 'loading');
+    expect(loading.map(r => r.progress?.stage)).toEqual(['preparing', 'preparing', 'reading', 'reading', 'writing', 'writing', 'writing', 'writing', 'writing', 'writing', 'writing', 'done']);
+    const at = (summary: boolean, parts: number) => loading.find(r => r.progress?.summary === summary && r.progress?.parts === parts)!;
+    expect(at(true, 0)).toMatchObject({ walkthrough: { format: 'figure-walkthrough-v1', summary: 'Two pipelines [¶2].', sections: [] },
+      progress: { characters: 200, charactersAtLast: 200, announced: 2 } });
+    expect(at(true, 1)).toMatchObject({ walkthrough: { sections: [s0] }, progress: { characters: 900, charactersAtLast: 900 } });
+    expect(at(true, 2)).toMatchObject({ walkthrough: { sections: [s0, s1] }, progress: { characters: 1_700, charactersAtLast: 1_700, announced: 2 } });
+    // The final walkthrough replaces what streamed; the finished result has no progress and is what is kept.
+    expect(walk).toMatchObject({ phase: 'done', walkthrough: final, charged: true });
+    expect(walk).not.toHaveProperty('progress');
+    expect(chat.savedFigure(bundle.manifestSHA256, 'b-3', 'figure')).toEqual(walk);
+    expect(chat.keptEntries().find(e => e.kind === 'figure')!.result).not.toHaveProperty('progress');
+  });
+  it('shows parts in order: one ahead of its place waits for those before it', async () => {
+    const chat = await setup([[{ type: 'figure_summary', summary: 'S' }, { type: 'figure_section', index: 1, section: s1 }, { type: 'figure_section', index: 0, section: s0 },
+      { type: 'figure', walkthrough: event as any }, done]]);
+    const seen: FigureResult[] = [];
+    await chat.figure(member, { figureID: 'b-3' }, 'figure', r => seen.push(r), new AbortController().signal);
+    expect(seen.filter(r => r.phase === 'loading' && r.walkthrough).map(r => r.walkthrough!.sections.length)).toEqual([0, 0, 2, 2]);
+  });
+  it('works with a server that sends only the final walkthrough: Preparing, Reading, then all of it', async () => {
+    const chat = await setup([[{ type: 'figure', walkthrough: event as any }, done]]);
+    const seen: FigureResult[] = [];
+    const walk = await chat.figure(member, { figureID: 'b-3' }, 'figure', r => seen.push(r), new AbortController().signal);
+    expect(seen.filter(r => r.phase === 'loading').map(r => [r.progress?.stage, r.walkthrough?.sections.length ?? 0])).toEqual([['preparing', 0], ['preparing', 0], ['reading', 0], ['done', 2]]);
+    expect(walk).toMatchObject({ phase: 'done', walkthrough: event });
+  });
+  it('drops the streamed parts when it fails or ends without the final walkthrough, as before', async () => {
+    const failed = await (await setup([[{ type: 'figure_summary', summary: 'S' }, { type: 'figure_section', index: 0, section: s0 },
+      { type: 'error', code: 'provider_unavailable', credits: 0, charged: false, reason: 'provider' }]]))
+      .figure(member, { figureID: 'b-3' }, 'figure', () => {}, new AbortController().signal);
+    expect(failed).toMatchObject({ phase: 'failed', issue: 'provider_unavailable', walkthrough: null, charged: false });
+    expect(failed).not.toHaveProperty('progress');
+    const unfinished = await (await setup([[{ type: 'figure_summary', summary: 'S' }, { type: 'figure_section', index: 0, section: s0 }, done]]))
+      .figure(member, { figureID: 'b-3' }, 'figure', () => {}, new AbortController().signal);
+    expect(unfinished).toMatchObject({ phase: 'failed', issue: 'provider_unavailable', walkthrough: null });
+    const cut = await (await setup([[{ type: 'figure_summary', summary: 'S' }, { type: 'figure_section', index: 0, section: s0 }]]))
+      .figure(member, { figureID: 'b-3' }, 'figure', () => {}, new AbortController().signal);
+    expect(cut).toMatchObject({ phase: 'failed', issue: 'transport', walkthrough: null });
+  });
+  it('a part asked again more simply has no progress and ignores walkthrough events', async () => {
+    const chat = await setup([[{ type: 'figure_section', index: 0, section: s0 }, { type: 'delta', text: 'Simpler.' }, done]]);
+    const seen: FigureResult[] = [];
+    const part = { key: '0:(a):Three stages', label: '(a)', title: 'Three stages', text: 'A reward model first [¶2].' };
+    const simpler = await chat.figure(member, { figureID: 'b-3', part }, 'figure_simpler', r => seen.push(r), new AbortController().signal);
+    expect(seen.every(r => !r.progress && !r.walkthrough)).toBe(true);
+    expect(simpler).toMatchObject({ phase: 'done', text: 'Simpler.', walkthrough: null });
   });
   it('lets go of an older page\'s kept "Extract the subfigure" answers: never shown, never listed', async () => {
     const chat = await setup([[{ type: 'figure', walkthrough: event as any }, { type: 'done', stopReason: 'end_turn', credits: 5, charged: true }]]);

@@ -10,10 +10,11 @@ import { ExplainerModelDialog } from './ChatProfile';
 import type { ContextualHost } from './ContextualChat';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
-import { cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
+import { cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection, type FigureStreamProgress } from '../lib/figure-view';
 import { boxFractions } from '../lib/figure-crops';
 import { matchSections } from '../lib/figure-structure';
-import type { FramedPart } from '../lib/figure-framing';
+import { captionLetters, type FramedPart } from '../lib/figure-framing';
+import { expectedParts, figureProgress, type FigureProgressState } from '../lib/figure-progress';
 import { framingShown, type ArxivFigure, type FramingSurface } from '../lib/figure-framing-record';
 import { useFramedParts, useSentInk } from './useFigureCrops';
 import { ViewportCard, type FigureSource } from './FigureViewport';
@@ -55,6 +56,26 @@ const words = (r: FigureResult | null) => !!r && (!!r.walkthrough || !!r.text.tr
 const endedEarly = (r: FigureResult | null | undefined) => r?.phase === 'done' && r.charged === false && words(r) ? interruptionNote(false, { charged: false }) : null;
 const loading = (): FigureResult => ({ phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null });
 const issueText = (code: string) => code === 'figure_unavailable' ? 'This figure’s image couldn’t be prepared in this browser.' : failureText(code);
+const PREPARING: FigureStreamProgress = { stage: 'preparing', summary: false, parts: 0, characters: 0, charactersAtLast: 0, announced: null };
+const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** The walkthrough's progress bar (owner, 2026-10-22: "it needs a progress bar"; figure-progress.ts): a thin bar, its
+ * value when the number of parts is known, else indeterminate, with the stage under it. It sits where the walkthrough's
+ * next words will appear; `fading` is its short exit once the walkthrough is done (hidden from assistive technology). */
+function ProgressBar({ state, fading = false }: { state: FigureProgressState; fading?: boolean }) {
+  const percent = state.value === null ? null : Math.round(state.value * 100);
+  return <div className={`figure-progress${fading ? ' fading' : ''}`} data-testid="figure-progress" aria-hidden={fading || undefined}>
+    <div className={`figure-progress-track${percent === null ? ' indeterminate' : ''}`} role="progressbar" aria-label={state.label} aria-valuetext={state.label}
+      aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
+      <div className="figure-progress-fill" style={percent === null ? undefined : { width: `${percent}%` }} />
+    </div>
+    <p className="figure-progress-label" aria-hidden="true">{state.label}</p>
+  </div>;
+}
+/** What is on its way, until it arrives: the summary's lines and a part's card (static: the bar is the motion). */
+const SummarySkeleton = () => <div className="figure-skeleton" aria-hidden="true" data-testid="figure-skeleton-summary"><span /><span /><span className="short" /></div>;
+const PartSkeleton = () => <div className="figure-skeleton figure-skeleton-part" aria-hidden="true" data-testid="figure-skeleton-part">
+  <span className="head" /><span className="frame" /><span /><span className="short" /></div>;
 
 export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile: shownProfile, onExplanation, label = 'Figure', caption = '', arxiv = null, onSnippet }: Props) {
   // AI Explainer asks which model first (B7, AIChoiceView): Default or Choose model; that choice answers here.
@@ -65,6 +86,8 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure', '', profile) ?? null);
   const [simpler, setSimpler] = useState<Map<string, FigureResult>>(() => new Map());
   const requests = useRef(new Map<string, AbortController>());
+  /** The progress bar's value last shown (it never goes back), for the walkthrough on its way. */
+  const lastShown = useRef<number | null>(null);
   useEffect(() => () => { for (const c of requests.current.values()) c.abort(); }, []);
   useEffect(() => { onActive(asking || !!walk); }, [asking, walk, onActive]);
 
@@ -93,6 +116,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       if (action === 'figure') setWalk(result);
       else setSimpler(m => new Map(m).set(key, result));
     };
+    if (action === 'figure') lastShown.current = null;
     set(loading());
     void host.run({ figureID, ...(part ? { part: { key, label: part.label, title: part.title, text: part.text } } : {}) }, action, set, controller.signal, profile).catch(() => {});
   }, [host, figureID, JSON.stringify(profile)]);
@@ -141,6 +165,26 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const result = walk, sections = result?.walkthrough?.sections ?? [];
   const note = endedEarly(result);
   const image = result?.image ?? null;
+  // The walkthrough streams (FIGURE_VIEW.md "Streamed walkthrough"): the summary and each part appear as they arrive,
+  // each below the last, so nothing shown moves; the progress bar sits where the next words will appear, a skeleton of
+  // them under it. The expected number of parts: as the model announced it, else the figure's own sub-figures, else the
+  // panels its caption letters.
+  const streaming = result?.phase === 'loading';
+  const live = streaming ? result!.progress ?? PREPARING : null;
+  const progress = live ? figureProgress({ ...live, previous: lastShown.current,
+    expected: live.announced ?? expectedParts(image?.structure?.parts.length ?? null, captionLetters(caption).length) }) : null;
+  if (progress?.value != null) lastShown.current = progress.value;
+  const pendingAt = !streaming ? null : !result!.walkthrough && !result!.text ? 'start' : 'end';
+  // Once done, the bar fades out where it was (at once with Reduce Motion), and "Done" is said to assistive technology.
+  const [fading, setFading] = useState(false), streamed = useRef(false);
+  useEffect(() => {
+    if (streaming) { streamed.current = true; setFading(false); return; }
+    if (!streamed.current || walk?.phase !== 'done' || reducedMotion()) return;
+    setFading(true);
+    const t = setTimeout(() => setFading(false), 300);
+    return () => clearTimeout(t);
+  }, [streaming, walk?.phase]);
+  const announced = progress?.label ?? (streamed.current && walk?.phase === 'done' ? 'Done' : '');
   // Every part a viewport into the whole figure (FIGURE_VIEW.md "Parts as viewports"): completed on the image the request
   // carried, then framed by confidence (tight, loose and outlined, or the whole figure outlined); a caption naming its
   // panels caps the parts shown. The note below says when the parts leave some of the figure's ink out.
@@ -153,10 +197,20 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     [sections, structure]);
   const boxed = sections.flatMap((s, i) => (!s.kind || s.kind === 'panel') && (s.box || matched[i] !== null) ? [i] : []);
   const exactOf = (i: number) => matched[i] !== null && structure ? structure.parts[matched[i]!].rect : null;
+  // While parts stream, the count check (it needs the final number of parts) is off, and a card keeps the framing it was
+  // first shown with, so a later part never resizes one above it. The final walkthrough is framed afresh, with the count
+  // check (a card whose framing is unchanged stays as it is).
   const framed = useFramedParts(ink, image, { boxes: boxed.map(i => exactOf(i) ?? boxFractions(sections[i].box!)), exact: boxed.map(exactOf),
-    structureParts: structure?.parts.length ?? 0, caption, labels: boxed.map(i => sections[i].label || sections[i].title) });
-  const shownFor = new Map(boxed.map((i, k) => [i, framed?.parts[k]] as const));
-  const coverage = !framed || !image ? null : framed.coverage ?? (ink === null ? cropCoverage(sections, image) : null);
+    structureParts: structure?.parts.length ?? 0, countCheck: !streaming, caption, labels: boxed.map(i => sections[i].label || sections[i].title) });
+  const held = useRef(new Map<string, FramedPart>());
+  if (!streaming) held.current.clear();
+  const shownFor = new Map(boxed.map((i, k) => {
+    const fresh = framed?.parts[k], key = partKey(sections[i], i);
+    if (!streaming || !fresh) return [i, fresh] as const;
+    if (!held.current.has(key)) held.current.set(key, fresh);
+    return [i, held.current.get(key)] as const;
+  }));
+  const coverage = streaming || !framed || !image ? null : framed.coverage ?? (ink === null ? cropCoverage(sections, image) : null);
   const source = useMemo((): FigureSource | null => image ? { src: `data:image/jpeg;base64,${image.data}`, width: image.width, height: image.height } : null, [image]);
   // What each card shows, for Save snippet, by part and card.
   const captures = useRef(new Map<string, () => Promise<Blob | null>>());
@@ -164,7 +218,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const recordKey = (surface: FramingSurface, i: number) => `${manifest}|${figureID}|${surface}|${i}`;
   // The local framing record (figure-framing-record.ts): arXiv figures only, in memory, never sent.
   useEffect(() => {
-    if (!arxiv || !image) return;
+    if (!arxiv || !image || streaming) return;
     const show = (surface: FramingSurface, i: number, part: FramedPart | undefined, box: { x: number; y: number; w: number; h: number } | undefined, parts: number, index: number) => {
       if (part && box) framingShown(recordKey(surface, i), { figure: { ...arxiv, figure: label }, surface, part: index, parts, level: part.level, box: boxFractions(box), region: part.region, frame: part.frame });
     };
@@ -177,6 +231,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   };
 
   return <div className="figure-explain" ref={panel}>
+    {host && <p className="visually-hidden" aria-live="polite" data-testid="figure-progress-status">{announced}</p>}
     {!host ? null : asking && !consented ? <section className="equation-consent" data-testid="figure-consent">
       <p>Explaining the figure uses cloud AI: the figure’s image and the paper’s text go through OpenRouter to Google Vertex or DeepInfra according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>
@@ -185,9 +240,9 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
         <h3 id="figure-what">What it shows</h3>
         {result.walkthrough?.summary ? <div data-testid="figure-summary"><Answer text={result.walkthrough.summary} /></div>
           : !result.walkthrough && result.text ? <div data-testid="figure-words"><Answer text={result.text} streaming={result.phase === 'loading'} /></div>
-          : result.phase === 'loading' ? <p className="fine" role="status">Looking at the {label.startsWith('Table') ? 'table' : 'figure'}…</p> : null}
+          : pendingAt === 'start' && progress ? <div className="figure-pending"><ProgressBar state={progress} /><SummarySkeleton /></div> : null}
       </section>
-      {coverage !== null && coverage < 1 && <p className="fine" data-testid="figure-coverage-fallback">The detail cards do not cover the entire image. The whole figure above keeps every panel, axis and legend available.</p>}
+      {pendingAt === 'start' && <PartSkeleton />}
       {sections.length > 0 && <section className="equation-section" aria-labelledby="figure-parts">
         <h3 id="figure-parts">Part by part</h3>
         <ol className="figure-sections">{sections.map((s, i) => {
@@ -196,7 +251,8 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
               <h4><span className="figure-section-label">{[cardTypeLabel(s), s.label].filter(Boolean).join(' · ')}</span><span>{s.title}</span></h4>
-              <MenuButton icon="more" label={`${heading}: options`} testID={`figure-section-menu-${i}`}>{close => <>
+              {/* A part's actions once the walkthrough is in (a streamed part is final only then). */}
+              <MenuButton icon="more" label={`${heading}: options`} testID={`figure-section-menu-${i}`} disabled={streaming}>{close => <>
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-simpler-item" disabled={!!more && more.phase !== 'failed'}
                   onClick={() => { close(false); run('figure_simpler', s, i); }}><Icon name="lightbulb" size={14} /> Explain more simply</button>
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-show-item"
@@ -221,6 +277,10 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
           </li>;
         })}</ol>
       </section>}
+      {pendingAt === 'end' && progress && <div className="figure-pending"><ProgressBar state={progress} />{result.walkthrough && <PartSkeleton />}</div>}
+      {fading && !streaming && <ProgressBar state={{ label: 'Done', value: 1 }} fading />}
+      {/* Under the parts, once they are all in (it says what they leave out; above them it would move them). */}
+      {coverage !== null && coverage < 1 && <p className="fine" data-testid="figure-coverage-fallback">The detail cards do not cover the entire image. The whole figure above keeps every panel, axis and legend available.</p>}
       {result.phase === 'failed' && <div className="equation-issue" role="alert" data-testid="figure-issue"><p>{issueText(result.issue ?? 'provider_unavailable')}</p>
         {result.issue !== 'invalid_request' && result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => run('figure')} data-testid="figure-retry">Try again</button>}
         {result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => setChoosing(true)} data-testid="explainer-change">Change AI</button>}</div>}
