@@ -99,6 +99,10 @@ enum NoteEntrySync: Equatable {
     var composer: NoteComposerRequest?
     var notice: NoteSavedNotice?
     @ObservationIgnored private let images = NSCache<NSString, UIImage>()
+    /// Collapsed entries per collection (owner, 2026-10-22), remembered on this device only (`NoteCollapseMemory`). The
+    /// dictionary holds the collections changed or read this session; the defaults are the record across launches.
+    private var collapsedEntries: [UUID: Set<UUID>] = [:]
+    @ObservationIgnored var collapseMemory = NoteCollapseMemory()
 
     func update(_ privateState: PrivateState) {
         let next = NotesState(privateState)
@@ -125,7 +129,32 @@ enum NoteEntrySync: Equatable {
     func reset() {
         state = NotesState(); pendingEvents = []; pendingBlobs = []; destination = nil; uploadFailures = [:]
         openNoteID = nil; focusEntryID = nil; search = ""; capturing = nil; captureInitialRect = nil; composer = nil; notice = nil
+        collapsedEntries = [:]
         images.removeAllObjects()
+    }
+
+    // MARK: Collapsed entries (this device only)
+
+    func collapsed(in noteID: UUID) -> Set<UUID> { collapsedEntries[noteID] ?? collapseMemory.collapsed(in: noteID) }
+
+    func isCollapsed(_ entryID: UUID, in noteID: UUID) -> Bool { collapsed(in: noteID).contains(entryID) }
+
+    func setCollapsed(_ collapsed: Bool, entry entryID: UUID, in noteID: UUID) {
+        var ids = self.collapsed(in: noteID)
+        if collapsed { ids.insert(entryID) } else { ids.remove(entryID) }
+        store(ids, in: noteID)
+    }
+
+    /// Collapse all / Expand all from the collection's ⋯.
+    func setAllCollapsed(_ collapsed: Bool, in noteID: UUID) {
+        store(collapsed ? Set(state.note(noteID)?.entries.map(\.id) ?? []) : [], in: noteID)
+    }
+
+    private func store(_ ids: Set<UUID>, in noteID: UUID) {
+        let existing = state.note(noteID).map { Set($0.entries.map(\.id)) }
+        let kept = existing.map { ids.intersection($0) } ?? ids
+        collapsedEntries[noteID] = kept
+        collapseMemory.set(kept, in: noteID, existing: existing)
     }
 
     // MARK: Presentation

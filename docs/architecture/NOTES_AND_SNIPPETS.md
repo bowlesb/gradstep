@@ -9,6 +9,40 @@ The owner requested the end-to-end experience and examination of the current app
 This document separates that direction from recommended details and implementation gates. Current released
 clients remain TestFlight 77 and browser Pages `27c45ca0` as recorded in IMPLEMENTATION_STATUS.md.
 
+## Collapsible snippet cards (owner, 2026-10-22; local source, not released)
+
+Owner: "having the ability to collapse individual snippets would be helpful (so you can just see the date/times), also
+having a bit cleaner separation still between the cards with the actual snippet itself being a slightly more clear 'box'
+in a card, as you scroll, would be helpful."
+
+- **Cards and the box.** Every entry in a collection's stream is a card like the collections list's (DESIGN.md "Cards",
+  *Snippet entries*); the timeline line and amber points are gone. The crop or quotation sits in an inner snippet box
+  (tertiary grouped fill, 1 pt separator edge, 10 pt corners); the comment (accent bar), source line and sync state
+  follow it inside the card.
+- **Collapse.** A chevron at the card's start folds it to one line: `time · short paper title · first words` (the
+  comment; without one the quotation; without either the item's label, "Figure 2"). Rules are shared and pinned by
+  `tests/fixtures/notes/collapsed-lines.json` (Core `NoteCollapsedLine`, browser `lib/note-collapse.ts`): title ≤ 32
+  characters (20 on a phone/compact width) cut at a word, ≤ 8 words and ≤ 60 characters of the comment, trailing
+  punctuation dropped before "…". The day label above still gives the date. The ⋯ and a conflict's "2 versions" stay on
+  the collapsed line. Tapping the line expands it.
+- **Remembered on this device only.** Apple: `UserDefaults` key `notes.collapsed.<noteID>` (entry UUIDs; IDs of entries
+  that no longer exist are dropped on the next write; cleared from memory, not from defaults, on sign-out). Browser:
+  `localStorage` `gradstep.notes.collapsed.<noteID>`, every access in try/catch (a blocked store keeps the choice for the
+  page only). Nothing is synced, encrypted or sent; no record format changes.
+- **Collapse all / Expand all** are the first items of the collection's ⋯ (view choices before actions), each offered
+  only when it would change something.
+- **Accessibility.** The chevron is a 44 pt button labelled "Collapse snippet"/"Expand snippet" with the state as its
+  value (browser: `aria-expanded`); the line is a button too. No animation with Reduce Motion (browser:
+  `prefers-reduced-motion`). At accessibility text sizes the collapsed line wraps to three lines and the header no longer
+  tucks into the card's padding.
+
+Tests: Core `NoteCollapseTests` and browser `tests/note-collapse.test.ts` (the shared cases, memory, throwing storage);
+native `NotesJourneyTests.testSnippetCardsCollapseAndRemember` (collapse one, relaunch keeps it, tap the line,
+Collapse all / Expand all) and `testSnippetCardsDarkAndLargeText` on the iPhone 17 Pro Simulator; Playwright
+`notes.spec.ts` "each snippet is a card…" (desktop and phone: card and box geometry, 44 px target, reload keeps it, menu,
+dark, reduced motion). Screenshots: `.artifacts/snippets-20261022/`. Not verified: iPad/Mac runs (same SwiftUI view),
+physical device (paused).
+
 ## Snippets: rename, comment only, Chat, cards (owner, 2026-10-21, builds 78 feedback; local source, not released)
 
 - **Name.** Owner (15:16 UTC): "We should rename Notes to Snippets." Every user-facing string now says **Snippets**

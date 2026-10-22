@@ -1,0 +1,32 @@
+{
+  "about": "A collapsed snippet's one line (NOTES_AND_SNIPPETS.md \"Collapsible snippet cards\"): time · short paper title · first words. Read by ScienceReaderCore NoteCollapseTests and apps/web/tests/note-collapse.test.ts; both clients must produce exactly `line`.",
+  "cases": [
+    { "name": "short title and comment", "time": "3:04 PM", "title": "Attention Is All You Need", "comment": "Keep this.", "quote": null, "label": "Figure 1",
+      "line": "3:04 PM · Attention Is All You Need · Keep this." },
+    { "name": "long title cut at a word, long comment cut to eight words", "time": "3:04 PM",
+      "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+      "comment": "The early improvement is the interesting part, compare it with the smaller model.", "quote": null, "label": "Figure 2",
+      "line": "3:04 PM · Direct Preference Optimization… · The early improvement is the interesting part, compare…" },
+    { "name": "no comment: the quotation's first words", "time": "09:15", "title": "Scaling Laws",
+      "comment": "", "quote": "We study empirical scaling laws for language model performance on the cross-entropy loss.", "label": null,
+      "line": "09:15 · Scaling Laws · We study empirical scaling laws for language model…" },
+    { "name": "no comment or quotation: the item's label", "time": "3:04 PM", "title": "Scaling Laws", "comment": "  ", "quote": null, "label": "Table 3",
+      "line": "3:04 PM · Scaling Laws · Table 3" },
+    { "name": "no source", "time": "3:04 PM", "title": "", "comment": "Just my own thought\nacross two lines", "quote": null, "label": null,
+      "line": "3:04 PM · Just my own thought across two lines" },
+    { "name": "long words: the character limit applies", "time": "3:04 PM", "title": "A",
+      "comment": "Supercalifragilistic expialidocious antidisestablishmentarianism pneumonoultramicroscopic floccinaucinihilipilification", "quote": null, "label": null,
+      "line": "3:04 PM · A · Supercalifragilistic expialidocious…" },
+    { "name": "a title without spaces is cut at the limit", "time": "3:04 PM", "title": "Abcdefghijklmnopqrstuvwxyzabcdefghijklmnop", "comment": "ok", "quote": null, "label": null,
+      "line": "3:04 PM · Abcdefghijklmnopqrstuvwxyzabcde… · ok" },
+    { "name": "compact widths: a 20-character title", "time": "3:04 PM", "titleLimit": 20,
+      "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model", "comment": "Why does it level off?", "quote": null, "label": null,
+      "line": "3:04 PM · Direct Preference… · Why does it level off?" },
+    { "name": "compact widths: a short title stays whole", "time": "3:04 PM", "titleLimit": 20, "title": "Scaling Laws", "comment": "ok", "quote": null, "label": null,
+      "line": "3:04 PM · Scaling Laws · ok" },
+    { "name": "punctuation before the ellipsis is dropped", "time": "3:04 PM", "title": "A", "comment": "One two three four five six seven eight, nine ten", "quote": null, "label": null,
+      "line": "3:04 PM · A · One two three four five six seven eight…" },
+    { "name": "accented and CJK titles count characters", "time": "3:04 PM", "title": "Étude des modèles de langage à grande échelle", "comment": "注意力机制 很重要", "quote": null, "label": null,
+      "line": "3:04 PM · Étude des modèles de langage à… · 注意力机制 很重要" }
+  ]
+}
