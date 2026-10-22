@@ -371,7 +371,17 @@ struct ChatFixtureTransport: ChatTransport {
         try await Task.sleep(for: .milliseconds(1500))
     }
 
-    func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 480, reserved: 0) }
+    /// `--chat-fixture-free=usable|pool` (migration 0150): a free-tier balance, with free AI left or the month's pool used up.
+    func creditBalance(accountID: UUID) async throws -> CreditBalance {
+        let free = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--chat-fixture-free=") }.map { String($0.dropFirst("--chat-fixture-free=".count)) }
+        var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+        let nextMonth = utc.date(byAdding: .month, value: 1, to: utc.dateInterval(of: .month, for: Date())!.start)
+        switch free {
+        case "usable": return CreditBalance(available: 32, reserved: 0, free: FreeAI(monthly: 50, available: 32, usable: true, resumesAt: nextMonth))
+        case "pool": return CreditBalance(available: 0, reserved: 0, free: FreeAI(monthly: 50, available: 40, usable: false, reason: .pool, resumesAt: nextMonth))
+        default: return CreditBalance(available: 480, reserved: 0)
+        }
+    }
 
     static var serverHasProfiles: Bool { !ProcessInfo.processInfo.arguments.contains("--chat-fixture-no-profiles") }
 

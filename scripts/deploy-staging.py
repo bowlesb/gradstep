@@ -219,6 +219,16 @@ def deploy(args):
                 sql(f"select vault.update_secret((select id from vault.secrets where name={literal(name)}),{literal(value)}) where exists(select 1 from vault.secrets where name={literal(name)})")
                 sql(f"select vault.create_secret({literal(value)},{literal(name)}) where not exists(select 1 from vault.secrets where name={literal(name)})")
             print('Stored the feed refresh URL and secret in Vault (the schedule is in migration 043; refreshing stays off until switched on)')
+        # Spending alerts (migration 0150, docs/RUNBOOK_SPENDING.md): a database tick emails the owner through Resend. The
+        # address comes from OWNER_ALERT_EMAIL (.env.staging or the environment); without it, the owner account's sign-in
+        # email is used. Neither the key nor the address is ever printed.
+        alert_email = os.environ.get('OWNER_ALERT_EMAIL') or env.get('OWNER_ALERT_EMAIL')
+        for name, value in [('science_reader_resend_key', providers.get('RESEND_API_KEY')), ('science_reader_alert_email', alert_email)]:
+            if not value: continue
+            sql(f"select vault.update_secret((select id from vault.secrets where name={literal(name)}),{literal(value)}) where exists(select 1 from vault.secrets where name={literal(name)})")
+            sql(f"select vault.create_secret({literal(value)},{literal(name)}) where not exists(select 1 from vault.secrets where name={literal(name)})")
+        print('Spending alerts:', 'Resend key in Vault' if providers.get('RESEND_API_KEY') else 'no Resend key (alerts recorded, not emailed)',
+              '· address from OWNER_ALERT_EMAIL' if alert_email else '· address: the owner account')
         if args.rotate_pipeline_secret:
             sql("select extensions.pg_stat_statements_reset()")
             print('Rotated the pipeline secret and reset query statistics')

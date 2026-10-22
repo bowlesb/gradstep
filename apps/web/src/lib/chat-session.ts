@@ -15,7 +15,7 @@ import type { VerifiedBundle } from './bundle';
 // final or interrupted answer retires its turn atomically. A turn whose owning tab died reopens as interrupted. Nothing
 // is ever re-requested automatically. Without the journal, private text stays in memory only.
 import { BackendError, config, rpc } from './backend';
-import { parseBalance } from './account-summary';
+import { parseBalance, type CreditBalance } from './account-summary';
 import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, interruptionNote, makeRequest, recordStop, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { available, isProfileChoice, isStandard, sameProfile, parseProfileID, ProfileTableLoader, requestProfile, STANDARD_PROFILE, withChoice, type ProfileChoice, type ProfileTable } from './chat-profiles';
@@ -198,7 +198,7 @@ export class ChatSession {
   noteStore: NotesStore | null = null;
   readonly composers = new Map<string, Composer>();
   readonly selected = new Map<string, string>();
-  balance: { available: number; reserved: number; unlimited_testing?: boolean } | null = null;
+  balance: CreditBalance | null = null;
   journalState: JournalState;
   private listeners = new Set<() => void>();
   private version = 0;

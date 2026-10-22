@@ -1,5 +1,10 @@
 # Dollar balance and OpenRouter usage
 
+**Superseded and dropped (owner, 2026-10-22: accepted the pricing defaults).** Readers keep credits, described as
+"about N answers"; at zero markup every App Store sale loses money. See [PRICING_HOW_IT_WORKS](../PRICING_HOW_IT_WORKS.md)
+and [DECISIONS](../DECISIONS.md#pricing-accepted-with-safeguards-against-spend-outrunning-income-owner-2026-10-22-built-staging).
+Kept as a historical design record.
+
 Owner direction, October 20: show remaining dollars, each user's complete OpenRouter request log, and a category
 view; remove customer-facing credits. **No app markup for now.** This is the implementation design, not a claim
 that dollar settlement has been deployed.

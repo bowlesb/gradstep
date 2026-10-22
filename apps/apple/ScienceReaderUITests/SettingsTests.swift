@@ -55,6 +55,8 @@ final class SettingsTests: XCTestCase {
         attach("settings-assets")
         // Downloaded papers (owner, build 59): what this device keeps, removable without touching the library.
         let downloads = app.buttons["settings.downloads"]
+        // The Plan and Free AI rows (2026-10-22) can push it just below the fold.
+        for _ in 0..<3 where !(downloads.exists && downloads.isHittable) { app.swipeUp() }
         XCTAssertTrue(downloads.exists); downloads.tap()
         XCTAssertTrue(app.navigationBars["Downloaded papers"].waitForExistence(timeout: 5))
         attach("settings-downloaded-papers")
@@ -171,5 +173,55 @@ final class SettingsTests: XCTestCase {
         let acknowledgement = app.descendants(matching: .any)["acknowledgements.arxiv"]
         for _ in 0..<4 where !acknowledgement.exists { app.swipeUp() }
         XCTAssertTrue(element(labelContaining: "Thank you to arXiv", in: app).exists, "arXiv's acknowledgement")
+    }
+
+    // Pricing (2026-10-22, docs/PRICING_HOW_IT_WORKS.md): the plan with how pricing works behind ⓘ, this month's free AI,
+    // and a refused answer that says the month's free AI is used up. `GS_SCREENSHOT_DIR` also saves the screenshots.
+    private func save(_ name: String) {
+        let shot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        if let directory = ProcessInfo.processInfo.environment["GS_SCREENSHOT_DIR"], !directory.isEmpty {
+            try? shot.pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+        }
+    }
+
+    func testPlanAndFreeAIInSettings() {
+        for appearance in ["light", "dark"] {
+            let app = openSettings(["--chat-fixture", "--chat-fixture-consented", "--chat-fixture-free=usable", "-appearance", appearance])
+            let plan = app.staticTexts["settings.plan"]
+            XCTAssertTrue(plan.waitForExistence(timeout: 5)); XCTAssertTrue(plan.label.hasSuffix("Free"), plan.label)
+            // The row reads as one element ("Free AI this month, 32 of 50 left").
+            XCTAssertTrue(app.staticTexts["settings.freeAI"].label.hasSuffix("32 of 50 left"), app.staticTexts["settings.freeAI"].label)
+            save("pricing-settings-\(appearance)")
+            app.buttons["settings.plan.info"].tap()
+            XCTAssertTrue(element(labelContaining: "Plus: 600 credits a month (about 200 answers), every model.", in: app).waitForExistence(timeout: 5))
+            XCTAssertTrue(element(labelContaining: "Credit packs: 300 or 700 credits that never expire.", in: app).exists)
+            save("pricing-plan-info-\(appearance)")
+            app.terminate()
+        }
+    }
+
+    func testAnAnswerRefusedWhenTheMonthsFreeAIIsUsedUp() {
+        for appearance in ["light", "dark"] {
+            XCUIDevice.shared.portraitWhereSupported()
+            let app = XCUIApplication()
+            app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=insufficient_credits", "--chat-fixture-consented", "--reset-draft-fixture",
+                                   "--chat-fixture-free=pool", "-appearance", appearance]
+            app.launch()
+            XCTAssertTrue(app.buttons[sample].waitForExistence(timeout: 15))
+            app.show("chat")
+            let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+            XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+            input.typeText("Summarize the method")
+            app.buttons["chat.send"].tap()
+            XCTAssertTrue(app.buttons["chat.getCredits"].waitForExistence(timeout: 10))
+            let issue = app.staticTexts["chat.answerIssue"]
+            let freeMessage = NSPredicate(format: "label BEGINSWITH %@", "This month’s free AI has all been used. It comes back on ")
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: freeMessage, object: issue)], timeout: 10), .completed, issue.label)
+            XCTAssertTrue(issue.label.contains("Reading is unaffected, and a plan or credit pack works right away."))
+            if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+            save("pricing-free-used-up-\(appearance)")
+            app.terminate()
+        }
     }
 }

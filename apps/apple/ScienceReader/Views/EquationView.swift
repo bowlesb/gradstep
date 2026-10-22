@@ -160,6 +160,12 @@ enum EquationViewOutcome {
         catch { guard !Task.isCancelled else { return }; part.state = Self.failure("transport") }
         guard !Task.isCancelled, self.model?.readerSessionID == scope else { return }
         if part.state == .loading { part.state = Self.failure("transport") }
+        // Free AI that couldn't pay says why (migration 0150): the balance is read again once.
+        if part.state == .failed(Self.noCredits, retryable: true), let reader = self.model {
+            await reader.refreshCreditBalance()
+            guard !Task.isCancelled, reader.readerSessionID == scope else { return }
+            part.state = .failed(reader.creditsMessage(Self.noCredits, premium: ReaderModel.isPremium(key.profile.model)), retryable: true)
+        }
         if part.state == .done, part.symbols == nil, part.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             part.state = .failed(action == .equation ? "Couldn’t describe this equation. Try again." : "Couldn’t write the background. Try again.", retryable: true)
         }
@@ -169,9 +175,10 @@ enum EquationViewOutcome {
         if localModelID == nil { Task { await reader.refreshCreditBalance() } }
     }
 
+    private static let noCredits = "Not enough credits for this. Your balance is in Settings."
     private static func failure(_ code: String) -> State {
         switch code {
-        case "insufficient_credits": .failed("Not enough credits for this. Your balance is in Settings.", retryable: true)
+        case "insufficient_credits": .failed(noCredits, retryable: true)
         default: .failed(ChatFailureText.message(for: code), retryable: ChatFailureText.isRetryable(code))
         }
     }
@@ -729,7 +736,7 @@ struct ContextualChatComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let issue = model.chatAnswerIssue, model.ownsContextualChat(token) {
-                Text(issue.message).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("contextChat.error")
+                Text(issue.message(free: model.creditBalance?.free)).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("contextChat.error")
                 if issue.retryable { Button(issue.actionTitle) { model.retryAnswer() }.accessibilityIdentifier("contextChat.retry") }
             }
             VStack(alignment: .leading, spacing: 4) {

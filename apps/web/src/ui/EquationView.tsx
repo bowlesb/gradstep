@@ -18,6 +18,7 @@ import { safeLink } from '../lib/markdown';
 import { symbolMath } from '../lib/equation-math';
 import { equationDocument } from '../reader/equation-frame';
 import Answer from './Answer';
+import { sessionBalance, useFreeAIRefusal } from './free-ai';
 import { Dialog, MenuButton, SheetTop } from './common';
 import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
@@ -54,6 +55,8 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const [chosen, setChosen] = useState<ProfileChoice | null>(null), [choosing, setChoosing] = useState(false), [pending, setPending] = useState(false);
   const profile = chosen ?? context?.profile, profileKey = JSON.stringify(profile);
   const table = host?.context?.chat.profileTable ?? null;
+  // Free AI (migration 0150): why free credits couldn't pay, from a fresh balance read.
+  const freeBalance = useMemo(() => sessionBalance(host?.context?.chat), [host?.context?.chat]);
   const [view, setView] = useState(readView);
   const viewRef = useRef(view); viewRef.current = view;
   const [doc, setDoc] = useState<string | null>(null);
@@ -88,6 +91,9 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const [asking, setAsking] = useState(false);
   const [symbols, setSymbols] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation', profile) ?? null);
   const [background, setBackground] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation_background', profile) ?? null);
+  const creditIssue = symbols?.issue === 'insufficient_credits' || background?.issue === 'insufficient_credits' ? 'insufficient_credits' : null;
+  const freeRefusal = useFreeAIRefusal(creditIssue, freeBalance, profile?.model);
+  const refusalText = (code: string) => (code === 'insufficient_credits' && freeRefusal) || failureText(code);
   const requests = useRef(new Map<EquationAction, AbortController>());
   useEffect(() => () => { for (const c of requests.current.values()) c.abort(); }, []);
   const run = useCallback((action: EquationAction) => {
@@ -182,7 +188,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
         </section>
         <section className="equation-section" aria-labelledby="equation-symbols">
           <h3 id="equation-symbols">Symbols</h3>
-          {symbols?.phase === 'failed' ? <div className="equation-issue" role="alert"><p>{failureText(symbols.issue ?? 'provider_unavailable')}</p>
+          {symbols?.phase === 'failed' ? <div className="equation-issue" role="alert"><p>{refusalText(symbols.issue ?? 'provider_unavailable')}</p>
             {symbols.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('equation')}>Try again</button>}
             <button className="secondary small" onClick={() => setChoosing(true)} data-testid="explainer-change">Change AI</button></div>
             : symbols?.symbols?.symbols.length ? <ul className="equation-symbols" data-testid="equation-symbols">{symbols.symbols.symbols.map((s, i) => <li key={i}>
@@ -198,7 +204,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
         {symbols.phase === 'done' && <section ref={backgroundSection} className="equation-section equation-background-section" aria-labelledby="equation-background">
           <h3 id="equation-background">Background</h3>
           {!background ? <button className="secondary" onClick={() => { shownBackground.current = false; run('equation_background'); }} data-testid="equation-more">More background</button>
-            : background.phase === 'failed' && !background.text ? <div className="equation-issue" role="alert"><p>{failureText(background.issue ?? 'provider_unavailable')}</p>
+            : background.phase === 'failed' && !background.text ? <div className="equation-issue" role="alert"><p>{refusalText(background.issue ?? 'provider_unavailable')}</p>
               <button className="secondary small" onClick={() => run('equation_background')}>Try again</button></div>
             : <div className="equation-background" onClick={answerClick} data-testid="equation-background">
                 {background.text ? <Answer text={background.text} streaming={background.phase === 'loading'} /> : <p className="fine" role="status">Writing background…</p>}</div>}

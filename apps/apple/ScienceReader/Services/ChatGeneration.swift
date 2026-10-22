@@ -73,12 +73,14 @@ struct CreditBalance: Decodable, Equatable, Sendable {
     let available: Int64
     let reserved: Int64
     let unlimitedTesting: Bool?
+    /// This month's free AI (migration 0150): nil when the account is not on the free tier or the server is older.
+    let free: FreeAI?
 
-    init(available: Int64, reserved: Int64, unlimitedTesting: Bool? = nil) {
-        self.available = available; self.reserved = reserved; self.unlimitedTesting = unlimitedTesting
+    init(available: Int64, reserved: Int64, unlimitedTesting: Bool? = nil, free: FreeAI? = nil) {
+        self.available = available; self.reserved = reserved; self.unlimitedTesting = unlimitedTesting; self.free = free
     }
     enum CodingKeys: String, CodingKey {
-        case available, reserved
+        case available, reserved, free
         case unlimitedTesting = "unlimited_testing"
     }
     var availableLabel: String { unlimitedTesting == true ? "Unlimited testing" : "\(available.formatted()) credits" }
@@ -179,6 +181,13 @@ struct ChatAnswerIssue: Equatable, Sendable {
     var credits: Int? = nil
     /// `reader_unprepared`: why the paper couldn't be prepared on this device (build 78).
     var detail: String? = nil
+    /// The answer asked a premium model (Sonnet, Opus), which free AI never pays for.
+    var premium = false
+    /// With this month's free AI from the balance (migration 0150), `insufficient_credits` says why free AI didn't pay.
+    func message(free: FreeAI?) -> String {
+        guard code == "insufficient_credits", let text = FreeAIText.message(for: free, premiumModel: premium) else { return message }
+        return text
+    }
     var message: String {
         switch code {
         // Asking prepares the paper on this device (build 78); this is left for a paper this device can't prepare at all.

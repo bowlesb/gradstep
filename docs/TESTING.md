@@ -47,6 +47,15 @@ only takes screenshots) and native `FigureViewJourneyTests/testPartsAreFramedByC
 (and `…Dark`; launch arguments `--figure-fixture-panels --figure-fixture-loose`; `TEST_RUNNER_FIGURE_FRAMING_STAGE=before`).
 Screenshots under `.artifacts/figure-framing/`.
 
+## Pricing, free AI pool and spending safeguards — October 22 UTC
+
+Fast (in `npm test`): `tests/backend/chat.test.ts` (switch refusals, no search on free answers, cheaper defaults), browser
+`tests/free-ai.test.ts` and `tests/account-assets.test.ts`, native Core `FreeAITextTests`. Database:
+`python3 scripts/test-database.py --pricing-only` (`free_ai_and_spend.sql` and the 12-reader pool concurrency check; also in
+the final phase). Slow, opt-in: Playwright `e2e/pricing.spec.ts`; admin loopback journey
+`npm run dev:admin -- --port <free port>` then `SPEND_INCOME_PREVIEW=http://127.0.0.1:<port> node scripts/check-spend-income.mjs`
+(screenshots `.artifacts/spend-income/`); native Settings/chat journeys (see the pricing entry in IMPLEMENTATION_STATUS).
+
 ## AI recommendations — October 21 UTC
 
 Fast: `node --test tests/backend/recommend.test.ts` (in `npm test`), browser `tests/recommend.test.ts`. Database:

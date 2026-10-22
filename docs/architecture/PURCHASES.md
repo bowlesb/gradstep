@@ -1,5 +1,8 @@
 # App Store purchases
 
+**Products from 2026-10-22 (migration 0150; App Store Connect changes await the owner):** Plus (`standard.monthly`, $7.99, 600 a month, $3.99 first month; `standard.annual`, $79.99), Pro (`pro.monthly`, $19.99, 2,000; `pro.annual`, $199.99), packs `credits.300` ($4.99) and `credits.700` ($9.99). `credits.400` stays mapped for earlier buyers. Annual plans grant one month at a time: the first bucket at purchase ends after a month; `issue_allowances` grants each later month once; a refund also removes the unspent credits of issued months. See [PRICING_HOW_IT_WORKS](../PRICING_HOW_IT_WORKS.md).
+
+
 Status, 2026-10-08: **private Node verification deployed; real Sandbox credit-pack grants observed on staging.**
 The earlier Edge runtime incompatibility is documented in the
 [incident evidence](../reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md) and repaired by the

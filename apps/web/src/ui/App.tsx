@@ -10,7 +10,7 @@ import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib
 import { loadKept, saveKept } from '../lib/kept-explanations';
 import { AuthError, type AuthIssue, type Session, auth, config, functionPost, operationsDashboard, operatorRoles } from '../lib/backend';
 import type { AnswerPapers } from './AnswerPapers';
-import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
+import { type AccountSummary, CREDITS_INFO, FREE_AI_INFO, PLAN_INFO, creditsLabel, freeAILabel, loadAccountSummary, planLabel } from '../lib/account-summary';
 import { type DeviceRecord, type Preparation, eraseDeletedAccount, forgetDevice, readDevice } from '../lib/keys';
 import { TYPED_CONFIRMATION, deletionFailure, forgetAccountStorage, noteAccountDeleted, requestAccountDeletion } from '../lib/account-deletion';
 import type { Item } from '../lib/library';
@@ -1008,7 +1008,8 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
     const abort = new AbortController();
     loadAccountSummary(account, abort.signal).then(next => {
       if (abort.signal.aborted) return;
-      setSummary(last => ({ balance: next.balance ?? last.balance, plan: next.plan !== undefined ? next.plan : last.plan }));
+      setSummary(last => ({ balance: next.balance ?? last.balance, plan: next.plan !== undefined ? next.plan : last.plan,
+        periodMonths: next.plan !== undefined ? next.periodMonths ?? null : last.periodMonths }));
     }, () => undefined);
     return () => abort.abort();
   }, [account, open]);
@@ -1048,7 +1049,10 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
             {!!summary.balance?.reserved && <div className="menu-fact fine" data-testid="account-held"><span>Held for answers in progress</span>
               <span className="menu-fact-value">{summary.balance.reserved.toLocaleString()}</span></div>}
             <div className="menu-fact" data-testid="account-plan"><span>Subscription plan <InfoTip text={PLAN_INFO} testID="plan-info" /></span>
-              <span className="menu-fact-value">{planLabel(summary.plan)}</span></div>
+              <span className="menu-fact-value">{planLabel(summary.plan, summary.periodMonths)}</span></div>
+            {/* Free AI (migration 0150; docs/PRICING_HOW_IT_WORKS.md): only on the free tier. */}
+            {summary.balance?.free && <div className="menu-fact" data-testid="account-free-ai"><span>Free AI this month <InfoTip text={FREE_AI_INFO} testID="free-ai-info" /></span>
+              <span className="menu-fact-value">{freeAILabel(summary.balance.free)}</span></div>}
           </div>
           {/* Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough". */}
           <div className="menu-group" role="group" aria-label="Your assets"><p className="fine menu-heading">Your assets</p>

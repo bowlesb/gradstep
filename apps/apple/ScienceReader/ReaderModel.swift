@@ -4630,7 +4630,8 @@ final class ReaderModel {
                                                      study: turn.study, visualAnswers: visualAnswers, figures: figures)
             }
         } catch ChatTransportError.rejected(let code) {
-            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: code)
+            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: code, premium: ReaderModel.isPremium(choices.profile.model))
+            if code == "insufficient_credits" { Task { await self.refreshCreditBalance() } }
             return
         } catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
@@ -4883,7 +4884,10 @@ final class ReaderModel {
         if generation.turn.action == .study, resolution.status == .complete, issue == nil, let study, chatStudyMaps[generation.turn.composerID] != nil {
             chatStudyMaps[generation.turn.composerID] = study
         }
-        if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits) }
+        if let issue {
+            chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits,
+                                                                            premium: ReaderModel.isPremium(generation.profile.model))
+        }
         // A repeated save asked the server for nothing: the balance and library refreshes already ran.
         guard !resealing else { return }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
@@ -4963,6 +4967,13 @@ final class ReaderModel {
             let event = generation.event(text: text.boundedForPrivateEvent(), status: .interrupted, profile: generation.labelProfile)
             _ = try? localPersistence.acceptWrite { local in try await local.appendBatch([(id: id, event: event)], deviceID: deviceID) }
         }
+    }
+
+    /// Free AI never pays for these (migration 0150; docs/PRICING_HOW_IT_WORKS.md).
+    nonisolated static func isPremium(_ model: ChatProfileChoice.Model) -> Bool { model == .sonnet || model == .opus }
+    /// The text for an `insufficient_credits` refusal: why free AI didn't pay (from the balance), else the usual message.
+    func creditsMessage(_ fallback: String, premium: Bool = false) -> String {
+        FreeAIText.message(for: creditBalance?.free, premiumModel: premium) ?? fallback
     }
 
     @ObservationIgnored private var creditBalanceAt: Date?

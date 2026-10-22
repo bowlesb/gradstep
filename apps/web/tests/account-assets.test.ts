@@ -18,7 +18,7 @@ describe('AI credits and Subscription plan', () => {
     expect(parsePlan({ plan: null, product_id: null })).toBeNull();
     expect(parsePlan({ plan: 'pro', product_id: 'x', expires_at: '2026-11-01T00:00:00Z' })).toBe('pro');
     for (const bad of [null, {}, { plan: 3 }, { plan: '<b>' }]) expect(parsePlan(bad)).toBeUndefined();
-    expect([planLabel('pro'), planLabel('standard'), planLabel('team'), planLabel(null), planLabel(undefined)]).toEqual(['Pro', 'Standard', 'Team', 'None', '—']);
+    expect([planLabel('pro'), planLabel('standard'), planLabel('team'), planLabel(null), planLabel(undefined)]).toEqual(['Pro', 'Plus', 'Team', 'Free', '—']);
   });
 
   it('reads both from the server each time and keeps one failure to its own row', async () => {

@@ -136,6 +136,17 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(unlimited.availableLabel, "Unlimited testing")
         XCTAssertEqual(unlimited.reserved, 50)
         XCTAssertThrowsError(try decoder.decode(CreditBalance.self, from: Data(#"{"available":100000,"reserved":0,"unlimited_testing":"true"}"#.utf8)))
+        // Free AI (migration 0150): absent or null for accounts not on the free tier.
+        XCTAssertNil(legacy.free)
+        XCTAssertNil(try decoder.decode(CreditBalance.self, from: Data(#"{"available":5,"reserved":0,"unlimited_testing":false,"free":null}"#.utf8)).free)
+        let pool = try decoder.decode(CreditBalance.self, from: Data(#"{"available":0,"reserved":0,"unlimited_testing":false,"free":{"monthly":50,"available":40,"usable":false,"reason":"pool","resumes_at":"2026-11-01T00:00:00+00:00","daily":20}}"#.utf8))
+        XCTAssertEqual(pool.free?.reason, .pool)
+        let issue = ChatAnswerIssue(turn: ChatAnswerTurn(sessionID: UUID(), accountID: UUID(), deviceID: UUID(), composerID: UUID(), conversationID: UUID(),
+                                                          documentID: nil, userMessageID: UUID(), selection: nil), code: "insufficient_credits")
+        XCTAssertEqual(issue.message(free: pool.free), "This month’s free AI has all been used. It comes back on November 1. Reading is unaffected, and a plan or credit pack works right away.")
+        XCTAssertEqual(issue.message(free: nil), issue.message, "not on the free tier: the usual message")
+        var premium = issue; premium.premium = true
+        XCTAssertTrue(premium.message(free: FreeAI(monthly: 50, available: 30, usable: true)).hasPrefix("Free AI covers the fast models"))
     }
 
     #if targetEnvironment(macCatalyst)

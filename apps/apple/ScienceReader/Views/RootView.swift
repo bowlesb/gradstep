@@ -1013,7 +1013,7 @@ struct ChatView: View {
         VStack(spacing: 6) {
             if let issue = model.chatAnswerIssue {
                 // Design audit F4: the app's one banner style, above the message box.
-                StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue.message, actionsBelow: true,
+                StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue.message(free: model.creditBalance?.free), actionsBelow: true,
                              messageID: "chat.answerIssue") {
                     if issue.code == "insufficient_credits" {
                         Button("Get credits") { model.showStore = true }.accessibilityIdentifier("chat.getCredits")
@@ -1310,7 +1310,16 @@ struct SettingsView: View {
                         } else {
                             LabeledContent("Available", value: "Loading…")
                         }
-                        if let plan = model.storeSummary?.planName { LabeledContent("Subscription plan", value: plan) }
+                        // Plans and free AI (2026-10-22, docs/PRICING_HOW_IT_WORKS.md): the plan with how pricing works, and
+                        // this month's free AI for accounts on the free tier.
+                        if model.creditBalance?.unlimitedTesting != true || model.storeSummary?.planName != nil {
+                            LabeledContent { Text(model.storeSummary?.planName ?? "Free").accessibilityIdentifier("settings.plan") } label: {
+                                LabelWithInfo(title: "Plan", info: FreeAIText.planInfo, identifier: "settings.plan.info")
+                            }
+                        }
+                        if let free = model.creditBalance?.free {
+                            LabeledContent("Free AI this month") { Text(FreeAIText.settingsValue(free)).accessibilityIdentifier("settings.freeAI") }
+                        }
                         Button("Get credits") { model.showStore = true }
                             .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
                     } header: { Text("AI credits") }

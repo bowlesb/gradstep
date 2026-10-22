@@ -2,6 +2,46 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Pricing accepted, with safeguards against spend outrunning income (owner, 2026-10-22; built, staging)
+
+Owner, verbatim: *"I will take your defaults"* (on [PRICING_PROPOSAL_20261022](proposals/PRICING_PROPOSAL_20261022.md)),
+then *"the complexity of the pricing system and what debug strategies I'll have if my spend somehow becomes very high
+in relation to my incoming money."* The figures default moves to Gemini Flash (low), handled separately by another
+agent. How it works in plain words: [PRICING_HOW_IT_WORKS](PRICING_HOW_IT_WORKS.md); what to do when spend is high:
+[RUNBOOK_SPENDING](RUNBOOK_SPENDING.md).
+
+| Accepted | Value |
+|---|---|
+| Free | 50 credits a month (≈ 15 answers), fast models only (Gemini Flash, DeepSeek, Haiku), no web search, podcasts or premium models; at most 20 a day and $0.25 of provider cost per account a month |
+| Free pool | **$15 a month** across every free account: the owner's whole subsidy, enforced before any model call. When it is used up: "This month's free AI has all been used. It comes back on November 1." Paying users are unaffected |
+| Plus | $7.99/month or $79.99/year, 600 credits a month (`standard.*`; shown as "Plus") |
+| Pro | $19.99/month or $199.99/year, 2,000 credits a month |
+| Packs | $4.99 = 300, $9.99 = 700, never expire. `credits.400` is retired for new sales and still records for earlier buyers |
+| First month of Plus | $3.99 introductory offer (pay up front, new subscribers); no free trial |
+| Students | No student price at launch (Plus yearly is the student price) |
+| Apple | Enroll in the Small Business Program (15%) before the first Production sale; the proceeds estimate assumes 15% |
+| Tavily | Move to the free tier at the November 6 renewal (saves $30/month) |
+| Dollar balance | The 2026-10-20 dollar-balance design ([DOLLAR_BALANCE](architecture/DOLLAR_BALANCE.md)) is **dropped**: credits, described as "about N answers" |
+| Gemini, 2027-01-01 | Gemini 3.8 Flash list prices double (a default answer ≈ 3 → ≈ 5 credits). Before mid-December: switch the chat default to DeepSeek V4.1 Flash or Haiku 5.5, or keep Gemini and change the "about N answers" copy |
+
+**Implementation choices (agent, reversible):**
+
+- One extra rule in the existing reservation, no new money system: free credits are a `free` bucket; an operation they
+  fund is marked, and its worst case is checked against the pool and the account's share under the same budget →
+  account lock (migration 0150). Free spend therefore cannot pass the pool, even with concurrent requests (database
+  test with 12 simultaneous readers).
+- The pool's **growth rule** (max($15, 10% of last month's proceeds)) is shown in Admin as a suggestion; only the owner
+  changes the pool, audited. Nothing raises a limit automatically; the $100/month budget is unchanged.
+- Free answers don't offer web search (the chat function decides; prepaid search is kept for paying readers). An
+  answer that falls back from free credits to plan or pack credits behaves as before.
+- The App Store changes are a read-only plan until the owner approves:
+  `node scripts/asc-pricing-plan.mjs` (see PRICING_HOW_IT_WORKS §App Store). No product, price or offer was changed.
+- Annual plans grant one month of credits at a time (first at purchase, the rest at each monthly anniversary).
+- Safeguards: Admin › **Spend vs income**; emailed alerts (50/80/100% of the provider limit, free pool used up, spend
+  above 0.6× proceeds), each once a month; owner switches (pause free AI, pause podcasts / recommendations / figures /
+  equations, cheaper models only, pause all AI) with a 7-day dry-run preview, audited and reversible. Recommended
+  external backstop: a credit limit on the OpenRouter key itself (OWNER_ACTIONS).
+
 ## Figure explainer: streamed, at low effort (owner request 2026-10-22; agent decision with evidence, reversible)
 
 Owner: "On the Figure AI explainer, I like the experience, but it's very very slow. Can we make it much much faster?" and

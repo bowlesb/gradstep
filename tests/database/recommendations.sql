@@ -31,6 +31,9 @@ grant execute on all functions in schema test to anon,authenticated,service_role
 \set ADD2 '14300000-0000-4000-8003-000000000002'
 insert into auth.users(id) values(:'A'),(:'B');
 select public.worker_set_platform_budget(date_trunc('month',now() at time zone 'UTC')::date,10000000,true);
+-- Free AI (migration 0150) would pay for recommendations first; it has its own fixture (free_ai_and_spend.sql). Here the
+-- reader's own credits pay, as before.
+do $$ begin if to_regclass('app_private.ai_controls') is not null then update app_private.ai_controls set free_monthly_credits=0; end if; end $$;
 select public.worker_grant_credits(:'A','adjustment','recommend-143-a',10,now()-interval '1 day',null,'Recommendation fixture');
 
 -- Grants: the function's service role only; the helpers are private.

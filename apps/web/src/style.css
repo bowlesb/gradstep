@@ -661,9 +661,9 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 /* The account menu's AI credits and Subscription plan (native Settings › AI credits): words with an ⓘ, the value right. */
 .menu-facts { display: flex; flex-direction: column; gap: 0; margin: 2px 0; padding: 2px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .menu-fact { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; padding: 0 4px 0 8px; font-size: 13.5px; }
-.menu-fact > span:first-child { display: inline-flex; align-items: center; gap: 2px; }
+.menu-fact > span:first-child { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .menu-fact.fine { min-height: 22px; font-size: 12px; }
-.menu-fact-value { font-variant-numeric: tabular-nums; color: var(--muted); }
+.menu-fact-value { font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
 .menu-group { display: flex; flex-direction: column; gap: 2px; }
 /* All diagrams (Your assets): one row per diagram, newest first; one opens as in its answer. */
 .diagram-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }

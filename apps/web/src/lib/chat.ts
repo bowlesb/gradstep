@@ -374,7 +374,7 @@ export function failureText(code: string): string {
     case 'reader_unprepared': return 'This paper couldn’t be prepared in this browser. No answer was requested; try again.';
     case 'document_unavailable': return 'This paper isn’t ready for questions yet. Try again after it finishes processing.';
     case 'provider_unavailable': return 'The AI service couldn’t finish this answer. Try again.';
-    case 'model_unavailable': return 'The AI provider refused this request because Gradstep’s provider account has insufficient funds. Your AI credits were not charged. Choose another AI model or try again after the service is funded.';
+    case 'model_unavailable': return 'This AI model isn’t available right now. Your AI credits were not charged. Choose another model in AI options, or try again later.';
     case 'refused': return 'This request can’t be answered. Try rephrasing your question.';
     case 'invalid_request': return 'This conversation couldn’t be sent. Try starting a new chat.';
     case 'operation_replayed': return 'This answer was already requested. Try again to request a new one.';

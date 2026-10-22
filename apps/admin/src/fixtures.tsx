@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { Budget, Health as HealthData, PipelineMetrics, ProviderHour } from './backend';
 import { ProviderHours } from './provider-hours';
 import { Health } from './health';
@@ -7,6 +7,7 @@ import { Reliability } from './reliability';
 import { Shell } from './shell';
 import { Purchases, type PurchasesApi, type PurchaseSubmission, type PurchaseTransaction } from './purchases';
 import { Costs, type AccountCost, type AccountCosts, type CostWindow } from './costs';
+import { SpendVsIncome, type SpendAlert, type SpendIncome, type SpendIncomeApi, type SwitchName } from './spend-income';
 
 // Development-only sample data for screenshots: `?fixture=reliability` (add `&state=empty`
 // for empty states) and `?fixture=accounts`. main.tsx loads this module only when import.meta.env.DEV is true,
@@ -409,5 +410,63 @@ export function CostsFixture() {
   return <Shell tabs={['Health', 'Overview', 'Spending', 'Costs', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Costs" onTab={() => undefined}
     counts={{ Support: 2 }} email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Costs api={api} reloadKey={reloads} />
+  </Shell>;
+}
+
+// `?fixture=spend-income` (add `&state=over` for a month where spend is above the alert share of proceeds).
+export function SpendIncomeFixture() {
+  const [reloads, setReloads] = useState(0);
+  const over = new URLSearchParams(location.search).get('state') === 'over';
+  const [state, setState] = useState<SpendIncome>(() => {
+    const now = new Date(), period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    const at = (hours: number) => new Date(now.getTime() - hours * 3_600_000).toISOString();
+    const empty = { purchases: 0, refunds: 0, gross_microusd: 0, refunded_microusd: 0, proceeds_microusd: 0, by_product: [] };
+    const production = { purchases: 14, refunds: 1, gross_microusd: 117_860_000, refunded_microusd: 7_990_000, proceeds_microusd: 93_389_500, by_product: [
+      { product_id: 'com.sciencereader.ios.standard.monthly', purchases: 7, gross_microusd: 47_930_000, refunds: 1, refunded_microusd: 7_990_000 },
+      { product_id: 'com.sciencereader.ios.pro.monthly', purchases: 2, gross_microusd: 39_980_000, refunds: 0, refunded_microusd: 0 },
+      { product_id: 'com.sciencereader.ios.credits.300', purchases: 4, gross_microusd: 19_960_000, refunds: 0, refunded_microusd: 0 },
+      { product_id: 'com.sciencereader.ios.credits.700', purchases: 1, gross_microusd: 9_990_000, refunds: 0, refunded_microusd: 0 }] };
+    const spend = over ? 71_400_000 : 24_180_000;
+    return { period, generated_at: now.toISOString(), days_elapsed: 21.4, days_in_month: 31, email_configured: true,
+      spend: { cost_microusd: spend, held_microusd: 412_000, by_funding: { paid: Math.round(spend * 0.71), free: Math.round(spend * 0.18), testing: Math.round(spend * 0.07), granted: Math.round(spend * 0.03), platform: Math.round(spend * 0.01) },
+        by_feature: [{ feature: 'chat', cost_microusd: Math.round(spend * 0.52), attempts: 2140 }, { feature: 'figure_explainer', cost_microusd: Math.round(spend * 0.21), attempts: 610 },
+          { feature: 'podcasts', cost_microusd: Math.round(spend * 0.16), attempts: 41 }, { feature: 'equation_explainer', cost_microusd: Math.round(spend * 0.06), attempts: 330 },
+          { feature: 'recommendations', cost_microusd: Math.round(spend * 0.03), attempts: 88 }, { feature: 'tags', cost_microusd: Math.round(spend * 0.02), attempts: 240 }],
+        by_model: [{ model: 'anthropic/claude-sonnet-5.5', cost_microusd: Math.round(spend * 0.48), attempts: 940 }, { model: 'google/gemini-3.8-flash', cost_microusd: Math.round(spend * 0.33), attempts: 2210 },
+          { model: 'deepseek/deepseek-v4-pro', cost_microusd: Math.round(spend * 0.12), attempts: 60 }, { model: 'anthropic/claude-haiku-5.5', cost_microusd: Math.round(spend * 0.07), attempts: 1180 }] },
+      budget: { limit_microusd: 100_000_000, spent_microusd: spend, reserved_microusd: 412_000, work_enabled: true },
+      fixed: { recorded_microusd: 47_600_000, components_missing: 2 },
+      income: { method: 'estimate', commission_bp: 1500, production, sandbox: { ...empty, purchases: 3 }, previous_month_production: { ...production, proceeds_microusd: 81_200_000 } },
+      ratio: Math.round(spend / production.proceeds_microusd * 1000) / 1000,
+      forecast: { spend_microusd: Math.round(spend * 31 / 21.4), proceeds_microusd: Math.round(production.proceeds_microusd * 31 / 21.4), early: false },
+      free: { pool_microusd: 15_000_000, used_microusd: over ? 14_610_000 : 4_352_000, account_microusd: 250_000, monthly_credits: 50, daily_credits: 20, accounts: 311, operations: 2_904, suggested_pool_microusd: 15_000_000 },
+      switches: { free_ai_paused: false, cheap_models_only: false, paused_features: over ? ['podcasts'] : [], all_ai_paused: false },
+      alerts: { spend_income_ratio: 0.6, min_proceeds_microusd: 20_000_000, recent: ([
+        ...(over ? [{ kind: 'spend_over_income', period, created_at: at(2), delivery: 'sent' as const, attempts: 1, delivered_at: at(2), details: { spend_microusd: spend, proceeds_microusd: production.proceeds_microusd, ratio: 0.765, threshold: 0.6 } },
+          { kind: 'free_pool_exhausted', period, created_at: at(5), delivery: 'sent' as const, attempts: 1, delivered_at: at(5), details: { pool_microusd: 15_000_000, used_microusd: 14_610_000, accounts: 311 } }] : []),
+        { kind: 'budget_50', period, created_at: at(80), delivery: 'not_configured' as const, attempts: 0, delivered_at: null, details: { spent_microusd: 50_100_000, reserved_microusd: 0, limit_microusd: 100_000_000, percent: 50.1 } }] as SpendAlert[]) } };
+  });
+  // Reads the latest state at resolve time: a reload started before React re-rendered still sees the change.
+  const latest = useRef(state);
+  const api = useMemo<SpendIncomeApi>(() => ({
+    load: () => new Promise(resolve => setTimeout(() => resolve(latest.current), 120)),
+    preview: (name: SwitchName) => new Promise(resolve => setTimeout(() => resolve({ switch: name, since: new Date(Date.now() - 6 * DAY).toISOString(),
+      requests: { free_ai: 1210, podcasts: 12, recommendations: 41, figures: 280, equations: 140, cheap_models: 460, all_ai: 4100 }[name],
+      accounts: { free_ai: 188, podcasts: 7, recommendations: 22, figures: 96, equations: 61, cheap_models: 74, all_ai: 402 }[name],
+      paying_accounts: { free_ai: 0, podcasts: 6, recommendations: 9, figures: 40, equations: 20, cheap_models: 60, all_ai: 91 }[name],
+      cost_microusd: { free_ai: 1_420_000, podcasts: 3_800_000, recommendations: 52_000, figures: 2_100_000, equations: 610_000, cheap_models: 6_900_000, all_ai: 9_300_000 }[name],
+      all_cost_microusd: 9_300_000, on: false }), 120)),
+    set: async (name: SwitchName, on: boolean) => {
+      const s = latest.current;
+      latest.current = { ...s, switches: name === 'free_ai' ? { ...s.switches, free_ai_paused: on }
+        : name === 'cheap_models' ? { ...s.switches, cheap_models_only: on } : name === 'all_ai' ? { ...s.switches, all_ai_paused: on }
+        : { ...s.switches, paused_features: on ? [...s.switches.paused_features, name] : s.switches.paused_features.filter(f => f !== name) } };
+      setState(latest.current);
+    },
+    setPool: async (microusd: number) => { latest.current = { ...latest.current, free: { ...latest.current.free, pool_microusd: microusd } }; setState(latest.current); },
+  }), []);
+  return <Shell tabs={['Health', 'Overview', 'Spend vs income', 'Spending', 'Costs', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Spend vs income" onTab={() => undefined}
+    counts={{ Support: 2 }} email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
+    <SpendVsIncome api={api} reloadKey={reloads} />
   </Shell>;
 }

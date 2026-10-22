@@ -17,6 +17,8 @@ import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequest
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
+import { freeModel, switchRefusal, type AiSwitches } from './ai-switches.ts';
+export type { AiSwitches } from './ai-switches.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationFallbackText, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
@@ -565,6 +567,12 @@ export interface ChatDependencies {
   studyTimeoutMs?: number;
   /** The caller's available credits (for the hold cap); null if unknown. */
   availableCredits?: () => Promise<number | null>;
+  /** Whether this month's free credits would pay for a fast-model answer now (v1_credit_balance `free`, migration 0150).
+   * Free AI answers don't offer web search (prepaid search capacity is kept for paying readers; PRICING_HOW_IT_WORKS.md). */
+  freeCredits?: () => Promise<boolean>;
+  /** The owner's AI switches (migration 0150, `worker_ai_switches`; RUNBOOK_SPENDING.md). Null or absent: none apply here;
+   * the database refuses switched-off work anyway. */
+  aiSwitches?: () => Promise<AiSwitches | null>;
   /** Offer web search (server setting; off by default): our search_web tool, run with `search`. */
   webSearch?: boolean;
   /** Tavily, the search provider (absent when not configured). `ready` is false while it is paused after a failure or its
@@ -636,7 +644,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const tavilyReady = search && namesTavily(request.consentVersion) && deps.search
     ? deps.search.ready().catch(() => false) : Promise.resolve(false);
   const balance = deps.availableCredits ? settled(deps.availableCredits()) : null;
+  const switchRead = deps.aiSwitches ? settled(deps.aiSwitches()) : null;
   await admitted();
+  // The owner's switches (RUNBOOK_SPENDING.md): refused before anything is held or the paper is read.
+  const switched = switchRead ? await switchRead : null;
+  const switches = switched?.ok ? switched.value : null;
+  const refusal = switchRefusal(switches, request.action, profile.apiModel);
+  if (refusal) throw new ChatFailure(refusal);
+  // Free AI answers (fast models paid from this month's free credits) are written without web search.
+  const freeAnswer = freeModel(switches, profile.apiModel) && deps.freeCredits ? await deps.freeCredits().catch(() => false) : false;
 
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
@@ -651,7 +667,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // title, suggestions and map run only while their own model's card holds.
   if (deps.modelAvailable && !await deps.modelAvailable(profile.apiModel)) throw new ChatFailure('model_unavailable');
   const sidesAvailable = !deps.modelAvailable || await deps.modelAvailable(TITLE_MODEL);
-  const tavily = await tavilyReady === true;
+  // A free AI answer is written without web search (see freeAnswer above).
+  const tavily = await tavilyReady === true && !freeAnswer;
   // Every model searches through our search_web tool or not at all: no provider-native search is offered.
   const searchOffered = tavily;
   // Related always searches before it answers: say so at once, not after the paper loads and the model's

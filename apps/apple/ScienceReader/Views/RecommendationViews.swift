@@ -95,7 +95,10 @@ private struct RecommendationRunView: View {
                     }
                     .accessibilityElement(children: .combine).accessibilityIdentifier("recommend.status")
                 } else if let outcome = run.outcome {
-                    Text(outcome).font(.subheadline.weight(.medium)).accessibilityIdentifier("recommend.footer")
+                    // Free AI that couldn't pay says why (migration 0150); the balance is read again once.
+                    Text(run.failureCode == "insufficient_credits" ? model.creditsMessage(outcome) : outcome)
+                        .font(.subheadline.weight(.medium)).accessibilityIdentifier("recommend.footer")
+                        .task(id: run.failureCode) { if run.failureCode == "insufficient_credits" { await model.refreshCreditBalance() } }
                     if run.failureCode == "insufficient_credits" {
                         Button("Get credits") { model.openCreditsFromRecommendations() }.accessibilityIdentifier("recommend.getCredits")
                     } else if let code = run.failureCode, !["daily_limit", "unavailable", "connection"].contains(code) {

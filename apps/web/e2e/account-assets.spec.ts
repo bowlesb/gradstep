@@ -34,7 +34,7 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   await row(page, 'account-plan', 'Subscription plan', 'Pro');
   // Nothing to buy here: credits and plans are bought in the apps.
   await expect(menu).not.toContainText(/Get credits|Buy|Upgrade/);
-  await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/, /Equation explanations$/, /Figure explanations$/]);
+  await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/, /Snippets$/, /Equation explanations$/, /Figure explanations$/]);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-menu.png` });
 
   // The explanations sit behind ⓘ beside the words; the rest of the page darkens; Esc hides only the bubble.
@@ -50,9 +50,9 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   await page.keyboard.press('Escape');
   await expect(bubble).toBeHidden(); await expect(page.getByTestId('info-scrim')).toHaveCount(0); await expect(menu).toBeVisible();
   // A press on the dimmed page hides the bubble and keeps the menu.
-  await menu.getByTestId('plan-info').click(); await expect(menu.getByText('A plan adds credits each month.')).toBeVisible();
+  await menu.getByTestId('plan-info').click(); await expect(menu.getByText('Reading papers is always free.', { exact: false })).toBeVisible();
   await page.mouse.click(5, page.viewportSize()!.height - 5);
-  await expect(menu.getByText('A plan adds credits each month.')).toBeHidden(); await expect(menu).toBeVisible();
+  await expect(menu.getByText('Reading papers is always free.', { exact: false })).toBeHidden(); await expect(menu).toBeVisible();
 
   // Diagrams: none yet.
   await menu.getByRole('menuitem', { name: 'Diagrams' }).click();
@@ -76,13 +76,13 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   await expect(page.getByRole('dialog', { name: 'All chats' })).toBeVisible();
 });
 
-test('a reader without a plan sees None; a failed read is a dash, never a broken menu', async ({ page, request }) => {
+test('a reader without a plan sees Free; a failed read is a dash, never a broken menu', async ({ page, request }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
   await signIn(page);
   await page.getByTestId('account-menu').click();
   await row(page, 'account-credits', 'AI credits', '1,000');
   await expect(page.getByTestId('account-held')).toHaveCount(0);
-  await row(page, 'account-plan', 'Subscription plan', 'None');
+  await row(page, 'account-plan', 'Subscription plan', 'Free');
   await page.getByTestId('account-menu').click(); await expect(page.getByRole('menu')).toHaveCount(0);
   // The plan's read fails: its row says nothing new, the balance is still read, the menu works.
   await request.post(`${API}/__store`, { data: { available: 990, reserved: 0 } });

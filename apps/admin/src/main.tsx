@@ -9,6 +9,7 @@ import { ProviderHours } from './provider-hours';
 import { Spending } from './spending';
 import { Accounts, liveAccountsApi } from './accounts';
 import { Costs } from './costs';
+import { SpendVsIncome } from './spend-income';
 import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
@@ -31,9 +32,11 @@ const statusName = (value: string) => value.replaceAll('_', ' ');
 const bytes = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GiB` : `${(value / 1024 ** 2).toFixed(2)} MiB`;
 
 // The address names the page (#health/30, #support), so a bookmark or the apps' "Operations dashboard" link opens it.
-const OWNER_TABS = ['Health', 'Overview', 'Spending', 'Costs', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support'];
+const OWNER_TABS = ['Health', 'Overview', 'Spend vs income', 'Spending', 'Costs', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support'];
+const decodeHash = (value: string) => { try { return decodeURIComponent(value); } catch { return value; } };
 function fromHash(): { tab: string | null; days: number } {
-  const [name, days] = location.hash.replace(/^#/, '').split('/');
+  // Tab names may contain spaces ("Spend vs income"), which a browser shows percent-encoded in the address.
+  const [name, days] = decodeHash(location.hash.replace(/^#/, '')).split('/');
   const tab = OWNER_TABS.find(t => t.toLowerCase() === (name ?? '').toLowerCase()) ?? null;
   return { tab, days: HEALTH_WINDOWS.includes(Number(days)) ? Number(days) : 30 };
 }
@@ -54,7 +57,7 @@ function App() {
   const accountsApi = useMemo(() => liveAccountsApi(session?.user.id ?? ''), [session?.user.id]);
 
   useEffect(() => {
-    const target = '#' + tab.toLowerCase() + (tab === 'Health' ? '/' + healthDays : '');
+    const target = '#' + encodeURIComponent(tab.toLowerCase()) + (tab === 'Health' ? '/' + healthDays : '');
     if (location.hash !== target) history.replaceState(null, '', target);
   }, [tab, healthDays]);
   useEffect(() => {
@@ -120,6 +123,7 @@ function App() {
         <div className="two-columns"><section className="panel"><h2>Subscriptions</h2><Counts values={overview.subscriptions} empty="No verified subscriptions yet." /></section><section className="panel"><h2>Processing queue</h2><Counts values={overview.jobs} empty="No processing jobs yet." /></section></div>
         <p className="footnote">This dashboard contains service metadata and reports shared with support. Private chats and notes are not available to administrators.</p>
       </>}
+      {tab === 'Spend vs income' && owner && <SpendVsIncome key={account.account_id} reloadKey={reloads} />}
       {tab === 'Spending' && owner && <Spending key={account.account_id} ownerID={account.account_id} reloadKey={reloads} />}
       {tab === 'Costs' && owner && <Costs key={account.account_id} reloadKey={reloads} />}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
@@ -299,9 +303,10 @@ const root = createRoot(document.getElementById('root')!);
 // Development-only screenshot fixtures; production builds drop these branches and their modules.
 if (import.meta.env.DEV && new URLSearchParams(location.search).get('fixture') === 'spending') {
   void import('./spending-fixture').then(({ SpendingFixture }) => root.render(<React.StrictMode><SpendingFixture /></React.StrictMode>));
-} else if (import.meta.env.DEV && ['reliability', 'accounts', 'purchases', 'health', 'costs'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
-  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture, PurchasesFixture, HealthFixture, CostsFixture }) => root.render(<React.StrictMode>
+} else if (import.meta.env.DEV && ['reliability', 'accounts', 'purchases', 'health', 'costs', 'spend-income'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
+  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture, PurchasesFixture, HealthFixture, CostsFixture, SpendIncomeFixture }) => root.render(<React.StrictMode>
     {new URLSearchParams(location.search).get('fixture') === 'health' ? <HealthFixture />
+      : new URLSearchParams(location.search).get('fixture') === 'spend-income' ? <SpendIncomeFixture />
       : new URLSearchParams(location.search).get('fixture') === 'costs' ? <CostsFixture />
       : new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture />
       : new URLSearchParams(location.search).get('fixture') === 'purchases' ? <PurchasesFixture /> : <ReliabilityFixture />}</React.StrictMode>));

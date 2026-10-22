@@ -20,6 +20,7 @@ import { useFramedParts, useSentInk } from './useFigureCrops';
 import { ViewportCard, type FigureSource } from './FigureViewport';
 import { safeLink } from '../lib/markdown';
 import Answer from './Answer';
+import { sessionBalance, useFreeAIRefusal } from './free-ai';
 import { Dialog, SheetTop, MenuButton } from './common';
 import { Icon } from './icons';
 
@@ -85,6 +86,11 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const [asking, setAsking] = useState(false);
   const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure', '', profile) ?? null);
   const [simpler, setSimpler] = useState<Map<string, FigureResult>>(() => new Map());
+  // Free AI (migration 0150): why free credits couldn't pay for the walkthrough or a part, from a fresh balance read.
+  const freeBalance = useMemo(() => sessionBalance(host?.context?.chat), [host?.context?.chat]);
+  const creditIssue = walk?.issue === 'insufficient_credits' || [...simpler.values()].some(m => m.issue === 'insufficient_credits') ? 'insufficient_credits' : null;
+  const freeRefusal = useFreeAIRefusal(creditIssue, freeBalance, profile?.model);
+  const refusalText = (code: string) => (code === 'insufficient_credits' && freeRefusal) || issueText(code);
   const requests = useRef(new Map<string, AbortController>());
   /** The progress bar's value last shown (it never goes back), for the walkthrough on its way. */
   const lastShown = useRef<number | null>(null);
@@ -269,7 +275,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
             <Answer text={s.text} />
             {more && <div className="figure-simpler" data-testid="figure-simpler">
               <p className="figure-simpler-head">More simply</p>
-              {more.phase === 'failed' && !more.text ? <div className="equation-issue" role="alert"><p>{issueText(more.issue ?? 'provider_unavailable')}</p>
+              {more.phase === 'failed' && !more.text ? <div className="equation-issue" role="alert"><p>{refusalText(more.issue ?? 'provider_unavailable')}</p>
                 {more.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_simpler', s, i)}>Try again</button>}</div>
                 : more.text ? <Answer text={more.text} streaming={more.phase === 'loading'} /> : <p className="fine" role="status">Writing…</p>}
               {endedEarly(more) && <p className="fine">{endedEarly(more)}</p>}
@@ -281,7 +287,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       {fading && !streaming && <ProgressBar state={{ label: 'Done', value: 1 }} fading />}
       {/* Under the parts, once they are all in (it says what they leave out; above them it would move them). */}
       {coverage !== null && coverage < 1 && <p className="fine" data-testid="figure-coverage-fallback">The detail cards do not cover the entire image. The whole figure above keeps every panel, axis and legend available.</p>}
-      {result.phase === 'failed' && <div className="equation-issue" role="alert" data-testid="figure-issue"><p>{issueText(result.issue ?? 'provider_unavailable')}</p>
+      {result.phase === 'failed' && <div className="equation-issue" role="alert" data-testid="figure-issue"><p>{refusalText(result.issue ?? 'provider_unavailable')}</p>
         {result.issue !== 'invalid_request' && result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => run('figure')} data-testid="figure-retry">Try again</button>}
         {result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => setChoosing(true)} data-testid="explainer-change">Change AI</button>}</div>}
       {(result.model || profile) && <p className="fine answer-by" data-testid="explainer-model-name">{result.model ? modelName(result.model) : modelOption(table, profile!.model).label}</p>}

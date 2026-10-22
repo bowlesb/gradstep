@@ -23,6 +23,7 @@ import {
   canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
 } from '../../supabase/functions/_shared/chat.ts';
+import { freeModel, switchRefusal, withCheapDefaults } from '../../supabase/functions/_shared/ai-switches.ts';
 
 const account = 'aaaaaaaa-0000-4000-8000-000000000001';
 const operation = 'bbbbbbbb-0000-4000-8000-000000000002';
@@ -2863,4 +2864,64 @@ test('A1: an estimate without an observation of what was written is never billed
   const settle = settledWith(h);
   assert.equal(settle.p_ending, 'stopped'); assert.equal(settle.p_actual_credits, 0);
   assert.equal(settle.p_absorbed_microusd, settle.p_actual_microusd);
+});
+
+// The owner's AI switches and free AI (migration 0150; docs/RUNBOOK_SPENDING.md, docs/PRICING_HOW_IT_WORKS.md).
+const SWITCHES = { cheap_models_only: false, paused_features: [] as string[], premium_models: 'sonnet|opus', free_models: 'gemini|deepseek|haiku' };
+
+test('switches: a paused figure or equation view and premium models under "cheaper models only" are refused before any hold', async () => {
+  assert.equal(switchRefusal(null, 'figure', SONNET), null);
+  assert.equal(switchRefusal({ ...SWITCHES, paused_features: ['figures'] }, 'figure_simpler', 'gemini-3.8-flash'), 'platform_budget_exhausted');
+  assert.equal(switchRefusal({ ...SWITCHES, paused_features: ['equations'] }, 'equation_background', SONNET), 'platform_budget_exhausted');
+  assert.equal(switchRefusal({ ...SWITCHES, paused_features: ['figures'] }, null, SONNET), null, 'a chat question is not a figure');
+  assert.equal(switchRefusal({ ...SWITCHES, cheap_models_only: true }, null, SONNET), 'model_unavailable');
+  assert.equal(switchRefusal({ ...SWITCHES, cheap_models_only: true }, null, OPUS), 'model_unavailable');
+  assert.equal(switchRefusal({ ...SWITCHES, cheap_models_only: true }, null, 'gemini-3.8-flash'), null);
+  assert.equal(switchRefusal({ ...SWITCHES, cheap_models_only: true, premium_models: '(' }, null, SONNET), null, 'a broken pattern refuses nothing here (the database still does)');
+  assert.ok(freeModel(SWITCHES, 'gemini-3.8-flash') && freeModel(SWITCHES, FLASH) && freeModel(SWITCHES, HAIKU) && !freeModel(SWITCHES, SONNET) && !freeModel(null, FLASH));
+
+  const paused = harness(); paused.deps.aiSwitches = async () => ({ ...SWITCHES, paused_features: ['figures'] });
+  await runChat(paused.deps, figureBody(), paused.emit, new AbortController().signal);
+  assert.deepEqual(paused.events.map(e => [e.event, (e.data as { code?: string }).code]), [['error', 'platform_budget_exhausted']]);
+  assert.ok(!names(paused.calls).includes('worker_reserve_chat') && paused.generations() === 0, 'nothing held or sent');
+
+  const cheap = harness(); cheap.deps.aiSwitches = async () => ({ ...SWITCHES, cheap_models_only: true });
+  await runChat(cheap.deps, paperBody(), cheap.emit, new AbortController().signal);
+  assert.deepEqual(cheap.events.map(e => [e.event, (e.data as { code?: string }).code]), [['error', 'model_unavailable']], 'the default (Sonnet) is premium');
+  const gemini = harness(); gemini.deps.gemini = true; gemini.deps.aiSwitches = async () => ({ ...SWITCHES, cheap_models_only: true });
+  await runChat(gemini.deps, paperBody({ profile: { model: 'gemini', effort: 'medium', length: 'standard' } }), gemini.emit, new AbortController().signal);
+  assert.equal(gemini.events.at(-1)?.event, 'done', 'Gemini Flash still answers');
+
+  const unreadable = harness(); unreadable.deps.aiSwitches = async () => { throw new Error('down'); };
+  await runChat(unreadable.deps, paperBody(), unreadable.emit, new AbortController().signal);
+  assert.equal(unreadable.events.at(-1)?.event, 'done', 'unreadable switches never block an answer (the database decides)');
+});
+
+test('free AI answers are written without web search; paid ones keep it', async () => {
+  const tools: string[][] = [];
+  const capture = async (params: unknown, stream: StreamOptions) => { tools.push(((params as { tools?: { name: string }[] }).tools ?? []).map(t => t.name)); stream.onText('ok'); return completeOutcome(); };
+  const geminiBody = paperBody({ profile: { model: 'gemini', effort: 'medium', length: 'standard' } });
+  for (const free of [true, false]) {
+    const h = harness({ generate: capture }); searching(h, []); h.deps.gemini = true;
+    h.deps.aiSwitches = async () => SWITCHES; h.deps.freeCredits = async () => free;
+    await runChat(h.deps, geminiBody, h.emit, new AbortController().signal);
+    assert.equal(h.events.at(-1)?.event, 'done');
+    assert.equal((h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as { max_searches: number }).max_searches === 0, free);
+  }
+  assert.ok(!tools[0].includes('search_web') && tools[1].includes('search_web'));
+  // A premium model never uses free credits, so it keeps search even while free credits remain.
+  const sonnet = harness({ generate: capture }); searching(sonnet, []);
+  sonnet.deps.aiSwitches = async () => SWITCHES; sonnet.deps.freeCredits = async () => true;
+  await runChat(sonnet.deps, paperBody(), sonnet.emit, new AbortController().signal);
+  assert.ok(tools[2].includes('search_web'));
+});
+
+test('cheaper defaults: every published default moves to Gemini Flash while the switch is on', () => {
+  const table = publishedProfiles({ deepseek: true, gemini: true });
+  const cheap = withCheapDefaults(table);
+  for (const key of ['default', 'default_recommended', 'default_figures'] as const) assert.deepEqual(cheap[key], { model: 'gemini', length: 'standard', effort: 'medium' }, key);
+  assert.deepEqual(cheap.default_auto, { model: 'gemini', length: 'standard', effort: 'auto' });
+  assert.ok(cheap.profiles.some(p => p.id === 'gemini-medium-standard') && cheap.profiles.some(p => p.id === 'gemini-auto-standard'), 'every default is a published profile');
+  const noGemini = publishedProfiles({ deepseek: false, gemini: false });
+  assert.equal(withCheapDefaults(noGemini), noGemini, 'without Gemini the table is unchanged');
 });

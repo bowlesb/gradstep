@@ -1,5 +1,41 @@
 # Spending controls and investigation
 
+## Free AI pool, owner switches, Spend vs income, alerts — 2026-10-22 (migration 0150; staging)
+
+Owner accepted the pricing defaults (DECISIONS 2026-10-22). Plain-language overview: [PRICING_HOW_IT_WORKS](../PRICING_HOW_IT_WORKS.md);
+operator steps: [RUNBOOK_SPENDING](../RUNBOOK_SPENDING.md).
+
+- **Free credits** are a `free` bucket (50 a UTC month, expiring at month end), issued lazily by
+  `app_private.issue_allowances` from `v1_credit_balance` or the reservation, only to open, unsuspended, non-test accounts
+  with no active plan and no testing allowance. They pay for chat on a model matching `ai_controls.free_models`
+  (`gemini|deepseek|haiku`, never `premium_models`) and for recommendations; `worker_reserve_chat` marks eligibility from
+  the frozen quote (transaction-local `gradstep.free_eligible`).
+- **Admission.** `worker_reserve_operation` (chained over 0105) keeps the budget → account lock order. A free-eligible
+  request may use the free bucket only when: free AI is not paused; this month's free-funded worst case
+  (`free_pool_used`: settled cost + liability, or the full ceiling while open) plus the request's ceiling fits
+  `free_pool_microusd` ($15); the account's free spend is under `free_account_microusd` ($0.25); and it used fewer than
+  `free_daily_credits` (20) free credits today (UTC). Otherwise the core reservation skips `free` buckets
+  (`gradstep.free_allowed`); other credits pay, or `insufficient_credits` is raised. An operation that drew on a free
+  bucket is `metered_operations.free_funded`. The pool bound holds under concurrency (`tests/database/free_ai_pool_concurrency.py`).
+- **Switches** (`ai_controls`): `free_ai_paused`, `paused_features` (podcasts, recommendations → refused in the
+  reservation as `platform_budget_exhausted`; figures, equations → refused by the chat function before any hold),
+  `cheap_models_only` (premium chat refused in `worker_reserve_chat` and by the chat function as `model_unavailable`;
+  published defaults move to Gemini Flash), and "all AI" (the existing `v1_admin_pause_work`). Set by
+  `v1_admin_set_ai_switch` (owner + MFA, reason, audited `ai_switch` with before/after); previewed by
+  `v1_admin_ai_switch_preview` (requests, accounts, paying accounts and cost over 7 days). Pool size:
+  `v1_admin_set_free_pool` (≤ $50, audited `free_pool`). Exact replays are never refused by a switch.
+- **Spend vs income**: `v1_admin_spend_income` (owner + MFA, admin-spending rate): this month's provider cost by funding
+  (free, testing, paid, granted, platform from each operation's allocations), feature and model; estimated proceeds
+  from verified Production transactions (`store_products.price_microusd`, a plan's first purchase at
+  `intro_price_microusd`, refunds made this month deducted, × (1 − `apple_commission_bp`)); Sandbox shown apart and
+  never counted; fixed costs from the owner's evidence entries; ratio and straight-line forecast.
+- **Alerts**: `app_private.spend_alerts` (unique per month and kind: the throttle and audit trail). The cron job
+  `science-reader-spend-alerts` (every 10 min) runs `worker_spend_alerts_tick`: evaluate (50/80/98% of the provider limit,
+  free pool ≥ 95%, spend > 0.6× proceeds once proceeds ≥ $20), record the outcome of earlier sends from
+  `net._http_response`, and send one digest through Resend with pg_net. Key and address come from Vault
+  (`science_reader_resend_key`, `science_reader_alert_email`, written by `deploy-staging.py`); without an address the
+  owner account's sign-in email; without a key `not_configured`. Failed sends retry up to three times.
+
 ## Unlimited owner testing
 
 Design, 2026-10-19: one service-only, audited policy per current account points to a dedicated adjustment bucket.

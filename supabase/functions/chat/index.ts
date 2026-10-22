@@ -4,11 +4,12 @@ import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { retryOnceWhenBusy } from '../_shared/inference.ts';
-import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
+import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type AiSwitches, type ChatDependencies } from '../_shared/chat.ts';
 import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedModelCalls, admittedTavily } from '../_shared/provider-spending.ts';
 import { publishedProfiles } from '../_shared/chat-profiles.ts';
+import { withCheapDefaults } from '../_shared/ai-switches.ts';
 import { openRouterChat } from '../_shared/openrouter-chat.ts';
 import { ACCEPT_MARGIN_MS, PUBLISH_MARGIN_MS, tariffOpen, tariffValidity } from '../_shared/openrouter-tariffs.ts';
 
@@ -21,6 +22,9 @@ type Runtime = { waitUntil(promise: Promise<unknown>): void };
 /** The spending policy (Tavily allowance, OpenRouter card validity), or null when it cannot be read. Never throws. */
 const spendingPolicy = (service: ReturnType<typeof serviceClient>): Promise<unknown> => Promise.resolve(service.rpc('worker_provider_spending_policy', {}))
   .then(({ data, error }) => error ? null : data, () => null);
+/** The owner's AI switches (migration 0150; RUNBOOK_SPENDING.md), or null when they cannot be read. Never throws. */
+const aiSwitches = (service: ReturnType<typeof serviceClient>): Promise<AiSwitches | null> => Promise.resolve(service.rpc('worker_ai_switches', {}))
+  .then(({ data, error }) => error || !data || typeof data !== 'object' ? null : data as AiSwitches, () => null);
 const encoder = new TextEncoder();
 
 // After a failure, this instance answers without web search for a while.
@@ -54,9 +58,12 @@ Deno.serve(async request => {
     if (request.method === 'GET') {
       // A4: a model whose price card lapses within a day is not offered (clients keep the table for a while). An
       // unreadable table leaves the list as it is; admission still refuses a lapsed card.
-      const validity = tariffValidity(await spendingPolicy(serviceClient()));
-      return Response.json(publishedProfiles({ deepseek: deepseekPublished && new URL(request.url).searchParams.get('consent_version') === 'cloud-ai-v6',
-        gemini: geminiPublished, available: model => tariffOpen(validity, model, PUBLISH_MARGIN_MS) }), { headers });
+      const [policy, switches] = await Promise.all([spendingPolicy(serviceClient()), aiSwitches(serviceClient())]);
+      const validity = tariffValidity(policy);
+      const table = publishedProfiles({ deepseek: deepseekPublished && new URL(request.url).searchParams.get('consent_version') === 'cloud-ai-v6',
+        gemini: geminiPublished, available: model => tariffOpen(validity, model, PUBLISH_MARGIN_MS) });
+      // "Cheaper models only" (the owner's switch): every published default becomes Gemini Flash; premium requests are refused.
+      return Response.json(switches?.cheap_models_only === true ? withCheapDefaults(table) : table, { headers });
     }
     service = serviceClient();
   } catch (error) {
@@ -65,6 +72,10 @@ Deno.serve(async request => {
   }
   // Started before the body is read and awaited only when search is decided (time to first text).
   const providerPolicy = spendingPolicy(service) as Promise<{ tavily_enabled?: boolean; openrouter_tariffs?: unknown } | null>;
+  const switches = aiSwitches(service);
+  // One balance read serves the hold cap and the free-credit check.
+  let balanceRead: Promise<{ available?: unknown; free?: { usable?: unknown; available?: unknown } | null } | null> | null = null;
+  const balance = () => balanceRead ??= Promise.resolve(user.rpc('v1_credit_balance')).then(({ data, error }) => error ? null : data, () => null);
   // An unreadable body is reported as invalid_request after rate limiting.
   try { body = await readChatBody(request); } catch { body = null; }
 
@@ -123,9 +134,15 @@ Deno.serve(async request => {
       },
     } : undefined,
     availableCredits: async () => {
-      const { data, error } = await user.rpc('v1_credit_balance');
-      return error || typeof data?.available !== 'number' ? null : data.available;
+      const data = await balance();
+      return typeof data?.available !== 'number' ? null : data.available;
     },
+    // Free credits that can pay now (migration 0150): the same balance read.
+    freeCredits: async () => {
+      const free = (await balance())?.free;
+      return !!free && free.usable === true && typeof free.available === 'number' && free.available > 0;
+    },
+    aiSwitches: () => switches,
     findPaper: finder.findPaper,
     importPaper: finder.importPaper,
     log,
