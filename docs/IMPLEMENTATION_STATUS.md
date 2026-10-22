@@ -1,5 +1,15 @@
 # Implementation status
 
+## TestFlight 80 and browser release — 2026-10-22 UTC
+
+iOS and Mac build 80 uploaded ~00:10 UTC (iOS VALID at the time of writing); browser redeployed. Adds since 79: figure parts
+as confidence-framed viewports into the whole figure (tap to expand; local-only interaction record), "Extract the
+subfigure" removed (server still accepts `figure_detail` from older builds), exact parts from arXiv multi-image figures
+plus the count-disagreement fallback, the browser history-store revision fix (spurious local_storage on slow devices),
+AI recommendations clients (server live since 2026-10-21), and the on-device PDF route speed/accuracy work (≈2.8× faster;
+new batched recogniser in DeviceModels, lock updated). Gates: `npm test` passes; import acceptance 15/15 on the uploaded
+source. Not verified: physical device (paused), iPad/Mac journeys after the final merges, device-route speed on a phone.
+
 ## On-device PDF route: faster, steadier, measured against arXiv HTML — 2026-10-21 (local source; not released)
 
 Owner, 2026-10-21: keep developing the on-device model (too slow, not accurate enough); Mathpix is not built
