@@ -21,7 +21,7 @@ enum AIDefaultsGuide {
     static let general = "General chat answers questions that aren’t about a paper. Speed usually matters most, so a fast, low-cost model fits."
     static let paper = "Paper chat reads the whole paper with each question. A balanced model handles most questions; a stronger one helps with long derivations and critique."
     static let equations = "Equation explanations walk through symbols and derivations, which reward careful reasoning, so a stronger model is often worth the extra credits."
-    static let figures = "Figures and tables: the model looks at the figure’s image as well as its caption, so it must read images (every cloud model listed does). A stronger model reads dense plots more reliably."
+    static let figures = "Figures and tables: the model looks at the figure’s image as well as its caption, so it must read images (every cloud model listed does). Sonnet is the default: it reads dense plots carefully and its walkthrough starts appearing within seconds. Speed differs by model: DeepSeek writes more slowly, and much more slowly at a higher effort."
     static let podcasts = "Podcasts: the writer drafts and checks a whole episode script, a long output, so its cost adds up and longer episodes cost more. The voices are the same whichever writer you choose."
 
     /// Settings › AI defaults by activity ⓘ.

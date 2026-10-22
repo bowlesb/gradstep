@@ -69,6 +69,16 @@ import Testing
         #expect(FigureFraming.keptParts(["x", "y", "z"], letters: []) == [true, true, true])
     }
 
+    /// A streamed walkthrough's parts so far are framed without the count check (their final number isn't known yet); the
+    /// final walkthrough is framed with it.
+    @Test func thePartsSoFarAreFramedWithoutTheCountCheck() {
+        let boxes = [CropRect(0.02, 0.05, 0.31, 0.95), CropRect(0.35, 0.05, 0.64, 0.95)], caption = "(a) One. (b) Two. (c) Three."
+        let sofar = FigureFraming.frame(nil, width: 900, height: 300, boxes: boxes, caption: caption, labels: ["(a)", "(b)"], countCheck: false)
+        let final = FigureFraming.frame(nil, width: 900, height: 300, boxes: boxes, caption: caption, labels: ["(a)", "(b)"])
+        #expect(sofar.parts.allSatisfy { !$0.reasons.contains(.count) && $0.level == .medium }, "unchecked, as without a caption")
+        #expect(final.parts.allSatisfy { $0.reasons.contains(.count) && $0.level == .low }, "two parts for three panels: the whole figure")
+    }
+
     @Test func revealsContextOnceTheReaderZoomsOrPans() throws {
         let c = try #require(Self.fixture.cases.first { $0.name == "imprecise-box-reaches-neighbour" })
         let parts = try Self.framed(c).parts

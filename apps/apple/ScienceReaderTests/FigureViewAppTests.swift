@@ -83,5 +83,95 @@ import Testing
         #expect(reopened.walkthrough.state == .done)
         #expect(reopened.walkthrough.text == "The saved explanation")
         #expect(!reopened.asksConsent)
+        #expect(reopened.progress == nil, "a kept answer has no progress bar")
+    }
+
+    #if DEBUG && (targetEnvironment(simulator) || targetEnvironment(macCatalyst))
+    /// The journeys' fixture streams the walkthrough as the server of 2026-10-22 does (progress with characters and the
+    /// announced count, the summary, each part in order, then the final `figure`), so the app's progress and progressive
+    /// walkthrough are what a reader sees from the live server.
+    @Test func theFixtureStreamsTheWalkthroughAsTheServerDoes() async throws {
+        let walkthrough = ChatFixtureTransport.figureWalkthrough
+        let events = AsyncThrowingStream<ChatStreamEvent, Error> { continuation in
+            Task {
+                try await ChatFixtureTransport.streamWalkthrough(walkthrough, continuation)
+                continuation.yield(.figure(walkthrough)); continuation.finish()
+            }
+        }
+        var tracker = FigureProgress.Tracker(expected: nil)
+        tracker.opened()
+        var labels = [tracker.state().label], values: [Double] = [], soFar: [Int] = [], characters: [Int] = []
+        for try await event in events {
+            if case .figureProgress(let step) = event, let count = step.characters { characters.append(count) }
+            if tracker.apply(event), let shown = tracker.walkthroughSoFar { soFar.append(shown.sections.count) }
+            let state = tracker.state()
+            if labels.last != state.label { labels.append(state.label) }
+            if let value = state.value { values.append(value) }
+        }
+        #expect(labels == ["Reading the figure…", "Writing the summary…", "Writing part 1 of 3…", "Writing part 2 of 3…", "Writing part 3 of 3…", "Writing part 4…"])
+        #expect(soFar == [0, 1, 2, 3], "the summary, then each part once, in order")
+        #expect(characters == characters.sorted() && characters.count == 8, "characters grow")
+        #expect(values == values.sorted() && !values.isEmpty && values.allSatisfy { $0 < 1 }, "the bar only moves forward")
+        #expect(tracker.final == walkthrough && tracker.walkthroughSoFar == walkthrough)
+    }
+    #endif
+}
+
+/// The figures activity's default (owner 2026-10-22: "change the default to Sonnet for that one"): the server's
+/// `default_figures`, else Sonnet low standard when offered, never the general chat default; a saved figures choice is
+/// kept, except the old recommended Gemini default, forgotten once.
+@MainActor @Suite(.serialized) struct FiguresDefaultTests {
+    private let sonnet = ChatProfileChoice(model: .sonnet, effort: .low, length: .standard)
+    private let deepseek = ChatProfileChoice(model: .deepseek, effort: .low, length: .standard)
+    private let gemini = ChatProfileChoice(model: .gemini, effort: .medium, length: .standard)
+    private func table(_ offered: [ChatProfileChoice], default choice: ChatProfileChoice, figures: ChatProfileChoice? = nil) -> ChatProfileTable {
+        ChatProfileTable(version: ChatProfileTable.supportedVersion, defaultChoice: choice,
+                         estimates: Dictionary(uniqueKeysWithValues: offered.map { ($0, .init(low: 1, high: 2, max: 3)) }), figuresDefault: figures)
+    }
+    private func scratch() -> UserDefaults {
+        let name = "figures-default-\(UUID().uuidString)"
+        return UserDefaults(suiteName: name)!
+    }
+
+    @Test func theFiguresDefaultIsSonnetNotTheChatDefault() {
+        // The server's default_figures when offered.
+        #expect(ReaderModel.figuresDefault(table: table([sonnet, gemini, deepseek], default: gemini, figures: sonnet), chatDefault: deepseek) == sonnet)
+        // A table without default_figures: Sonnet low standard when offered, not the general default (DeepSeek here).
+        #expect(ReaderModel.figuresDefault(table: table([sonnet, deepseek], default: deepseek), chatDefault: deepseek) == sonnet)
+        // Before the table loads: Sonnet.
+        #expect(ReaderModel.figuresDefault(table: nil, chatDefault: deepseek) == sonnet)
+        // A table without Sonnet: today's behaviour (the chat default).
+        #expect(ReaderModel.figuresDefault(table: table([deepseek, gemini], default: gemini), chatDefault: deepseek) == deepseek)
+    }
+
+    @Test func aNewReaderGetsSonnetAndOtherActivitiesAreUnchanged() {
+        let defaults = UserDefaults.standard, keys = [ReaderModel.scenarioProfilesKey, "chat.defaultProfile"]
+        let prior = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, prior) { defaults.set(value, forKey: key) } }
+        defaults.removeObject(forKey: ReaderModel.scenarioProfilesKey)
+        let model = ReaderModel(configuration: nil)
+        model.chatDefaultProfile = deepseek
+        #expect(model.profileDefault(for: .figures) == sonnet, "the general default (DeepSeek) is no longer inherited")
+        #expect(model.profileDefault(for: .paper) == deepseek && model.profileDefault(for: .equations) == deepseek, "other activities unchanged")
+        model.setProfileDefault(deepseek, for: .figures)
+        #expect(model.profileDefault(for: .figures) == deepseek, "an explicit figures choice is kept")
+        model.resetAIDefault(for: .figures)
+        #expect(model.profileDefault(for: .figures) == sonnet, "reset: the figures default")
+    }
+
+    @Test func theOldRecommendedGeminiIsForgottenOnceAndOtherChoicesKept() {
+        let defaults = scratch()
+        defaults.set(["figures": "gemini-medium-standard", "paper": "gemini-medium-standard"], forKey: ReaderModel.scenarioProfilesKey)
+        let migrated = ReaderModel.storedScenarioProfiles(defaults)
+        #expect(migrated["figures"] == nil && migrated["paper"] == "gemini-medium-standard", "only figures, only that value")
+        #expect(defaults.dictionary(forKey: ReaderModel.scenarioProfilesKey) as? [String: String] == ["paper": "gemini-medium-standard"])
+        // Once: a later explicit Gemini choice for figures sticks.
+        defaults.set(["figures": "gemini-medium-standard"], forKey: ReaderModel.scenarioProfilesKey)
+        #expect(ReaderModel.storedScenarioProfiles(defaults)["figures"] == "gemini-medium-standard")
+        // A saved DeepSeek choice is never touched.
+        let other = scratch()
+        other.set(["figures": deepseek.id], forKey: ReaderModel.scenarioProfilesKey)
+        #expect(ReaderModel.storedScenarioProfiles(other)["figures"] == deepseek.id)
+        #expect(other.bool(forKey: ReaderModel.figuresDefaultMigrationKey))
     }
 }

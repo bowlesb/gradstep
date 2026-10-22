@@ -78,6 +78,8 @@ final class ExplanationAssetsTests: XCTestCase {
         XCTAssertTrue(explain.exists); explain.tap()
         XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1"].waitForExistence(timeout: 10), "The walkthrough")
+        // The walkthrough streams; it is kept once done (the progress bar gone).
+        XCTAssertTrue(app.descendants(matching: .any)["figureView.progress"].waitForNonExistence(timeout: 20), "The walkthrough is done")
 
         app.terminate()
         app = launch("figure_walkthrough", reset: false)

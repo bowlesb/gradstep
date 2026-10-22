@@ -88,12 +88,17 @@ public struct ChatProfileTable: Equatable, Sendable {
     /// Offered profiles and their credit estimates. A choice the server doesn't list isn't offered.
     public let estimates: [ChatProfileChoice: Estimate]
     public let note: String?
+    /// The figures activity's default (`default_figures`, owner 2026-10-22: "change the default to Sonnet for that one"):
+    /// the figure view and figure chats use it when the reader saved no figures choice. Nil when the table doesn't send
+    /// it or doesn't offer it.
+    public let figuresDefault: ChatProfileChoice?
 
     public init(version: String, defaultChoice: ChatProfileChoice, models: [ChatProfileChoice.Model: Option] = [:],
                 efforts: [ChatProfileChoice.Effort: Option] = [:], lengths: [ChatProfileChoice.Length: Option] = [:],
-                estimates: [ChatProfileChoice: Estimate], note: String? = nil) {
+                estimates: [ChatProfileChoice: Estimate], note: String? = nil, figuresDefault: ChatProfileChoice? = nil) {
         self.version = version; self.defaultChoice = defaultChoice; self.models = models; self.efforts = efforts
         self.lengths = lengths; self.estimates = estimates; self.note = note
+        self.figuresDefault = figuresDefault.flatMap { estimates[$0] != nil ? $0 : nil }
     }
 
     /// The table this build understands, or nil (another version, malformed, or too large).
@@ -106,6 +111,7 @@ public struct ChatProfileTable: Equatable, Sendable {
             let version: String
             let `default`: Choice
             let default_recommended: Choice?
+            let default_figures: Choice?
             let models: [Named]?
             let efforts: [Named]?
             let lengths: [Named]?
@@ -145,9 +151,14 @@ public struct ChatProfileTable: Equatable, Sendable {
             if estimates[choice] != nil { defaultChoice = choice }
         }
         let models = options(wire.models, ChatProfileChoice.Model.self).filter { $0.key != .gemini || geminiUsable }
+        let figures = wire.default_figures.flatMap { f -> ChatProfileChoice? in
+            guard let m = ChatProfileChoice.Model(rawValue: f.model), let e = ChatProfileChoice.Effort(rawValue: f.effort),
+                  let l = ChatProfileChoice.Length(rawValue: f.length) else { return nil }
+            return ChatProfileChoice(model: m, effort: e, length: l)
+        }
         return ChatProfileTable(version: wire.version, defaultChoice: defaultChoice, models: models,
             efforts: options(wire.efforts, ChatProfileChoice.Effort.self), lengths: options(wire.lengths, ChatProfileChoice.Length.self),
-            estimates: estimates, note: wire.estimate_note.flatMap { text($0, 200) })
+            estimates: estimates, note: wire.estimate_note.flatMap { text($0, 200) }, figuresDefault: figures)
     }
 
     public func offers(_ choice: ChatProfileChoice) -> Bool { estimates[choice] != nil }

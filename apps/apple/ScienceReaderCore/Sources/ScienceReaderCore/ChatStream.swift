@@ -208,6 +208,12 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case equation(EquationSymbols)
     /// The figure view's walkthrough (action `figure`, servers from 2026-10-16), sent once before `done`.
     case figure(FigureWalkthrough)
+    /// The streamed walkthrough (action `figure`, servers from 2026-10-22), all before the final `figure`: where the
+    /// writing is, the summary once, then each checked part with its place in the final walkthrough. Builds without these
+    /// cases ignore the events and read only the final `figure`.
+    case figureProgress(FigureStreamProgress)
+    case figureSummary(String)
+    case figureSection(index: Int, section: FigureWalkthrough.Section)
     /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
     case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
     /// `credits`: what the failed answer cost (0 when the provider never started it; servers from 2026-10-14).
@@ -251,6 +257,20 @@ public struct ChatProgress: Equatable, Sendable {
         case .lookingAtFigure: query.map { "Looking at \($0)…" } ?? "Looking at the figure…"
         case .preparingPaper: "Preparing the paper on this device…"
         }
+    }
+}
+
+/// A `figure_progress` event: `reading` once the server asked the model, then `writing` with the walkthrough's characters
+/// so far (growing) and, once the model announced it, how many parts it will write (1–12; else left out).
+public struct FigureStreamProgress: Equatable, Sendable {
+    public enum Stage: String, Equatable, Sendable { case reading, writing }
+    public let stage: Stage
+    public let characters: Int?
+    public let parts: Int?
+    public init(stage: Stage, characters: Int? = nil, parts: Int? = nil) {
+        self.stage = stage
+        self.characters = characters.flatMap { (0...10_000_000).contains($0) ? $0 : nil }
+        self.parts = parts.flatMap { (1...FigureWalkthrough.maximumSections).contains($0) ? $0 : nil }
     }
 }
 
@@ -386,6 +406,19 @@ public struct ChatSSEParser: Sendable {
             // Informational: a walkthrough that is not usable is dropped (the view then says it couldn't explain it).
             guard let walkthrough = FigureWalkthrough.validated(payload) else { return nil }
             return .figure(walkthrough)
+        case "figure_progress":
+            // Informational: a malformed step is dropped, never fatal (the walkthrough itself is unaffected).
+            struct Progress: Decodable { let stage: String; let characters: Double?; let parts: Double? }
+            guard let progress = try? JSONDecoder().decode(Progress.self, from: payload),
+                  let stage = FigureStreamProgress.Stage(rawValue: progress.stage) else { return nil }
+            func whole(_ value: Double?) -> Int? { value.flatMap { $0.isFinite && $0.rounded() == $0 && abs($0) < 1e9 ? Int($0) : nil } }
+            return .figureProgress(FigureStreamProgress(stage: stage, characters: whole(progress.characters), parts: whole(progress.parts)))
+        case "figure_summary":
+            // Informational: an unusable summary is dropped; the final `figure` still carries it.
+            return FigureWalkthrough.streamedSummary(payload).map(ChatStreamEvent.figureSummary)
+        case "figure_section":
+            // Informational: an unusable part is dropped; the final `figure` decides what is kept.
+            return FigureWalkthrough.streamedSection(payload).map { .figureSection(index: $0.index, section: $0.section) }
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }

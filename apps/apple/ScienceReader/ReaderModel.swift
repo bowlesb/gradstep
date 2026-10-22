@@ -750,7 +750,31 @@ final class ReaderModel {
             UserDefaults.standard.set(newValue.id, forKey: Self.chatDefaultKey)
         }
     }
-    private var scenarioProfiles: [String: String] = UserDefaults.standard.dictionary(forKey: "ai.scenarioProfiles") as? [String: String] ?? [:]
+    private var scenarioProfiles: [String: String] = ReaderModel.storedScenarioProfiles()
+    /// Saved activity choices. Once (owner 2026-10-22: figures default to Sonnet): a figures choice equal to the old
+    /// recommended default (`gemini-medium-standard`, what a reader got by keeping the recommendation) is forgotten so
+    /// figures follow the new default; the flag keeps a later explicit Gemini choice.
+    static func storedScenarioProfiles(_ defaults: UserDefaults = .standard) -> [String: String] {
+        var saved = defaults.dictionary(forKey: scenarioProfilesKey) as? [String: String] ?? [:]
+        if !defaults.bool(forKey: figuresDefaultMigrationKey) {
+            if saved[AIUseCase.figures.rawValue] == "gemini-medium-standard" {
+                saved[AIUseCase.figures.rawValue] = nil
+                defaults.set(saved, forKey: scenarioProfilesKey)
+            }
+            defaults.set(true, forKey: figuresDefaultMigrationKey)
+        }
+        return saved
+    }
+    static let scenarioProfilesKey = "ai.scenarioProfiles", figuresDefaultMigrationKey = "ai.figuresDefaultSonnet.migrated"
+    /// The figures activity's own default (never the general chat default): the server's `default_figures` when the
+    /// table offers it, else Sonnet at low effort and standard length when offered (or before the table loads), else
+    /// the chat default as before.
+    static func figuresDefault(table: ChatProfileTable?, chatDefault: ChatProfileChoice) -> ChatProfileChoice {
+        if let figures = table?.figuresDefault { return figures }
+        let sonnet = ChatProfileChoice(model: .sonnet, effort: .low, length: .standard)
+        guard let table else { return sonnet }
+        return table.offers(sonnet) ? sonnet : chatDefault
+    }
     private var scenarioLocals: [String: String] = UserDefaults.standard.dictionary(forKey: "ai.scenarioLocals") as? [String: String] ?? [:]
     var pendingAIChoice: ChatProfileChoice?
     // Outer nil means no choice was made; .some(nil) explicitly selects cloud.
@@ -761,11 +785,12 @@ final class ReaderModel {
         return generalChat ? .general : .paper
     }
     func profileDefault(for scenario: AIUseCase) -> ChatProfileChoice {
-        scenarioProfiles[scenario.rawValue].flatMap(ChatProfileChoice.init(id:)) ?? chatDefaultProfile
+        if let saved = scenarioProfiles[scenario.rawValue].flatMap(ChatProfileChoice.init(id:)) { return saved }
+        return scenario == .figures ? Self.figuresDefault(table: chatProfileTable, chatDefault: chatDefaultProfile) : chatDefaultProfile
     }
     func setProfileDefault(_ value: ChatProfileChoice, for scenario: AIUseCase) {
         scenarioProfiles[scenario.rawValue] = value.id
-        UserDefaults.standard.set(scenarioProfiles, forKey: "ai.scenarioProfiles")
+        UserDefaults.standard.set(scenarioProfiles, forKey: Self.scenarioProfilesKey)
     }
     func localDefault(for scenario: AIUseCase) -> String? {
         guard Platform.isMac else { return nil }
@@ -792,7 +817,9 @@ final class ReaderModel {
         UserDefaults.standard.set(scenarioLocals, forKey: "ai.scenarioLocals")
     }
     func resetAIDefault(for scenario: AIUseCase) {
-        setProfileDefault(chatProfileTable?.defaultChoice ?? .standard, for: scenario); setLocalDefault(nil, for: scenario)
+        let reset = scenario == .figures ? Self.figuresDefault(table: chatProfileTable, chatDefault: chatProfileTable?.defaultChoice ?? .standard)
+            : chatProfileTable?.defaultChoice ?? .standard
+        setProfileDefault(reset, for: scenario); setLocalDefault(nil, for: scenario)
     }
     var chatProfileReason: String {
         if let composer = chatComposerID, pendingChatProfiles[composer] != nil { return "Selected for this conversation" }
@@ -4665,7 +4692,7 @@ final class ReaderModel {
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
                 // The equation and figure views' own events; an ordinary answer never gets them.
-                case .equation, .figure: break
+                case .equation, .figure, .figureProgress, .figureSummary, .figureSection: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits

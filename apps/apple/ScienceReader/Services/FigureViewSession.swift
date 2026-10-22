@@ -62,6 +62,17 @@ enum FigureViewOutcome {
     }
 
     private(set) var walkthrough = Part()
+    /// The walkthrough's progress bar while it is asked for and written (FigureProgress; FIGURE_VIEW.md "Progress"): a
+    /// stage label always, a value while the number of parts is known. Nil when nothing is being asked.
+    private(set) var progress: FigureProgress.State?
+    /// How many of a streamed walkthrough's parts show: a part shows once its card has been framed (off the main actor, a
+    /// moment), so no card shows and then changes size. Every part shows once the walkthrough is no longer loading.
+    private(set) var shownSections = 0
+    @ObservationIgnored private var tracker = FigureProgress.Tracker(expected: nil)
+    /// Whether the walkthrough held now is the final one (`figure`), not the parts streamed so far: the framing's count
+    /// check needs the final number of parts. `framedFinal`: what the last framing used.
+    @ObservationIgnored private var walkthroughFinal = true
+    @ObservationIgnored private var framedFinal = true
     /// A part explained more simply, by the part's index in the walkthrough.
     private(set) var simpler: [Int: Part] = [:]
     /// The figure as the request sends it (its panels composed, or the table drawn here), which crops are cut from.
@@ -178,8 +189,10 @@ enum FigureViewOutcome {
 
     /// Frames the walkthrough's cards together, off the main actor.
     private func refreshCrops() {
-        guard inkReady, let image else { return }
         let sections = walkthrough.walkthrough?.sections ?? []
+        let countCheck = walkthroughFinal
+        framedFinal = countCheck
+        guard inkReady, let image else { shownSections = sections.count; return }
         // Structure first: a section that shows one of the figure's own sub-figures (by letter, a box on its band, or in
         // order) is that sub-figure, exactly; the others as the AI boxed them. When the parts number neither the caption's
         // panels nor the sub-figures, the AI's own show the whole figure (FigureFraming).
@@ -196,13 +209,17 @@ enum FigureViewOutcome {
         Task { [weak self] in
             struct Made: Sendable { let framed: [Int: FramedPart]; let coverage: Double? }
             let made = await Task.detached(priority: .userInitiated) { () -> Made in
-                let all = FigureFraming.frame(ink, width: width, height: height, boxes: boxes, caption: caption, labels: labels, exact: exact, structureParts: structureParts)
+                let all = FigureFraming.frame(ink, width: width, height: height, boxes: boxes, caption: caption, labels: labels, exact: exact,
+                                              structureParts: structureParts, countCheck: countCheck)
                 var framed: [Int: FramedPart] = [:]
                 for (k, index) in boxed.enumerated() where k < all.parts.count { framed[index] = all.parts[k] }
                 return Made(framed: framed, coverage: all.coverage)
             }.value
             guard let self, generation == cropGeneration else { return }
-            framed = made.framed; inkCoverage = made.coverage ?? fallback
+            // Unchanged framings are left alone (no card is redrawn needlessly as later parts arrive).
+            if framed != made.framed { framed = made.framed }
+            inkCoverage = made.coverage ?? fallback
+            shownSections = sections.count
             record(boxed: boxed, sections: sections, boxes: boxes)
         }
     }
@@ -248,6 +265,7 @@ enum FigureViewOutcome {
             let message = localModelID != nil ? ChatFailureText.message(for: "local_context_large") : "This figure couldn’t be sent."
             set(Part(state: .failed(message, retryable: false))); return
         }
+        if part == nil { beginProgress() }
         set(Part(state: .loading))
         let id = part.map { "simpler.\($0.index)" } ?? "figure"
         tasks[id]?.cancel()
@@ -258,7 +276,8 @@ enum FigureViewOutcome {
     /// The walkthrough, or one part's simpler words.
     private func store(_ value: Part, index: Int?) {
         guard let index else {
-            let changed = walkthrough.walkthrough != value.walkthrough
+            // The final walkthrough is framed again with the count check even when its parts are the ones streamed.
+            let changed = walkthrough.walkthrough != value.walkthrough || framedFinal != walkthroughFinal
             walkthrough = value
             if changed { refreshCrops() }
             return
@@ -268,19 +287,29 @@ enum FigureViewOutcome {
 
     private func stream(_ request: ChatGenerationRequest, action: ChatAction, part index: Int?, key: FigureResultKey) async {
         func set(_ value: Part) { store(value, index: index) }
-        var part = Part(state: .loading), model: String?, credits: Int?
+        var part = Part(state: .loading), model: String?, credits: Int?, stopReason = ""
+        // The streamed walkthrough (servers from 2026-10-22): the summary and the parts so far, shown as they arrive; the
+        // final `figure` replaces them and is what is kept. Older servers send only the final `figure`.
+        let walking = index == nil && action == .figure
         let scope = self.model?.readerSessionID
         do {
-            guard let events = try await self.model?.equationStream(request, localModelID: localModelID) else { set(Part(state: .needsSignIn)); return }
+            guard let events = try await self.model?.equationStream(request, localModelID: localModelID) else { set(Part(state: .needsSignIn)); endProgress(); return }
+            if walking { tracker.opened(); showProgress() }
             for try await event in events {
                 guard !Task.isCancelled else { return }
+                if walking {
+                    let grew = tracker.apply(event)
+                    if case .figure = event { walkthroughFinal = true }
+                    showProgress()
+                    if grew { part.walkthrough = tracker.walkthroughSoFar; set(part) }
+                }
                 switch event {
                 case .delta(let piece):
                     part.text += piece
                     // A part more simply streams as it is written; the walkthrough's words (no usable walkthrough) come whole.
                     if localModelID != nil || (index != nil && action == .figureSimpler) { set(part) }
                 case .figure(let walkthrough): part.walkthrough = walkthrough
-                case .done(_, let paid, let answered, _): credits = paid; part.state = .done; model = answered; part.answeredModel = answered
+                case .done(let reason, let paid, let answered, _): credits = paid; stopReason = reason; part.state = .done; model = answered; part.answeredModel = answered
                 case .failure(let code, let paid): credits = paid; part.state = Self.failure(code)
                 default: break
                 }
@@ -290,16 +319,43 @@ enum FigureViewOutcome {
         catch { guard !Task.isCancelled else { return }; part.state = Self.failure("transport") }
         guard !Task.isCancelled, self.model?.readerSessionID == scope else { return }
         if part.state == .loading { part.state = Self.failure("transport") }
+        if walking {
+            // Only the final walkthrough is kept or shown at the end: parts streamed without it are dropped (a failure shows
+            // today's failure, not a partial walkthrough).
+            part.walkthrough = tracker.final
+            walkthroughFinal = true
+        }
         if part.state == .done, part.walkthrough == nil, part.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             part.state = .failed(index == nil ? "Couldn’t explain this figure. Try again." : "Couldn’t explain this part. Try again.", retryable: true)
         }
-        // The server says what an early or empty ending cost: nothing (it never charges for work it couldn't show).
-        part.notCharged = credits == 0 && part.state != .done
+        // The server says what an early or empty ending cost: nothing (it never charges for work it couldn't show). A
+        // walkthrough cut off at its length keeps the parts it showed, uncharged.
+        part.notCharged = credits == 0 && (part.state != .done || (walking && part.walkthrough != nil && !Self.completeEndings.contains(stopReason)))
+        if walking { endProgress() }
         set(part)
         guard part.state == .done, let reader = self.model else { return }
         reader.keepFigureAnswer(FigureAnswer(walkthrough: part.walkthrough, text: part.text, model: model), for: key)
         if localModelID == nil { Task { await reader.refreshCreditBalance() } }
     }
+
+    /// Endings that wrote the whole walkthrough (anything else that cost nothing was cut off: "limit").
+    private static let completeEndings: Set<String> = ["end_turn", "stop_sequence", "tool_use", "stop"]
+
+    /// A new walkthrough request: preparing, expecting the figure's own sub-figures, else its caption's lettered panels.
+    private func beginProgress() {
+        walkthroughFinal = false; shownSections = 0
+        tracker = FigureProgress.Tracker(expected: FigureProgress.expectedParts(subfigures: structure?.parts.count,
+                                                                                captionLetters: FigureFraming.captionLetters(context.caption).count))
+        showProgress()
+    }
+
+    /// Shows where the request is; unchanged steps leave the bar alone.
+    private func showProgress() {
+        let state = tracker.state()
+        if progress != state { progress = state }
+    }
+
+    private func endProgress() { progress = nil }
 
     private static func failure(_ code: String) -> State {
         switch code {

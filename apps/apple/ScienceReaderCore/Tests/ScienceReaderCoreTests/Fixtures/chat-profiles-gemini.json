@@ -1,7 +1,7 @@
 {
   "version": "chat-profiles-v1",
   "rate_version": "beta-credits-v1",
-  "tariff": "anthropic-list-prices-2026-10-08",
+  "tariff": "openrouter-reviewed-cards",
   "microusd_per_credit": 5000,
   "default": {
     "model": "sonnet",
@@ -18,40 +18,48 @@
     "effort": "medium",
     "length": "standard"
   },
+  "default_figures": {
+    "model": "sonnet",
+    "effort": "low",
+    "length": "standard"
+  },
   "models": [
     {
       "id": "haiku",
       "label": "Haiku",
-      "detail": "Quick, economical explanations",
-      "api_model": "claude-haiku-5-5",
-      "provider": "anthropic"
+      "detail": "Quick, economical explanations · OpenRouter → Google Vertex",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v5"
     },
     {
       "id": "sonnet",
       "label": "Sonnet",
-      "detail": "Strong answers at a moderate cost",
-      "api_model": "claude-sonnet-5-5",
-      "provider": "anthropic"
+      "detail": "Strong answers at a moderate cost · OpenRouter → Google Vertex",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v5"
     },
     {
       "id": "opus",
       "label": "Opus",
-      "detail": "Most capable; costs the most",
-      "api_model": "claude-opus-5-5",
-      "provider": "anthropic"
+      "detail": "Most capable; costs the most · OpenRouter → Google Vertex",
+      "api_model": "anthropic/claude-opus-5.5",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v5"
     },
     {
       "id": "deepseek",
       "label": "DeepSeek",
-      "detail": "Low cost; processed by DeepSeek",
-      "api_model": "deepseek-flash",
-      "provider": "deepseek",
-      "consent_version": "cloud-ai-v4"
+      "detail": "Low cost; processed by DeepSeek · OpenRouter → DeepInfra",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v6"
     },
     {
       "id": "gemini",
       "label": "Gemini Flash",
-      "detail": "Recommended for paper questions; lower cost",
+      "detail": "Recommended for paper questions; lower cost · OpenRouter → Google Vertex",
       "api_model": "gemini-3.8-flash",
       "provider": "openrouter",
       "consent_version": "cloud-ai-v5"
@@ -102,7 +110,7 @@
       "model": "haiku",
       "effort": "low",
       "length": "brief",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 3000,
       "credits": {
         "low": 1,
@@ -115,12 +123,12 @@
       "model": "haiku",
       "effort": "low",
       "length": "standard",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 8000,
       "credits": {
         "low": 1,
         "high": 2,
-        "max": 2
+        "max": 3
       }
     },
     {
@@ -128,7 +136,7 @@
       "model": "haiku",
       "effort": "low",
       "length": "detailed",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 12000,
       "credits": {
         "low": 1,
@@ -141,7 +149,7 @@
       "model": "haiku",
       "effort": "medium",
       "length": "brief",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 5000,
       "credits": {
         "low": 1,
@@ -154,7 +162,7 @@
       "model": "haiku",
       "effort": "medium",
       "length": "standard",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 10000,
       "credits": {
         "low": 1,
@@ -167,7 +175,7 @@
       "model": "haiku",
       "effort": "medium",
       "length": "detailed",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 14000,
       "credits": {
         "low": 1,
@@ -180,12 +188,12 @@
       "model": "haiku",
       "effort": "high",
       "length": "brief",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 9000,
       "credits": {
         "low": 1,
         "high": 2,
-        "max": 2
+        "max": 3
       }
     },
     {
@@ -193,7 +201,7 @@
       "model": "haiku",
       "effort": "high",
       "length": "standard",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 14000,
       "credits": {
         "low": 1,
@@ -206,12 +214,12 @@
       "model": "haiku",
       "effort": "high",
       "length": "detailed",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 18000,
       "credits": {
         "low": 1,
         "high": 2,
-        "max": 3
+        "max": 4
       }
     },
     {
@@ -219,12 +227,12 @@
       "model": "sonnet",
       "effort": "low",
       "length": "brief",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 3000,
       "credits": {
         "low": 3,
-        "high": 22,
-        "max": 27
+        "high": 24,
+        "max": 30
       }
     },
     {
@@ -232,12 +240,12 @@
       "model": "sonnet",
       "effort": "low",
       "length": "standard",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 8000,
       "credits": {
-        "low": 4,
-        "high": 24,
-        "max": 37
+        "low": 5,
+        "high": 26,
+        "max": 41
       }
     },
     {
@@ -245,12 +253,12 @@
       "model": "sonnet",
       "effort": "low",
       "length": "detailed",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 12000,
       "credits": {
         "low": 7,
-        "high": 26,
-        "max": 45
+        "high": 29,
+        "max": 50
       }
     },
     {
@@ -258,12 +266,12 @@
       "model": "sonnet",
       "effort": "medium",
       "length": "brief",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 5000,
       "credits": {
         "low": 5,
-        "high": 24,
-        "max": 31
+        "high": 27,
+        "max": 34
       }
     },
     {
@@ -271,12 +279,12 @@
       "model": "sonnet",
       "effort": "medium",
       "length": "standard",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 10000,
       "credits": {
-        "low": 6,
-        "high": 26,
-        "max": 41
+        "low": 7,
+        "high": 28,
+        "max": 45
       }
     },
     {
@@ -284,12 +292,12 @@
       "model": "sonnet",
       "effort": "medium",
       "length": "detailed",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 14000,
       "credits": {
-        "low": 9,
-        "high": 28,
-        "max": 49
+        "low": 10,
+        "high": 31,
+        "max": 54
       }
     },
     {
@@ -297,12 +305,12 @@
       "model": "sonnet",
       "effort": "high",
       "length": "brief",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 9000,
       "credits": {
         "low": 9,
-        "high": 28,
-        "max": 39
+        "high": 31,
+        "max": 43
       }
     },
     {
@@ -310,12 +318,12 @@
       "model": "sonnet",
       "effort": "high",
       "length": "standard",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 14000,
       "credits": {
-        "low": 10,
-        "high": 29,
-        "max": 49
+        "low": 11,
+        "high": 32,
+        "max": 54
       }
     },
     {
@@ -323,12 +331,12 @@
       "model": "sonnet",
       "effort": "high",
       "length": "detailed",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 18000,
       "credits": {
-        "low": 12,
-        "high": 32,
-        "max": 57
+        "low": 14,
+        "high": 35,
+        "max": 63
       }
     },
     {
@@ -336,12 +344,12 @@
       "model": "opus",
       "effort": "low",
       "length": "brief",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 3000,
       "credits": {
-        "low": 5,
-        "high": 44,
-        "max": 54
+        "low": 6,
+        "high": 48,
+        "max": 60
       }
     },
     {
@@ -349,12 +357,12 @@
       "model": "opus",
       "effort": "low",
       "length": "standard",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 8000,
       "credits": {
-        "low": 8,
-        "high": 47,
-        "max": 74
+        "low": 9,
+        "high": 51,
+        "max": 82
       }
     },
     {
@@ -362,12 +370,12 @@
       "model": "opus",
       "effort": "low",
       "length": "detailed",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 12000,
       "credits": {
-        "low": 13,
-        "high": 52,
-        "max": 90
+        "low": 14,
+        "high": 57,
+        "max": 99
       }
     },
     {
@@ -375,12 +383,12 @@
       "model": "opus",
       "effort": "medium",
       "length": "brief",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 5000,
       "credits": {
-        "low": 9,
-        "high": 48,
-        "max": 62
+        "low": 10,
+        "high": 53,
+        "max": 68
       }
     },
     {
@@ -388,12 +396,12 @@
       "model": "opus",
       "effort": "medium",
       "length": "standard",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 10000,
       "credits": {
-        "low": 12,
-        "high": 51,
-        "max": 82
+        "low": 13,
+        "high": 56,
+        "max": 90
       }
     },
     {
@@ -401,12 +409,12 @@
       "model": "opus",
       "effort": "medium",
       "length": "detailed",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 14000,
       "credits": {
-        "low": 17,
-        "high": 56,
-        "max": 98
+        "low": 19,
+        "high": 61,
+        "max": 108
       }
     },
     {
@@ -414,12 +422,12 @@
       "model": "opus",
       "effort": "high",
       "length": "brief",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 9000,
       "credits": {
-        "low": 17,
-        "high": 55,
-        "max": 78
+        "low": 18,
+        "high": 61,
+        "max": 86
       }
     },
     {
@@ -427,12 +435,12 @@
       "model": "opus",
       "effort": "high",
       "length": "standard",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 14000,
       "credits": {
-        "low": 19,
-        "high": 58,
-        "max": 98
+        "low": 21,
+        "high": 64,
+        "max": 108
       }
     },
     {
@@ -440,12 +448,12 @@
       "model": "opus",
       "effort": "high",
       "length": "detailed",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 18000,
       "credits": {
-        "low": 24,
-        "high": 63,
-        "max": 114
+        "low": 27,
+        "high": 69,
+        "max": 126
       }
     },
     {
@@ -453,12 +461,12 @@
       "model": "deepseek",
       "effort": "low",
       "length": "brief",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 3000,
       "credits": {
         "low": 1,
-        "high": 3,
-        "max": 4
+        "high": 2,
+        "max": 3
       }
     },
     {
@@ -466,12 +474,12 @@
       "model": "deepseek",
       "effort": "low",
       "length": "standard",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 8000,
       "credits": {
         "low": 1,
-        "high": 3,
-        "max": 5
+        "high": 2,
+        "max": 3
       }
     },
     {
@@ -479,12 +487,12 @@
       "model": "deepseek",
       "effort": "low",
       "length": "detailed",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 12000,
       "credits": {
         "low": 1,
-        "high": 4,
-        "max": 6
+        "high": 2,
+        "max": 4
       }
     },
     {
@@ -492,12 +500,12 @@
       "model": "deepseek",
       "effort": "medium",
       "length": "brief",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 5000,
       "credits": {
         "low": 1,
-        "high": 3,
-        "max": 4
+        "high": 2,
+        "max": 3
       }
     },
     {
@@ -505,12 +513,12 @@
       "model": "deepseek",
       "effort": "medium",
       "length": "standard",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 10000,
       "credits": {
         "low": 1,
-        "high": 4,
-        "max": 5
+        "high": 2,
+        "max": 3
       }
     },
     {
@@ -518,12 +526,12 @@
       "model": "deepseek",
       "effort": "medium",
       "length": "detailed",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 14000,
       "credits": {
         "low": 1,
-        "high": 4,
-        "max": 6
+        "high": 3,
+        "max": 4
       }
     },
     {
@@ -531,12 +539,12 @@
       "model": "deepseek",
       "effort": "high",
       "length": "brief",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 9000,
       "credits": {
         "low": 1,
-        "high": 4,
-        "max": 5
+        "high": 3,
+        "max": 3
       }
     },
     {
@@ -544,12 +552,12 @@
       "model": "deepseek",
       "effort": "high",
       "length": "standard",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 14000,
       "credits": {
-        "low": 2,
-        "high": 4,
-        "max": 6
+        "low": 1,
+        "high": 3,
+        "max": 4
       }
     },
     {
@@ -557,12 +565,12 @@
       "model": "deepseek",
       "effort": "high",
       "length": "detailed",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 18000,
       "credits": {
-        "low": 2,
-        "high": 4,
-        "max": 7
+        "low": 1,
+        "high": 3,
+        "max": 4
       }
     },
     {
@@ -570,7 +578,7 @@
       "model": "haiku",
       "effort": "auto",
       "length": "brief",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 3000,
       "credits": {
         "low": 1,
@@ -583,7 +591,7 @@
       "model": "haiku",
       "effort": "auto",
       "length": "standard",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 10000,
       "credits": {
         "low": 1,
@@ -596,12 +604,12 @@
       "model": "haiku",
       "effort": "auto",
       "length": "detailed",
-      "api_model": "claude-haiku-5-5",
+      "api_model": "anthropic/claude-haiku-5.5",
       "max_output_tokens": 18000,
       "credits": {
         "low": 1,
         "high": 2,
-        "max": 3
+        "max": 4
       }
     },
     {
@@ -609,12 +617,12 @@
       "model": "sonnet",
       "effort": "auto",
       "length": "brief",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 3000,
       "credits": {
         "low": 3,
-        "high": 22,
-        "max": 27
+        "high": 24,
+        "max": 30
       }
     },
     {
@@ -622,12 +630,12 @@
       "model": "sonnet",
       "effort": "auto",
       "length": "standard",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 10000,
       "credits": {
-        "low": 4,
-        "high": 24,
-        "max": 41
+        "low": 5,
+        "high": 26,
+        "max": 45
       }
     },
     {
@@ -635,12 +643,12 @@
       "model": "sonnet",
       "effort": "auto",
       "length": "detailed",
-      "api_model": "claude-sonnet-5-5",
+      "api_model": "anthropic/claude-sonnet-5.5",
       "max_output_tokens": 18000,
       "credits": {
-        "low": 9,
-        "high": 28,
-        "max": 57
+        "low": 10,
+        "high": 31,
+        "max": 63
       }
     },
     {
@@ -648,12 +656,12 @@
       "model": "opus",
       "effort": "auto",
       "length": "brief",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 3000,
       "credits": {
-        "low": 5,
-        "high": 44,
-        "max": 54
+        "low": 6,
+        "high": 48,
+        "max": 60
       }
     },
     {
@@ -661,12 +669,12 @@
       "model": "opus",
       "effort": "auto",
       "length": "standard",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 10000,
       "credits": {
-        "low": 8,
-        "high": 47,
-        "max": 82
+        "low": 9,
+        "high": 51,
+        "max": 90
       }
     },
     {
@@ -674,12 +682,12 @@
       "model": "opus",
       "effort": "auto",
       "length": "detailed",
-      "api_model": "claude-opus-5-5",
+      "api_model": "anthropic/claude-opus-5.5",
       "max_output_tokens": 18000,
       "credits": {
-        "low": 17,
-        "high": 56,
-        "max": 114
+        "low": 19,
+        "high": 61,
+        "max": 126
       }
     },
     {
@@ -687,12 +695,12 @@
       "model": "deepseek",
       "effort": "auto",
       "length": "brief",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 3000,
       "credits": {
         "low": 1,
-        "high": 3,
-        "max": 4
+        "high": 2,
+        "max": 3
       }
     },
     {
@@ -700,12 +708,12 @@
       "model": "deepseek",
       "effort": "auto",
       "length": "standard",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 10000,
       "credits": {
         "low": 1,
-        "high": 3,
-        "max": 5
+        "high": 2,
+        "max": 3
       }
     },
     {
@@ -713,12 +721,12 @@
       "model": "deepseek",
       "effort": "auto",
       "length": "detailed",
-      "api_model": "deepseek-flash",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
       "max_output_tokens": 18000,
       "credits": {
         "low": 1,
-        "high": 4,
-        "max": 7
+        "high": 3,
+        "max": 4
       }
     },
     {

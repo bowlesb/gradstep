@@ -101,9 +101,11 @@ public enum FigureFraming {
     /// couldn't be completed; nil without ink or boxes), for the coverage note.
     /// `exact`: each part's exact region when it is one of the figure's own sub-figures (`FigureStructure.match`), as
     /// fractions; nil for a part the AI boxed. `structureParts`: how many sub-figures the figure's own structure has (0
-    /// without one), for the count check.
+    /// without one), for the count check. `countCheck`: false while a streamed walkthrough's parts are still arriving (their
+    /// final number isn't known yet), so the parts so far are framed without it; the final walkthrough is framed with it.
     public static func frame(_ ink: FigureInk?, width: Int, height: Int, boxes: [CropRect], caption: String = "", labels: [String] = [],
-                             detector: [Double?]? = nil, exact: [CropRect?]? = nil, structureParts: Int = 0) -> (parts: [FramedPart], coverage: Double?) {
+                             detector: [Double?]? = nil, exact: [CropRect?]? = nil, structureParts: Int = 0,
+                             countCheck: Bool = true) -> (parts: [FramedPart], coverage: Double?) {
         let W = Double(ink?.width ?? width), H = Double(ink?.height ?? height)
         guard !boxes.isEmpty, W > 0, H > 0 else { return ([], nil) }
         let pad = Double(FigureCropCompletion.padding(width: Int(W), height: Int(H))), padX = pad / W, padY = pad / H
@@ -116,7 +118,7 @@ public enum FigureFraming {
         // Count disagreement: two or more parts whose number is neither the caption's lettered panels nor the figure's own
         // sub-figures (when either is stated).
         let L = letters.count, S = structureParts, N = boxes.count
-        let disagree = N >= 2 && (L >= 2 || S >= 2) && !(L >= 2 && N == L) && !(S >= 2 && N == S)
+        let disagree = countCheck && N >= 2 && (L >= 2 || S >= 2) && !(L >= 2 && N == L) && !(S >= 2 && N == S)
         func px(_ b: CropRect) -> CropRect { CropRect(b.x0 * W, b.y0 * H, b.x1 * W, b.y1 * H) }
         let done = ink.flatMap { ink in keptIndex.isEmpty ? nil : FigureCropCompletion.complete(ink, fractions: keptIndex.map { shape[$0] }) }
         let crops: [CropRect?] = boxes.indices.map { k in keptIndex.firstIndex(of: k).flatMap { done?.crops[$0] } }

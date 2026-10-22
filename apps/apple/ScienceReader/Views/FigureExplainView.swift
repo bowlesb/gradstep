@@ -138,6 +138,7 @@ struct FigureExplainView: View {
     @State private var chatFocus = 0
     @State private var expandedImage: FigureImagePresentation?
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(model: ReaderModel, context: FigureViewContext, requesting: Bool = true, finish: @escaping @MainActor (FigureViewOutcome) -> Void,
          close: @escaping @MainActor () -> Void) {
@@ -321,51 +322,79 @@ struct FigureExplainView: View {
 
     // MARK: The walkthrough
 
+    /// The walkthrough as it arrives (FIGURE_VIEW.md "Progress"): at once a progress bar with its stage and placeholders
+    /// where the summary and a part will be; then the summary, then each part appended in order with the bar below the last
+    /// one (where the next appears), so nothing above it moves; the bar fades when the walkthrough is done (at once with
+    /// Reduce Motion). The coverage note and "Not charged." come once it is done, after the parts.
     @ViewBuilder private func walkthrough(_ session: FigureExplainSession) -> some View {
-        let part = session.walkthrough
+        let part = session.walkthrough, loading = part.state == .loading
         VStack(alignment: .leading, spacing: 16) {
             if let walkthrough = part.walkthrough {
                 if !walkthrough.summary.isEmpty {
                     ChatMessageText(source: walkthrough.summary, fontSize: bodySize, streaming: false, speaker: "Assistant",
                                     identifier: "figureView.summary", assistant: true, onCite: cite)
                 }
-                if let coverage = session.inkCoverage, coverage < 1 {
+                ForEach(Array(walkthrough.sections.prefix(loading ? session.shownSections : walkthrough.sections.count).enumerated()), id: \.offset) { index, section in
+                    sectionCard(section, index: index, session: session, ready: !loading)
+                }
+                if !loading, let coverage = session.inkCoverage, coverage < 1 {
                     Text("The detail cards do not cover the entire image. The whole figure above keeps every panel, axis and legend available.")
                         .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("figureView.coverageFallback")
                 }
-                ForEach(Array(walkthrough.sections.enumerated()), id: \.offset) { index, section in
-                    sectionCard(section, index: index, session: session)
+                if part.state == .done, part.notCharged {
+                    Text("This walkthrough stopped before the end. Not charged.")
+                        .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("figureView.notCharged")
                 }
             } else if !part.text.isEmpty, part.state == .done || session.localModelID != nil {
                 // No usable walkthrough: the model's words are the description.
                 ChatMessageText(source: part.text, fontSize: bodySize, streaming: part.state == .loading, speaker: "Assistant", identifier: "figureView.description",
                                 assistant: true, onCite: cite)
             }
-            status(part, working: context.isDrawnTable || context.label.hasPrefix("Table") ? "Looking at the table…" : "Looking at the figure…", retry: { session.retry() })
+            if loading, let progress = session.progress {
+                FigureProgressBar(state: progress).transition(.opacity)
+                FigureWalkthroughSkeleton(summary: (part.walkthrough?.summary ?? "").isEmpty && part.text.isEmpty).transition(.opacity)
+            }
+            status(part, working: context.isDrawnTable || context.label.hasPrefix("Table") ? "Looking at the table…" : "Looking at the figure…",
+                   showsLoading: session.progress == nil, retry: { session.retry() })
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: session.progress == nil)
+        .onChange(of: session.progress?.label) { _, label in
+            // VoiceOver hears each new stage ("Writing part 2 of 3…"), not every step of the bar.
+            if let label, UIAccessibility.isVoiceOverRunning { AccessibilityNotification.Announcement(label).post() }
         }
     }
 
-    private func sectionCard(_ section: FigureWalkthrough.Section, index: Int, session: FigureExplainSession) -> some View {
+    private func sectionCard(_ section: FigureWalkthrough.Section, index: Int, session: FigureExplainSession, ready: Bool) -> some View {
         let number = index + 1, simpler = session.simpler[index]
         return VStack(alignment: .leading, spacing: 10) {
             // A tap on the part's heading opens its menu (owner: "tap on different parts of the response and ask to back
-            // up a bit, or link back into the paper"); a long press or right-click anywhere on the part does too.
-            Menu { menuItems(section, index: index, session: session) } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text([section.typeLabel, section.label].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(section.title).font(.headline).foregroundStyle(.primary).multilineTextAlignment(.leading)
-                    }
-                    Spacer(minLength: 8)
-                    Image(systemName: "ellipsis.circle").foregroundStyle(Color.accentColor).accessibilityHidden(true)
+            // up a bit, or link back into the paper"); a long press or right-click anywhere on the part does too. While the
+            // walkthrough is still being written its parts' menus wait (their actions need the final walkthrough).
+            // The heading looks the same either way (only the ⋯ waits, faint), so nothing changes but the ⋯ when it is done.
+            let heading = HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text([section.typeLabel, section.label].filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(section.title).font(.headline).foregroundStyle(.primary).multilineTextAlignment(.leading)
                 }
-                .contentShape(Rectangle())
+                Spacer(minLength: 8)
+                Image(systemName: "ellipsis.circle").foregroundStyle(ready ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
+                    .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel([section.label, section.title].filter { !$0.isEmpty }.joined(separator: ": "))
-            .accessibilityHint("Options for this part")
-            .accessibilityIdentifier("figureView.section.\(number).menu")
+            .contentShape(Rectangle())
+            if ready {
+                Menu { menuItems(section, index: index, session: session) } label: { heading }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel([section.label, section.title].filter { !$0.isEmpty }.joined(separator: ": "))
+                    .accessibilityHint("Options for this part")
+                    .accessibilityIdentifier("figureView.section.\(number).menu")
+            } else {
+                heading
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel([section.label, section.title].filter { !$0.isEmpty }.joined(separator: ": "))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("figureView.section.\(number).menu")
+            }
             if section.cardKind == .panel, let part = session.framed[index], let image = session.image {
                 partCard(part, image: image, label: part.level == .low ? "\(context.label), whole, for \(section.name)" : "Detail of \(context.label): \(section.name)",
                          identifier: "figureView.section.\(number).crop", maxHeight: 260, recordKey: session.recordKey(.walkthrough, index))
@@ -391,7 +420,7 @@ struct FigureExplainView: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
-        .contextMenu { menuItems(section, index: index, session: session) }
+        .contextMenu { if ready { menuItems(section, index: index, session: session) } }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("figureView.section.\(number)")
     }
@@ -417,9 +446,9 @@ struct FigureExplainView: View {
             .accessibilityIdentifier("figureView.askAbout")
     }
 
-    @ViewBuilder private func status(_ part: FigureExplainSession.Part, working: String, retry: @escaping () -> Void) -> some View {
+    @ViewBuilder private func status(_ part: FigureExplainSession.Part, working: String, showsLoading: Bool = true, retry: @escaping () -> Void) -> some View {
         switch part.state {
-        case .loading where part.text.isEmpty:
+        case .loading where part.text.isEmpty && showsLoading:
             HStack(spacing: 10) { ProgressView(); Text(working).foregroundStyle(.secondary) }
                 .accessibilityElement(children: .combine).accessibilityIdentifier("figureView.loading")
         case .failed(let message, let retryable):
@@ -453,6 +482,103 @@ struct FigureExplainView: View {
         return { marker in rememberReturn(); finish(.paragraph(paperID: paperID, marker: marker)) }
     }
 
+}
+
+/// The walkthrough's progress bar (FigureProgress): the stage in words over a bar, filled while the number of parts is
+/// known, else moving. One accessibility element: the stage is its label, the share its value (none while indeterminate).
+struct FigureProgressBar: View {
+    let state: FigureProgress.State
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(state.label).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let value = state.value {
+                ProgressView(value: value)
+            } else {
+                FigureIndeterminateBar(moving: !reduceMotion)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(state.label)
+        .accessibilityValue(state.value.map { "\(Int(($0 * 100).rounded())) percent" } ?? "")
+        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityIdentifier("figureView.progress")
+    }
+}
+
+/// An indeterminate bar the same height and tint as `ProgressView(value:)`'s: a short segment that sweeps across the
+/// track, or (Reduce Motion) a still, partly filled track.
+private struct FigureIndeterminateBar: View {
+    let moving: Bool
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width, segment = max(40, width * 0.28)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(uiColor: .systemFill))
+                if moving {
+                    TimelineView(.animation) { timeline in
+                        let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.4) / 1.4
+                        Capsule().fill(Color.accentColor).frame(width: segment).offset(x: -segment + (width + segment) * phase)
+                    }
+                } else {
+                    Capsule().fill(Color.accentColor.opacity(0.45)).frame(width: segment)
+                }
+            }
+            .clipShape(Capsule())
+        }
+        .frame(height: 4)
+    }
+}
+
+/// Where the walkthrough will appear while it is asked for: summary lines (until the summary arrives) and the next part's
+/// card. Still under Reduce Motion, else a slow pulse. Hidden from VoiceOver (the progress bar says where it is); the
+/// journeys find it in fixture builds.
+private struct FigureWalkthroughSkeleton: View {
+    let summary: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if summary {
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach([1.0, 0.94, 0.62], id: \.self) { share in line.frame(maxWidth: .infinity, alignment: .leading).scaleEffect(x: share, y: 1, anchor: .leading) }
+                }
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color(uiColor: .tertiarySystemFill)).frame(width: 90, height: 11)
+                RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color(uiColor: .tertiarySystemFill)).frame(width: 180, height: 15)
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(uiColor: .tertiarySystemFill)).frame(height: 120)
+                line; line.scaleEffect(x: 0.8, y: 1, anchor: .leading)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
+        }
+        .opacity(dim ? 0.55 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { dim = true }
+        }
+        .onChange(of: reduceMotion) { _, still in if still { dim = false } }
+        .modifier(SkeletonAccessibility())
+    }
+
+    private var line: some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color(uiColor: .tertiarySystemFill)).frame(height: 12)
+    }
+}
+
+private struct SkeletonAccessibility: ViewModifier {
+    func body(content: Content) -> some View {
+        #if DEBUG && FIXTURE_HOST
+        content.accessibilityElement(children: .ignore).accessibilityIdentifier("figureView.skeleton")
+        #else
+        content.accessibilityHidden(true)
+        #endif
+    }
 }
 
 /// Every figure crop is directly pinchable; at 1× its scroll view has no pan extent, so the enclosing page scrolls.

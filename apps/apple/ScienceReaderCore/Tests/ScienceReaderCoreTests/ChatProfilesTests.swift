@@ -30,13 +30,29 @@ import Testing
         #expect(table.version == "chat-profiles-v1")
         #expect(table.defaultChoice == .standard)
         #expect(table.estimates.count == 48, "27 Claude profiles, 9 DeepSeek, 12 automatic (builds 57–58 decode the first 27 only)")
-        #expect(table.estimateText(.standard) == "Usually 4–24 credits · up to 37")
+        #expect(table.estimateText(.standard) == "Usually 5–26 credits · up to 41")
         #expect(table.estimateText(ChatProfileChoice(model: .haiku, effort: .low, length: .brief)) == "Usually 1–2 credits · up to 2")
-        #expect(table.estimateText(ChatProfileChoice(model: .opus, effort: .high, length: .detailed)) == "Usually 24–63 credits · up to 114")
-        #expect(table.label(.opus) == "Opus" && table.detail(.haiku) == "Quick, economical explanations")
+        #expect(table.estimateText(ChatProfileChoice(model: .opus, effort: .high, length: .detailed)) == "Usually 27–69 credits · up to 126")
+        #expect(table.label(.opus) == "Opus" && table.detail(.haiku) == "Quick, economical explanations · OpenRouter → Google Vertex")
+        #expect(table.figuresDefault == .standard, "the figures default: Sonnet, low effort, standard length")
         #expect(table.label(.medium) == "Medium" && table.label(.detailed) == "Detailed")
         #expect(table.note?.contains("Web searches") == true)
         #expect(ChatProfileText.estimate(.init(low: 1, high: 1, max: 1)) == "About 1 credit · up to 1")
+    }
+
+    /// `default_figures` (2026-10-22) is additive: used only when the table offers it; absent or unknown, none.
+    @Test func theFiguresDefaultIsReadWhenOffered() throws {
+        var json = try #require(try JSONSerialization.jsonObject(with: try fixture("chat-profiles-gemini")) as? [String: Any])
+        let table = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
+        #expect(table.figuresDefault == ChatProfileChoice(model: .sonnet, effort: .low, length: .standard))
+        #expect(table.defaultChoice.id == "gemini-medium-standard", "the general default is unchanged")
+        json["default_figures"] = ["model": "opus", "effort": "max", "length": "standard"]
+        #expect(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json))?.figuresDefault == nil, "unknown effort: none")
+        json["default_figures"] = ["model": "gemini", "effort": "high", "length": "brief"]
+        let offered = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
+        #expect(offered.figuresDefault == nil || offered.offers(offered.figuresDefault!), "only a choice the table offers")
+        json["default_figures"] = nil
+        #expect(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json))?.figuresDefault == nil, "older servers: none")
     }
 
     @Test func aTableThisBuildDoesNotUnderstandIsRefused() throws {
@@ -65,7 +81,7 @@ import Testing
         #expect(table.requested(.standard) == ChatProfileChoice(model: .sonnet, effort: .auto, length: .standard))
         #expect(table.requested(ChatProfileChoice(model: .deepseek, effort: .low, length: .brief)).id == "deepseek-auto-brief")
         #expect(table.offeredModels == [.haiku, .sonnet, .opus, .deepseek])
-        #expect(table.estimate(model: .sonnet, length: .standard).map(ChatProfileText.estimate) == "Usually 4–24 credits · up to 41")
+        #expect(table.estimate(model: .sonnet, length: .standard).map(ChatProfileText.estimate) == "Usually 5–26 credits · up to 45")
         #expect(table.label(.deepseek) == "DeepSeek" && ChatProfileText.summary(.standard, table: table) == "Sonnet · Standard")
         #expect(ChatProfileText.modelName("deepseek-flash") == "DeepSeek V4.1 Flash")
         // A table from before (no automatic effort, no DeepSeek): requests keep the stored effort, nothing breaks.

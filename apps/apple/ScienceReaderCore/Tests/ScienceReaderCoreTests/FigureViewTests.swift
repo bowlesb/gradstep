@@ -80,6 +80,46 @@ import Testing
         #expect(walkthrough.sections.count == 2)
     }
 
+    /// The streamed walkthrough (servers from 2026-10-22): progress, the summary and each part before the unchanged final
+    /// `figure`; each part checked exactly as the final walkthrough's are; anything malformed dropped, never fatal.
+    @Test func theStreamedWalkthroughIsParsedAndCheckedAsTheFinalOne() throws {
+        let sections = try #require(Self.event["sections"] as? [[String: Any]])
+        func event(_ name: String, _ value: Any) -> String { "event: \(name)\ndata: \(String(decoding: Self.json(value), as: UTF8.self))\n\n" }
+        var stream = event("figure_progress", ["stage": "reading"])
+            + event("figure_progress", ["stage": "writing", "characters": 120, "parts": 2])
+            + event("figure_summary", ["summary": "  Two pipelines side by side.  "])
+            + event("figure_section", ["index": 0, "section": sections[0]])
+            + event("figure_progress", ["stage": "writing", "characters": 900])
+            + event("figure_section", ["index": 1, "section": sections[1]])
+        // Malformed or unusable: each dropped, the stream goes on.
+        stream += event("figure_progress", ["stage": "thinking"]) + "event: figure_progress\ndata: {\n\n"
+            + event("figure_progress", ["stage": "writing", "characters": 950, "parts": 40])
+            + event("figure_progress", ["stage": "writing", "characters": 1.5])
+            + event("figure_summary", ["summary": "   "]) + event("figure_summary", ["text": "x"])
+            + event("figure_section", ["index": 2, "section": ["label": "x", "title": "", "text": " "]])
+            + event("figure_section", ["index": 12, "section": sections[0]]) + event("figure_section", ["index": -1, "section": sections[0]])
+            + event("figure_section", ["section": sections[0]])
+        stream += event("figure", Self.event) + "event: done\ndata: {\"stop_reason\":\"end_turn\",\"credits\":4}\n\n"
+        var parser = ChatSSEParser()
+        let events = try parser.consume(Array(stream.utf8))
+        let final = try #require(FigureWalkthrough.validated(Self.json(Self.event)))
+        #expect(events == [
+            .figureProgress(.init(stage: .reading)), .figureProgress(.init(stage: .writing, characters: 120, parts: 2)),
+            .figureSummary("Two pipelines side by side."),
+            .figureSection(index: 0, section: final.sections[0]),
+            .figureProgress(.init(stage: .writing, characters: 900)),
+            .figureSection(index: 1, section: final.sections[1]),
+            .figureProgress(.init(stage: .writing, characters: 950)), .figureProgress(.init(stage: .writing)),
+            .figure(final), .done(stopReason: "end_turn", credits: 4)])
+        // One check for both: a streamed part is exactly the final walkthrough's part (labels, kinds, paragraphs, boxes).
+        let odd: [String: Any] = ["kind": "concept", "label": "  Inset\u{7}", "title": "", "text": "Line one\r\nline two", "paragraphs": [0, 3, 3, 4],
+                                  "box": ["x": 0.1, "y": 0.1, "w": 0.3, "h": 0.3]]
+        let streamed = try #require(FigureWalkthrough.streamedSection(Self.json(["index": 0, "section": odd])))
+        let whole = try #require(FigureWalkthrough.validated(Self.json(["format": FigureWalkthrough.format, "summary": "s", "sections": [odd]])))
+        #expect(streamed.section == whole.sections[0])
+        #expect(streamed.section.title == "Inset" && streamed.section.box == nil && streamed.section.paragraphs == [3, 4])
+    }
+
     /// "Extract the subfigure and more context" (`figure_detail`) was removed on 2026-10-21 (owner: one AI result, the
     /// walkthrough). This client never asks for it; a stray `figure_detail` event is ignored; an older build's kept detail
     /// answer still decodes (its `detail` ignored) and is neither shown nor listed in Settings › Your assets.

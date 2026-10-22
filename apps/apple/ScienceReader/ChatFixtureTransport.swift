@@ -11,7 +11,9 @@ import ScienceReaderCore
 /// `equation`: plain answers; the equation view's requests (actions `equation`, `equation_background`) are answered in
 /// every mode — symbols as the live server sends them, background as a short cited text.
 /// `figure_walkthrough`: plain answers; the figure view's requests (actions `figure`, `figure_simpler`) are answered in
-/// every mode — a three-part walkthrough of the sample's Figure 1 with one crop and `[¶N]` links, and a part more simply.
+/// every mode — a three-part walkthrough of the sample's Figure 1 with one crop and `[¶N]` links, streamed as the server
+/// streams it (progress, summary, each part, then the final `figure`; `--figure-fixture-old-server` sends only the final
+/// one, `--figure-fixture-step-ms=<n>` slows it), and a part more simply.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 /// Answers report their model and profile and, when asked, a topic title (server 2026-10-08);
 /// `--chat-fixture-no-profiles` behaves like a server without them.
@@ -105,6 +107,42 @@ struct ChatFixtureTransport: ChatTransport {
                   box: .init(x: 0.01, y: 0.34, w: 0.98, h: 0.32)),
             c])
     }
+    /// `--figure-fixture-old-server`: the walkthrough as a server before 2026-10-22 sends it, only the final `figure`.
+    static var figureOldServer: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-old-server") }
+    /// `--figure-fixture-step-ms=<n>`: the pause between the streamed walkthrough's steps (default 450 ms; journeys that
+    /// watch it arrive use a slower stream).
+    static var figureStep: Duration {
+        let value = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--figure-fixture-step-ms=") }
+            .flatMap { Int($0.dropFirst("--figure-fixture-step-ms=".count)) }
+        return .milliseconds(min(10_000, max(50, value ?? 450)))
+    }
+
+    /// The walkthrough streamed as the server of 2026-10-22 streams it: `reading`, then `writing` with the characters of
+    /// its JSON so far and the announced number of parts, the summary, and each part in order; the caller sends the final
+    /// `figure` and `done`.
+    static func streamWalkthrough(_ walkthrough: FigureWalkthrough, _ continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation) async throws {
+        let step = figureStep
+        func size<T: Encodable>(_ value: T) -> Int { (try? JSONEncoder().encode(value).count) ?? 0 }
+        try await Task.sleep(for: .milliseconds(300))
+        continuation.yield(.figureProgress(.init(stage: .reading)))
+        try await Task.sleep(for: step)
+        var written = 30 + size(walkthrough.summary)
+        let parts = walkthrough.sections.count
+        continuation.yield(.figureProgress(.init(stage: .writing, characters: written / 2, parts: parts)))
+        try await Task.sleep(for: step)
+        continuation.yield(.figureProgress(.init(stage: .writing, characters: written, parts: parts)))
+        continuation.yield(.figureSummary(walkthrough.summary))
+        for (index, section) in walkthrough.sections.enumerated() {
+            let length = size(section)
+            try await Task.sleep(for: step)
+            continuation.yield(.figureProgress(.init(stage: .writing, characters: written + length / 2, parts: parts)))
+            try await Task.sleep(for: step)
+            written += length
+            continuation.yield(.figureProgress(.init(stage: .writing, characters: written, parts: parts)))
+            continuation.yield(.figureSection(index: index, section: section))
+        }
+    }
+
     static let figureSimpler = """
     Start with the left half: it is only the starting point, nothing more [¶4].
 
@@ -158,8 +196,13 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.finish(); return
                     }
                     if request.action == .figure {
-                        try await Task.sleep(for: .milliseconds(500))
-                        continuation.yield(.figure(Self.figureSubfigures ? Self.subfiguresWalkthrough : Self.figurePanels ? Self.panelsWalkthrough : Self.figureWalkthrough))
+                        let walkthrough = Self.figureSubfigures ? Self.subfiguresWalkthrough : Self.figurePanels ? Self.panelsWalkthrough : Self.figureWalkthrough
+                        if Self.figureOldServer {
+                            try await Task.sleep(for: Self.figureStep)
+                        } else {
+                            try await Self.streamWalkthrough(walkthrough, continuation)
+                        }
+                        continuation.yield(.figure(walkthrough))
                         continuation.yield(.done(stopReason: "end_turn", credits: 5, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
                     }

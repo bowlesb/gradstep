@@ -33,6 +33,12 @@ final class FigureViewJourneyTests: XCTestCase {
         return app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
+    /// The streamed walkthrough is done: its parts are shown and the progress bar has gone.
+    private func waitForWalkthrough(_ app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
+        let first = app.descendants(matching: .any)["figureView.section.1"], progress = app.descendants(matching: .any)["figureView.progress"]
+        return wait(timeout) { first.exists && !progress.exists }
+    }
+
     private func launch(appearance: String = "light", extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
@@ -80,6 +86,7 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let first = app.descendants(matching: .any)["figureView.section.1"]
         XCTAssertTrue(first.waitForExistence(timeout: 8), "The walkthrough's parts")
+        XCTAssertTrue(waitForWalkthrough(app), "the streamed walkthrough is done")
         // Contents opens at half height on a phone; the walkthrough takes the full height.
         if UIDevice.current.userInterfaceIdiom == .phone {
             let heading = app.descendants(matching: .any)["figureView.heading"].firstMatch
@@ -201,6 +208,103 @@ final class FigureViewJourneyTests: XCTestCase {
         capture(app, "Continue the same figure conversation in Chat")
     }
 
+    /// The walkthrough streams (owner, 2026-10-22: "very very slow … unusable at this speed. Also it needs a progress bar";
+    /// FIGURE_VIEW.md "Progress"): at once a progress bar with its stage and placeholders where the walkthrough will be; the
+    /// summary before the last part; the parts in order, each appended below the last with the bar under it, so nothing
+    /// above moves; the bar gone when it is done, then the coverage note. The fixture streams as the server does, slowly.
+    func testTheWalkthroughStreamsWithAProgressBar() throws { streaming(appearance: "light") }
+    func testTheWalkthroughStreamsWithAProgressBarDark() throws { streaming(appearance: "dark") }
+
+    private func streaming(appearance: String) {
+        let app = launch(appearance: appearance, extra: ["--figure-fixture-step-ms=4000"])
+        openFigureOne(app)
+        app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        let any = app.descendants(matching: .any)
+        let progress = any["figureView.progress"], skeleton = any["figureView.skeleton"], summary = any["figureView.summary"]
+        let heading = any["figureView.heading"].firstMatch
+        func part(_ number: Int) -> XCUIElement { any["figureView.section.\(number)"] }
+        // Where an element sits in the walkthrough's content (from its heading), so scrolling to look doesn't count as moving.
+        func top(_ element: XCUIElement) -> CGFloat { element.frame.minY - heading.frame.minY }
+        let composer = any["contextChat.composer"].firstMatch
+        // For the screenshots only (the content grows meanwhile): a few scrolls toward the element, no more.
+        func reveal(_ element: XCUIElement) {
+            let inView = { !element.exists || (element.frame.minY > 120 && element.frame.maxY < composer.frame.minY - 8) }
+            var tries = 0
+            while tries < 3, !inView() {
+                tries += 1
+                #if targetEnvironment(macCatalyst)
+                app.scrollViews["figureView.walkthrough"].scroll(byDeltaX: 0, deltaY: element.frame.maxY >= composer.frame.minY - 8 ? -160 : 160)
+                #else
+                element.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow)
+                #endif
+            }
+        }
+
+        XCTAssertTrue(progress.waitForExistence(timeout: 4), "a progress bar at once")
+        XCTAssertTrue(skeleton.exists, "placeholders where the walkthrough will appear")
+        XCTAssertTrue(["Preparing the figure…", "Reading the figure…", "Writing the summary…"].contains(progress.label), "the stage: \(progress.label)")
+        XCTAssertFalse(summary.exists); XCTAssertFalse(part(1).exists)
+        XCTAssertLessThan(progress.frame.maxY, skeleton.frame.minY + 1, "the bar first in the empty walkthrough area")
+        capture(app, "Streaming: at once (\(appearance))")
+        reveal(skeleton)
+        capture(app, "Streaming: progress and placeholders (\(appearance))")
+
+        XCTAssertTrue(summary.waitForExistence(timeout: 15), "the summary as soon as it is written")
+        XCTAssertFalse(part(3).exists, "the summary before the last part")
+        XCTAssertLessThan(summary.frame.maxY, progress.frame.minY + 1, "the bar below the summary")
+        let summaryTop = top(summary)
+
+        XCTAssertTrue(part(1).waitForExistence(timeout: 15), "the first part")
+        let firstTop = top(part(1))
+        reveal(progress)
+        capture(app, "Streaming: part 1 and the bar (\(appearance))")
+        XCTAssertFalse(part(3).exists)
+        XCTAssertTrue(wait(6) { progress.exists && progress.label.range(of: #"^Writing part [23] of 3…$"#, options: .regularExpression) != nil },
+                      "counted parts: \(progress.label)")
+        XCTAssertTrue((progress.value as? String)?.hasSuffix("percent") == true, "a determinate value: \(String(describing: progress.value))")
+        XCTAssertLessThan(part(1).frame.maxY, progress.frame.minY + 1, "the bar where the next part appears")
+        XCTAssertFalse(app.buttons["figureView.section.1.menu"].exists || app.popUpButtons["figureView.section.1.menu"].exists,
+                       "a part's menu waits for the whole walkthrough")
+
+        XCTAssertTrue(part(2).waitForExistence(timeout: 15), "the second part")
+        reveal(part(2))
+        capture(app, "Streaming: part 2 and the bar (\(appearance))")
+        XCTAssertEqual(top(part(1)), firstTop, accuracy: 1, "nothing above moves as a part arrives")
+        XCTAssertEqual(top(summary), summaryTop, accuracy: 1)
+        XCTAssertLessThan(part(1).frame.maxY, part(2).frame.minY, "appended in order")
+        XCTAssertTrue(part(3).waitForExistence(timeout: 15), "the third part")
+        XCTAssertLessThan(part(2).frame.maxY, part(3).frame.minY, "appended in order")
+        XCTAssertEqual(top(part(1)), firstTop, accuracy: 1)
+
+        XCTAssertTrue(progress.waitForNonExistence(timeout: 15), "the bar goes when the walkthrough is done")
+        XCTAssertFalse(skeleton.exists, "no placeholders once done")
+        XCTAssertFalse(part(4).exists, "three parts")
+        XCTAssertEqual(top(part(1)), firstTop, accuracy: 1, "done moves nothing above")
+        XCTAssertEqual(top(summary), summaryTop, accuracy: 1)
+        XCTAssertTrue(app.staticTexts["figureView.coverageFallback"].waitForExistence(timeout: 3), "the coverage note once done")
+        XCTAssertTrue(app.buttons["figureView.section.1.menu"].exists || app.popUpButtons["figureView.section.1.menu"].exists,
+                      "the parts' menus once done")
+        reveal(part(3))
+        capture(app, "Streamed walkthrough done (\(appearance))")
+    }
+
+    /// A server before 2026-10-22 sends only the final walkthrough: the bar reads the figure until it comes, then the whole
+    /// walkthrough shows at once.
+    func testAnOlderServersWalkthroughStillShows() throws {
+        let app = launch(extra: ["--figure-fixture-old-server", "--figure-fixture-step-ms=5000"])
+        openFigureOne(app)
+        app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        let progress = app.descendants(matching: .any)["figureView.progress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 4))
+        XCTAssertTrue(["Preparing the figure…", "Reading the figure…"].contains(progress.label), progress.label)
+        XCTAssertTrue(waitForWalkthrough(app, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["figureView.section.3"].exists, "the whole walkthrough")
+    }
+
     /// A real two-plot figure whose boxes clip titles, tick labels and axis titles, as models write them (owner,
     /// 2026-10-21: "ALWAYS include all pixels of the figure when it breaks it up into subplots"): each part's crop is
     /// completed on the device and shown with a margin of background; no coverage note, since the crops hold all ink.
@@ -216,6 +320,7 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let left = app.descendants(matching: .any)["figureView.section.1.crop"], right = app.descendants(matching: .any)["figureView.section.2.crop"]
         XCTAssertTrue(left.waitForExistence(timeout: 10), "the left plot, cropped"); XCTAssertTrue(right.waitForExistence(timeout: 5), "the right plot, cropped")
+        XCTAssertTrue(waitForWalkthrough(app), "the streamed walkthrough is done")
         XCTAssertFalse(app.staticTexts["figureView.coverageFallback"].exists, "the completed crops hold all of the figure's ink")
         // Completed on the 1360×501 image sent: the left crop is [8, 8, 672, 492] plus 10 px of background on every side
         // (684 × 504, aspect 1.36); the clipped box with the old 2 % margin was 626 × 416 (1.50).
@@ -257,6 +362,7 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let left = app.descendants(matching: .any)["figureView.section.1.crop"], right = app.descendants(matching: .any)["figureView.section.2.crop"]
         XCTAssertTrue(left.waitForExistence(timeout: 10), "the left plot"); XCTAssertTrue(right.waitForExistence(timeout: 5), "the right plot")
+        XCTAssertTrue(waitForWalkthrough(app), "the streamed walkthrough is done")
         let composer = app.descendants(matching: .any)["contextChat.composer"].firstMatch
         let inView = { (card: XCUIElement) in card.isHittable && card.frame.minY > 120 && card.frame.maxY < composer.frame.minY - 8 }
         func reveal(_ card: XCUIElement) {
@@ -278,12 +384,15 @@ final class FigureViewJourneyTests: XCTestCase {
             XCTAssertEqual(left.label, "Detail of Figure 1: Left plot", "the label keeps its meaning")
             // Pinching out of the tight card shows what is around the part (the part outlined); a double tap returns.
             reveal(left)
+            #if !targetEnvironment(macCatalyst)
+            // XCUIElement.pinch is unavailable on the Mac (this test target didn't compile for Catalyst before).
             let before = left.value as? String
             left.pinch(withScale: 0.5, velocity: -1)
             XCTAssertTrue(wait { (left.value as? String) != before }, "pinching out reveals the figure around the part")
             capture(app, "Framing: pinched out of the left card (\(appearance))")
             left.doubleTap()
             XCTAssertTrue(wait { (left.value as? String) == "100%" }, "a double tap returns to the frame")
+            #endif
             // A tap expands the imprecise part to the whole figure with the part outlined; Show part frames it again.
             reveal(right)
             right.tap()
@@ -350,6 +459,8 @@ final class FigureViewJourneyTests: XCTestCase {
             #endif
         }
         func card(_ number: Int) -> XCUIElement { app.descendants(matching: .any)["figureView.section.\(number).crop"] }
+        // The count check frames the final walkthrough (the parts stream in first).
+        XCTAssertTrue(waitForWalkthrough(app), "the streamed walkthrough is done")
         // The sent image is the three images composed (1187 × 2342), scaled to 763 × 1506; each band plus 15 px of margin.
         let bandA = (763.0 + 30) / (0.33006 * 1506 + 30), bandB = (763.0 + 30) / ((0.659693 - 0.340307) * 1506 + 30)
         if grouped {
@@ -422,6 +533,7 @@ final class FigureViewJourneyTests: XCTestCase {
         app.buttons["figureView.explain"].tap()
         XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1"].waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForWalkthrough(app), "the streamed walkthrough is done")
         capture(app, "Figure walkthrough, dark")
         // Back (the sheet bar's system Back) to the figure's page.
         app.navigationBars.buttons["BackButton"].firstMatch.tap()

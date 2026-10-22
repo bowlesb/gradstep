@@ -72,35 +72,65 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
 
     public init(summary: String, sections: [Section]) { format = Self.format; self.summary = summary; self.sections = sections }
 
+    /// One section as the server writes it, before it is checked.
+    struct Row: Decodable {
+        struct RawBox: Decodable { let x: Double?; let y: Double?; let w: Double?; let h: Double? }
+        let kind: String?; let label: String?; let title: String?; let text: String?; let paragraphs: [Int]?; let box: RawBox?
+    }
+
     /// The event's JSON, checked and bounded as the server checks it, degrading rather than refusing: a section without a
     /// title or text is left out, a box that doesn't fit is dropped (the section stays), the first 12 sections and 12 boxes
     /// are kept. Nil when no section is left.
     public static func validated(_ data: Data) -> FigureWalkthrough? {
-        struct Raw: Decodable {
-            struct RawBox: Decodable { let x: Double?; let y: Double?; let w: Double?; let h: Double? }
-            struct Row: Decodable { let kind: String?; let label: String?; let title: String?; let text: String?; let paragraphs: [Int]?; let box: RawBox? }
-            let format: String; let summary: String?; let sections: [Row]
-        }
+        struct Raw: Decodable { let format: String; let summary: String?; let sections: [Row] }
         guard data.count <= 128 * 1024, let raw = try? JSONDecoder().decode(Raw.self, from: data), raw.format == format else { return nil }
         var sections: [Section] = [], boxes = 0
         for row in raw.sections {
             guard sections.count < maximumSections else { break }
-            var label = line(row.label, maximumLabel), title = line(row.title, maximumTitle)
-            if title.isEmpty { title = label; label = "" }
-            let text = prose(row.text, maximumText)
-            guard !title.isEmpty, !text.isEmpty else { continue }
-            var numbers: [Int] = []
-            for n in row.paragraphs ?? [] where (1...100_000).contains(n) && !numbers.contains(n) && numbers.count < maximumParagraphs { numbers.append(n) }
-            var box: Box?
-            let kind = row.kind.flatMap(Section.Kind.init(rawValue:))
-            if (kind == nil || kind == .panel), boxes < maximumBoxes, let b = row.box, let x = b.x, let y = b.y, let w = b.w, let h = b.h {
-                let candidate = Box(x: x, y: y, w: w, h: h)
-                if candidate.isValid { box = candidate; boxes += 1 }
-            }
-            sections.append(Section(label: label, title: title, text: text, paragraphs: numbers, box: box, kind: kind))
+            guard let section = checked(row, boxAllowed: boxes < maximumBoxes) else { continue }
+            if section.box != nil { boxes += 1 }
+            sections.append(section)
         }
         guard !sections.isEmpty else { return nil }
-        return FigureWalkthrough(summary: prose(raw.summary, maximumSummary), sections: sections)
+        return FigureWalkthrough(summary: summary(raw.summary), sections: sections)
+    }
+
+    /// The summary as the walkthrough keeps it (the streamed `figure_summary` and the final `figure` alike).
+    static func summary(_ value: String?) -> String { prose(value, maximumSummary) }
+
+    /// One section, checked as `validated` checks each (the streamed `figure_section` and the final `figure` share it): no
+    /// title takes the label, no title or text leaves it out, a box that doesn't fit (or past the 12th) is dropped.
+    static func checked(_ row: Row, boxAllowed: Bool = true) -> Section? {
+        var label = line(row.label, maximumLabel), title = line(row.title, maximumTitle)
+        if title.isEmpty { title = label; label = "" }
+        let text = prose(row.text, maximumText)
+        guard !title.isEmpty, !text.isEmpty else { return nil }
+        var numbers: [Int] = []
+        for n in row.paragraphs ?? [] where (1...100_000).contains(n) && !numbers.contains(n) && numbers.count < maximumParagraphs { numbers.append(n) }
+        var box: Box?
+        let kind = row.kind.flatMap(Section.Kind.init(rawValue:))
+        if (kind == nil || kind == .panel), boxAllowed, let b = row.box, let x = b.x, let y = b.y, let w = b.w, let h = b.h {
+            let candidate = Box(x: x, y: y, w: w, h: h)
+            if candidate.isValid { box = candidate }
+        }
+        return Section(label: label, title: title, text: text, paragraphs: numbers, box: box, kind: kind)
+    }
+
+    /// The streamed `figure_section` event (servers from 2026-10-22): its place in the final walkthrough (0–11) and the part,
+    /// checked as the final walkthrough's parts are. Nil when it isn't usable (the final `figure` still has it, or not).
+    public static func streamedSection(_ data: Data) -> (index: Int, section: Section)? {
+        struct Event: Decodable { let index: Int; let section: Row }
+        guard data.count <= 32 * 1024, let event = try? JSONDecoder().decode(Event.self, from: data),
+              (0..<maximumSections).contains(event.index), let section = checked(event.section) else { return nil }
+        return (event.index, section)
+    }
+
+    /// The streamed `figure_summary` event's summary; nil when it isn't usable or is empty.
+    public static func streamedSummary(_ data: Data) -> String? {
+        struct Event: Decodable { let summary: String }
+        guard data.count <= 16 * 1024, let event = try? JSONDecoder().decode(Event.self, from: data) else { return nil }
+        let text = summary(event.summary)
+        return text.isEmpty ? nil : text
     }
 
     /// Pixel-exact union of the displayed crops; overlap/insets count once. Nil means no split, not success.
