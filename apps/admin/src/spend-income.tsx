@@ -42,7 +42,8 @@ export const liveSpendIncomeApi: SpendIncomeApi = {
 };
 
 const FUNDING: [string, string, string][] = [
-  ['paid', 'Paid', 'Plan and pack credits: readers prepaid this'],
+  ['paid', 'Paid', 'Plan and pack credits bought in Production: readers prepaid this'],
+  ['sandbox', 'Test purchases', 'Credits from Sandbox (TestFlight) purchases: no money came in'],
   ['free', 'Free AI', 'Free credits: your subsidy, capped by the pool'],
   ['testing', 'Your testing', 'Your unlimited testing allowance'],
   ['granted', 'Granted', 'Credits you or the checks granted (testers, workflow checks)'],

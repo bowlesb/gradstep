@@ -27,7 +27,8 @@ insert into auth.users(id,email,email_confirmed_at) values(:'OWN','owner-150@gra
  (:'Y','yearly-150@gradstep.test.org',now());
 insert into app_private.app_roles(account_id,role) values(:'OWN','owner');
 select public.worker_set_platform_budget(date_trunc('month',now() at time zone 'UTC')::date,10000000,true);
-select public.worker_grant_credits(:'P','purchased','pack-150-p',300,now()-interval '1 day',null,'Pack fixture');
+select public.worker_grant_credits(:'P','purchased','Production:150000099',300,now()-interval '1 day',null,'Pack fixture');
+select public.worker_grant_credits(:'P','purchased','Sandbox:150000098',5,now()-interval '1 day',null,'Sandbox pack fixture');
 create or replace function test.reader(p uuid) returns void language sql as $$
  select set_config('request.jwt.claim.sub',p::text,false), set_config('request.jwt.claim.aal','aal1',false); $$;
 create or replace function test.owner(p uuid) returns void language sql as $$
@@ -245,6 +246,13 @@ select test.assert((select (f->'spend'->'by_funding'->>'free')::bigint=11500 and
  and f->'spend'->'by_feature' @> '[{"feature":"figure_explainer","cost_microusd":11500}]'
  and (f->'free'->>'accounts')::int>=2 and (f->'free'->>'suggested_pool_microusd')::bigint=15000000 and f->>'email_configured'='true'
  from (select current_setting('test.figures')::jsonb f) x),'spend split by funding and feature; the free pool; the owner''s address is known');
+
+-- Sandbox (TestFlight) credits are test money: spend they pay for is `sandbox`, never `paid` (migration 0151).
+insert into app_private.metered_operations(account_id,id,kind,request_sha256,rate_version,period,credit_ceiling,spend_ceiling_microusd,state)
+ values(:'P','15000000-0000-4000-8001-000000000041','chat',sha256('p41'),'beta-credits-v1',date_trunc('month',now() at time zone 'UTC')::date,1,1000,'reserved');
+insert into app_private.reservation_allocations select :'P','15000000-0000-4000-8001-000000000041',id,1 from app_private.credit_buckets where external_key='Sandbox:150000098';
+select test.assert(app_private.operation_funding(:'P','15000000-0000-4000-8001-000000000041')='sandbox','Sandbox purchases are not income');
+select test.assert(app_private.operation_funding(:'P','15000000-0000-4000-8001-000000000021')='paid','Production pack credits are');
 
 -- ── Alerts: once a month each, recorded, then emailed when Vault and pg_net are there ──────────────────────────────
 update app_private.platform_budgets set spent_microusd=8500000 where period=date_trunc('month',now() at time zone 'UTC')::date;
