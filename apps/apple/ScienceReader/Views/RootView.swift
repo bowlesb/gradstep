@@ -1311,6 +1311,9 @@ struct SettingsView: View {
                             LabeledContent("Available", value: "Loading…")
                         }
                         if let plan = model.storeSummary?.planName { LabeledContent("Subscription plan", value: plan) }
+                        // Owner, 2026-10-22: where credits go — each request with its tokens and cost (AIUsageView.swift).
+                        NavigationLink { AIUsageView(model: model) } label: { Text("Your AI usage") }
+                            .accessibilityIdentifier("settings.aiUsage")
                         Button("Get credits") { model.showStore = true }
                             .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
                     } header: { Text("AI credits") }

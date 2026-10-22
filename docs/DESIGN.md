@@ -151,6 +151,13 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
 - **New papers**: a paper added in the last three days and not opened on this device says **New** in plain secondary
   words where "—" would be (the Progress cell; the list's details line), not a dot (owner, build 75: "The purple dot
   beside the checkmark is confusing"; the signal itself is the build 42 request).
+- **Usage table** (Your AI usage, owner 2026-10-22): one row per request, newest first. On a phone the Rows pattern —
+  activity `.headline`, the paper `.subheadline` secondary (≤ 2 lines), "time · model · tokens" `.footnote` secondary,
+  the credits trailing in `.subheadline` semibold with an outcome word under it (orange only for Didn't finish and Being
+  checked). At regular width (≥ 640 pt, not accessibility text sizes) and in the browser: columns Time · Activity ·
+  Model · Tokens · Cost under a quiet `.footnote` header. A tap opens the row's parts beneath it (no animation with
+  Reduce Motion). Chips follow Filters; the period is a ⋯ submenu; the totals carry the ⓘ. Code: `Views/AIUsageView.swift`;
+  browser `ui/UsageDialog.tsx`, `usage.css`.
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.
@@ -161,6 +168,16 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   edge; Mac hover a quiet fill. Solid in every mode (nothing changes with Reduce Transparency); Increase Contrast draws
   an opaque edge. Swipe and long-press actions work as on rows. Code: `ContentCard` / `.contentCard(selected:)` in
   `DesignSystem.swift`; browser `.note-row` in `notes.css`. Paper tables and chat lists stay rows.
+  *Snippet entries* (owner, 2026-10-22: "a bit cleaner separation still between the cards with the actual snippet itself
+  being a slightly more clear 'box' in a card"): each entry in a collection's stream is the same card (10 pt apart, the
+  day label 6 pt above its first card; no timeline line), and its crop or quotation sits in an inner **snippet box**:
+  10 pt continuous corners, the grouped tertiary fill (one step from the card in both appearances), a 1 pt separator
+  edge (opaque with Increase Contrast), 8 pt around a crop. A leading chevron (44 pt target; VoiceOver "Collapse
+  snippet"/"Expand snippet", value Collapsed/Expanded) folds the card to one line — time · short paper title (20
+  characters on a phone, 32 wider) · first words of the comment, wrapping to three lines at accessibility sizes; the
+  line itself also expands it. Remembered per device, never synced; the collection's ⋯ starts with **Collapse all** /
+  **Expand all** (each only when it changes something). No animation with Reduce Motion. Code: `NoteEntryView`,
+  `.snippetBox()` in `NotesViews.swift`, `NoteCollapsedLine` in Core; browser `.note-entry`, `.snippet-frame`.
 
 Each UI change follows the [visual check loop](VISUAL_CHECK.md); significant redesigns get an independent audit
 against this page.

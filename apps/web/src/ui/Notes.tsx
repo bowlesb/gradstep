@@ -7,6 +7,7 @@ import type { ChatSession } from '../lib/chat-session';
 import type { PreparedSnippetImage } from '../lib/note-images';
 import { NOTES_LIMITS, type EntryAnchor, type EntryKind, type EntrySource, type EntryView, type MediaDescriptor, type NoteView, cleanNoteTitle } from '../lib/notes';
 import { type NotesStore, UPLOAD_ISSUE_TEXT, entryOperation, imageIssue, noteWriteFailure } from '../lib/notes-store';
+import { COMPACT_TITLE_LIMIT, collapsedEntries, collapsedLine, rememberCollapsed } from '../lib/note-collapse';
 import { Dialog, MenuButton } from './common';
 import { Icon } from './icons';
 import './notes.css';
@@ -148,8 +149,14 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
   const [editing, setEditing] = useState<Editing | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(t); }, [notice]);
+  // Collapsed cards (owner, 2026-10-22), remembered in this browser only (lib/note-collapse.ts).
+  const [collapsed, setCollapsedState] = useState<Set<string>>(() => collapsedEntries(noteID));
+  useEffect(() => { setCollapsedState(collapsedEntries(noteID)); }, [noteID]);
+  const saveCollapsed = (next: Set<string>) => { setCollapsedState(next); rememberCollapsed(noteID, next, note?.entries.map(e => e.id)); };
+  const toggle = (entryID: string) => { const next = new Set(collapsed); if (!next.delete(entryID)) next.add(entryID); saveCollapsed(next); };
   if (!note) return <div className="empty notes-gone"><p>This collection isn’t available. It may have been deleted on another device.</p><button className="secondary" onClick={onBack}>Back to Snippets</button></div>;
   const title = noteTitle(note);
+  const shownCollapsed = note.entries.filter(e => collapsed.has(e.id)).length;
   let day = '';
   return <div className="note-detail" data-testid="note-detail">
     <header className="note-head">
@@ -158,6 +165,9 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
         <span className="view-sub">{entriesLabel(note.entries.length)}{store.pendingIn(note) ? ' · Saved on this device · Waiting to sync' : ''}
           {note.versions.length > 1 && <> · <button className="link small-link" onClick={() => setEditing({ kind: 'title-versions' })} data-testid="title-versions">2 titles · Review</button></>}</span></div>
       <MenuButton icon="more" label={`${title} options`} testID="note-menu">{close => <>
+        {/* View choices first (DESIGN.md "Screen options"), only when they would change something. */}
+        {shownCollapsed < note.entries.length && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); saveCollapsed(new Set(note.entries.map(e => e.id))); }} data-testid="collapse-all"><Icon name="chevronUp" size={14} /> Collapse all</button>}
+        {shownCollapsed > 0 && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); saveCollapsed(new Set()); }} data-testid="expand-all"><Icon name="chevronDown" size={14} /> Expand all</button>}
         <button type="button" role="menuitem" className="menu-item" disabled={!store.writable || !note.record} onClick={() => { close(false); setEditing({ kind: 'rename' }); }}><Icon name="pencil" size={14} /> Rename collection…</button>
         <button type="button" role="menuitem" className="menu-item danger" disabled={!store.writable} onClick={() => { close(false); setEditing({ kind: 'delete-note' }); }}><Icon name="trash" size={14} /> Delete collection…</button>
       </>}</MenuButton>
@@ -169,7 +179,7 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
       {note.entries.length ? note.entries.map((entry, index) => {
         const d = dayLabel(entry.record.capturedAt), divider = d !== day ? <div className="note-day" key={`day-${entry.id}`}>{d}</div> : null;
         day = d;
-        return [divider, <Entry key={entry.id} store={store} entry={entry} index={index} onEdit={setEditing} onOpenSource={() => { const issue = onOpenSource(entry); if (issue) setNotice(issue); }}
+        return [divider, <Entry key={entry.id} store={store} entry={entry} index={index} collapsed={collapsed.has(entry.id)} onToggle={() => toggle(entry.id)} onEdit={setEditing} onOpenSource={() => { const issue = onOpenSource(entry); if (issue) setNotice(issue); }}
           onChat={onChat ? () => onChat(entry) : undefined} />];
       }) : <div className="notes-empty"><h2>A place for your next idea</h2><p className="muted">Collect a snippet while reading: Paper ⋯ › Draw snippet, or select text and choose Save snippet.</p></div>}
     </div>
@@ -192,24 +202,42 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
   </div>;
 }
 
-function Entry({ store, entry, index, onEdit, onOpenSource, onChat }: { store: NotesStore; entry: EntryView; index: number; onEdit: (e: Editing) => void; onOpenSource: () => void; onChat?: () => void }) {
-  const r = entry.record, state = store.entryState(entry), label = `Entry ${index + 1}`;
-  return <article className={`note-entry kind-${r.kind}`} aria-label={label} data-testid="note-entry">
-    <div className="note-entry-top"><span className="fine">{timeLabel(r.capturedAt)} · {kindLabel(r.kind)}</span>
-      <MenuButton icon="more" label={`${label} options`} testID="entry-menu">{close => <>
+// Owner, 2026-10-22: "having the ability to collapse individual snippets would be helpful (so you can just see the
+// date/times), also having a bit cleaner separation still between the cards with the actual snippet itself being a slightly
+// more clear 'box' in a card". Each entry is a card; its crop or quotation sits in an inner box; the chevron collapses it to
+// one line (time · short paper title · first words of the comment).
+function Entry({ store, entry, index, collapsed, onToggle, onEdit, onOpenSource, onChat }: { store: NotesStore; entry: EntryView; index: number; collapsed: boolean; onToggle: () => void;
+  onEdit: (e: Editing) => void; onOpenSource: () => void; onChat?: () => void }) {
+  const r = entry.record, state = store.entryState(entry), label = `Entry ${index + 1}`, bodyID = `entry-body-${entry.id}`;
+  const disclosure = <button type="button" className="icon-button entry-disclosure" onClick={onToggle} aria-expanded={!collapsed} aria-controls={collapsed ? undefined : bodyID}
+    aria-label={collapsed ? 'Expand snippet' : 'Collapse snippet'} title={collapsed ? 'Expand' : 'Collapse'} data-testid="entry-disclosure"><Icon name="chevronDown" size={16} /></button>;
+  const menu = <MenuButton icon="more" label={`${label} options`} testID="entry-menu">{close => <>
         <button type="button" role="menuitem" className="menu-item" disabled={!store.writable} onClick={() => { close(false); onEdit({ kind: 'comment', entry }); }}><Icon name="pencil" size={14} /> {r.kind === 'text' ? 'Edit writing' : 'Edit comment'}</button>
         {onChat && r.kind !== 'text' && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onChat(); }} data-testid="entry-chat"><Icon name="chat" size={14} /> Chat</button>}
         {r.source && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onOpenSource(); }}><Icon name="book" size={14} /> Open in paper</button>}
         <button type="button" role="menuitem" className="menu-item danger" disabled={!store.writable} onClick={() => { close(false); onEdit({ kind: 'delete-entry', entry }); }}><Icon name="trash" size={14} /> Delete snippet</button>
-      </>}</MenuButton></div>
-    {r.kind === 'region' && r.media && <SnippetImage store={store} media={r.media.thumb ?? r.media.full} label={`${label}: ${r.source?.label ?? 'region'} from ${r.source?.title ?? 'a paper'}`} onOpen={() => onEdit({ kind: 'zoom', entry })} />}
-    {r.kind === 'quote' && r.quote && <blockquote className="note-quote">{r.quote}</blockquote>}
+      </>}</MenuButton>;
+  if (collapsed) return <article className={`note-entry kind-${r.kind} collapsed`} aria-label={label} data-testid="note-entry">
+    <div className="note-entry-top">{disclosure}
+      <button type="button" className="entry-line" onClick={onToggle} data-testid="entry-line">
+        {/* Phones get a shorter title so the comment's first words still fit (CSS shows one of the two). */}
+        <span className="line-wide">{collapsedLine(timeLabel(r.capturedAt), r.source?.title ?? '', r.comment, r.quote, r.source?.label)}</span>
+        <span className="line-compact">{collapsedLine(timeLabel(r.capturedAt), r.source?.title ?? '', r.comment, r.quote, r.source?.label, COMPACT_TITLE_LIMIT)}</span></button>
+      {entry.versions.length > 1 && <button className="link small-link versions-link" onClick={() => onEdit({ kind: 'entry-versions', entry })} data-testid="entry-versions">2 versions</button>}
+      {menu}</div>
+  </article>;
+  return <article className={`note-entry kind-${r.kind}`} aria-label={label} data-testid="note-entry">
+    <div className="note-entry-top">{disclosure}<span className="fine entry-when">{timeLabel(r.capturedAt)} · {kindLabel(r.kind)}</span>{menu}</div>
+    <div className="note-entry-body" id={bodyID}>
+    {r.kind === 'region' && r.media && <div className="snippet-frame"><SnippetImage store={store} media={r.media.thumb ?? r.media.full} label={`${label}: ${r.source?.label ?? 'region'} from ${r.source?.title ?? 'a paper'}`} onOpen={() => onEdit({ kind: 'zoom', entry })} /></div>}
+    {r.kind === 'quote' && r.quote && <blockquote className="note-quote snippet-frame">{r.quote}</blockquote>}
     {r.comment ? <p className="note-comment">{r.comment}</p>
       : r.kind !== 'text' && <button className="link small-link" onClick={() => onEdit({ kind: 'comment', entry })} disabled={!store.writable}>Add a comment</button>}
     {entry.versions.length > 1 && <button className="link small-link versions-link" onClick={() => onEdit({ kind: 'entry-versions', entry })} data-testid="entry-versions">2 versions · Review</button>}
     {r.source && <button className="note-source" onClick={onOpenSource} title="Open in paper"><strong>{r.source.title || 'Untitled paper'}</strong>
       <span>{[r.source.label, r.source.section].filter(Boolean).join(' · ') || 'Paper'}{r.source.kind === 'arxiv' && r.source.revision ? ` · v${r.source.revision}` : ''} · {dayLabel(r.capturedAt)}</span></button>}
     {(state.pending || state.uploading) && <p className="fine entry-state" data-testid="entry-state">{state.uploading && store.issue ? UPLOAD_ISSUE_TEXT[store.issue] : 'Saved on this device · Waiting to sync'}</p>}
+    </div>
   </article>;
 }
 

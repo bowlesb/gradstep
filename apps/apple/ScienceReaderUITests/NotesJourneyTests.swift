@@ -13,10 +13,11 @@ final class NotesJourneyTests: XCTestCase {
         try XCTSkipUnless(app.buttons["tab.notes"].exists, "Phone-width layout (the wide layout's journey is testNotesInTheWideLayout)")
     }
 
-    private func launch(_ extra: [String] = [], appearance: String? = nil) -> XCUIApplication {
+    /// `reset: false` keeps the fixture's encrypted store from the previous launch (a relaunch).
+    private func launch(_ extra: [String] = [], appearance: String? = nil, reset: Bool = true) -> XCUIApplication {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
-        app.launchArguments = ["--draft-fixture", "--reset-draft-fixture"] + (appearance.map { ["-appearance", $0] } ?? []) + extra
+        app.launchArguments = ["--draft-fixture"] + (reset ? ["--reset-draft-fixture"] : []) + (appearance.map { ["-appearance", $0] } ?? []) + extra
         app.launch()
         current = app
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15))
@@ -477,5 +478,110 @@ final class NotesJourneyTests: XCTestCase {
             capture("Notes list \(appearance)")
             app.terminate()
         }
+    }
+
+    // MARK: - Collapsible snippet cards (owner, 2026-10-22)
+
+    /// Two snippets saved to one new collection, which is then open: the first with a comment, the second without.
+    private func twoSnippetsInACollection(_ app: XCUIApplication, title: String) {
+        let web = openSample(app)
+        drawSnippet(app, web: web, from: CGVector(dx: 0.08, dy: 0.18), to: CGVector(dx: 0.92, dy: 0.42))
+        let save = app.buttons["composer.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        let name = app.textFields["composer.newTitle"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        replaceText(name, with: title, app: app)
+        let comment = app.textFields["composer.comment"].exists ? app.textFields["composer.comment"] : app.textViews["composer.comment"]
+        comment.tap(); comment.typeText("The early improvement is the interesting part, compare it with the smaller model.")
+        waitFor("Save is ready") { save.isEnabled }
+        save.tap()
+        XCTAssertTrue(app.staticTexts["notes.saved"].waitForExistence(timeout: 10))
+        // The second goes to the same collection (the composer offers the last one used).
+        drawSnippet(app, web: web, from: CGVector(dx: 0.08, dy: 0.5), to: CGVector(dx: 0.92, dy: 0.7))
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        waitFor("Save is ready") { save.isEnabled }
+        save.tap()
+        let saved = app.staticTexts["notes.saved"]
+        waitFor("Saved to the same collection") { saved.exists && saved.label.hasPrefix("Saved to \(title)") }
+        app.buttons["notes.saved.open"].tap()
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["entry.image.2"].waitForExistence(timeout: 10), "Both snippets show")
+    }
+
+    /// Owner, 2026-10-22: "having the ability to collapse individual snippets would be helpful (so you can just see the
+    /// date/times), also having a bit cleaner separation still between the cards with the actual snippet itself being a
+    /// slightly more clear 'box' in a card". A chevron collapses one card to its line (time · paper · first words), the
+    /// choice survives a relaunch on this device, and the collection's ⋯ collapses or expands them all.
+    func testSnippetCardsCollapseAndRemember() throws {
+        var app = launch(appearance: "light")
+        try requirePhoneLayout(app)
+        twoSnippetsInACollection(app, title: "Collapse test")
+        XCTAssertTrue(app.descendants(matching: .any)["entry.card.1"].exists && app.descendants(matching: .any)["entry.card.2"].exists, "Each entry is a card")
+        let first = app.buttons["entry.disclosure.1"]
+        XCTAssertTrue(first.exists)
+        XCTAssertEqual(first.label, "Collapse snippet")
+        XCTAssertEqual(first.value as? String, "Expanded")
+        XCTAssertGreaterThanOrEqual(first.frame.height, 43.5, "A 44 pt target")
+        capture("Snippet cards expanded light")
+
+        // One card collapses to its line; the other stays open.
+        first.tap()
+        let line = app.descendants(matching: .any)["entry.collapsed.1"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5))
+        XCTAssertTrue(line.label.contains("An interactive reading sample") || line.label.contains("·"), line.label)
+        XCTAssertTrue(line.label.contains("The early improvement is the interesting part, compare…"), line.label)
+        XCTAssertFalse(app.buttons["entry.image.1"].exists, "The crop is hidden")
+        XCTAssertTrue(app.buttons["entry.image.2"].exists, "The other card stays open")
+        XCTAssertEqual(app.buttons["entry.disclosure.1"].label, "Expand snippet")
+        XCTAssertEqual(app.buttons["entry.disclosure.1"].value as? String, "Collapsed")
+        capture("One snippet collapsed light")
+
+        // Remembered on this device: a relaunch with the same store shows it collapsed.
+        app.terminate()
+        app = launch(appearance: "light", reset: false)
+        app.buttons["tab.notes"].tap()
+        let row = app.buttons["notes.row.Collapse test"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10)); row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entry.collapsed.1"].waitForExistence(timeout: 10), "Still collapsed after a relaunch")
+        XCTAssertTrue(app.buttons["entry.image.2"].waitForExistence(timeout: 10))
+
+        // Tapping the line expands it again.
+        app.descendants(matching: .any)["entry.collapsed.1"].tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 5), "Tapping the line expands the card")
+
+        // Collapse all, then Expand all, from the collection's ⋯.
+        app.buttons["note.options"].tap()
+        XCTAssertFalse(menuItem(app, "Expand all").exists, "Nothing to expand")
+        menuItem(app, "Collapse all").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entry.collapsed.1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["entry.collapsed.2"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["entry.image.1"].exists || app.buttons["entry.image.2"].exists, "Every card is one line")
+        capture("All snippets collapsed light")
+        app.buttons["note.options"].tap()
+        XCTAssertFalse(menuItem(app, "Collapse all").exists, "Nothing to collapse")
+        menuItem(app, "Expand all").tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["entry.image.2"].waitForExistence(timeout: 5))
+    }
+
+    /// Dark appearance and the largest accessibility text size: the cards, the inner box and a collapsed line that wraps.
+    func testSnippetCardsDarkAndLargeText() throws {
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"], appearance: "dark")
+        try requirePhoneLayout(app)
+        twoSnippetsInACollection(app, title: "Dark cards")
+        capture("Snippet cards expanded dark large text")
+        app.buttons["entry.disclosure.1"].tap()
+        let line = app.descendants(matching: .any)["entry.collapsed.1"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(line.frame.height, 40, "At accessibility sizes the line wraps instead of truncating to nothing")
+        capture("One snippet collapsed dark large text")
+        app.terminate()
+        let regular = launch(appearance: "dark")
+        twoSnippetsInACollection(regular, title: "Dark cards")
+        capture("Snippet cards expanded dark")
+        regular.buttons["note.options"].tap()
+        menuItem(regular, "Collapse all").tap()
+        XCTAssertTrue(regular.descendants(matching: .any)["entry.collapsed.2"].waitForExistence(timeout: 5))
+        capture("All snippets collapsed dark")
     }
 }

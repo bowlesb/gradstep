@@ -142,6 +142,21 @@ struct NotesScreenMenu: View {
     var body: some View {
         Menu {
             if let note {
+                // View choices first (DESIGN.md "Screen options"): collapse every snippet to its one line, or open them all
+                // (owner, 2026-10-22). Offered only when it would change something.
+                if !note.entries.isEmpty {
+                    let collapsed = model.notes.collapsed(in: note.id).intersection(note.entries.map(\.id)).count
+                    Section {
+                        if collapsed < note.entries.count {
+                            MenuRow("Collapse all", systemImage: "rectangle.compress.vertical") { setAll(true, note) }
+                                .accessibilityIdentifier("note.collapseAll")
+                        }
+                        if collapsed > 0 {
+                            MenuRow("Expand all", systemImage: "rectangle.expand.vertical") { setAll(false, note) }
+                                .accessibilityIdentifier("note.expandAll")
+                        }
+                    }
+                }
                 MenuRow("Rename collection", systemImage: "pencil") { actions.rename(note) }.accessibilityIdentifier("note.rename")
                 Button(role: .destructive) { actions.delete(note) } label: { Label("Delete collection", systemImage: "trash") }
                     .accessibilityIdentifier("note.delete")
@@ -153,6 +168,11 @@ struct NotesScreenMenu: View {
         } label: { Image(systemName: "ellipsis") }
             .accessibilityLabel(note == nil ? "Snippets options" : "Collection options")
             .accessibilityIdentifier(note == nil ? "notes.options" : "note.options")
+    }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private func setAll(_ collapsed: Bool, _ note: NotesState.Note) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { model.notes.setAllCollapsed(collapsed, in: note.id) }
     }
 }
 
@@ -310,7 +330,8 @@ struct NoteDetailView: View {
                     ForEach(Array(note.entries.enumerated()), id: \.element.id) { index, entry in
                         if index == 0 || !Calendar.current.isDate(day(entry), inSameDayAs: day(note.entries[index - 1])) {
                             Text(day(entry).formatted(date: .abbreviated, time: .omitted)).font(.footnote.weight(.semibold))
-                                .foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 8).padding(.bottom, -6) // owner, build 78: close to its first entry
+                                // Owner, build 78: close to its first entry (now a card; 2026-10-22).
+                                .foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 14).padding(.bottom, 6).padding(.leading, 4)
                                 .accessibilityAddTraits(.isHeader)
                         }
                         NoteEntryView(model: model, entry: entry, number: index + 1,
@@ -404,53 +425,102 @@ struct NoteEntryView: View {
     let details: () -> Void
     let review: () -> Void
     let delete: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    // Owner, 2026-10-22: "having the ability to collapse individual snippets would be helpful (so you can just see the
+    // date/times), also having a bit cleaner separation still between the cards with the actual snippet itself being a
+    // slightly more clear 'box' in a card". Each entry is a card (DESIGN.md "Cards"); its crop or quotation sits in an
+    // inner box; the chevron collapses it to one line, remembered on this device.
+    private var collapsed: Bool { model.notes.isCollapsed(entry.id, in: entry.record.noteID) }
 
     var body: some View {
+        Group {
+            if collapsed { collapsedCard } else { expandedCard }
+        }
+        .contentCard()
+        .padding(.bottom, 10)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("entry.card.\(number)")
+    }
+
+    private var time: String { Date(timeIntervalSince1970: Double(entry.record.capturedAt) / 1000).formatted(date: .omitted, time: .shortened) }
+
+    private func toggle() {
+        let next = !collapsed
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+            model.notes.setCollapsed(next, entry: entry.id, in: entry.record.noteID)
+        }
+    }
+
+    /// The chevron: 44 pt to tap, drawn small; its label says what a tap does, its value what the card is now.
+    private var disclosure: some View {
+        Button(action: toggle) {
+            Image(systemName: "chevron.down").font(.footnote.weight(.semibold)).foregroundStyle(Color.accentColor)
+                .rotationEffect(.degrees(collapsed ? -90 : 0))
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, -14)
+        .accessibilityLabel(collapsed ? "Expand snippet" : "Collapse snippet")
+        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+        .accessibilityIdentifier("entry.disclosure.\(number)")
+    }
+
+    private var collapsedCard: some View {
+        // One line: time · short paper title · first words of the comment (wraps to three at accessibility sizes).
+        HStack(alignment: .center, spacing: 0) {
+            disclosure
+            // A phone's width gets a shorter title so the comment's first words still fit.
+            Text(NoteCollapsedLine.line(time: time, record: entry.record,
+                                        titleLimit: sizeClass == .compact ? NoteCollapsedLine.compactTitleLimit : NoteCollapsedLine.titleLimit))
+                .font(.footnote).foregroundStyle(.secondary)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: toggle)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Expands the snippet")
+                .accessibilityIdentifier("entry.collapsed.\(number)")
+            if entry.hasConflict {
+                Button("2 versions", action: review).font(.footnote.weight(.semibold)).tint(.orange).padding(.leading, 6)
+                    .accessibilityIdentifier("entry.review")
+            }
+            options
+        }
+        .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 0 : -10)
+    }
+
+    private var expandedCard: some View {
         let record = entry.record
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text("\(Date(timeIntervalSince1970: Double(record.capturedAt) / 1000).formatted(date: .omitted, time: .shortened)) · \(kindLabel)")
-                    .font(.footnote).foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 0) {
+                disclosure
+                Text("\(time) · \(kindLabel)").font(.footnote).foregroundStyle(.secondary)
                 if entry.hasConflict {
-                    Button("2 versions · Review", action: review).font(.footnote.weight(.semibold)).tint(.orange)
+                    Button("2 versions · Review", action: review).font(.footnote.weight(.semibold)).tint(.orange).padding(.leading, 6)
                         .accessibilityIdentifier("entry.review")
                 }
                 Spacer(minLength: 0)
-                Menu {
-                    MenuRow(record.kind == .text ? "Edit text" : "Edit comment", systemImage: "pencil", action: edit)
-                        .accessibilityIdentifier("entry.edit")
-                    // Owner, 2026-10-21: a Chat option to talk about the snippet (nothing is sent until the reader asks).
-                    if record.kind != .text {
-                        MenuRow("Chat", systemImage: "bubble.left.and.text.bubble.right") { model.chatAboutNoteEntryLoadingImage(entry) }
-                            .accessibilityIdentifier("entry.chat")
-                    }
-                    if record.source != nil {
-                        MenuRow("Open in paper", systemImage: "doc.text") { if !model.openNoteSource(record) { details() } }
-                            .accessibilityIdentifier("entry.openInPaper")
-                        MenuRow("Source details", systemImage: "info.circle", action: details)
-                    }
-                    Button(role: .destructive, action: delete) { Label(record.kind == .text ? "Delete text" : "Delete snippet", systemImage: "trash") }
-                        .accessibilityIdentifier("entry.delete")
-                } label: {
-                    Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                .accessibilityLabel("Entry \(number) options").accessibilityIdentifier("entry.options.\(number)")
+                options
             }
-            .padding(.bottom, -8)
+            .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 0 : -10)
             switch record.kind {
             case .region:
                 if let media = record.media {
                     Button(action: zoom) { NoteImageView(model: model, media: media.thumb ?? media.full, full: media.full, maxHeight: 260) }
                         .buttonStyle(.plain)
+                        .snippetBox()
                         .accessibilityLabel("Snippet \(number)\(record.source?.label.map { ", \($0)" } ?? ""). Opens full size.")
                         .accessibilityIdentifier("entry.image.\(number)")
                 }
             case .quote:
                 Text(record.quote ?? "").font(.system(.body, design: .serif)).lineSpacing(3)
-                    .padding(.horizontal, 14).padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
                     .textSelection(.enabled)
+                    .snippetBox(padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14))
+                    .accessibilityIdentifier("entry.quote.\(number)")
             case .text: EmptyView()
             }
             if !record.comment.isEmpty {
@@ -477,17 +547,30 @@ struct NoteEntryView: View {
                     .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("entry.sync.\(number)")
             }
         }
-        .padding(.leading, 16).padding(.bottom, 24)
-        .overlay(alignment: .topLeading) {
-            // The stream's line, with the entry's amber point (the prototype's timeline).
-            ZStack(alignment: .top) {
-                Rectangle().fill(Color(uiColor: .separator)).frame(width: 1)
-                Circle().fill(Color.gradstepAmber).frame(width: 7, height: 7).padding(.top, 18)
+    }
+
+    private var options: some View {
+        let record = entry.record
+        return Menu {
+            MenuRow(record.kind == .text ? "Edit text" : "Edit comment", systemImage: "pencil", action: edit)
+                .accessibilityIdentifier("entry.edit")
+            // Owner, 2026-10-21: a Chat option to talk about the snippet (nothing is sent until the reader asks).
+            if record.kind != .text {
+                MenuRow("Chat", systemImage: "bubble.left.and.text.bubble.right") { model.chatAboutNoteEntryLoadingImage(entry) }
+                    .accessibilityIdentifier("entry.chat")
             }
-            .frame(width: 7).accessibilityHidden(true)
+            if record.source != nil {
+                MenuRow("Open in paper", systemImage: "doc.text") { if !model.openNoteSource(record) { details() } }
+                    .accessibilityIdentifier("entry.openInPaper")
+                MenuRow("Source details", systemImage: "info.circle", action: details)
+            }
+            Button(role: .destructive, action: delete) { Label(record.kind == .text ? "Delete text" : "Delete snippet", systemImage: "trash") }
+                .accessibilityIdentifier("entry.delete")
+        } label: {
+            Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
         }
-        .padding(.bottom, 8)
-        .accessibilityElement(children: .contain)
+        .padding(.trailing, -10)
+        .accessibilityLabel("Entry \(number) options").accessibilityIdentifier("entry.options.\(number)")
     }
 
     private var kindLabel: String {
@@ -501,6 +584,29 @@ struct NoteEntryView: View {
         if let page = source.page { parts.append("Page \(page)") }
         parts.append(Date(timeIntervalSince1970: Double(entry.record.capturedAt) / 1000).formatted(date: .abbreviated, time: .shortened))
         return " · " + parts.joined(separator: " · ")
+    }
+}
+
+/// The snippet itself inside its card (owner, 2026-10-22: "the actual snippet itself being a slightly more clear 'box' in
+/// a card"): the grouped tertiary fill (a step from the card's in both appearances), a 1 pt separator edge (opaque with
+/// Increase Contrast), 10 pt continuous corners. Solid in every mode.
+struct SnippetBox: ViewModifier {
+    var padding = EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        content
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(shape.fill(Color(uiColor: .tertiarySystemGroupedBackground)))
+            .overlay(shape.strokeBorder(Color(uiColor: contrast == .increased ? .opaqueSeparator : .separator), lineWidth: 1))
+    }
+}
+
+extension View {
+    func snippetBox(padding: EdgeInsets = EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)) -> some View {
+        modifier(SnippetBox(padding: padding))
     }
 }
 
