@@ -78,6 +78,9 @@ export const DEFAULT_CHOICE: Readonly<Choice> = Object.freeze({ model: 'sonnet',
 /** What new clients start with (published as `default_auto`): Sonnet, effort chosen by the server, standard length. */
 export const DEFAULT_AUTO_CHOICE: Readonly<RequestedChoice> = Object.freeze({ model: 'sonnet', effort: 'auto', length: 'standard' });
 
+/** The figures-and-tables activity's default (published as `default_figures`, owner 2026-10-22). */
+export const FIGURES_DEFAULT: Readonly<Choice> = Object.freeze({ model: 'sonnet', effort: 'low', length: 'standard' });
+
 export interface ChatProfile extends Choice {
   /** `sonnet-low-standard`: recorded with the quote and returned with the answer. */
   id: string;
@@ -252,6 +255,9 @@ export function publishedProfiles(options: PublishOptions = { deepseek: false })
     default: { ...DEFAULT_CHOICE },
     default_auto: { ...DEFAULT_AUTO_CHOICE },
     ...(recommendGemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
+    // Figures and tables (owner, 2026-10-22: "change the default to Sonnet for that one"): Sonnet at low effort, fast and
+    // a careful reader of images (FIGURE_VIEW.md "Speed"). Clients that know it start that activity there; older ones ignore it.
+    ...(models.some(m => m.id === FIGURES_DEFAULT.model) ? { default_figures: { ...FIGURES_DEFAULT } } : {}),
     models: models.map(m => ({ id: m.id, label: m.label, detail: `${m.detail} · OpenRouter → ${m.family === 'deepseek' ? 'DeepInfra' : 'Google Vertex'}`,
       api_model: routedModel(m), provider: 'openrouter' as ChatProvider,
       consent_version: m.family === 'deepseek' ? ROUTER_CONSENT_VERSION : GEMINI_CONSENT_VERSION })),

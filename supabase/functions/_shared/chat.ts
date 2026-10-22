@@ -726,6 +726,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     paper = { title: typeof context.title === 'string' ? context.title : null, text };
   }
   const params = makeParams(paper);
+  // DeepSeek in the figure view at low effort writes without thinking: on its pinned route "low" still thought for
+  // ~1,800 tokens (24 s before a word of a walkthrough); without it the walkthrough read the same panels and values and
+  // was whole in 15 s (FIGURE_VIEW.md "Speed"). Its route has no prompt cache to keep, so the prefix is unaffected.
+  if (figureView && profile.model === 'deepseek' && profile.effort === 'low') params.thinking = { type: 'disabled' };
   // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
   const hold = holdForParams(params);
   if (searchOffered) {

@@ -13,6 +13,11 @@
     "effort": "auto",
     "length": "standard"
   },
+  "default_figures": {
+    "model": "sonnet",
+    "effort": "low",
+    "length": "standard"
+  },
   "models": [
     {
       "id": "haiku",

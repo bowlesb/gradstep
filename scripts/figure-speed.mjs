@@ -83,12 +83,14 @@ async function serverParams(profile) {
   await chat.runChat(deps, { operation_id: randomUUID(), consent_version: 'cloud-ai-v6', mode: 'paper',
     local_context: { format: 'reader-local-context-v2', membership_id: randomUUID(), source: 'arxiv', source_id: meta.id, revision: meta.revision,
       manifest_sha256: digest, source_sha256: digest, text },
-    messages: [{ role: 'user', text: `Figure ${figureNumber}` }], capabilities: ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'],
-    profile, action: 'figure', selection: { quote }, figures: [image] }, e => { if (e.event === 'error') errors.push(e.data); }, new AbortController().signal);
+    capabilities: ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'], profile,
+    // --chat="…": an ordinary paper-chat question instead (no figure, no action), as the apps send one.
+    ...(CHAT ? { messages: [{ role: 'user', text: CHAT }] } : { messages: [{ role: 'user', text: `Figure ${figureNumber}` }], action: 'figure', selection: { quote }, figures: [image] }) }, e => { if (e.event === 'error') errors.push(e.data); }, new AbortController().signal);
   if (!captured) throw new Error(`no request: ${JSON.stringify(errors)}`);
   return captured;
 }
 
+const CHAT = arg('chat');
 const CALL = 'Call figure_walkthrough once with the whole walkthrough, even when part of the image is unclear or cut off (say so in the text). Write no other text, use no other tool and do not search the web.';
 const TEXT = 'Write the whole walkthrough as one JSON object in your reply, with exactly the fields of the figure_walkthrough tool\'s input ({"summary": "…", "sections": [{…}, …]}, summary first), even when part of the image is unclear or cut off (say so in the text), and nothing else: no tool call, no code fence, no other text. Do not search the web.';
 async function* sse(stream) {
@@ -100,7 +102,9 @@ async function* sse(stream) {
 }
 
 async function run(config) {
-  const [model, effort, ...flags] = config.split('-');
+  // `@host`: pin another OpenRouter endpoint of the same model (e.g. deepseek-low@deepseek), its price cap raised to the host's.
+  const [spec, host] = config.split('@');
+  const [model, effort, ...flags] = spec.split('-');
   const profile = { model, effort: effort === 'minimal' ? 'low' : effort, length: 'standard' };
   const params = await serverParams(profile);
   // `text`: the walkthrough written as one JSON object in the reply instead of the tool call (same fields).
@@ -114,10 +118,12 @@ async function run(config) {
   // Profiles fix Gemini at medium and Claude at its effort; the configuration may ask for another level or none.
   if (flags.includes('nothink')) body.reasoning = { enabled: false };
   else body.reasoning = { effort };
+  if (host) body.provider = { ...body.provider, only: [host], order: [host], max_price: { prompt: 1, completion: 3 } };
   const started = Date.now();
-  const hold = ledger.reserve(Number((params.max_tokens * (model === 'sonnet' ? 11 : model === 'gemini' ? 4.2 : 0.6) / 1e6
+  const outRate = model === 'sonnet' ? 11 : model === 'gemini' ? 4.2 : model === 'deepseek' ? 1.5 : 0.6, inRate = model === 'sonnet' ? 4.4 : model === 'gemini' ? 0.9 : model === 'deepseek' ? 0.4 : 0.25;
+  const hold = ledger.reserve(Number((params.max_tokens * outRate / 1e6
     // Input: a token per two text bytes (real prompts: 2–3) at the one-hour cache-write rate; the image as 3,000 tokens.
-    + ((Buffer.byteLength(JSON.stringify(body.messages)) - image.data.length) / 2 + 3_000) * (model === 'sonnet' ? 4.4 : model === 'gemini' ? 0.9 : 0.25) / 1e6).toFixed(6)),
+    + ((Buffer.byteLength(JSON.stringify(body.messages)) - (CHAT ? 0 : image.data.length)) / 2 + 3_000) * inRate / 1e6).toFixed(6)),
     { model: body.model, config, paper: paperKey, figure: figureNumber, feature: 'figure_speed' });
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST', redirect: 'error',
     headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json', 'X-Title': 'Gradstep figure speed', 'X-OpenRouter-Cache': 'false', 'X-Session-ID': hold },
@@ -141,14 +147,14 @@ async function run(config) {
     if (r || delta.reasoning_details?.length) { reasoningChars += r.length; marks.first_reasoning_ms ??= t(); }
     if (delta.content) {
       content += delta.content; marks.first_content_ms ??= t();
-      for (const item of textParser.push(delta.content)) { if (item.kind === 'summary') marks.summary_ms ??= t(); else marks.sections_ms.push(t()); }
+      for (const item of textParser.push(delta.content)) { if (item.kind === 'summary') marks.summary_ms ??= t(); else if (item.kind === 'section') marks.sections_ms.push(t()); }
     }
     for (const call of delta.tool_calls ?? []) {
       const piece = call.function?.arguments ?? '';
       if (!piece) continue;
       marks.first_args_ms ??= t(); argsChunks++; chunkSizes.push(piece.length); args += piece;
       for (const item of parser.push(piece)) {
-        if (item.kind === 'summary') marks.summary_ms ??= t(); else marks.sections_ms.push(t());
+        if (item.kind === 'summary') marks.summary_ms ??= t(); else if (item.kind === 'section') marks.sections_ms.push(t());
       }
     }
     if (choice.finish_reason) finish = choice.finish_reason;
@@ -173,7 +179,7 @@ if (process.argv.includes('--dry')) { console.log(quote); process.exit(0); }
 for (const config of configs) for (let n = 0; n < RUNS; n++) {
   const r = await run(config); r.run = n + 1; results.push(r);
   const s = ms => ms == null ? '-' : (ms / 1000).toFixed(1);
-  console.log(r.error ? `${config} #${n + 1}: ${r.error}` : `${config} #${n + 1}: headers ${s(r.headers_ms)} first ${s(r.first_chunk_ms)} reasoning ${s(r.first_reasoning_ms)} args ${s(r.first_args_ms)} summary ${s(r.summary_ms)} sections [${r.sections_ms.map(s).join(' ')}] end ${s(r.end_ms)} | chunks ${r.args_chunks} (median ${r.median_chunk_chars} ch) | in ${r.prompt_tokens} cached ${r.cached_tokens} write ${r.cache_write_tokens} out ${r.completion_tokens} reasoning ${r.reasoning_tokens} | $${r.cost_usd?.toFixed(4)} | ${r.sections} sections ${r.boxes} boxes | ${r.finish}`);
+  console.log(r.error ? `${config} #${n + 1}: ${r.error}` : `${config} #${n + 1}: headers ${s(r.headers_ms)} first ${s(r.first_chunk_ms)} reasoning ${s(r.first_reasoning_ms)} content ${s(r.first_content_ms)} args ${s(r.first_args_ms)} summary ${s(r.summary_ms)} sections [${r.sections_ms.map(s).join(' ')}] end ${s(r.end_ms)} | chunks ${r.args_chunks} (median ${r.median_chunk_chars} ch) | in ${r.prompt_tokens} cached ${r.cached_tokens} write ${r.cache_write_tokens} out ${r.completion_tokens} reasoning ${r.reasoning_tokens} | $${r.cost_usd?.toFixed(4)} | ${r.sections} sections ${r.boxes} boxes | ${r.finish}`);
 }
 const file = `${OUT}/${new Date().toISOString().replace(/[:.]/g, '-')}-${paperKey}-fig${figureNumber}.json`;
 writeFileSync(file, JSON.stringify({ paper: paperKey, figure: figureNumber, image: { width: image.width, height: image.height, kb: Math.round(image.data.length * 3 / 4 / 1024) }, results }, null, 1));

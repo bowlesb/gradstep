@@ -2381,6 +2381,20 @@ test('the figure view thinks at low effort unless the reader chose an effort for
   // The cached prefix is the chat's whatever the effort (Gemini caches the system message; Claude's thinking is adaptive).
   const prefix = (p: Params) => JSON.stringify({ model: p.model, thinking: p.thinking, tools: p.tools, system: (p.system as unknown[]).slice(0, 2) });
   assert.equal(prefix(sent[0]), prefix(sent[4]));
+  // DeepSeek at low effort writes the figure view without thinking (its route has no cache); a chat question keeps it.
+  const deep: Params[] = [];
+  const d = equationHarness({ generate: async (params, stream) => { deep.push(params); stream.onText(JSON.stringify(streamInput)); return completeOutcome(); } });
+  d.deps.deepseek = true;
+  const deepseek = (effort: string) => ({ model: 'deepseek', effort, length: 'standard' });
+  for (const body of [figureBody({ profile: deepseek('auto'), consent_version: 'cloud-ai-v6' }), figureBody({ profile: deepseek('medium'), consent_version: 'cloud-ai-v6' }),
+    paperBody({ document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v6', capabilities: FIGURE_DEVICE, profile: deepseek('low') })]) {
+    await runChat(d.deps, body, d.emit, new AbortController().signal);
+  }
+  assert.deepEqual(deep.map(p => [p.output_config?.effort, p.thinking?.type]), [['low', 'disabled'], ['medium', 'adaptive'], ['low', 'adaptive']]);
+  assert.deepEqual(openRouterChatParams(deep[0]).reasoning, { enabled: false });
+  // The figures activity's published default: Sonnet at low effort (owner, 2026-10-22).
+  assert.deepEqual(publishedProfiles({ deepseek: true, gemini: true }).default_figures, { model: 'sonnet', effort: 'low', length: 'standard' });
+  assert.equal(publishedProfiles({ deepseek: true, gemini: true, available: model => !model.includes('sonnet') }).default_figures, undefined, 'not offered without Sonnet');
 });
 
 // One part extracted (owner, TestFlight 62: "Extract the subfigure and more context"): `figure_detail`, the walkthrough's
