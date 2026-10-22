@@ -14,7 +14,9 @@ import { publishedProfiles } from '../../supabase/functions/_shared/chat-profile
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
 import { EQUATION_MAX_TOKENS, equationSymbols, paragraphCount } from '../../supabase/functions/_shared/chat-equation.ts';
-import { figureBox, figureDetail, figureDetailMaxTokens, figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes } from '../../supabase/functions/_shared/chat-figure-view.ts';
+import { figureBox, figureDetail, figureDetailMaxTokens, figureMaxTokens, figureViewEffort, figureWalkthrough, FigureWalkthroughStream, figureWalkthroughText, offeredBoxes,
+  type FigureStreamItem } from '../../supabase/functions/_shared/chat-figure-view.ts';
+import { openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_MAX_TOKENS, studyMap, UPDATE_STUDY_MAP_TOOL } from '../../supabase/functions/_shared/chat-study.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
@@ -2145,7 +2147,7 @@ test('the figure view reads the chat cache: tools, model, thinking, shared instr
   // Only the action's own instructions (after the paper) and the turn differ.
   const after = (p: Params) => (p.system as { text: string }[])[2]?.text ?? '';
   assert.match(after(walkthrough), /^The reader opened the figure view on the attached figure \(F1/);
-  assert.match(after(walkthrough), /Call figure_walkthrough once/);
+  assert.match(after(walkthrough), /Write the whole walkthrough as one JSON object in your reply/, 'written as JSON in the reply: every model streams it (Gemini sends a tool call whole)');
   assert.doesNotMatch(after(walkthrough), /show_figure_parts once/, 'the chat\'s figure-parts instructions do not apply');
   assert.match(after(simpler), /explained more simply \("back up a bit"\)/);
   assert.equal(walkthrough.max_tokens, figureMaxTokens('low'));
@@ -2209,39 +2211,176 @@ test('the walkthrough is held back, checked and relayed once; without one the wo
     { label: '(b)', title: 'DPO', text: 'One stage [¶13].', paragraphs: [13] }] };
   const h = equationHarness({ generate: async (_params, stream) => { stream.onText('I’ll walk through it.'); return walkthroughCall(input); } });
   await runChat(h.deps, figureBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events.map(e => e.event), ['figure', 'done'], 'no words and no other tool result reach the device');
-  assert.deepEqual(h.events[0].data, { format: 'figure-walkthrough-v1', summary: 'RLHF against DPO.', sections: [
+  assert.deepEqual(h.events.map(e => e.event), ['figure_progress', 'figure', 'done'], 'no words and no other tool result reach the device');
+  assert.deepEqual(h.events[0].data, { stage: 'reading' }, 'the device is told the model is reading the figure');
+  assert.deepEqual(h.events[1].data, { format: 'figure-walkthrough-v1', summary: 'RLHF against DPO.', sections: [
     { label: '(a)', title: 'RLHF', text: 'Three stages [¶12].', paragraphs: [12], box: { x: 0.02, y: 0.1, w: 0.45, h: 0.5 } },
     { label: '(b)', title: 'DPO', text: 'One stage [¶13].', paragraphs: [13] }] });
-  assert.deepEqual(h.logs, [{ event: 'chat_figure_walkthrough', operation_id: operation, called: true, sections: 2, boxes: 1, boxes_offered: 1 }]);
+  assert.deepEqual(h.logs, [{ event: 'chat_figure_walkthrough', operation_id: operation, called: true, sections: 2, boxes: 1, boxes_offered: 1, source: 'none', streamed: 0, first_part_ms: null }]);
   assert.equal(settledWith(h).p_action, 'figure'); assert.equal(settledWith(h).p_ending, 'completed'); assert.ok(Number(settledWith(h).p_actual_credits) > 0);
-  assert.equal((h.events[1].data as { charged: boolean }).charged, true);
+  assert.equal((h.events[2].data as { charged: boolean }).charged, true);
   // Parts, a diagram or a visual the model adds are never relayed in the view.
   const extra = equationHarness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ id: 't1', name: 'figure_walkthrough', input },
     { id: 't2', name: 'show_figure_parts', input: { figure: 'F1', title: 'x', parts: [{ label: 'a', box: [0, 0, 1, 1], note: 'n' }] } },
     { id: 't3', name: 'create_visual', input: { title: 'v', html: '<p>v</p>' } }] }) });
   await runChat(extra.deps, figureBody(), extra.emit, new AbortController().signal);
-  assert.deepEqual(extra.events.map(e => e.event), ['figure', 'done']);
+  assert.deepEqual(extra.events.map(e => e.event), ['figure_progress', 'figure', 'done']);
   // No tool call: the model's words, once, as the description (charged: the reader got them).
   const words = equationHarness({ generate: async (_params, stream) => { stream.onText('The figure has two halves'); stream.onText(' [¶12].'); return completeOutcome(); } });
   await runChat(words.deps, figureBody(), words.emit, new AbortController().signal);
-  assert.deepEqual(words.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(words.events[0].data, { text: 'The figure has two halves [¶12].' });
+  assert.deepEqual(words.events.map(e => e.event), ['figure_progress', 'delta', 'done']); assert.deepEqual(words.events[1].data, { text: 'The figure has two halves [¶12].' });
   assert.equal(settledWith(words).p_ending, 'completed');
   // A call with no usable section: its words.
   const loose = equationHarness({ generate: async () => walkthroughCall({ summary: 'Only the summary.', sections: [{ label: 'a' }] }) });
   await runChat(loose.deps, figureBody(), loose.emit, new AbortController().signal);
-  assert.deepEqual(loose.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(loose.events[0].data, { text: 'Only the summary.' });
+  assert.deepEqual(loose.events.map(e => e.event), ['figure_progress', 'delta', 'done']); assert.deepEqual(loose.events[1].data, { text: 'Only the summary.' });
   assert.equal(loose.logs[0].event, 'chat_figure_walkthrough_invalid_output');
   // Nothing to show at all: a finished turn with nothing in it is the provider's, not charged.
   const empty = equationHarness({ generate: async () => walkthroughCall({}) });
   await runChat(empty.deps, figureBody(), empty.emit, new AbortController().signal);
-  assert.deepEqual(empty.events.map(e => e.event), ['done']);
+  assert.deepEqual(empty.events.map(e => e.event), ['figure_progress', 'done']);
   assert.deepEqual([settledWith(empty).p_ending, settledWith(empty).p_actual_credits], ['provider', 0]);
-  assert.deepEqual([(empty.events[0].data as { charged: boolean }).charged, (empty.events[0].data as { reason: string }).reason], [false, 'provider']);
+  assert.deepEqual([(empty.events[1].data as { charged: boolean }).charged, (empty.events[1].data as { reason: string }).reason], [false, 'provider']);
   // Cut off at its allowance: our limit, not charged.
   const cut = equationHarness({ generate: async (_params, stream) => { stream.onText('Partial'); return completeOutcome({ stopReason: 'max_tokens' }); } });
   await runChat(cut.deps, figureBody(), cut.emit, new AbortController().signal);
   assert.deepEqual([settledWith(cut).p_action, settledWith(cut).p_ending, settledWith(cut).p_actual_credits], ['figure', 'limit', 0]);
+});
+
+
+// The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough", 2026-10-22): the summary and each checked part reach the
+// device as soon as the model has written them; the final `figure` event is unchanged, so builds that read only it work.
+const streamInput = { summary: 'RLHF against DPO [¶12].', sections: [
+  { kind: 'panel', label: '(a)', title: 'RLHF', text: 'Three stages, "quoted" {braces} and \\(\\beta\\) [¶12].', paragraphs: [12], box: { x: 0.02, y: 0.1, w: 0.45, h: 0.5 } },
+  { label: 'x', title: '', text: '' },
+  { label: '(b)', title: 'DPO', text: 'One stage [¶13].\nA second line.', paragraphs: [13], box: { x: 0.5, y: 0, w: 0.5, h: 1 } }] };
+const chunks = (text: string, size: number) => Array.from({ length: Math.ceil(text.length / size) }, (_, i) => text.slice(i * size, (i + 1) * size));
+const items = (reader: FigureWalkthroughStream, pieces: string[]) => pieces.flatMap(piece => reader.push(piece));
+
+test('the walkthrough stream: the summary, then each checked part as its object closes, equal to the final check in any chunking', () => {
+  const json = JSON.stringify(streamInput), final = figureWalkthrough(streamInput, 14)!;
+  for (const size of [1, 2, 7, 64, json.length]) {
+    const reader = new FigureWalkthroughStream(14);
+    const got = items(reader, chunks(json, size));
+    assert.deepEqual(got.map(i => i.kind), ['summary', 'section', 'section'], `chunks of ${size}`);
+    assert.deepEqual(got[0], { kind: 'summary', summary: final.summary });
+    assert.deepEqual(got.slice(1).map(i => (i as Extract<FigureStreamItem, { kind: 'section' }>).index), [0, 1], 'indexes are places in the final walkthrough (the empty part is skipped)');
+    assert.deepEqual(got.slice(1).map(i => (i as Extract<FigureStreamItem, { kind: 'section' }>).section), final.sections);
+    assert.deepEqual(reader.walkthrough(), final); assert.equal(reader.complete, true); assert.equal(reader.completed, 3);
+    assert.equal(reader.length, json.length);
+  }
+  // Words or a fence around the object are ignored; sections before the summary; a cut-off object keeps its complete parts.
+  const fenced = new FigureWalkthroughStream(14);
+  assert.deepEqual(items(fenced, ['```json\n', JSON.stringify({ sections: streamInput.sections, summary: 'Last.' }), '\n``` and "more" {words}']).map(i => i.kind),
+    ['section', 'section', 'summary']);
+  const cut = new FigureWalkthroughStream(14), json2 = JSON.stringify(streamInput);
+  const partial = items(cut, [json2.slice(0, json2.indexOf('"(b)"'))]);
+  assert.deepEqual(partial.map(i => i.kind), ['summary', 'section']);
+  assert.deepEqual(cut.walkthrough(), { format: 'figure-walkthrough-v1', summary: final.summary, sections: [final.sections[0]] });
+  assert.equal(cut.complete, false);
+  // A part whose object doesn't parse is not shown (the next one still is); nothing before the object counts as written.
+  const broken = new FigureWalkthroughStream(14);
+  const out = items(broken, ['Sure: {"summary": "S.", "sections": [{"label": "(a)", "title": "A", "text": "x", "box": [0, 0.1}, {"label": "(b)", "title": "B", "text": "y"}]}']);
+  assert.deepEqual(out.map(i => i.kind === 'section' ? i.section.label : i.kind), ['summary', '(b)']);
+  assert.equal(new FigureWalkthroughStream(14).length, 0);
+  // The announced count, first: read as its digits end, in any chunking; a count outside 1–12 is not one.
+  for (const size of [1, 3, 50]) {
+    const counted = new FigureWalkthroughStream(14);
+    const got = items(counted, chunks(JSON.stringify({ parts: 2, ...streamInput }), size));
+    assert.deepEqual(got.map(i => i.kind), ['parts', 'summary', 'section', 'section'], `chunks of ${size}`);
+    assert.deepEqual(got[0], { kind: 'parts', parts: 2 }); assert.equal(counted.parts, 2);
+    assert.deepEqual(counted.walkthrough(), figureWalkthrough(streamInput, 14), 'the count is not part of the walkthrough');
+  }
+  for (const bad of [0, 13, 1000, '"3"']) {
+    const reader = new FigureWalkthroughStream(14);
+    assert.ok(!items(reader, [`{"parts": ${bad}, "summary": "S.", "sections": []}`]).some(i => i.kind === 'parts'), String(bad));
+    assert.equal(reader.parts, null);
+  }
+});
+
+test('the walkthrough streams to the device as JSON in the reply: summary, parts, progress, then the same final figure and done', async () => {
+  const json = JSON.stringify({ parts: 2, ...streamInput }), final = figureWalkthrough(streamInput, 14)!;
+  let clock = 0;
+  const h = equationHarness({ generate: async (_params, stream) => {
+    for (const piece of chunks(json, 40)) { clock += 100; stream.onText(piece); }
+    return completeOutcome();
+  } });
+  h.deps.now = () => clock;
+  await runChat(h.deps, figureBody(), h.emit, new AbortController().signal);
+  const kinds = h.events.map(e => e.event);
+  assert.equal(kinds[0], 'figure_progress'); assert.deepEqual(h.events[0].data, { stage: 'reading' });
+  assert.deepEqual(kinds.filter(k => k !== 'figure_progress'), ['figure_summary', 'figure_section', 'figure_section', 'figure', 'done']);
+  assert.ok(kinds.indexOf('figure_summary') < kinds.indexOf('figure_section'), 'the summary first');
+  const writing = h.events.filter(e => e.event === 'figure_progress').slice(1).map(e => e.data as { stage: string; characters: number });
+  assert.ok(writing.length >= 3 && writing.every(p => p.stage === 'writing'), 'progress while it is written');
+  assert.ok(writing.every((p, i) => i === 0 || p.characters > writing[i - 1].characters), 'characters grow');
+  assert.ok(writing.every(p => (p as { parts?: number }).parts === 2), 'every writing step carries the announced count (it is the first field)');
+  assert.deepEqual(h.events.find(e => e.event === 'figure_summary')!.data, { summary: final.summary });
+  const streamed = h.events.filter(e => e.event === 'figure_section').map(e => e.data as { index: number; section: unknown });
+  assert.deepEqual(streamed.map(s => s.index), [0, 1]);
+  // What a build that predates streaming reads: the one figure event, exactly the checked walkthrough.
+  assert.deepEqual(h.events.find(e => e.event === 'figure')!.data, final);
+  assert.deepEqual(streamed.map(s => s.section), final.sections, 'the streamed parts are the final parts');
+  assert.ok(!kinds.includes('delta'), 'the JSON never reaches the device as words');
+  assert.deepEqual(h.logs, [{ event: 'chat_figure_walkthrough', operation_id: operation, called: false, sections: 2, boxes: 2, boxes_offered: 2,
+    source: 'text', streamed: 2, first_part_ms: 600 }]);
+  assert.equal(settledWith(h).p_ending, 'completed'); assert.equal((h.events.at(-1)!.data as { charged: boolean }).charged, true);
+});
+
+test('a walkthrough written as a tool call streams the same way; cut off at its allowance it keeps the parts shown, not charged', async () => {
+  const json = JSON.stringify(streamInput), final = figureWalkthrough(streamInput, 14)!;
+  const h = equationHarness({ generate: async (_params, stream) => {
+    for (const piece of chunks(json, 25)) stream.onToolInput?.({ index: 0, name: 'figure_walkthrough' }, piece);
+    return walkthroughCall(streamInput);
+  } });
+  await runChat(h.deps, figureBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event).filter(k => k !== 'figure_progress'), ['figure_summary', 'figure_section', 'figure_section', 'figure', 'done']);
+  assert.deepEqual(h.events.find(e => e.event === 'figure')!.data, final);
+  assert.equal(h.logs[0].source, 'tool');
+  // Another tool's input never streams as the walkthrough.
+  const other = equationHarness({ generate: async (_params, stream) => { stream.onToolInput?.({ index: 0, name: 'create_visual' }, json); return completeOutcome(); } });
+  await runChat(other.deps, figureBody(), other.emit, new AbortController().signal);
+  assert.ok(!other.events.some(e => e.event === 'figure_section' || e.event === 'figure_summary'));
+  // Cut off after the first part: the device keeps what it was shown (the final figure is those parts), and pays nothing.
+  const cut = equationHarness({ generate: async (_params, stream) => { stream.onText(json.slice(0, json.indexOf('"(b)"'))); return completeOutcome({ stopReason: 'max_tokens' }); } });
+  await runChat(cut.deps, figureBody(), cut.emit, new AbortController().signal);
+  assert.deepEqual(cut.events.map(e => e.event).filter(k => k !== 'figure_progress'), ['figure_summary', 'figure_section', 'figure', 'done']);
+  assert.deepEqual((cut.events.find(e => e.event === 'figure')!.data as { sections: unknown[] }).sections, [final.sections[0]]);
+  assert.deepEqual([settledWith(cut).p_ending, settledWith(cut).p_actual_credits], ['limit', 0]);
+  assert.deepEqual([(cut.events.at(-1)!.data as { charged: boolean }).charged, (cut.events.at(-1)!.data as { reason: string }).reason], [false, 'limit']);
+  // An unreadable object is never shown as words: nothing to show, not charged.
+  const garbled = equationHarness({ generate: async (_params, stream) => { stream.onText('{"summary": "S", "sections": [{"label'); return completeOutcome(); } });
+  await runChat(garbled.deps, figureBody(), garbled.emit, new AbortController().signal);
+  assert.deepEqual(garbled.events.map(e => e.event).filter(k => k !== 'figure_progress'), ['figure_summary', 'done']);
+  assert.equal(settledWith(garbled).p_ending, 'provider');
+});
+
+test('the figure view thinks at low effort unless the reader chose an effort for a Claude model', async () => {
+  assert.equal(figureViewEffort(null, 'low'), 'low');
+  assert.equal(figureViewEffort({ model: 'gemini', effort: 'medium' }, 'medium'), 'low');
+  assert.equal(figureViewEffort({ model: 'sonnet', effort: 'auto' }, 'medium'), 'low');
+  assert.equal(figureViewEffort({ model: 'sonnet', effort: 'high' }, 'high'), 'high');
+  const sent: Params[] = [];
+  const h = equationHarness({ generate: async (params, stream) => { sent.push(params); stream.onText(JSON.stringify(streamInput));
+    return completeOutcome({ model: 'gemini-3.8-flash', attempts: [{ model: 'gemini-3.8-flash', estimated: false, billedMicrousd: 9_000,
+      usage: { input: 500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 34_000, output: 1_400 } }] }); } });
+  h.deps.gemini = true;
+  const gemini = { model: 'gemini', effort: 'medium', length: 'standard' };
+  for (const body of [figureBody({ profile: gemini }), figureBody({ action: 'figure_simpler', selection: { quote: 'The encoder.' }, profile: gemini }),
+    figureBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' } }), figureBody({ profile: { model: 'sonnet', effort: 'high', length: 'standard' } }),
+    paperBody({ document_id: null, local_context: figureContext, consent_version: CONSENT, capabilities: FIGURE_DEVICE, profile: gemini })]) {
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+  }
+  assert.deepEqual(sent.map(p => p.output_config?.effort), ['low', 'low', 'low', 'high', 'medium'], 'a chat question keeps the chat\'s effort');
+  assert.equal(sent[0].max_tokens, figureMaxTokens('low'));
+  assert.equal((openRouterChatParams(sent[0]).reasoning as { effort: string }).effort, 'low', 'Gemini is asked for low reasoning');
+  assert.equal((openRouterChatParams(sent[4]).reasoning as { effort: string }).effort, 'medium');
+  const quotes = h.calls.filter(c => c.name === 'worker_reserve_chat').map(c => (c.params.p_quote as Record<string, unknown>));
+  assert.deepEqual(quotes.map(q => [q.profile, q.effort]), [['gemini-low-standard', 'low'], ['gemini-low-standard', 'low'], ['sonnet-low-standard', 'low'],
+    ['sonnet-high-standard', 'high'], ['gemini-medium-standard', 'medium']]);
+  // The cached prefix is the chat's whatever the effort (Gemini caches the system message; Claude's thinking is adaptive).
+  const prefix = (p: Params) => JSON.stringify({ model: p.model, thinking: p.thinking, tools: p.tools, system: (p.system as unknown[]).slice(0, 2) });
+  assert.equal(prefix(sent[0]), prefix(sent[4]));
 });
 
 // One part extracted (owner, TestFlight 62: "Extract the subfigure and more context"): `figure_detail`, the walkthrough's

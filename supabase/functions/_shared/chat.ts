@@ -21,7 +21,8 @@ import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationFallbackText, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
 import { FIGURE_DETAIL_INSTRUCTIONS, FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureDetail, figureDetailMaxTokens,
-  figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes, isFigureAction, type FigureDetail, type FigureWalkthrough } from './chat-figure-view.ts';
+  figureMaxTokens, figureViewEffort, figureWalkthrough, FigureWalkthroughStream, figureWalkthroughText, offeredBoxes, isFigureAction, walkthroughJSON,
+  type FigureDetail, type FigureSection, type FigureStreamItem, type FigureWalkthrough } from './chat-figure-view.ts';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider; v1 (builds up to TestFlight 11) named
  * only Anthropic's search. Every answer now needs v5 or later, which names OpenRouter (runChecked: `consent_required`);
@@ -511,8 +512,17 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'study'; data: { map: StudyMap } }
   /** The equation view's checked symbols (EQUATION_VIEW.md). */
   | { event: 'equation'; data: EquationSymbols }
-  /** The figure view's checked walkthrough (FIGURE_VIEW.md), sent once before `done`. */
+  /** The figure view's checked walkthrough (FIGURE_VIEW.md), sent once before `done`: the whole of it, also after its
+   * parts were streamed (the record a device keeps; builds before streaming read only this). */
   | { event: 'figure'; data: FigureWalkthrough }
+  /** The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough", 2026-10-22): its summary, then each part, checked
+   * as the final `figure` checks them and equal to its sections in order (`index` is the part's place there); where the
+   * model is (`reading`: dispatched, nothing written yet; `writing`: `characters` of the walkthrough written so far and,
+   * once the model has said it, the number of `parts` it will write).
+   * Builds that predate them ignore unknown events. */
+  | { event: 'figure_summary'; data: { summary: string } }
+  | { event: 'figure_section'; data: { index: number; section: FigureSection } }
+  | { event: 'figure_progress'; data: { stage: 'reading' | 'writing'; characters?: number; parts?: number } }
   | { event: 'figure_detail'; data: FigureDetail }
   /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile, `auto`
    * resolved; `effort`: the effort the server picked, present only when the request asked for `auto`. */
@@ -610,7 +620,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   try { request = validateChatRequest(body); } catch (error) { await admitted(); throw error; }
   // The reader's model, effort and length, `auto` resolved from the length and this question before anything is held
   // (chat-profiles.ts autoEffort); the quote, the request and the answer all carry the resolved profile.
-  const choice = resolveChoice(request.choice, { question: request.turns.at(-1)!.text, selection: request.selection, figures: request.figures.length });
+  const resolved = resolveChoice(request.choice, { question: request.turns.at(-1)!.text, selection: request.selection, figures: request.figures.length });
+  // The figure view thinks at low effort unless the reader chose one for a Claude model (FIGURE_VIEW.md "Speed").
+  const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler')
+    ? { ...resolved, effort: figureViewEffort(request.choice, resolved.effort) } : resolved;
   const profile = resolveProfile(choice);
   // Every answer goes to OpenRouter, so the reader's consent must name it (v5, or v6 which also names DeepSeek's route).
   if (![GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION].includes(request.consentVersion)) { await admitted(); throw new ChatFailure('consent_required'); }
@@ -629,6 +642,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
   if (profile.model === 'gemini' && deps.gemini !== true) throw new ChatFailure('invalid_request');
   if (profile.model === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
+  // The paper on the device is authorized (its membership read) alongside the price-card and balance checks rather than
+  // after them: one database round trip fewer before the model is asked (FIGURE_VIEW.md "Speed").
+  const local = request.localContext;
+  const membershipRead = local ? settled(deps.rpc('worker_local_chat_context', { p_account_id: deps.accountID,
+    p_membership_id: local.membership_id, p_source_id: local.source_id, p_revision: local.revision }) as Promise<{ title?: string } | null>) : null;
   // A4: a model whose price card lapses before this answer could finish is unavailable (no hold, no retry loop); the
   // title, suggestions and map run only while their own model's card holds.
   if (deps.modelAvailable && !await deps.modelAvailable(profile.apiModel)) throw new ChatFailure('model_unavailable');
@@ -688,12 +706,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (available !== null && available < minimum) throw new ChatFailure('insufficient_credits');
 
   let paper: PaperContext | null = null;
-  if (request.localContext) {
-    const local = request.localContext;
-    let membership: { title?: string };
-    try { membership = await deps.rpc('worker_local_chat_context', { p_account_id: deps.accountID,
-      p_membership_id: local.membership_id, p_source_id: local.source_id, p_revision: local.revision }) as typeof membership; }
-    catch (error) { throw new ChatFailure(reason(error) === 'document_unavailable' ? 'document_unavailable' : 'service_unavailable'); }
+  if (local && membershipRead) {
+    const read = await membershipRead;
+    if (!read.ok) throw new ChatFailure(reason(read.error) === 'document_unavailable' ? 'document_unavailable' : 'service_unavailable');
+    const membership = read.value;
     if (!membership || typeof membership.title !== 'string') throw new ChatFailure('document_unavailable');
     paper = { title: membership.title, text: local.text };
   } else if (request.mode === 'paper') {
@@ -773,12 +789,41 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // Whether the reader had left when the answer itself ended (A12): leaving later, during the title's grace, the
   // suggestions or the map, does not turn a finished answer into an unpaid one.
   let leftDuringAnswer = false;
+  // The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough"): the model writes it as JSON in its reply (or, as
+  // before, in a figure_walkthrough call); each is read as it arrives, and the summary and every complete part, checked
+  // exactly as the final walkthrough is, go to the device at once. Only one source is relayed (the first to yield).
+  const paragraphs = isFigureAction(request.action) || offersWalkthrough ? paragraphCount(paper?.text ?? '') : 0;
+  const walkStreams = walkthroughOnly ? { text: new FigureWalkthroughStream(paragraphs), tool: new FigureWalkthroughStream(paragraphs) } : null;
+  // Assigned in the stream's callbacks (declared wide so the checks after the answer see every value).
+  let walkSource = null as 'text' | 'tool' | null, progressAt = -Infinity, firstPartMs = null as number | null;
+  const generationStarted = now();
+  const relayWalk = (from: 'text' | 'tool', piece: string) => {
+    if (!walkStreams || (walkSource && walkSource !== from)) return;
+    const reader = walkStreams[from], items: FigureStreamItem[] = reader.push(piece);
+    if (signal.aborted) return;
+    if (items.length) walkSource = from;
+    for (const item of items) {
+      if (item.kind === 'summary') emit({ event: 'figure_summary', data: { summary: item.summary } });
+      else if (item.kind === 'section') { firstPartMs ??= now() - generationStarted; emit({ event: 'figure_section', data: { index: item.index, section: item.section } }); }
+    }
+    // Where the writing is, at most every 400 ms, at the first characters and when the count is announced: a device's
+    // progress bar (`parts`: how many parts the model said it will write, once it has).
+    const counted = items.some(i => i.kind === 'parts');
+    if (reader.length && (walkSource === from || !walkSource) && (counted || now() - progressAt >= 400)) {
+      progressAt = now();
+      emit({ event: 'figure_progress', data: { stage: 'writing', characters: reader.length, ...(reader.parts ? { parts: reader.parts } : {}) } });
+    }
+  };
+  if (walkStreams && !signal.aborted) emit({ event: 'figure_progress', data: { stage: 'reading' } });
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
-        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); return; }
+        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); relayWalk('text', text); return; }
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
+      ...(walkStreams ? { onToolInput: (call: { index: number; name: string }, piece: string) => {
+        if (call.name === FIGURE_WALKTHROUGH_TOOL.name) relayWalk('tool', piece);
+      } } : {}),
       onStatus: status,
     }, { tavily, cap: searchCap }, stats);
     leftDuringAnswer = signal.aborted;
@@ -827,10 +872,19 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const symbolWords = symbolsOnly && !described ? equationFallbackText(heldText) : '';
   // The figure view's walkthrough, checked; without one, the words in its call (else the model's own) are the description.
   const walkthroughCall = offersWalkthrough ? answer.toolCalls?.find(c => c.name === FIGURE_WALKTHROUGH_TOOL.name) : undefined;
-  const paragraphs = walkthroughCall ? paragraphCount(paper?.text ?? '') : 0;
-  const walkthrough = walkthroughOnly && walkthroughCall ? figureWalkthrough(walkthroughCall.input, paragraphs) : null;
+  // The walkthrough: from the call when the model made one, else from the JSON in its reply; when neither parses whole
+  // (cut off at its allowance, or a malformed later part) the parts that streamed are the walkthrough, so the final
+  // `figure` never takes back a part the device was shown.
+  const textInput = walkthroughOnly ? walkthroughJSON(heldText) : undefined;
+  const fromCall = walkthroughOnly && walkthroughCall ? figureWalkthrough(walkthroughCall.input, paragraphs) : null;
+  const fromText = textInput !== undefined ? figureWalkthrough(textInput, paragraphs) : null;
+  // The source that streamed comes first, so the final walkthrough is what the device was shown, completed.
+  const walkthrough = !walkthroughOnly ? null : (walkSource === 'text' ? fromText ?? fromCall : fromCall ?? fromText)
+    ?? (walkSource ? walkStreams![walkSource].walkthrough() : null);
+  // Without one, the words in its call or JSON (else the model's own words, when they aren't an unreadable object).
   const walkthroughWords = walkthroughOnly && !walkthrough
-    ? ((walkthroughCall ? figureWalkthroughText(walkthroughCall.input, paragraphs) : '') || heldText.trim()).slice(0, 12_000) : '';
+    ? ((walkthroughCall ? figureWalkthroughText(walkthroughCall.input, paragraphs) : textInput !== undefined ? figureWalkthroughText(textInput, paragraphs) : '')
+      || (/^\s*(?:```\w*\s*)?\{/.test(heldText) ? '' : heldText.trim())).slice(0, 12_000) : '';
   // One part extracted: its section with a usable box; without one, its words (else the model's own) reach the reader
   // without a crop, and the device says the part couldn't be cropped.
   const detail = detailOnly && walkthroughCall ? figureDetail(walkthroughCall.input, paragraphs) : null;
@@ -965,7 +1019,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     if (walkthroughOnly && !signal.aborted) {
       deps.log({ event: walkthrough ? 'chat_figure_walkthrough' : 'chat_figure_walkthrough_invalid_output', operation_id: request.operationID,
         called: !!walkthroughCall, sections: walkthrough?.sections.length ?? 0, boxes: walkthrough?.sections.filter(s => s.box).length ?? 0,
-        boxes_offered: walkthroughCall ? offeredBoxes(walkthroughCall.input) : 0 });
+        boxes_offered: walkthroughCall ? offeredBoxes(walkthroughCall.input) : textInput !== undefined ? offeredBoxes(textInput) : 0,
+        // Streaming (counts and times only): where it came from, how many parts streamed, when the first did.
+        source: walkSource ?? 'none', streamed: walkSource ? walkStreams![walkSource].sections.length : 0, first_part_ms: firstPartMs });
       if (walkthrough) emit({ event: 'figure', data: walkthrough });
       else if (walkthroughWords) emit({ event: 'delta', data: { text: walkthroughWords } });
     }

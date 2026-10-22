@@ -46,7 +46,9 @@ const LOOK = process.argv.includes('--look');
 /** `--equation`: symbols, then background on DPO's loss; `--equation=symbols` reruns only the structured request. */
 const EQUATION = process.argv.includes('--equation') || process.argv.includes('--equation=symbols');
 /** `--figure-view=N`, `--table-view=N`, `--warm`, `--paper=<id>v<rev>`: the figure view (see the header). */
-const FIGURE_VIEW = Number(process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? 0);
+// A comma-separated list walks through several figures in turn (the first may write the paper to the cache, the rest read it).
+const FIGURE_VIEWS = (process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? '').split(',').map(Number).filter(n => n > 0);
+const FIGURE_VIEW = FIGURE_VIEWS[0] ?? 0;
 const TABLE_VIEW = Number(process.argv.find(a => a.startsWith('--table-view='))?.slice(13) ?? 0);
 const WARM = process.argv.includes('--warm');
 // Isolate a changed walkthrough contract without paying again for the unchanged simpler action.
@@ -204,14 +206,21 @@ async function figureRequest(body, token) {
   const r = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
     apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
   if (r.status !== 200) { log(await r.text()); throw new Error(`chat HTTP ${r.status}`); }
-  const out = { events: [], text: '', figure: null, done: null, error: null, first: 0 };
+  const out = { events: [], text: '', figure: null, done: null, error: null, first: 0, operation_id: body.operation_id, started_at: new Date(started).toISOString(),
+    marks: { headers_ms: Date.now() - started, summary_ms: null, sections_ms: [], progress: [], figure_ms: null, done_ms: null }, streamed: { summary: null, sections: [] } };
   const reader = r.body.getReader(), decoder = new TextDecoder(); let buffer = '';
   const dispatch = frame => {
     let name = 'message', data = '';
     for (const line of frame.split('\n')) { if (line.startsWith('event:')) name = line.slice(6).trim(); else if (line.startsWith('data:')) data += line.slice(5).trim(); }
     if (!data) return;
     const payload = JSON.parse(data); out.events.push(name);
-    if (!out.first && name !== 'status') out.first = Date.now();
+    if (!out.first && name !== 'status' && name !== 'figure_progress') out.first = Date.now();
+    const at = Date.now() - started;
+    if (name === 'figure_summary') { out.marks.summary_ms ??= at; out.streamed.summary = payload.summary; }
+    else if (name === 'figure_section') { out.marks.sections_ms.push(at); out.streamed.sections[payload.index] = payload.section; }
+    else if (name === 'figure_progress') out.marks.progress.push([at, payload.stage, payload.sections ?? null, payload.characters ?? null]);
+    else if (name === 'figure') out.marks.figure_ms = at;
+    else if (name === 'done' || name === 'error') out.marks.done_ms = at;
     if (name === 'delta') out.text += payload.text; else if (name === 'figure') out.figure = payload;
     else if (name === 'done') out.done = payload; else if (name === 'error') out.error = payload;
   };
@@ -223,7 +232,11 @@ async function figureRequest(body, token) {
   }
   if (buffer.trim()) dispatch(buffer);
   out.seconds = Number(((Date.now() - started) / 1000).toFixed(1)); out.firstSeconds = out.first ? Number(((out.first - started) / 1000).toFixed(1)) : null;
-  log(`events ${out.events.join(',')} | ${out.seconds} s (first event ${out.firstSeconds} s) | done ${JSON.stringify(out.done ?? out.error)}`);
+  const compact = out.events.filter((e, i) => e !== out.events[i - 1]);
+  log(`events ${compact.join(',')} | ${out.seconds} s (first event ${out.firstSeconds} s) | done ${JSON.stringify(out.done ?? out.error)}`);
+  const sec = ms => ms == null ? '-' : (ms / 1000).toFixed(1);
+  if (body.action === 'figure') log(`timing: headers ${sec(out.marks.headers_ms)} summary ${sec(out.marks.summary_ms)} sections [${out.marks.sections_ms.map(sec).join(' ')}] figure ${sec(out.marks.figure_ms)} done ${sec(out.marks.done_ms)}`
+    + `${out.figure && out.streamed.sections.length ? ` | streamed sections match the final: ${JSON.stringify(out.streamed.sections) === JSON.stringify(out.figure.sections) && (out.streamed.summary ?? '') === out.figure.summary}` : ''}`);
   return out;
 }
 /** The walkthrough's boxes drawn on the image that was sent, numbered by section, so they can be checked by eye. */
@@ -252,6 +265,32 @@ async function drawBoxes(image, sections, file) {
     writeFileSync(file, Buffer.from(png, 'base64'));
   } finally { await page.close(); }
 }
+/** Each walkthrough's server stages, read back from the staging database (management token from the keychain; read-only):
+ * milliseconds from the client's request to the reservation (admission, balance, paper context, hold), the provider
+ * attempt's admission, its dispatch, its finish, and the settlement; and the provider's billed cost. Database clocks
+ * against this Mac's: tens of milliseconds of skew are possible. */
+async function serverStages(runs) {
+  if (!runs.length) return;
+  try {
+    await sleep(2_000);
+    const managementToken = execFileSync('security', ['find-generic-password', '-s', 'Supabase CLI', '-w'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    secrets.add(managementToken);
+    const ids = runs.map(r => r.operation_id).filter(id => /^[0-9a-f-]{36}$/.test(id)).map(id => `'${id}'`).join(',');
+    const r = await http(`https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`, { method: 'POST', headers: { Authorization: `Bearer ${managementToken}` },
+      body: { read_only: true, query: `select q.operation_id::text op, q.created_at reserved, q.effort, q.max_output_tokens, a.created_at admitted, a.dispatched_at dispatched, a.finished_at finished,
+        a.actual_microusd, a.actual_units, e.created_at settled from app_private.chat_quotes q
+        left join app_private.provider_attempts a on a.operation_id = q.operation_id and a.provider = 'openrouter'
+        left join app_private.chat_endings e on e.operation_id = q.operation_id where q.operation_id in (${ids})` } });
+    if (r.status >= 300) throw new Error(`HTTP ${r.status}`);
+    for (const run of runs) {
+      const row = r.json.find(x => x.op === run.operation_id); if (!row) continue;
+      const t0 = Date.parse(run.started_at), at = v => v ? Date.parse(v) - t0 : null;
+      run.server = { reserved_ms: at(row.reserved), admitted_ms: at(row.admitted), dispatched_ms: at(row.dispatched), finished_ms: at(row.finished), settled_ms: at(row.settled),
+        effort: row.effort, max_output_tokens: row.max_output_tokens, provider_usd: Number(row.actual_microusd ?? 0) / 1e6, units: row.actual_units };
+      log(`${run.target} server: reserved ${run.server.reserved_ms} ms, admitted ${run.server.admitted_ms}, dispatched ${run.server.dispatched_ms}, finished ${run.server.finished_ms}, settled ${run.server.settled_ms}; effort ${row.effort}, ${run.server.provider_usd.toFixed(4)}`);
+    }
+  } catch (error) { log(`server stages unavailable: ${error.message}`); }
+}
 async function figureViews({ local_context, token }) {
   const dir = `${ROOT}/.artifacts/figure-view`; mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -262,7 +301,7 @@ async function figureViews({ local_context, token }) {
     const chat = await figureRequest({ ...base, operation_id: randomUUID(), messages: [{ role: 'user', text: 'In two sentences, what is this paper\'s main contribution?' }] }, token);
     record.runs.push({ kind: 'chat', seconds: chat.seconds, credits: chat.done?.credits ?? null, usage: chat.done?.usage ?? null, events: [...new Set(chat.events)] });
   }
-  const targets = [...(FIGURE_VIEW ? [figureSource(FIGURE_VIEW)] : []), ...(TABLE_VIEW ? [await tableImage(TABLE_VIEW)] : [])];
+  const targets = [...FIGURE_VIEWS.map(figureSource), ...(TABLE_VIEW ? [await tableImage(TABLE_VIEW)] : [])];
   for (const target of targets) {
     const prepared = await prepareFigureImage(target.parts);
     const name = target.label.replace('figure', 'Figure ').replace('table', 'Table ');
@@ -279,7 +318,7 @@ async function figureViews({ local_context, token }) {
       log(`boxes drawn: .artifacts/figure-view/${PAPER.key}-${target.label}-boxes.png`);
     } else console.log('--- words (no walkthrough) ---\n' + redact(walk.text) + '\n--- end ---');
     record.runs.push({ kind: 'figure', target: name, paragraph: target.paragraph, image: { width: prepared.width, height: prepared.height, kb: Math.round(prepared.data.length * 3 / 4 / 1024) },
-      seconds: walk.seconds, events: [...new Set(walk.events)], credits: walk.done?.credits ?? null, charged: walk.done?.charged ?? null, effort: walk.done?.effort ?? null,
+      seconds: walk.seconds, operation_id: walk.operation_id, started_at: walk.started_at, marks: walk.marks, events: [...new Set(walk.events)], credits: walk.done?.credits ?? null, charged: walk.done?.charged ?? null, effort: walk.done?.effort ?? null,
       model: walk.done?.model ?? null, usage: walk.done?.usage ?? null, error: walk.error, walkthrough: w });
     // One part again, more simply: the first section with a box, else the second.
     const part = w ? (w.sections.find(s => s.box) ?? w.sections[1] ?? w.sections[0]) : null;
@@ -292,6 +331,7 @@ async function figureViews({ local_context, token }) {
         characters: simpler.text.length, error: simpler.error });
     }
   }
+  await serverStages(record.runs.filter(r => r.kind === 'figure'));
   const file = `${dir}/${stamp}-${PAPER.key}.json`;
   writeFileSync(file, JSON.stringify(record, null, 1));
   log(`recorded ${file.slice(ROOT.length + 1)}`);

@@ -110,7 +110,8 @@ export function openRouterChatParams(params: Params): ObjectValue {
     ...(!forced && choice ? { tool_choice: choice.type === 'tool' ? { type: 'function', function: { name: choice.name } }
       : choice.type === 'any' ? 'required' : choice.type } : {}),
     max_tokens: params.max_tokens, stream: true, stream_options: { include_usage: true },
-    reasoning: claude || deepseek ? params.thinking?.type === 'disabled' ? { enabled: false } : { effort: params.output_config?.effort ?? 'low' } : { effort: 'medium' },
+    // Gemini: the chat's profiles always say medium; the figure walkthrough asks for low (FIGURE_VIEW.md "Speed").
+    reasoning: claude || deepseek ? params.thinking?.type === 'disabled' ? { enabled: false } : { effort: params.output_config?.effort ?? 'low' } : { effort: params.output_config?.effort ?? 'medium' },
     provider: { only: [endpoint], order: [endpoint], allow_fallbacks: false, require_parameters: true,
       data_collection: 'deny', zdr: true, max_price: { prompt: rates.input, completion: rates.output } } };
 }
@@ -268,6 +269,7 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
             previous.id += string(call.id); previous.name += string(fn.name); previous.arguments += string(fn.arguments);
             observedChars += string(fn.arguments).length; delivered = true;
             calls.set(index, previous);
+            if (string(fn.arguments)) stream.onToolInput?.({ index, name: previous.name }, string(fn.arguments));
           }
           for (const raw of array(delta.reasoning_details)) {
             const detail = object(raw), index = count(detail.index) ?? 0, previous = reasoning.get(index);

@@ -1,0 +1,314 @@
+{
+ "parameters": {
+  "summaryChars": 500,
+  "partChars": 1500,
+  "summaryShare": 0.1,
+  "partCap": 0.9
+ },
+ "expectedParts": [
+  [
+   null,
+   0,
+   null
+  ],
+  [
+   3,
+   0,
+   3
+  ],
+  [
+   1,
+   4,
+   4
+  ],
+  [
+   null,
+   2,
+   2
+  ],
+  [
+   null,
+   1,
+   null
+  ],
+  [
+   2,
+   5,
+   2
+  ]
+ ],
+ "cases": [
+  {
+   "name": "preparing",
+   "input": {
+    "stage": "preparing",
+    "summary": false,
+    "parts": 0,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Preparing the figure…",
+    "value": null
+   }
+  },
+  {
+   "name": "reading",
+   "input": {
+    "stage": "reading",
+    "summary": false,
+    "parts": 0,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Reading the figure…",
+    "value": null
+   }
+  },
+  {
+   "name": "summary started",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 0,
+    "characters": 120,
+    "charactersAtLast": 0,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": 0.024
+   }
+  },
+  {
+   "name": "summary nearly written",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 0,
+    "characters": 480,
+    "charactersAtLast": 0,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": 0.09
+   }
+  },
+  {
+   "name": "summary over its estimate stays within its share",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 0,
+    "characters": 2000,
+    "charactersAtLast": 0,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": 0.09
+   }
+  },
+  {
+   "name": "summary in, part 1 begun",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 0,
+    "characters": 700,
+    "charactersAtLast": 520,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing part 1 of 3…",
+    "value": 0.136
+   }
+  },
+  {
+   "name": "part 1 halfway",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 0,
+    "characters": 1270,
+    "charactersAtLast": 520,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing part 1 of 3…",
+    "value": 0.25
+   }
+  },
+  {
+   "name": "part 1 long: capped below the part",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 0,
+    "characters": 9000,
+    "charactersAtLast": 520,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing part 1 of 3…",
+    "value": 0.37
+   }
+  },
+  {
+   "name": "part 2 begun",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 1,
+    "characters": 2100,
+    "charactersAtLast": 2050,
+    "expected": 3,
+    "previous": 0.4
+   },
+   "expected": {
+    "label": "Writing part 2 of 3…",
+    "value": 0.41
+   }
+  },
+  {
+   "name": "never goes back",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 1,
+    "characters": 2100,
+    "charactersAtLast": 2100,
+    "expected": 3,
+    "previous": 0.5
+   },
+   "expected": {
+    "label": "Writing part 2 of 3…",
+    "value": 0.5
+   }
+  },
+  {
+   "name": "last part",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 2,
+    "characters": 4000,
+    "charactersAtLast": 3700,
+    "expected": 3,
+    "previous": 0.7
+   },
+   "expected": {
+    "label": "Writing part 3 of 3…",
+    "value": 0.76
+   }
+  },
+  {
+   "name": "more parts than expected: indeterminate",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 3,
+    "characters": 5000,
+    "charactersAtLast": 4900,
+    "expected": 3,
+    "previous": 0.97
+   },
+   "expected": {
+    "label": "Writing part 4…",
+    "value": null
+   }
+  },
+  {
+   "name": "unknown count",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 1,
+    "characters": 2100,
+    "charactersAtLast": 2000,
+    "expected": null,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing part 2…",
+    "value": null
+   }
+  },
+  {
+   "name": "unknown count, summary",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 0,
+    "characters": 100,
+    "charactersAtLast": 0,
+    "expected": null,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": null
+   }
+  },
+  {
+   "name": "a part before any summary",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 1,
+    "characters": 1600,
+    "charactersAtLast": 1550,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing part 2 of 3…",
+    "value": 0.41
+   }
+  },
+  {
+   "name": "done",
+   "input": {
+    "stage": "done",
+    "summary": true,
+    "parts": 3,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 3,
+    "previous": null
+   },
+   "expected": {
+    "label": "Done",
+    "value": 1
+   }
+  },
+  {
+   "name": "two expected, first part",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 0,
+    "characters": 1300,
+    "charactersAtLast": 500,
+    "expected": 2,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing part 1 of 2…",
+    "value": 0.34
+   }
+  }
+ ]
+}

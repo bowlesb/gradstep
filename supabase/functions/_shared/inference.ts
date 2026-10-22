@@ -353,6 +353,9 @@ export interface StreamOptions {
   purpose?: 'topic_title';
   signal: AbortSignal;
   onText: (text: string) => void;
+  /** A tool call's arguments as they stream (the figure view reads its walkthrough incrementally): the call's slot and
+   * name so far, and the new characters. Never relayed as text. */
+  onToolInput?: (call: { index: number; name: string }, piece: string) => void;
   /** Progress between pieces of text (our search rounds). */
   onStatus?: (status: ChatStatus) => void;
   /** Estimated input tokens, charged at the uncached rate when billing is uncertain. */

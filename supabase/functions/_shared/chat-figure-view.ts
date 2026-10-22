@@ -7,7 +7,7 @@
 // so the call is asked for by the instructions with the chat's own tool_choice (auto) and adaptive thinking, and the
 // server checks its input. The tool is in the tools of every paper chat from a build that has the figure view (the
 // `figure_view` capability), so a walkthrough and the chat around it share one cached prefix.
-import type { ToolDefinition } from './model-request.ts';
+import type { Effort, ToolDefinition } from './model-request.ts';
 import { EFFORTS } from './chat-profiles.ts';
 
 /** `figure_detail` ("Extract the subfigure and more context") is DEPRECATED (2026-10-21, owner: "Let's not do extract the
@@ -66,7 +66,7 @@ export const FIGURE_WALKTHROUGH_TOOL: ToolDefinition = {
 };
 
 export const FIGURE_INSTRUCTIONS = `The reader opened the figure view on the attached figure (F1; the <selected_passage> block is its caption) and asked for a walkthrough of it. Read the image itself, closely: every panel, axis, tick label, legend entry, colour, marker, line style, arrow and annotation.
-Call figure_walkthrough once with the whole walkthrough, even when part of the image is unclear or cut off (say so in the text). Write no other text, use no other tool and do not search the web.
+Write the whole walkthrough as one JSON object in your reply, with the fields of the figure_walkthrough tool's input after a count: {"parts": 3, "summary": "…", "sections": [{"kind": "panel", "label": "…", "title": "…", "text": "…", "paragraphs": [N, …], "box": {"x": …, "y": …, "w": …, "h": …}}, …]}. First "parts", the number of sections you will write (the reader's progress bar), then the summary, then each section whole before the next: the reader sees each part as soon as it is written. Write it even when part of the image is unclear or cut off (say so in the text). Write nothing else (no code fence, no words before or after it), call no tool and do not search the web. Inside the JSON strings, escape as JSON requires: math is \\\\( … \\\\) and \\\\[ … \\\\] there (it reads as \\( … \\) and \\[ … \\]), never dollar signs; line breaks are \\n.
 - summary: two or three plain sentences: what the figure shows and the point it makes in the paper.
 - sections: primarily panel cards, one per sub-figure or coherent group of panels, in reading order (the figure's own labels (a), (b)…, else left to right, top to bottom). Leave none out; panels that repeat one pattern may share a section (at most ${FIGURE_LIMITS.sections} sections). A single-panel figure can use one panel card without a crop. Add concept or related-work cards only when they help interpret this figure, not to fill a quota.
 - kind: panel, concept, or related_work. A concept card explains an idea needed to understand the result; a related_work card summarizes only what the supplied paper says about another work, names that work in its title and cites the supporting [¶N]. Do not imply you have read another paper. Non-panel cards have no box.
@@ -133,6 +133,26 @@ export function figureBox(value: unknown): FigureBox | null {
   return { x: round(x), y: round(y), w: round(w), h: round(h) };
 }
 
+/** One section of the model's figure_walkthrough input, checked and bounded (untrusted), or null when it has no title or
+ * text. `boxed` is how many kept sections before it carry a box (at most FIGURE_LIMITS.boxes are kept). The walkthrough
+ * and its streamed sections (`FigureWalkthroughStream`) use this one check, so the sections a device sees as they arrive
+ * are exactly the final walkthrough's. */
+export function figureSection(raw: unknown, paragraphs: number, boxed = 0): FigureSection | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const s = raw as Record<string, unknown>;
+  let label = line(s.label, FIGURE_LIMITS.labelChars), title = line(s.title, FIGURE_LIMITS.titleChars);
+  const text = prose(s.text, FIGURE_LIMITS.textChars, paragraphs);
+  if (!title) { title = label; label = ''; }
+  if (!text || !title) return null;
+  const given = Array.isArray(s.paragraphs) ? (s.paragraphs as unknown[]).filter((n): n is number => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= paragraphs) : [];
+  const numbers = [...new Set([...given, ...cited(text)])].slice(0, FIGURE_LIMITS.paragraphs);
+  const kind = s.kind === 'concept' || s.kind === 'related_work' || s.kind === 'panel' ? s.kind : undefined;
+  const box = (!kind || kind === 'panel') && boxed < FIGURE_LIMITS.boxes ? figureBox(s.box) : null;
+  return { ...(kind ? { kind } : {}), label, title, text, paragraphs: numbers, ...(box ? { box } : {}) };
+}
+/** The walkthrough's summary, checked (may be empty). */
+export const figureSummary = (value: unknown, paragraphs: number): string => prose(value, FIGURE_LIMITS.summaryChars, paragraphs);
+
 /** The model's figure_walkthrough input, checked and bounded (untrusted: the paper and the image can steer it). Degrades
  * rather than refuses: a section without text is left out, a box that does not fit is dropped (the section stays), the
  * first 12 sections and 12 boxes are kept, a [¶N] outside the paper is removed. Null when no section is left.
@@ -142,24 +162,158 @@ export function figureWalkthrough(input: unknown, paragraphs: number): FigureWal
   const v = input as Record<string, unknown>;
   if (!Array.isArray(v.sections)) return null;
   const sections: FigureSection[] = [];
-  let boxes = 0;
   for (const raw of v.sections as unknown[]) {
     if (sections.length >= FIGURE_LIMITS.sections) break;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-    const s = raw as Record<string, unknown>;
-    let label = line(s.label, FIGURE_LIMITS.labelChars), title = line(s.title, FIGURE_LIMITS.titleChars);
-    const text = prose(s.text, FIGURE_LIMITS.textChars, paragraphs);
-    if (!title) { title = label; label = ''; }
-    if (!text || !title) continue;
-    const given = Array.isArray(s.paragraphs) ? (s.paragraphs as unknown[]).filter((n): n is number => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= paragraphs) : [];
-    const numbers = [...new Set([...given, ...cited(text)])].slice(0, FIGURE_LIMITS.paragraphs);
-    const kind = s.kind === 'concept' || s.kind === 'related_work' || s.kind === 'panel' ? s.kind : undefined;
-    const box = (!kind || kind === 'panel') && boxes < FIGURE_LIMITS.boxes ? figureBox(s.box) : null;
-    if (box) boxes++;
-    sections.push({ ...(kind ? { kind } : {}), label, title, text, paragraphs: numbers, ...(box ? { box } : {}) });
+    const section = figureSection(raw, paragraphs, sections.filter(s => s.box).length);
+    if (section) sections.push(section);
   }
   if (!sections.length) return null;
-  return { format: FIGURE_FORMAT, summary: prose(v.summary, FIGURE_LIMITS.summaryChars, paragraphs), sections };
+  return { format: FIGURE_FORMAT, summary: figureSummary(v.summary, paragraphs), sections };
+}
+
+/** What a walkthrough's streamed arguments yield as they arrive (FIGURE_VIEW.md "Streamed walkthrough"): the summary
+ * once its string is complete, and each section once its object is complete and passes `figureSection` (in order;
+ * `index` is its place in the final walkthrough). */
+export type FigureStreamItem = { kind: 'summary'; summary: string } | { kind: 'section'; index: number; section: FigureSection }
+  /** The number of parts the model says it will write (`"parts"`, its first field): a progress bar's denominator, not a
+   * promise (the parts that arrive are what the walkthrough is). */
+  | { kind: 'parts'; parts: number };
+
+/** Reads figure_walkthrough's JSON arguments incrementally (`{"summary": "…", "sections": [{…}, …]}`, keys in any
+ * order). A character scanner keeps only the open containers, each object's current key and where the values of
+ * interest started; a completed value is parsed with JSON.parse from its own slice, so malformed or cut-off input
+ * yields nothing for that value (the final check still decides what the walkthrough is). O(n) over the arguments, which
+ * the provider adapter bounds. */
+export class FigureWalkthroughStream {
+  private text = '';
+  private at = 0;
+  private inString = false;
+  private escaped = false;
+  private stringStart = -1;
+  private stringIsKey = false;
+  private readonly stack: { kind: '{' | '['; key: string | null; expectKey: boolean; start: number; role: 'sections' | 'section' | null }[] = [];
+  private summarySent = false;
+  private closed = false;
+  private objectStart = -1;
+  private objectEnd = -1;
+  private digits = '';
+  /** The announced number of parts: null until read, 0 when it was not a usable number. */
+  private announced: number | null = null;
+  private summaryText = '';
+  private readonly kept: FigureSection[] = [];
+  private seen = 0;
+  private readonly paragraphs: number;
+  constructor(paragraphs: number) { this.paragraphs = paragraphs; }
+
+  /** Characters of the walkthrough's object written so far (0 until it starts). */
+  get length(): number { return this.objectStart < 0 ? 0 : (this.closed ? this.objectEnd : this.text.length) - this.objectStart; }
+  /** Section objects the model has closed so far (usable or not). */
+  get completed(): number { return this.seen; }
+  /** The sections streamed so far (checked, in order). */
+  get sections(): readonly FigureSection[] { return this.kept; }
+  /** The number of parts the model announced, when it did (1–12). */
+  get parts(): number | null { return this.announced || null; }
+  /** Whether the top-level object has closed (the walkthrough was written to its end). */
+  get complete(): boolean { return this.closed; }
+  /** The walkthrough streamed so far (a cut-off one keeps the sections that were complete); null before any section. */
+  walkthrough(): FigureWalkthrough | null {
+    return this.kept.length ? { format: FIGURE_FORMAT, summary: this.summaryText, sections: [...this.kept] } : null;
+  }
+
+  push(chunk: string): FigureStreamItem[] {
+    const out: FigureStreamItem[] = [];
+    this.text += chunk;
+    for (; this.at < this.text.length; this.at++) {
+      const c = this.text[this.at];
+      // Only the first top-level object is read: anything around it (a code fence, a stray word) is ignored.
+      if (!this.stack.length && !this.inString) {
+        if (c === '{' && !this.closed) { this.stack.push({ kind: '{', key: null, expectKey: true, start: this.at, role: null }); this.objectStart = this.at; }
+        continue;
+      }
+      if (this.inString) {
+        if (this.escaped) this.escaped = false;
+        else if (c === '\\') this.escaped = true;
+        else if (c === '"') { this.inString = false; this.endString(out); }
+        continue;
+      }
+      const top = this.stack.at(-1);
+      // The announced number of parts (`"parts": N`, asked for first): read as its digits end.
+      if (this.stack.length === 1 && top?.key === 'parts' && !top.expectKey && this.announced === null) {
+        if (c >= '0' && c <= '9' && this.digits.length < 3) { this.digits += c; continue; }
+        if (this.digits) {
+          const n = Number(this.digits);
+          this.announced = n >= 1 && n <= FIGURE_LIMITS.sections ? n : 0;
+          if (this.announced) out.push({ kind: 'parts', parts: n });
+        }
+      }
+      if (c === '"') {
+        this.inString = true; this.stringStart = this.at;
+        this.stringIsKey = !!top && top.kind === '{' && top.expectKey;
+      } else if (c === '{' || c === '[') {
+        const role = c === '[' && this.stack.length === 1 && top?.key === 'sections' ? 'sections'
+          : c === '{' && top?.role === 'sections' ? 'section' : null;
+        this.stack.push({ kind: c, key: null, expectKey: c === '{', start: this.at, role });
+      } else if (c === '}' || c === ']') {
+        // A bracket that closes the wrong kind (`[0, 0.1}`) closes up to its own kind, so one malformed part does not
+        // swallow the rest; that part fails to parse and is left out.
+        const kind = c === '}' ? '{' : '[';
+        let closed = this.stack.pop();
+        while (closed && closed.kind !== kind && this.stack.length) {
+          if (closed.role === 'section') this.endSection(closed.start, out);
+          closed = this.stack.pop();
+        }
+        if (closed?.role === 'section') this.endSection(closed.start, out);
+        if (!this.stack.length) { this.closed = true; this.objectEnd = this.at + 1; }
+      } else if (c === ',' && top?.kind === '{') top.expectKey = true;
+    }
+    return out;
+  }
+
+  private endString(out: FigureStreamItem[]) {
+    const top = this.stack.at(-1);
+    if (!top || top.kind !== '{') return;
+    let value: unknown;
+    try { value = JSON.parse(this.text.slice(this.stringStart, this.at + 1)); } catch { return; }
+    if (this.stringIsKey) { top.key = typeof value === 'string' ? value : null; top.expectKey = false; return; }
+    if (this.stack.length === 1 && top.key === 'summary' && !this.summarySent) {
+      this.summarySent = true;
+      const summary = figureSummary(value, this.paragraphs);
+      this.summaryText = summary;
+      if (summary) out.push({ kind: 'summary', summary });
+    }
+  }
+
+  private endSection(start: number, out: FigureStreamItem[]) {
+    this.seen++;
+    if (this.kept.length >= FIGURE_LIMITS.sections) return;
+    let raw: unknown;
+    try { raw = JSON.parse(this.text.slice(start, this.at + 1)); } catch { return; }
+    const section = figureSection(raw, this.paragraphs, this.kept.filter(s => s.box).length);
+    if (!section) return;
+    this.kept.push(section);
+    out.push({ kind: 'section', index: this.kept.length - 1, section });
+  }
+}
+
+/** The walkthrough written as JSON in the model's reply (FIGURE_INSTRUCTIONS), checked; null when it holds none. */
+export function figureWalkthroughFromText(text: string, paragraphs: number): FigureWalkthrough | null {
+  const input = walkthroughJSON(text);
+  return input === undefined ? null : figureWalkthrough(input, paragraphs);
+}
+/** The JSON object in a reply (the first `{` to the last `}`), or undefined when there is none that parses. */
+export function walkthroughJSON(text: string): unknown {
+  const start = text.indexOf('{'), end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return undefined;
+  try { return JSON.parse(text.slice(start, end + 1)) as unknown; } catch { return undefined; }
+}
+
+/** The figure view's effort (FIGURE_VIEW.md "Speed", 2026-10-22): `low` for the walkthrough and Explain more simply
+ * when the reader left the effort to the server (`auto`) or chose Gemini Flash, whose profiles carry no effort choice.
+ * Measured on four real figures: Gemini Flash at medium thought for up to 3,800 tokens (24–45 s before a walkthrough);
+ * at low it read the same panels, numbers and boxes in 8–11 s. An effort the reader chose for a Claude model stays. */
+export function figureViewEffort(requested: { model: string; effort: string } | null, resolved: Effort): Effort {
+  if (!requested) return resolved;
+  return requested.model === 'gemini' || requested.effort === 'auto' ? 'low' : resolved;
 }
 
 export interface FigureDetail { format: typeof FIGURE_DETAIL_FORMAT; label: string; title: string; text: string; paragraphs: number[]; box: FigureBox }
