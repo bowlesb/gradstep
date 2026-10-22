@@ -27,7 +27,7 @@ import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
 import type { NotesStore } from './notes-store';
 import { STUDY_OPENING, type StudyNotes } from './study';
-import { PAPER_EXPLAINER_TURN, paperExplainerKey, type PaperExplainerItem, type PaperExplainerResult, type PaperStreamProgress } from './paper-explainer';
+import { PAPER_EXPLAINER_TURN, paperExplainerKey, type PaperExplainer, type PaperExplainerItem, type PaperExplainerResult, type PaperStreamProgress } from './paper-explainer';
 import { EQUATION_FORMAT, equationKey, equationTurn, type EquationAction, type EquationResult, type EquationSymbol } from './equation';
 import { FIGURE_WALKTHROUGH_FORMAT, figureKey, figureName, figureTurn, type FigureAction, type FigureResult, type FigureSection, type FigureStreamProgress } from './figure-view';
 import type { FigureProgressStage } from './figure-progress';
@@ -129,7 +129,9 @@ export const AI_USE_CASE_TITLES: Record<AIUseCase, string> = { general: 'General
  * about, shown above it and sent as the passage with every question. A snippet's crop (`attachment`) goes with each
  * question of its paper's chat as a named figure's image does; `noteReturn` is its Back to note. */
 export interface PromotedContext { quote: string; label: string; anchor?: TextAnchor; explanation?: string; image?: string;
-  attachment?: ChatFigureImage; noteReturn?: { noteID: string; entryID: string }; imageSent?: boolean }
+  attachment?: ChatFigureImage; noteReturn?: { noteID: string; entryID: string }; imageSent?: boolean;
+  /** The paper's AI Explainer it came from: shown as the same cards (`explanation` is what the model reads). */
+  paperExplainer?: PaperExplainer }
 /** AI chat options' Activity: the chat activities, then Podcasts (the episode writer; owner, 2026-10-21). */
 export type AIActivity = AIUseCase | 'podcasts';
 /** What to weigh when choosing each activity's default (owner, 2026-10-21: "an explainer saying some considerations when

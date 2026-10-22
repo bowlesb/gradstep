@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { ChatSession } from '../lib/chat-session';
 import type { TextAnchor } from '../lib/events';
+import type { PaperExplainer } from '../lib/paper-explainer';
 import { ConnectedChat } from './ChatPane';
 export interface ContextualHost { chat: ChatSession; documentID: string; title: string; onPromote?: () => void }
 const subscribe = () => () => {}, version = () => 0;
@@ -23,9 +24,10 @@ export function ContextualChat({ context, explanation, onCite }: { context: Retu
   </section>;
 }
 
-export function promoteContextual(context:ReturnType<typeof useContextualChat>,explanation:string,image?:string) {
+export function promoteContextual(context:ReturnType<typeof useContextualChat>,explanation:string,image?:string,paperExplainer?:PaperExplainer) {
   if (!context) return;
-  context.host.chat.promoteContextual(context.composer,{anchor:context.anchor,label:context.label,quote:context.quote,explanation:[...explanation].slice(0,12000).join(''),image});
+  context.host.chat.promoteContextual(context.composer,{anchor:context.anchor,label:context.label,quote:context.quote,explanation:[...explanation].slice(0,12000).join(''),image,
+    ...(paperExplainer?{paperExplainer}:{})});
   context.host.onPromote?.();
   // The native dialog must release its focus trap before the promoted composer takes focus. Bind to this
   // exact composer and account so a later navigation or sign-out cannot focus an unrelated conversation.

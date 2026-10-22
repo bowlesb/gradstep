@@ -20,9 +20,9 @@ export const PAPER_EXPLAINER_INSTRUCTIONS = `The reader opened the AI Explainer 
 {"items": 9, "summary": "…", "background": [{"id": "b1", "name": "…", "line": "…", "paragraphs": [N, …]}, …], "ideas": [{"id": "i1", "name": "…", "line": "…", "paragraphs": [N, …]}, …], "links": [{"from": "b1", "to": "i1", "label": "…"}, …]}
 Write the fields in that order, each entry whole before the next: the reader sees each one as soon as it is written.
 - items: how many background and idea entries you will write in all (the reader's progress bar).
-- summary: two or three plain sentences: the problem, what the paper does about it, and its main result.
+- summary: two or three short plain sentences, under 450 characters in all: the problem, what the paper does about it, and its main result.
 - background: the 4 to 8 prerequisite concepts a reader needs and the paper assumes or only briefly recalls (not the paper's own contributions), most fundamental first. name: the concept as it is commonly known, under 60 characters. line: one sentence, under 200 characters: what it is, then what this paper uses it for. Names are short (a concept, not a phrase joining two). paragraphs: the numbers N of the 1 to 4 [¶N] paragraphs where the paper relies on it, first use first.
-- ideas: the paper's own 2 to 5 key ideas, with the same fields: its method or its parts in the order the paper builds them, and last its main result (what it showed, with the paper's headline number when it gives one).
+- ideas: the paper's own 2 to 5 key ideas (never a background concept again: the reader sees both lists as one, background first), with the same fields: its method or its parts in the order the paper builds them, and last its main result (what it showed, with the paper's headline number when it gives one).
 - links: how they fit together, 4 to 14 arrows, each from a concept to what builds on it (background to idea, idea to idea, idea to result). label: 1 to 4 plain words saying how ("defines", "is replaced by", "optimises", "evaluated by"). Every id appears in at least one link.
 Plain text in every string: no Markdown and no [¶N] markers (the paragraphs field carries them); math, if any, as \\\\( … \\\\) (escaped as JSON requires). Only what the paper supports; never invent results or numbers.`;
 
@@ -32,12 +32,25 @@ export interface PaperExplainerLink { from: string; to: string; label: string }
 export interface PaperExplainer { format: typeof PAPER_EXPLAINER_FORMAT; summary: string; background: PaperExplainerItem[]; ideas: PaperExplainerItem[]; links: PaperExplainerLink[] }
 
 const scalars = (text: string) => [...text].length;
-/** One line: control characters, Markdown emphasis and [¶N] markers out, white space collapsed, cut at the limit. */
+/** Text over `limit` scalars, shortened where a reader won't see it cut (build 82: "Is it cut off?" on a summary ending
+ * "from 85.8% t…"): at the last sentence end that keeps at least 40% of the limit, else at the last space with "…"
+ * (never inside a word or a number). The limits stay those older builds accept (they drop a longer string). */
+export function boundedText(text: string, limit: number): string {
+  if (scalars(text) <= limit) return text;
+  const head = [...text].slice(0, limit).join('');
+  // A sentence ends at . ! or ? followed by a space in the whole text (not "85." of a number the limit cut).
+  const ends = [...head.matchAll(/[.!?]/g)].map(m => m.index! + 1).filter(at => at >= limit * 0.4 && /\s/.test(text[at] ?? ''));
+  if (ends.length) return head.slice(0, ends.at(-1)).trimEnd();
+  const space = head.slice(0, -1).lastIndexOf(' ');
+  return `${(space > 0 ? head.slice(0, space) : [...head].slice(0, limit - 1).join('')).replace(/[\s,;:–—-]+$/, '')}…`;
+}
+
+/** One line: control characters, Markdown emphasis and [¶N] markers out, white space collapsed, bounded (boundedText). */
 function oneLine(value: unknown, limit: number): string {
   if (typeof value !== 'string') return '';
   const text = value.replace(/\[¶\d{1,6}\]/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\*\*|__|`/g, '')
     .replace(/\s+/g, ' ').trim().replace(/\s+([.,;:])/g, '$1');
-  return scalars(text) <= limit ? text : `${[...text].slice(0, limit - 1).join('').trimEnd()}…`;
+  return boundedText(text, limit);
 }
 const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 function slug(value: unknown): string | null {

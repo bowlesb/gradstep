@@ -790,6 +790,11 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .paper-background strong { font-weight: 600; }
 .paper-background button.cite { margin-left: 4px; border: 0; font-family: inherit; min-height: 0; min-width: 0; vertical-align: baseline; }
 .paper-kind { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+/* Key concepts: each entry's kind, quietly, with the diagram's colour for it (background blue-grey, this paper amber). */
+.concept-kind { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 1px; }
+.concept-kind::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #7a86a8; flex: none; }
+.concept-kind.ideas::before { background: #c98a12; }
+.promoted-explanation .paper-explainer-cards { display: grid; gap: 14px; }
 .paper-diagram .diagram-viewport { min-height: 260px; border: 1px solid var(--line); border-radius: 10px; }
 .paper-explainer-intro { margin: 0; }
 

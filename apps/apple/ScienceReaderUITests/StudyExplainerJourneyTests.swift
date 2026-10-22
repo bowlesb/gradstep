@@ -180,7 +180,19 @@ final class StudyExplainerJourneyTests: XCTestCase {
         let open = app.buttons["paperExplainer.openInChat"]
         XCTAssertTrue(open.waitForExistence(timeout: 5)); open.tap()
         XCTAssertTrue(any("chat.contextExplanation", app).waitForExistence(timeout: 10), "the explanation goes with the chat")
+        // The same cards follow into the chat (build 82): the summary, Key concepts with ¶ links, the drawn diagram.
+        XCTAssertTrue(any("chat.paperExplainer.summary", app).waitForExistence(timeout: 5), "the summary card")
+        XCTAssertTrue(any("chat.paperExplainer.background.1", app).exists, "Key concepts: the background first")
+        XCTAssertTrue(any("chat.paperExplainer.idea.1", app).exists, "and the paper's own ideas in the same card")
+        XCTAssertTrue(app.buttons["chat.paperExplainer.background.1.cite.4"].exists, "its ¶ links")
         sleep(1); save("\(device())-\(appearance)-paper-explainer-open-in-chat")
+        let chatDiagram = any("chat.paperExplainer.diagram", app)
+        let chatScroll = app.scrollViews.containing(.any, identifier: "chat.paperExplainer.summary").firstMatch
+        for _ in 0..<6 where !(chatDiagram.exists && chatDiagram.isHittable) { scroll(chatScroll, down: true) }
+        XCTAssertTrue(chatDiagram.waitForExistence(timeout: 5), "and the diagram")
+        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'drawn'"), object: chatDiagram)], timeout: 20) == .completed,
+                      "drawn in the chat too")
+        sleep(1); save("\(device())-\(appearance)-paper-explainer-open-in-chat-diagram")
 
         // Settings › Your assets › Paper explanations reopens it after a relaunch.
         app.terminate()

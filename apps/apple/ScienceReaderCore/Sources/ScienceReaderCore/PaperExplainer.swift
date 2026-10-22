@@ -238,7 +238,8 @@ public enum PaperExplainerProgress {
         let p = Parameters.self
         let inSummary = !input.summary && input.items == 0
         let known = input.expected.map { $0 >= 1 && input.items < $0 } ?? false
-        let place = input.ideas > 0 ? "the key ideas" : "the background"
+        // One Key concepts list on the page (build 82), so one word for where the writing is.
+        let place = "the key concepts"
         let label: String
         if inSummary { label = "Writing the summary…" }
         else if let n = input.expected, input.items >= n { label = "Drawing how it fits together…" }

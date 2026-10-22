@@ -18,7 +18,7 @@ import { figureBox, figureDetail, figureDetailMaxTokens, figureMaxTokens, figure
   type FigureStreamItem } from '../../supabase/functions/_shared/chat-figure-view.ts';
 import { openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
 import { STUDY_STATE_LIMITS, studyState, StudyStateFilter, studyStateFromText } from '../../supabase/functions/_shared/chat-study.ts';
-import { paperExplainer, paperExplainerMaxTokens, PaperExplainerStream, paperExplainerText, type PaperExplainerStreamItem } from '../../supabase/functions/_shared/chat-paper-explainer.ts';
+import { boundedText, PAPER_EXPLAINER_INSTRUCTIONS, paperExplainer, paperExplainerMaxTokens, PaperExplainerStream, paperExplainerText, type PaperExplainerStreamItem } from '../../supabase/functions/_shared/chat-paper-explainer.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
   canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
@@ -1921,6 +1921,43 @@ test('the paper explainer streams its summary and entries, then the whole explai
   const final = cut.events.find(e => e.event === 'paper_explainer')!.data as { background: unknown[]; ideas: unknown[] };
   assert.equal(final.background.length, 2); assert.equal(final.ideas.length, 0);
   assert.equal((cut.events.at(-1)!.data as { charged: boolean }).charged, false);
+});
+
+test('the paper explainer on Gemini asks for minimal reasoning; its quote keeps the profile\'s low effort', async () => {
+  const sent: ModelRequest[] = [];
+  const h = studyHarness({ generate: async (params, stream) => { sent.push(params); stream.onText(JSON.stringify(sampleExplainer)); return completeOutcome(); } });
+  h.deps.gemini = true;
+  // As the apps ask (Gemini's one published effort, medium), which the explainer writes at low (figureViewEffort).
+  await runChat(h.deps, explainerBody({ profile: { model: 'gemini', effort: 'medium', length: 'standard' } }), h.emit, new AbortController().signal);
+  assert.equal(sent[0].output_config?.effort, 'minimal', 'Gemini: minimal reasoning (first words in 2–3 s, CHAT.md "Speed")');
+  assert.equal(openRouterChatParams(sent[0]).reasoning.effort, 'minimal');
+  assert.equal(h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote.effort, 'low', 'the quote names one of the profiles\' efforts');
+  // Other models and efforts keep the profile's own.
+  const claude: ModelRequest[] = [];
+  const s = studyHarness({ generate: async (params, stream) => { claude.push(params); stream.onText(JSON.stringify(sampleExplainer)); return completeOutcome(); } });
+  await runChat(s.deps, explainerBody({ profile: { model: 'sonnet', effort: 'low', length: 'standard' } }), s.emit, new AbortController().signal);
+  assert.equal(claude[0].output_config?.effort, 'low');
+});
+
+test('the paper explainer never shows a summary or line cut inside a word or number (build 82: "Is it cut off?")', () => {
+  const sentences = 'Generative retrieval maps queries to document identifiers. This paper evolves the index code with a local model. '
+    + 'On NQ320K jointly evolving the index and collision handling raises Recall@100 from 85.8% to 90.6% for the 1B generator, '
+    + 'and the proxy transfers for indexing code but not for training losses, which it ranks inversely across many settings.';
+  const long = sentences + ' ' + sentences;
+  const checked = paperExplainer({ ...sampleExplainer, summary: long }, 30)!;
+  assert.ok([...checked.summary].length <= 600, 'within what older builds accept');
+  assert.match(checked.summary, /\.$/, 'ends at a sentence');
+  assert.ok(long.startsWith(checked.summary));
+  // No sentence end in reach: the last whole word, with an ellipsis.
+  const words = paperExplainer({ ...sampleExplainer, summary: 'word '.repeat(200) + '85.8%' }, 30)!;
+  assert.match(words.summary, /word…$/);
+  assert.equal(boundedText('Short enough.', 600), 'Short enough.');
+  assert.equal(boundedText('Recall rises from 85.8% to 90.6% in all runs', 30), 'Recall rises from 85.8% to…');
+  // The streamed summary is bounded the same way (what the device shows first is what it keeps).
+  const stream = new PaperExplainerStream(30);
+  const items = stream.push(JSON.stringify({ items: 2, summary: long, background: [] }));
+  assert.equal(items.find(i => i.kind === 'summary')?.kind === 'summary' && (items.find(i => i.kind === 'summary') as { summary: string }).summary, checked.summary);
+  assert.match(PAPER_EXPLAINER_INSTRUCTIONS, /under 450 characters/);
 });
 
 test('follow-up suggestions may ask for one picture when visual answers are on, never two and never when they are off', () => {

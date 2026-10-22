@@ -123,7 +123,8 @@ export function paperExplainerProgress(input: PaperProgressInput): PaperProgress
   const n = input.expected;
   const inSummary = !input.summary && input.items === 0;
   const known = n != null && n >= 1 && input.items < n;
-  const where = input.ideas > 0 ? 'the key ideas' : 'the background';
+  // One Key concepts list on the page (build 82), so one word for where the writing is.
+  const where = 'the key concepts';
   const label = inSummary ? 'Writing the summary…'
     : n != null && input.items >= n ? 'Drawing how it fits together…'
     : known ? `Writing ${where}, ${input.items + 1} of ${n}…` : `Writing ${where}…`;

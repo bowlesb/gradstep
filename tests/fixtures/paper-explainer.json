@@ -308,7 +308,7 @@
     "previous": 0.09
    },
    "expected": {
-    "label": "Writing the background, 1 of 9…",
+    "label": "Writing the key concepts, 1 of 9…",
     "value": 0.1405
    }
   },
@@ -325,7 +325,7 @@
     "previous": 0.38
    },
    "expected": {
-    "label": "Writing the background, 4 of 9…",
+    "label": "Writing the key concepts, 4 of 9…",
     "value": 0.4306
    }
   },
@@ -342,7 +342,7 @@
     "previous": 0.38
    },
    "expected": {
-    "label": "Writing the background, 4 of 9…",
+    "label": "Writing the key concepts, 4 of 9…",
     "value": 0.4683
    }
   },
@@ -359,7 +359,7 @@
     "previous": 0.5
    },
    "expected": {
-    "label": "Writing the key ideas, 6 of 9…",
+    "label": "Writing the key concepts, 6 of 9…",
     "value": 0.5891
    }
   },
@@ -376,7 +376,7 @@
     "previous": 0.8
    },
    "expected": {
-    "label": "Writing the key ideas, 6 of 9…",
+    "label": "Writing the key concepts, 6 of 9…",
     "value": 0.8
    }
   },
@@ -427,7 +427,7 @@
     "previous": null
    },
    "expected": {
-    "label": "Writing the background…",
+    "label": "Writing the key concepts…",
     "value": null
    }
   },
@@ -444,7 +444,7 @@
     "previous": null
    },
    "expected": {
-    "label": "Writing the key ideas…",
+    "label": "Writing the key concepts…",
     "value": null
    }
   },
