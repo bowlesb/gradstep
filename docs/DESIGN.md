@@ -101,9 +101,21 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   actual crop"): a part of a figure is never a cropped-away bitmap but a viewport into the whole figure, always on the
   figure's white. How tightly it frames the part follows its confidence: tight (looks as a crop with its white margin),
   looser with the part outlined, or the whole figure with the part outlined — an unobtrusive outline (2 pt, the light
-  accent in both appearances), never a fallback message. Tap expands to the whole figure (the part outlined, starting
-  from its frame); pinch reveals what is around it; double tap returns. A caption that names its panels caps the parts;
-  extras are outlines on the whole figure. Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Parts as viewports".
+  accent in both appearances), never a fallback message. A caption that names its panels caps the parts; extras are
+  outlines on the whole figure. Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Parts as viewports".
+  *Full screen on touch* (owner, 2026-10-22: "whenever you try to interact with it, it becomes a full screen thing … with
+  not really any in-between"): a card never zooms or pans in place (the page scrolls over it). Any touch — tap, double
+  tap, pinch, sideways drag, VoiceOver activate, keyboard, or the Full screen button — opens the full-screen viewer in one
+  motion from the card's own place and framing; the part's outline fades over about a second while the whole figure is
+  the reader's to pan and zoom (double tap: whole figure ↔ part); X, Escape or a swipe down returns onto the card. Reduce
+  Motion: a cross-fade, the outline shown briefly. [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Full screen on touch".
+
+- **Explainer progress** (owner, 2026-10-22: "it needs a progress bar"; "the equations AI explainer needs the same
+  progress"): the figure walkthrough and the equation's symbols arrive piece by piece under one progress bar: a stage label
+  always, "part k of N" / "symbol k of N" and a filled bar only when N is known, never backwards; placeholders where the
+  result will appear, the bar below the last piece shown (nothing above moves), fading at the end; VoiceOver hears stage
+  changes only; Reduce Motion: nothing pulses or fades. [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Speed",
+  [EQUATION_VIEW.md](architecture/EQUATION_VIEW.md) "Streamed explanation".
 
 - **One AI result per explainer** (owner, 2026-10-21: "Let's not do extract the subfigure … consistently create one good
   product experience in the AI result that comes back"): the figure walkthrough is the only result; looking closer is

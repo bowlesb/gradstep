@@ -1,5 +1,48 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Full screen on touch — 2026-10-22 (apps and browser local, not released)
+
+Owner, 2026-10-22: "I like the changes. The one issue is when you try to click into a subfigure and zoom. The transition
+needs to be improved. My suggestion is that whenever you try to interact with it, it becomes a full screen thing, with the
+outline fading away so you can see where the subfigure was in relation to the entire figure, but you can easily navigate,
+using the entire full screen, the entire extent of the figure, with not really any in-between — because it's awkward to
+navigate a small subfigure inside a figure without having the full screen at your disposal on a phone." Replaces "Parts as
+viewports"' in-card pinch, pan, − / +, double-tap-to-frame and the fullscreen that opened on the frame and then widened.
+Decision record: [DECISIONS](../DECISIONS.md#equation-explainer-streamed-figure-parts-full-screen-on-touch-owner-request-2026-10-22-agent-decisions-with-evidence-reversible).
+No server, prompt, framing, storage or spend change.
+
+- **The card never zooms.** A part's card (and, in the apps, the walkthrough's whole-figure card) shows its frame at rest,
+  framed by confidence as before; the page scrolls over it. Any interaction opens the full-screen viewer at once (no
+  double-tap wait): a tap or click, a double tap, a pinch (a second finger), a sideways drag (mostly horizontal; an up-or-down
+  drag is the page's scroll), ⌃/⌘ + wheel (browser), Enter/Space on the focused card (browser), VoiceOver's activate (apps),
+  or the **Full screen** button kept under the card.
+- **One motion, from the card.** The viewer starts exactly where the card is, showing exactly what the card showed (the
+  part's frame mapped onto the card's rectangle, clipped to it), and in one ~350 ms motion becomes the whole screen framed
+  on the part, the backdrop fading in; the top row (the name, **Whole figure** / **Show part**, X) fades in with it. Apps:
+  `FigureFullscreenStage` (UIKit, in FigureExplainView.swift) inside a `fullScreenCover` presented without the system's
+  slide and with a clear background; browser: `FullscreenViewport` (ui/FigureViewport.tsx), a transformed layer clipped
+  to the card's rectangle inside the modal `<dialog>`.
+- **Then the outline fades.** The part's outline (and the soft veil) is visible as it opens and fades over about a second
+  once it has opened, while the whole figure is already the reader's: drag pans, pinch zooms (browser also wheel and − / +,
+  +/−/0 and arrow keys), the zoom running from the whole figure fitted to 8× that (at least 3× the part's own frame).
+  **Double tap** (or the top row's control) toggles the whole figure and the part; going back to the part shows its outline
+  again, then fades it.
+- **Close** with X, Escape (or ⌘W on the Mac), the escape gesture (VoiceOver) or a swipe down at the top of the figure
+  (touch): the same motion runs back onto the card's current place (the view returns to the card's framing as it shrinks),
+  then the viewer goes; the page is where it was (browser: focus returns to the card).
+- **Reduce Motion:** a short cross-fade in and out; the outline shows for a second, then disappears without a fade.
+- **Mac:** the viewer stays a window-sized sheet (Catalyst), so it fades in framed on the part with the outline fading as
+  above, without the motion from the card; X and Escape close it.
+- **Local framing record** (`FigureFramingRecord` / `figure-framing-record.ts`, still never sent, stored or logged): adds
+  `opened` (how the card was first opened: `tap`, `pinch`, `drag`, `double_tap`, `keyboard`, `button`, `accessibility`)
+  and `opens` (how often); `expanded` is set with them; `finalView`, `zoomed` and `panned` now describe the full-screen
+  view as last closed (the card itself no longer moves). A double tap on a card is recorded as `tap` in the apps (the first
+  tap already opens it).
+- **Unchanged:** framing by confidence, chat's figure parts (`FramedFigure` / `FramedPart.renderFrame`), Save snippet (what
+  the card shows: its rest framing), the coverage note, the walkthrough's streaming and progress.
+- **Evidence:** see IMPLEMENTATION_STATUS.md "Full screen on touch; equation explainer streamed". Screenshots
+  `.artifacts/figure-fullscreen/web/` and `.artifacts/figure-fullscreen/native/`.
+
 ## Speed: a streamed walkthrough at low effort, with a progress bar — 2026-10-22 (server on staging; apps and browser local, not released)
 
 Owner, 2026-10-22: "I like the experience, but it's very very slow. Can we make it much much faster?" and "it's unusable
@@ -69,6 +112,12 @@ viewports are cut from).
   and fades out at the end. Accessibility: one element (label = stage, value = percent when determinate); VoiceOver /
   an `aria-live="polite"` region announce stage changes only; under Reduce Motion nothing pulses, shimmers or fades.
 - **Older servers** (only `figure`): Preparing → Reading → the whole walkthrough at once, as before.
+- *Since the owner's "Let's try Gemini instead of Sonnet for Figures then" (2026-10-22, later; [DECISIONS](../DECISIONS.md#figures-default-gemini-flash-again-owner-decision-2026-10-22-deployed-to-staging-clients-local)):
+  `default_figures` is `gemini-medium-standard` (run at low effort), the clients fall back to Gemini where offered, a saved
+  `sonnet-low-standard` figures choice is let go once (`ai.figuresDefaultGemini.migrated` / `figuresDefaultV3`), and the ⓘ
+  reads "… Gemini Flash is the default: it reads plots closely at a low cost, and its walkthrough starts appearing within
+  seconds. Sonnet is a little quicker to start and also careful, at about three times the cost. …". The bullet below is
+  the morning's state.*
 - **Figures default** (owner, below): the table's `default_figures` (Sonnet, low, standard) for the figures-and-tables
   activity, else Sonnet low when offered, else the general default; the activity no longer inherits the reader's general
   chat default; a saved figures choice stays, except the old recommended `gemini-medium-standard`, migrated once. Its ⓘ
@@ -109,7 +158,7 @@ with a box on every panel part, the sub-figure labels the structure note gave an
 texts are a little shorter (700–1,300 characters). Two low runs under a first JSON-reply wording (without the escaping
 line) wrote some `$…$` math; with the deployed wording the three later records hold 52 `\(…\)` and no `$`. Haiku at low drew no boxes on three figures and wrote a
 malformed box that ended its turn on the fourth; Sonnet at low was as fast as Gemini at 2–3× the cost, and its one cold
-run returned no usable part. On this evidence Gemini at low was the measured pick; the owner then made **Sonnet 5.5 at low the figures default** (below, and [DECISIONS](../DECISIONS.md#figure-explainer-streamed-at-low-effort-owner-request-2026-10-22-agent-decision-with-evidence-reversible)); Gemini readers get low effort.
+run returned no usable part. On this evidence Gemini at low was the measured pick; the owner then made **Sonnet 5.5 at low the figures default** (later the same day back to Gemini at low: "Let's try Gemini instead of Sonnet for Figures then"; below, and [DECISIONS](../DECISIONS.md#figure-explainer-streamed-at-low-effort-owner-request-2026-10-22-agent-decision-with-evidence-reversible)); Gemini readers get low effort.
 
 Through the deployed function on staging (`node scripts/chat-live-smoke.mjs --figure-view=2,1 --figure-walkthrough-only
 --profile=gemini-medium-standard`, as the apps send it; disposable accounts; server stages from the database: the
@@ -275,8 +324,9 @@ Let's simplify our life by trying to consistently create one good product experi
 
 ## Parts as viewports — 2026-10-21 (local source; not released, not deployed)
 
-*Since "Extract the subfigure removed" above: the "Extract" request and its detail card no longer exist; read the
-mentions below as history. Since "Structure first and the count check" above: a part that is one of the figure's own
+*Since "Full screen on touch" above (2026-10-22): a card no longer pinches, pans or double-taps in place, and full screen
+opens framed on the part rather than widening to the whole figure; read those mentions below as history. Since "Extract
+the subfigure removed" above: the "Extract" request and its detail card no longer exist; read the mentions below as history. Since "Structure first and the count check" above: a part that is one of the figure's own
 sub-figures is exact, and the count rule below ("more were boxed … (0.3)") is replaced by the count check.*
 
 Owner: "in different panels, when we present it, we present it in such a way that if it's inaccurate, the user can just

@@ -1,5 +1,91 @@
 # The equation view (2026-10-15)
 
+## Streamed explanation with a progress bar, symbols at low effort — 2026-10-22 (server on staging; apps and browser local, not released)
+
+Owner, 2026-10-22: "overall, the equations AI explainer needs the same progress with the progress bar." The view is
+unchanged (the equation large, what it says, each symbol with its source, background on request); the symbols now arrive
+one by one under the same progress bar as the figure walkthrough (FIGURE_VIEW.md "Speed"), and sooner. Decision record:
+[DECISIONS](../DECISIONS.md#equation-explainer-streamed-figure-parts-full-screen-on-touch-owner-request-2026-10-22-agent-decisions-with-evidence-reversible).
+
+**Server (`chat-equation.ts`, `chat.ts`, new `json-list-stream.ts`; staging, chat function deployed 2026-10-22 04:46 UTC
+after encrypted backup `.artifacts/backups/20261022T044455Z-d8a4cfd1ad90`; deploy suite 19 pass / 0 fail; the study-mode build deployed at 05:12 UTC carries it, and the 05:58 UTC deploy — that build plus the Gemini figures default, after backup `.artifacts/backups/20261022T055356Z-4a3671a898cc` — still streams, read back live).**
+- `EQUATION_INSTRUCTIONS` ask for the count first: `{"count": N, "summary": "…", "symbols": [{…}, …]}`, each symbol whole
+  before the next, JSON escaping spelled out. The reply's JSON is read as it is written by the reader the figure
+  walkthrough now shares (`JsonListStream`: a character scanner keeping only open containers and keys; each value parsed
+  from its own slice). Each symbol is checked by `equationSymbol`, the one check the final symbols use, so the streamed
+  symbols are exactly the final ones (the final check now keeps the first 24 *usable* rows, as the stream does).
+- **Events** (action `equation` only; builds that predate them ignore unknown events; the final `equation` is unchanged):
+  ```
+  event: equation_progress  data: {"stage":"reading"}                               (the model was asked)
+  event: equation_progress  data: {"stage":"writing","characters":420,"symbols":9}  (≤ every 400 ms; symbols once announced)
+  event: equation_summary   data: {"summary":"…"}
+  event: equation_symbol    data: {"index":0,"symbol":{"symbol":"β","latex":"\\beta","meaning":"…","source":"paper","paragraph":24}}
+  …
+  event: equation           data: {"format":"equation-symbols-v1","summary":"…","symbols":[…]}   (as before)
+  event: done
+  ```
+  The final `equation` is the whole JSON when it parses, else the symbols that streamed (cut off at its allowance: `done
+  {charged:false, reason:"limit"}`), so it never takes back a symbol the device was shown. A summary with no symbol and
+  then unreadable JSON delivers nothing and is not charged. Logs add `streamed` and `first_symbol_ms`.
+- **Low effort for the symbols** (`equation` only; `equation_background` keeps the chat's effort) when the reader chose
+  Gemini Flash or an automatic effort; an effort chosen for a Claude model stays (the figure view's rule). Gemini's
+  allowance becomes 2,000 + 2,000 tokens.
+- **Default model unchanged**: the equations activity still asks with the chat's default (Gemini Flash, recommended), so
+  its requests read the paper the chat already cached; Sonnet at low was as fast but writes its own cache on a paper first
+  (~$0.23 on DPO). Evidence below.
+
+**Clients (iPhone/iPad/Mac one SwiftUI path, and the browser; local source, not released).** The three events are parsed
+(malformed ones dropped, never fatal; each symbol through the same per-row check as `equation`). The summary shows when it
+arrives and each symbol row is appended in order; the final `equation` replaces what streamed and is the only thing kept
+(sealed store / session memory, as before). An error drops what streamed and shows the existing failure with Try again; a
+`done` without a final `equation` keeps the streamed symbols when there is at least one; cut off at its length the symbols
+stay with "Not charged" (apps: "This explanation stopped before the end. Not charged."; browser: "Interrupted · not
+charged"). The local Mac model is unchanged (its words stream as before).
+- **Progress bar** — the figure walkthrough's bar and rules (one component per client: `FigureProgressBar`,
+  `ExplainerProgress.tsx`), driven by `FigureProgress.state(_:kind: .equation)` / `equationProgress`
+  (`equation-progress.ts`), fixture `tests/fixtures/equation-progress.json` reproduced by both clients. Stages: "Preparing
+  the equation…", "Reading the equation…", "Writing the summary…", then "Explaining symbol k of N…" only once the model
+  has announced N, else "Explaining symbol k…". Determinate only while N is known and not exceeded (10 % for the summary,
+  each symbol's share filled by its characters against a measured 200, capped at 90 %); never backwards, indeterminate
+  past N, never a made-up 99 %. Shown at once with placeholders (summary lines, symbol rows in the symbols' card) where
+  the explanation will appear; then below the last row shown (nothing above it moves); fades at the end. One
+  accessibility element (label = stage, value = percent when determinate); VoiceOver / `aria-live="polite"` announce
+  stage changes only; under Reduce Motion nothing pulses or fades.
+- **Older servers** (only `equation`): Preparing → Reading → all symbols at once.
+- **Fixtures:** the apps' `--chat-fixture-mode=equation` streams (`--equation-fixture-step-ms=<n>`,
+  `--equation-fixture-old-server`); the browser fixture backend's `equationStream` (fast, slow, step, old, error, cut).
+
+**Measured.** Model alone (`node scripts/equation-speed.mjs --equation=6|7 --configs=…`: the server's own request through the
+production adapter, straight to OpenRouter; DPO's loss, Eq. 7, and its gradient; cache read unless noted), seconds from
+sending:
+
+| Equation | Configuration | First token | Summary | Whole | Out (reasoning) | Symbols | Cost |
+|---|---|---|---|---|---|---|---|
+| Loss | Gemini medium (cache write) | 16.7 | 22.8 | 26.2 | 1,494 (898) | 10 | $0.0110 |
+| Loss | Gemini medium | 2.2 / 3.4 | 2.7 / 8.3 | 6.5 / 12.2 | 683–1,436 (0–782) | 11 | $0.0062–0.0093 |
+| Loss | **Gemini low** | 4.7 (one run queued 49 s) | 5.3 | 8.2 | 582–606 | 9 | $0.0059 |
+| Loss | Sonnet low (cache write / read) | 2.1 / 1.6 | 2.9 / 2.6 | 7.2 / 7.4 | 987–1,067 | 10–11 | $0.2287 / $0.0193 |
+| Gradient | Gemini medium | 3.5 | 9.0 | 12.8 | 1,528 (795) | 12 | $0.0098 |
+| Gradient | **Gemini low** | 4.1 | 4.5 | 8.3 | 714 | 11 | $0.0064 |
+| Gradient | Sonnet low | 2.2 | 3.0 | 8.4 | 1,174 | 11 | $0.0207 |
+
+Quality side by side (records `.artifacts/equation-speed/*-eq7.json`): all three listed the same symbols with the same
+paragraphs ([¶18]–[¶38]); Gemini low cited the paper for 11 of 11, medium 10 of 12; Sonnet low also explained the
+per-example weight. Every run's streamed symbols equalled its final symbols.
+
+Through the deployed function on staging (`node scripts/chat-live-smoke.mjs --equation=symbols --equation-runs=2
+--profile=…`; disposable accounts; DPO's loss), seconds from the request:
+
+| | Profile (as sent → served) | First visible | First symbol | Whole | Credits |
+|---|---|---|---|---|---|
+| Before (held back) | `gemini-medium-standard` (the default) | 12.3 / 9.3 (all at once) | 12.3 / 9.3 | 12.3 / 9.3 | 2 / 2 |
+| After | `gemini-medium-standard` → `gemini-low-standard` | 5.6 / 2.9 (summary) | 6.0 / 3.3 | 8.8 / 6.5 | 2 / 2 |
+| After | `sonnet-low-standard` (cache write / read) | 3.6 / 3.0 | 4.3 / 3.9 | 7.7 / 7.9 | 45 / 4 |
+
+"Reading" shows 0.7–0.9 s after the request. Records: `.artifacts/equation-speed/live-*.json`. Spend for this work: $0.32
+direct (ledger `.artifacts/equation-speed/spend.json`) and ~$0.55 on staging (two Sonnet cache writes, $0.23 each: one measured, one a verification run sent without `--profile`, which asks with Sonnet); about
+$0.87 in all, within the $1 allowed.
+
 Native Local AI prototype (2026-10-17, TestFlight 68): AI Explainer first offers Cloud AI / Local AI. Local sends the exact selected LaTeX and bounded numbered excerpts to MLX, with ordinary formatted prose in the existing explanation view. Local answers have separate model/revision cache keys; saved assets restore that choice. See [LOCAL_AI.md](LOCAL_AI.md).
 
 Build 68 feedback, 2026-10-17: screenshot `AG-KC-bgu7HdtwNQhuQ1LBk` identifies 1805.03662v2, 105 display equations.
