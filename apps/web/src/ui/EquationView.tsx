@@ -11,7 +11,10 @@ import { ContextualChat, useContextualChat, promoteContextual, type ContextualHo
 import { citedMarker } from '../lib/passage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VerifiedBundle } from '../lib/bundle';
-import { failureText } from '../lib/chat';
+import { failureText, interruptionNote } from '../lib/chat';
+import { equationProgress } from '../lib/equation-progress';
+import type { FigureStreamProgress } from '../lib/figure-view';
+import { ProgressBar, reducedMotion } from './ExplainerProgress';
 import { equationLatex, equationNumber, equationNumbers, type EquationAction, type EquationResult } from '../lib/equation';
 import { contentsEquations } from '../lib/paper-contents';
 import { safeLink } from '../lib/markdown';
@@ -39,6 +42,11 @@ type Props = { bundle: VerifiedBundle; equationID: string; theme: 'light' | 'dar
   onAddToNote?: () => void };
 
 const VIEW_KEY = 'gradstep.equation-view.v1';
+const PREPARING: FigureStreamProgress = { stage: 'preparing', summary: false, parts: 0, characters: 0, charactersAtLast: 0, announced: null };
+/** Where the explanation will appear, until it arrives: the summary's lines, and symbol rows (static: the bar is the motion). */
+const SummarySkeleton = () => <div className="figure-skeleton" aria-hidden="true" data-testid="equation-skeleton-summary"><span /><span /><span className="short" /></div>;
+const SymbolSkeleton = ({ rows }: { rows: number }) => <ul className="equation-symbols loading" aria-hidden="true" data-testid="equation-skeleton-symbols">
+  {Array.from({ length: rows }, (_, i) => <li key={i}><span className="equation-symbol" /><div><p /></div></li>)}</ul>;
 const SCALES = [100, 120, 140, 160, 200, 240, 280, 320, 360, 400];
 const readView = () => readStored<{ scale: number; scroll: boolean }>(VIEW_KEY, { scale: 160, scroll: false },
   v => !!v && typeof v === 'object' && SCALES.includes((v as { scale: unknown }).scale as number) && typeof (v as { scroll: unknown }).scroll === 'boolean');
@@ -90,8 +98,11 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const [background, setBackground] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation_background', profile) ?? null);
   const requests = useRef(new Map<EquationAction, AbortController>());
   useEffect(() => () => { for (const c of requests.current.values()) c.abort(); }, []);
+  /** The progress bar's value last shown (it never goes back), for the symbols on their way. */
+  const lastShown = useRef<number | null>(null);
   const run = useCallback((action: EquationAction) => {
     if (!host || !latex) return;
+    if (action === 'equation') lastShown.current = null;
     requests.current.get(action)?.abort();
     const controller = new AbortController(); requests.current.set(action, controller);
     const set = action === 'equation' ? setSymbols : setBackground;
@@ -138,6 +149,27 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
     e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
   };
 
+  // The symbols stream (EQUATION_VIEW.md "Streamed explanation"): the summary and each symbol appear as they arrive, each
+  // below the last, so nothing shown moves; the progress bar sits where the next words will appear, placeholders under
+  // it. "Explaining symbol k of N" only once the model announced N (equation-progress.ts).
+  const streaming = symbols?.phase === 'loading';
+  const live = streaming ? symbols!.progress ?? PREPARING : null;
+  const progress = live ? equationProgress({ ...live, previous: lastShown.current, expected: live.announced }) : null;
+  if (progress?.value != null) lastShown.current = progress.value;
+  const rows = symbols?.symbols?.symbols ?? [];
+  const pendingAt = !streaming ? null : !symbols!.symbols?.summary && !rows.length && !symbols!.text ? 'start' : 'end';
+  // Once done, the bar fades out where it was (at once with Reduce Motion), and "Done" is said to assistive technology.
+  const [fading, setFading] = useState(false), streamed = useRef(false);
+  useEffect(() => {
+    if (streaming) { streamed.current = true; setFading(false); return; }
+    if (!streamed.current || symbols?.phase !== 'done' || reducedMotion()) return;
+    setFading(true);
+    const t = setTimeout(() => setFading(false), 300);
+    return () => clearTimeout(t);
+  }, [streaming, symbols?.phase]);
+  const announced = progress?.label ?? (streamed.current && symbols?.phase === 'done' ? 'Done' : '');
+  const note = symbols?.phase === 'done' && symbols.charged === false && (rows.length || symbols.text) ? interruptionNote(false, { charged: false }) : null;
+
   return <Dialog open onClose={onClose} title={title} className="equation-dialog">
     <div className="equation-view" data-testid="equation-view">
       {/* Owner, build 62: the actions in the top row with the X; no Done, no action bar under the equation. */}
@@ -169,6 +201,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
         </span>
       </div>
 
+      {host && <p className="visually-hidden" aria-live="polite" data-testid="equation-progress-status">{announced}</p>}
       {!host ? <p className="fine">Explanations need a signed-in chat.</p> : asking && !consented ? <section className="equation-consent" data-testid="equation-consent">
         <p>Explaining the equation uses cloud AI: the equation and the paper’s text go through OpenRouter to Google Vertex or DeepInfra according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>
         <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>
@@ -178,20 +211,25 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
           {symbols?.symbols?.summary ? <p data-testid="equation-summary">{symbols.symbols.summary}</p>
             : symbols?.phase === 'failed' ? null
             : symbols?.phase === 'done' && symbols.text ? <div onClick={answerClick}><Answer text={symbols.text} /></div>
-            : <p className="fine" role="status">Describing the symbols…</p>}
+            : pendingAt === 'start' && progress ? <div className="figure-pending"><ProgressBar state={progress} testID="equation-progress" /><SummarySkeleton /></div>
+            : streaming ? null : <p className="fine" role="status">Describing the symbols…</p>}
         </section>
         <section className="equation-section" aria-labelledby="equation-symbols">
           <h3 id="equation-symbols">Symbols</h3>
           {symbols?.phase === 'failed' ? <div className="equation-issue" role="alert"><p>{failureText(symbols.issue ?? 'provider_unavailable')}</p>
             {symbols.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('equation')}>Try again</button>}
             <button className="secondary small" onClick={() => setChoosing(true)} data-testid="explainer-change">Change AI</button></div>
-            : symbols?.symbols?.symbols.length ? <ul className="equation-symbols" data-testid="equation-symbols">{symbols.symbols.symbols.map((s, i) => <li key={i}>
+            : rows.length || streaming ? <>{rows.length > 0 && <ul className="equation-symbols" data-testid="equation-symbols">{rows.map((s, i) => <li key={i}>
                 <span className="equation-symbol" aria-label={s.symbol}>{(() => { const math = symbolMath(s); return math ? <span dangerouslySetInnerHTML={{ __html: math }} /> : s.symbol; })()}</span>
                 <div><p>{s.meaning}</p>{s.source === 'paper' && s.paragraph
                   ? <button className="link equation-source" onClick={() => onCite(s.paragraph!)} data-testid="equation-source">From the paper ¶{s.paragraph}</button>
-                  : <span className="fine">General meaning</span>}</div></li>)}</ul>
+                  : <span className="fine">General meaning</span>}</div></li>)}</ul>}
+              {pendingAt === 'end' && progress && <div className="figure-pending equation-pending"><ProgressBar state={progress} testID="equation-progress" /></div>}
+              {streaming && <SymbolSkeleton rows={rows.length ? 2 : 3} />}
+              {fading && !streaming && <ProgressBar state={{ label: 'Done', value: 1 }} fading testID="equation-progress" />}</>
             : symbols?.phase === 'done' ? <p className="fine">No symbols were listed for this equation.</p>
-            : <ul className="equation-symbols loading" aria-hidden="true">{[0, 1, 2].map(i => <li key={i}><span className="equation-symbol" /><div><p /></div></li>)}</ul>}
+            : <SymbolSkeleton rows={3} />}
+          {note && <p className="fine" data-testid="equation-note">{note}</p>}
         </section>
         {/* Which model explained it (the apps' caption): the one that answered, else the one asked. */}
         {(symbols.model || profile) && <p className="fine answer-by" data-testid="explainer-model-name">{symbols.model ? modelName(symbols.model) : modelOption(table, profile!.model).label}</p>}

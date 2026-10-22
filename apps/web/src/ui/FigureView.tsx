@@ -22,6 +22,7 @@ import { safeLink } from '../lib/markdown';
 import Answer from './Answer';
 import { Dialog, SheetTop, MenuButton } from './common';
 import { Icon } from './icons';
+import { ProgressBar, reducedMotion } from './ExplainerProgress';
 
 /** What the reader's host offers the view: the chat's consent and its requests (ChatSession.figure). */
 export interface FigureHost {
@@ -57,21 +58,7 @@ const endedEarly = (r: FigureResult | null | undefined) => r?.phase === 'done' &
 const loading = (): FigureResult => ({ phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null });
 const issueText = (code: string) => code === 'figure_unavailable' ? 'This figure’s image couldn’t be prepared in this browser.' : failureText(code);
 const PREPARING: FigureStreamProgress = { stage: 'preparing', summary: false, parts: 0, characters: 0, charactersAtLast: 0, announced: null };
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** The walkthrough's progress bar (owner, 2026-10-22: "it needs a progress bar"; figure-progress.ts): a thin bar, its
- * value when the number of parts is known, else indeterminate, with the stage under it. It sits where the walkthrough's
- * next words will appear; `fading` is its short exit once the walkthrough is done (hidden from assistive technology). */
-function ProgressBar({ state, fading = false }: { state: FigureProgressState; fading?: boolean }) {
-  const percent = state.value === null ? null : Math.round(state.value * 100);
-  return <div className={`figure-progress${fading ? ' fading' : ''}`} data-testid="figure-progress" aria-hidden={fading || undefined}>
-    <div className={`figure-progress-track${percent === null ? ' indeterminate' : ''}`} role="progressbar" aria-label={state.label} aria-valuetext={state.label}
-      aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
-      <div className="figure-progress-fill" style={percent === null ? undefined : { width: `${percent}%` }} />
-    </div>
-    <p className="figure-progress-label" aria-hidden="true">{state.label}</p>
-  </div>;
-}
 /** What is on its way, until it arrives: the summary's lines and a part's card (static: the bar is the motion). */
 const SummarySkeleton = () => <div className="figure-skeleton" aria-hidden="true" data-testid="figure-skeleton-summary"><span /><span /><span className="short" /></div>;
 const PartSkeleton = () => <div className="figure-skeleton figure-skeleton-part" aria-hidden="true" data-testid="figure-skeleton-part">

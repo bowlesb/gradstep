@@ -440,6 +440,8 @@ progress.mini { height: 3px; margin-top: 4px; }
 /* The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough"): a thin progress bar where the next words will appear,
    the stage under it, and a static skeleton of what is on its way (the bar is the only motion, none with Reduce Motion). */
 .figure-pending { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.equation-pending { padding: 10px 0 4px; }
+.equation-pending + .equation-symbols.loading { margin-top: 4px; }
 .figure-progress { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .figure-progress-track { position: relative; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .figure-progress-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: inherit; background: var(--accent); transition: width .35s ease; }

@@ -27,7 +27,7 @@ import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
 import type { NotesStore } from './notes-store';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
-import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
+import { EQUATION_FORMAT, equationKey, equationTurn, type EquationAction, type EquationResult, type EquationSymbol } from './equation';
 import { FIGURE_WALKTHROUGH_FORMAT, figureKey, figureName, figureTurn, type FigureAction, type FigureResult, type FigureSection, type FigureStreamProgress } from './figure-view';
 import type { FigureProgressStage } from './figure-progress';
 import { MAX_KEPT_PER_KIND, boundKept, type KeptEntry } from './kept-explanations';
@@ -743,8 +743,26 @@ export class ChatSession {
   async equation(documentID: string, input: { equationID: string; latex: string; number: string | null }, action: EquationAction,
     update: (result: EquationResult) => void, signal: AbortSignal, choice?: ProfileChoice): Promise<EquationResult> {
     this.allowed();
-    let result: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null };
-    const finish = (issue: string | null) => { result = { ...result, phase: issue ? 'failed' : 'done', issue }; update(result); return result; };
+    // The symbols stream (EQUATION_VIEW.md "Streamed explanation"): the summary and each symbol are shown as they arrive,
+    // a symbol once those before it have (in order; a repeat is ignored), with where the writing is for the progress bar.
+    // The final `equation` replaces what streamed and is what is kept; an end without it keeps the streamed symbols when
+    // there is at least one (the server's own rule), else it is a failure; an error drops them. Progress is never kept.
+    let result: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null,
+      ...(action === 'equation' ? { progress: { stage: 'preparing', summary: false, parts: 0, characters: 0, charactersAtLast: 0, announced: null } } : {}) };
+    let summary: string | null = null, final = false;
+    const streamed: EquationSymbol[] = [];
+    const inOrder = () => { let n = 0; while (streamed[n]) n++; return n; };
+    const progressed = (change: Partial<FigureStreamProgress>) => {
+      const was = result.progress;
+      if (!was) return;
+      const stage = change.stage && STAGES.indexOf(change.stage) > STAGES.indexOf(was.stage) ? change.stage : was.stage;
+      result = { ...result, progress: { ...was, ...change, stage } };
+    };
+    const finish = (issue: string | null) => {
+      const { progress: _, ...rest } = result;
+      const keepStreamed = !issue && !final && !!result.symbols?.symbols.length;
+      result = { ...rest, symbols: final || keepStreamed ? result.symbols : null, phase: issue ? 'failed' : 'done', issue }; update(result); return result;
+    };
     if (this.retiredStorage) return finish('storage_retired');
     if (!this.deps.readConsent()) return finish('consent_required');
     const reference = this.reference(documentID), local = reference && this.sourcePapers.get(reference.membershipID);
@@ -763,11 +781,28 @@ export class ChatSession {
     try { request.localContext = localChatContext(reference, bundle); } catch { return finish('local_reader_unavailable'); }
     const controller = cancellation([this.signal, signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
     try {
-      for await (const event of this.deps.stream(this.account, request, controller.signal)) {
+      // The server has the request once its stream opens: Reading, from a server that sends no progress as well.
+      const opened = () => { if (result.phase === 'loading' && result.progress) { progressed({ stage: 'reading' }); update(result); } };
+      const shown = () => { if (!final) result = { ...result, symbols: { format: EQUATION_FORMAT, summary: summary ?? '', symbols: streamed.slice(0, inOrder()) } }; };
+      for await (const event of this.deps.stream(this.account, request, controller.signal, opened)) {
         if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
-        else if (event.type === 'equation') { result = { ...result, symbols: event.symbols }; update(result); }
-        else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null }; finish(event.code); break; }
-        else if (event.type === 'done') { result = { ...result, credits: event.credits, ...(event.model ? { model: event.model } : {}) }; finish(result.symbols || result.text.trim() ? null : 'provider_unavailable'); break; }
+        else if (event.type === 'equation') { final = true; result = { ...result, symbols: event.symbols }; progressed({ stage: 'done', parts: event.symbols.symbols.length }); update(result); }
+        else if (event.type === 'equation_progress' && result.progress && !final) {
+          progressed(event.stage === 'reading' ? { stage: 'reading' }
+            : { stage: 'writing', characters: Math.max(result.progress.characters, event.characters ?? 0), ...(event.symbols ? { announced: event.symbols } : {}) });
+          update(result);
+        }
+        else if (event.type === 'equation_summary' && result.progress && !final && summary === null) {
+          summary = event.summary; progressed({ stage: 'writing', summary: true, charactersAtLast: result.progress.characters }); shown(); update(result);
+        }
+        else if (event.type === 'equation_symbol' && result.progress && !final && !streamed[event.index]) {
+          streamed[event.index] = event.symbol; progressed({ stage: 'writing', parts: inOrder(), charactersAtLast: result.progress.characters }); shown(); update(result);
+        }
+        else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
+        else if (event.type === 'done') {
+          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason, ...(event.model ? { model: event.model } : {}) };
+          finish((final && result.symbols) || result.symbols?.symbols.length || result.text.trim() ? null : 'provider_unavailable'); break;
+        }
       }
       if (result.phase === 'loading') finish('transport');
     } catch (error) {
@@ -1215,7 +1250,8 @@ export class ChatSession {
         else if (event.type === 'study') nextMap = event.map;
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
-        else if (event.type === 'equation' || event.type === 'figure' || event.type === 'figure_progress' || event.type === 'figure_summary' || event.type === 'figure_section') {
+        else if (event.type === 'equation' || event.type === 'equation_progress' || event.type === 'equation_summary' || event.type === 'equation_symbol'
+          || event.type === 'figure' || event.type === 'figure_progress' || event.type === 'figure_summary' || event.type === 'figure_section') {
           /* the equation and figure views' own events; a chat never asks for them */ }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; end = { credits: event.credits, charged: event.charged }; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; end = { credits: event.credits, charged: event.charged }; break; }
