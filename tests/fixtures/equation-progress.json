@@ -1,0 +1,218 @@
+{
+ "parameters": {
+  "summaryChars": 320,
+  "partChars": 200,
+  "summaryShare": 0.1,
+  "partCap": 0.9
+ },
+ "cases": [
+  {
+   "name": "preparing",
+   "input": {
+    "stage": "preparing",
+    "summary": false,
+    "parts": 0,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 10,
+    "previous": null
+   },
+   "expected": {
+    "label": "Preparing the equation…",
+    "value": null
+   }
+  },
+  {
+   "name": "reading",
+   "input": {
+    "stage": "reading",
+    "summary": false,
+    "parts": 0,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 10,
+    "previous": null
+   },
+   "expected": {
+    "label": "Reading the equation…",
+    "value": null
+   }
+  },
+  {
+   "name": "count not yet announced",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 0,
+    "characters": 8,
+    "charactersAtLast": 0,
+    "expected": null,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": null
+   }
+  },
+  {
+   "name": "summary started",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 0,
+    "characters": 120,
+    "charactersAtLast": 0,
+    "expected": 10,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": 0.0375
+   }
+  },
+  {
+   "name": "summary over its estimate stays within its share",
+   "input": {
+    "stage": "writing",
+    "summary": false,
+    "parts": 0,
+    "characters": 900,
+    "charactersAtLast": 0,
+    "expected": 10,
+    "previous": null
+   },
+   "expected": {
+    "label": "Writing the summary…",
+    "value": 0.09
+   }
+  },
+  {
+   "name": "summary in, symbol 1 begun",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 0,
+    "characters": 400,
+    "charactersAtLast": 330,
+    "expected": 10,
+    "previous": null
+   },
+   "expected": {
+    "label": "Explaining symbol 1 of 10…",
+    "value": 0.1315
+   }
+  },
+  {
+   "name": "symbol 1 long: capped below the symbol",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 0,
+    "characters": 2000,
+    "charactersAtLast": 330,
+    "expected": 10,
+    "previous": null
+   },
+   "expected": {
+    "label": "Explaining symbol 1 of 10…",
+    "value": 0.181
+   }
+  },
+  {
+   "name": "symbol 5",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 4,
+    "characters": 1200,
+    "charactersAtLast": 1130,
+    "expected": 10,
+    "previous": 0.4
+   },
+   "expected": {
+    "label": "Explaining symbol 5 of 10…",
+    "value": 0.4915
+   }
+  },
+  {
+   "name": "never goes back",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 4,
+    "characters": 1130,
+    "charactersAtLast": 1130,
+    "expected": 10,
+    "previous": 0.5
+   },
+   "expected": {
+    "label": "Explaining symbol 5 of 10…",
+    "value": 0.5
+   }
+  },
+  {
+   "name": "last symbol",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 9,
+    "characters": 2100,
+    "charactersAtLast": 2000,
+    "expected": 10,
+    "previous": 0.9
+   },
+   "expected": {
+    "label": "Explaining symbol 10 of 10…",
+    "value": 0.955
+   }
+  },
+  {
+   "name": "more symbols than announced: indeterminate",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 10,
+    "characters": 2300,
+    "charactersAtLast": 2200,
+    "expected": 10,
+    "previous": 0.99
+   },
+   "expected": {
+    "label": "Explaining symbol 11…",
+    "value": null
+   }
+  },
+  {
+   "name": "no count: symbol 3",
+   "input": {
+    "stage": "writing",
+    "summary": true,
+    "parts": 2,
+    "characters": 800,
+    "charactersAtLast": 700,
+    "expected": null,
+    "previous": null
+   },
+   "expected": {
+    "label": "Explaining symbol 3…",
+    "value": null
+   }
+  },
+  {
+   "name": "done",
+   "input": {
+    "stage": "done",
+    "summary": true,
+    "parts": 10,
+    "characters": 0,
+    "charactersAtLast": 0,
+    "expected": 10,
+    "previous": null
+   },
+   "expected": {
+    "label": "Done",
+    "value": 1
+   }
+  }
+ ]
+}

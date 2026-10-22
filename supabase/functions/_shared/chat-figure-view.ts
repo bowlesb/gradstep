@@ -9,6 +9,7 @@
 // `figure_view` capability), so a walkthrough and the chat around it share one cached prefix.
 import type { Effort, ToolDefinition } from './model-request.ts';
 import { EFFORTS } from './chat-profiles.ts';
+import { JsonListStream } from './json-list-stream.ts';
 
 /** `figure_detail` ("Extract the subfigure and more context") is DEPRECATED (2026-10-21, owner: "Let's not do extract the
  * subfigure"). No current client sends it; it is accepted only so already-installed iPhone/iPad/Mac builds 63–79 (and
@@ -179,119 +180,26 @@ export type FigureStreamItem = { kind: 'summary'; summary: string } | { kind: 's
    * promise (the parts that arrive are what the walkthrough is). */
   | { kind: 'parts'; parts: number };
 
-/** Reads figure_walkthrough's JSON arguments incrementally (`{"summary": "…", "sections": [{…}, …]}`, keys in any
- * order). A character scanner keeps only the open containers, each object's current key and where the values of
- * interest started; a completed value is parsed with JSON.parse from its own slice, so malformed or cut-off input
- * yields nothing for that value (the final check still decides what the walkthrough is). O(n) over the arguments, which
- * the provider adapter bounds. */
-export class FigureWalkthroughStream {
-  private text = '';
-  private at = 0;
-  private inString = false;
-  private escaped = false;
-  private stringStart = -1;
-  private stringIsKey = false;
-  private readonly stack: { kind: '{' | '['; key: string | null; expectKey: boolean; start: number; role: 'sections' | 'section' | null }[] = [];
-  private summarySent = false;
-  private closed = false;
-  private objectStart = -1;
-  private objectEnd = -1;
-  private digits = '';
-  /** The announced number of parts: null until read, 0 when it was not a usable number. */
-  private announced: number | null = null;
-  private summaryText = '';
-  private readonly kept: FigureSection[] = [];
-  private seen = 0;
-  private readonly paragraphs: number;
-  constructor(paragraphs: number) { this.paragraphs = paragraphs; }
-
-  /** Characters of the walkthrough's object written so far (0 until it starts). */
-  get length(): number { return this.objectStart < 0 ? 0 : (this.closed ? this.objectEnd : this.text.length) - this.objectStart; }
-  /** Section objects the model has closed so far (usable or not). */
-  get completed(): number { return this.seen; }
+/** Reads the walkthrough's JSON incrementally (`{"parts": N, "summary": "…", "sections": [{…}, …]}`, keys in any order),
+ * from the reply or figure_walkthrough's arguments (json-list-stream.ts): each section checked by `figureSection`, so
+ * malformed or cut-off input yields nothing for that value (the final check still decides what the walkthrough is). */
+export class FigureWalkthroughStream extends JsonListStream<FigureSection> {
+  constructor(paragraphs: number) {
+    super({ countKey: 'parts', summaryKey: 'summary', listKey: 'sections', maxCount: FIGURE_LIMITS.sections, maxItems: FIGURE_LIMITS.sections,
+      summary: value => figureSummary(value, paragraphs),
+      item: (raw, kept) => figureSection(raw, paragraphs, kept.filter(s => s.box).length) });
+  }
   /** The sections streamed so far (checked, in order). */
-  get sections(): readonly FigureSection[] { return this.kept; }
+  get sections(): readonly FigureSection[] { return this.items; }
   /** The number of parts the model announced, when it did (1–12). */
-  get parts(): number | null { return this.announced || null; }
-  /** Whether the top-level object has closed (the walkthrough was written to its end). */
-  get complete(): boolean { return this.closed; }
+  get parts(): number | null { return this.count; }
   /** The walkthrough streamed so far (a cut-off one keeps the sections that were complete); null before any section. */
   walkthrough(): FigureWalkthrough | null {
     return this.kept.length ? { format: FIGURE_FORMAT, summary: this.summaryText, sections: [...this.kept] } : null;
   }
-
   push(chunk: string): FigureStreamItem[] {
-    const out: FigureStreamItem[] = [];
-    this.text += chunk;
-    for (; this.at < this.text.length; this.at++) {
-      const c = this.text[this.at];
-      // Only the first top-level object is read: anything around it (a code fence, a stray word) is ignored.
-      if (!this.stack.length && !this.inString) {
-        if (c === '{' && !this.closed) { this.stack.push({ kind: '{', key: null, expectKey: true, start: this.at, role: null }); this.objectStart = this.at; }
-        continue;
-      }
-      if (this.inString) {
-        if (this.escaped) this.escaped = false;
-        else if (c === '\\') this.escaped = true;
-        else if (c === '"') { this.inString = false; this.endString(out); }
-        continue;
-      }
-      const top = this.stack.at(-1);
-      // The announced number of parts (`"parts": N`, asked for first): read as its digits end.
-      if (this.stack.length === 1 && top?.key === 'parts' && !top.expectKey && this.announced === null) {
-        if (c >= '0' && c <= '9' && this.digits.length < 3) { this.digits += c; continue; }
-        if (this.digits) {
-          const n = Number(this.digits);
-          this.announced = n >= 1 && n <= FIGURE_LIMITS.sections ? n : 0;
-          if (this.announced) out.push({ kind: 'parts', parts: n });
-        }
-      }
-      if (c === '"') {
-        this.inString = true; this.stringStart = this.at;
-        this.stringIsKey = !!top && top.kind === '{' && top.expectKey;
-      } else if (c === '{' || c === '[') {
-        const role = c === '[' && this.stack.length === 1 && top?.key === 'sections' ? 'sections'
-          : c === '{' && top?.role === 'sections' ? 'section' : null;
-        this.stack.push({ kind: c, key: null, expectKey: c === '{', start: this.at, role });
-      } else if (c === '}' || c === ']') {
-        // A bracket that closes the wrong kind (`[0, 0.1}`) closes up to its own kind, so one malformed part does not
-        // swallow the rest; that part fails to parse and is left out.
-        const kind = c === '}' ? '{' : '[';
-        let closed = this.stack.pop();
-        while (closed && closed.kind !== kind && this.stack.length) {
-          if (closed.role === 'section') this.endSection(closed.start, out);
-          closed = this.stack.pop();
-        }
-        if (closed?.role === 'section') this.endSection(closed.start, out);
-        if (!this.stack.length) { this.closed = true; this.objectEnd = this.at + 1; }
-      } else if (c === ',' && top?.kind === '{') top.expectKey = true;
-    }
-    return out;
-  }
-
-  private endString(out: FigureStreamItem[]) {
-    const top = this.stack.at(-1);
-    if (!top || top.kind !== '{') return;
-    let value: unknown;
-    try { value = JSON.parse(this.text.slice(this.stringStart, this.at + 1)); } catch { return; }
-    if (this.stringIsKey) { top.key = typeof value === 'string' ? value : null; top.expectKey = false; return; }
-    if (this.stack.length === 1 && top.key === 'summary' && !this.summarySent) {
-      this.summarySent = true;
-      const summary = figureSummary(value, this.paragraphs);
-      this.summaryText = summary;
-      if (summary) out.push({ kind: 'summary', summary });
-    }
-  }
-
-  private endSection(start: number, out: FigureStreamItem[]) {
-    this.seen++;
-    if (this.kept.length >= FIGURE_LIMITS.sections) return;
-    let raw: unknown;
-    try { raw = JSON.parse(this.text.slice(start, this.at + 1)); } catch { return; }
-    const section = figureSection(raw, this.paragraphs, this.kept.filter(s => s.box).length);
-    if (!section) return;
-    this.kept.push(section);
-    out.push({ kind: 'section', index: this.kept.length - 1, section });
+    return this.read(chunk).map((item): FigureStreamItem => item.kind === 'count' ? { kind: 'parts', parts: item.count }
+      : item.kind === 'summary' ? item : { kind: 'section', index: item.index, section: item.item });
   }
 }
 
