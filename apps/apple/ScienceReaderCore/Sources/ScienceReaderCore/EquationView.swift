@@ -33,20 +33,38 @@ public struct EquationSymbols: Codable, Equatable, Sendable {
     /// The event's JSON, checked and bounded as the server bounds it: control characters removed, long text cut, a
     /// `paper` symbol without a usable paragraph counted as general. Nil when nothing usable is left.
     public static func validated(_ data: Data) -> EquationSymbols? {
-        struct Raw: Decodable {
-            struct Row: Decodable { let symbol: String?; let latex: String?; let meaning: String?; let source: String?; let paragraph: Int? }
-            let format: String; let summary: String?; let symbols: [Row]
-        }
+        struct Raw: Decodable { let format: String; let summary: String?; let symbols: [Row] }
         guard data.count <= 64 * 1024, let raw = try? JSONDecoder().decode(Raw.self, from: data), raw.format == format else { return nil }
-        let rows = raw.symbols.prefix(maximumSymbols).compactMap { row -> Symbol? in
-            let symbol = clean(row.symbol, 80), meaning = clean(row.meaning, 500), latex = clean(row.latex, 200)
-            guard !symbol.isEmpty, !meaning.isEmpty else { return nil }
-            let paragraph = row.source == Source.paper.rawValue ? row.paragraph.flatMap { $0 >= 1 && $0 <= 100_000 ? $0 : nil } : nil
-            return Symbol(symbol: symbol, latex: latex.isEmpty ? nil : latex, meaning: meaning, source: paragraph == nil ? .general : .paper, paragraph: paragraph)
-        }
+        let rows = raw.symbols.prefix(maximumSymbols).compactMap(checked)
         let summary = clean(raw.summary, 600)
         guard !summary.isEmpty || !rows.isEmpty else { return nil }
         return EquationSymbols(summary: summary, symbols: Array(rows))
+    }
+
+    struct Row: Decodable { let symbol: String?; let latex: String?; let meaning: String?; let source: String?; let paragraph: Int? }
+    /// One symbol, checked as the final event's symbols are (the streamed ones use this one check).
+    static func checked(_ row: Row) -> Symbol? {
+        let symbol = clean(row.symbol, 80), meaning = clean(row.meaning, 500), latex = clean(row.latex, 200)
+        guard !symbol.isEmpty, !meaning.isEmpty else { return nil }
+        let paragraph = row.source == Source.paper.rawValue ? row.paragraph.flatMap { $0 >= 1 && $0 <= 100_000 ? $0 : nil } : nil
+        return Symbol(symbol: symbol, latex: latex.isEmpty ? nil : latex, meaning: meaning, source: paragraph == nil ? .general : .paper, paragraph: paragraph)
+    }
+
+    /// The streamed `equation_symbol` event (servers from 2026-10-22): its place in the final symbols and the symbol,
+    /// checked; nil when it isn't usable.
+    public static func streamedSymbol(_ data: Data) -> (index: Int, symbol: Symbol)? {
+        struct Event: Decodable { let index: Int; let symbol: Row }
+        guard data.count <= 8 * 1024, let event = try? JSONDecoder().decode(Event.self, from: data),
+              (0..<maximumSymbols).contains(event.index), let symbol = checked(event.symbol) else { return nil }
+        return (event.index, symbol)
+    }
+
+    /// The streamed `equation_summary` event's summary; nil when it isn't usable or is empty.
+    public static func streamedSummary(_ data: Data) -> String? {
+        struct Event: Decodable { let summary: String }
+        guard data.count <= 8 * 1024, let event = try? JSONDecoder().decode(Event.self, from: data) else { return nil }
+        let text = clean(event.summary, 600)
+        return text.isEmpty ? nil : text
     }
 
     static func clean(_ value: String?, _ limit: Int) -> String {

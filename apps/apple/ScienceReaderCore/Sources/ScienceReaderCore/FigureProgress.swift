@@ -56,18 +56,42 @@ public enum FigureProgress {
         return captionLetters >= 2 ? captionLetters : nil
     }
 
-    public static func state(_ input: Input) -> State {
+    /// Whose bar: the figure walkthrough (parts), or the equation's symbols (EQUATION_VIEW.md "Streamed explanation"; the
+    /// browser's equation-progress.ts, fixture tests/fixtures/equation-progress.json). Same rule, own words and sizes.
+    public enum Kind: Sendable {
+        case figure, equation
+        /// The equation's measured sizes (2026-10-22, DPO's loss and gradient; Gemini 3.8 Flash and Sonnet 5.5): the
+        /// summary's JSON about 240–430 characters, a symbol's about 170–210.
+        public static let equationParameters: [String: Double] = ["summaryChars": 320, "partChars": 200, "summaryShare": 0.1, "partCap": 0.9]
+        var parameters: (summaryChars: Double, partChars: Double, summaryShare: Double, partCap: Double) {
+            switch self {
+            case .figure: (Parameters.summaryChars, Parameters.partChars, Parameters.summaryShare, Parameters.partCap)
+            case .equation: (Self.equationParameters["summaryChars"]!, Self.equationParameters["partChars"]!, Self.equationParameters["summaryShare"]!, Self.equationParameters["partCap"]!)
+            }
+        }
+        func label(_ stage: Stage, next: Int = 0, of: Int? = nil) -> String {
+            switch (self, stage) {
+            case (.figure, .preparing): "Preparing the figure…"
+            case (.figure, .reading): "Reading the figure…"
+            case (.equation, .preparing): "Preparing the equation…"
+            case (.equation, .reading): "Reading the equation…"
+            case (_, .done): "Done"
+            case (.figure, .writing): of.map { "Writing part \(next) of \($0)…" } ?? "Writing part \(next)…"
+            case (.equation, .writing): of.map { "Explaining symbol \(next) of \($0)…" } ?? "Explaining symbol \(next)…"
+            }
+        }
+    }
+
+    public static func state(_ input: Input, kind: Kind = .figure) -> State {
         switch input.stage {
-        case .preparing: return State(label: "Preparing the figure…", value: nil)
-        case .reading: return State(label: "Reading the figure…", value: nil)
+        case .preparing, .reading: return State(label: kind.label(input.stage), value: nil)
         case .done: return State(label: "Done", value: 1)
         case .writing: break
         }
-        let p = Parameters.self
+        let p = kind.parameters
         let opening = !input.summary && input.parts == 0
         let known = input.expected.map { $0 >= 1 && input.parts < $0 } ?? false
-        let label = opening ? "Writing the summary…"
-            : known ? "Writing part \(input.parts + 1) of \(input.expected!)…" : "Writing part \(input.parts + 1)…"
+        let label = opening ? "Writing the summary…" : kind.label(.writing, next: input.parts + 1, of: known ? input.expected : nil)
         guard known, let n = input.expected else { return State(label: label, value: nil) }
         let current = Double(max(0, input.characters - input.charactersAtLast))
         let value = opening
@@ -137,6 +161,67 @@ public enum FigureProgress {
         }
 
         /// The stage moves forward only: preparing → reading → writing.
+        private mutating func advance(_ stage: Stage) {
+            let order: [Stage] = [.preparing, .reading, .writing, .done]
+            if order.firstIndex(of: stage)! > order.firstIndex(of: input.stage)! { input.stage = stage }
+        }
+    }
+
+    /// The equation's symbols as their events arrive (EQUATION_VIEW.md "Streamed explanation"): the summary and the
+    /// symbols so far (in order, each once), the bar's inputs (the count is only what the model announced), and the final
+    /// `equation` once it comes (which replaces what was streamed). An older server sends only the final `equation`.
+    public struct EquationTracker: Sendable {
+        public private(set) var input = Input(stage: .preparing)
+        public private(set) var summary: String?
+        public private(set) var symbols: [EquationSymbols.Symbol] = []
+        public private(set) var final: EquationSymbols?
+
+        public init() {}
+
+        /// What to show while it is written: the final symbols once they came, else the summary and symbols so far.
+        public var symbolsSoFar: EquationSymbols? {
+            final ?? (summary == nil && symbols.isEmpty ? nil : EquationSymbols(summary: summary ?? "", symbols: symbols))
+        }
+
+        public mutating func opened() { advance(.reading) }
+
+        /// Applies one event; true when what is shown changed (a summary or a symbol arrived).
+        @discardableResult public mutating func apply(_ event: ChatStreamEvent) -> Bool {
+            switch event {
+            case .equationProgress(let step):
+                switch step.stage {
+                case .reading: advance(.reading)
+                case .writing:
+                    if let count = step.symbols { input.expected = count }
+                    if let characters = step.characters { input.characters = max(input.characters, characters) }
+                    advance(.writing)
+                }
+                return false
+            case .equationSummary(let text):
+                guard final == nil, summary == nil else { return false }
+                summary = text
+                input.summary = true; input.charactersAtLast = input.characters
+                advance(.writing)
+                return true
+            case .equationSymbol(let index, let symbol):
+                guard final == nil, index >= symbols.count, symbols.count < EquationSymbols.maximumSymbols else { return false }
+                symbols.append(symbol)
+                input.parts = symbols.count; input.charactersAtLast = input.characters
+                advance(.writing)
+                return true
+            case .equation(let described):
+                final = described
+                return false
+            default: return false
+            }
+        }
+
+        public mutating func state() -> State {
+            let state = FigureProgress.state(input, kind: .equation)
+            input.previous = state.value
+            return state
+        }
+
         private mutating func advance(_ stage: Stage) {
             let order: [Stage] = [.preparing, .reading, .writing, .done]
             if order.firstIndex(of: stage)! > order.firstIndex(of: input.stage)! { input.stage = stage }

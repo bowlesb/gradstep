@@ -42,6 +42,92 @@ import Testing
         #expect(events.last == .done(stopReason: "end_turn", credits: 3))
     }
 
+    /// The streamed symbols (servers from 2026-10-22, EQUATION_VIEW.md "Streamed explanation"): progress, the summary and
+    /// each symbol before the unchanged final `equation`; each symbol checked exactly as the final symbols are; anything
+    /// malformed dropped, never fatal.
+    @Test func theStreamedSymbolsAreParsedAndCheckedAsTheFinalOnes() throws {
+        let rows = try #require(Self.event["symbols"] as? [[String: Any]])
+        func event(_ name: String, _ value: Any) -> String { "event: \(name)\ndata: \(String(decoding: Self.json(value), as: UTF8.self))\n\n" }
+        var stream = event("equation_progress", ["stage": "reading"])
+            + event("equation_progress", ["stage": "writing", "characters": 14, "symbols": 2])
+            + event("equation_summary", ["summary": "  The DPO loss.  "])
+            + event("equation_symbol", ["index": 0, "symbol": rows[0]])
+            + event("equation_progress", ["stage": "writing", "characters": 300])
+            + event("equation_symbol", ["index": 1, "symbol": rows[1]])
+        stream += event("equation_progress", ["stage": "thinking"]) + "event: equation_progress\ndata: {\n\n"
+            + event("equation_progress", ["stage": "writing", "characters": 320, "symbols": 99])
+            + event("equation_summary", ["summary": "  "]) + event("equation_symbol", ["index": 2, "symbol": ["symbol": "", "meaning": "x"]])
+            + event("equation_symbol", ["index": 24, "symbol": rows[0]]) + event("equation_symbol", ["symbol": rows[0]])
+        stream += event("equation", Self.event) + "event: done\ndata: {\"stop_reason\":\"end_turn\",\"credits\":2}\n\n"
+        var parser = ChatSSEParser()
+        let events = try parser.consume(Array(stream.utf8))
+        let final = try #require(EquationSymbols.validated(Self.json(Self.event)))
+        #expect(events == [
+            .equationProgress(.init(stage: .reading)), .equationProgress(.init(stage: .writing, characters: 14, symbols: 2)),
+            .equationSummary("The DPO loss."), .equationSymbol(index: 0, symbol: final.symbols[0]),
+            .equationProgress(.init(stage: .writing, characters: 300)), .equationSymbol(index: 1, symbol: final.symbols[1]),
+            .equationProgress(.init(stage: .writing, characters: 320)), .equation(final), .done(stopReason: "end_turn", credits: 2)])
+        // One check for both: a paper symbol without a usable paragraph is general in the stream as in the final event.
+        let odd: [String: Any] = ["symbol": " x\u{7} ", "meaning": "Margin.", "source": "paper", "paragraph": 0]
+        let streamed = try #require(EquationSymbols.streamedSymbol(Self.json(["index": 0, "symbol": odd])))
+        let whole = try #require(EquationSymbols.validated(Self.json(["format": EquationSymbols.format, "summary": "s", "symbols": [odd]])))
+        #expect(streamed.symbol == whole.symbols[0] && streamed.symbol.source == .general)
+    }
+
+    /// The equation's progress bar against the fixture the browser's equation-progress.ts reproduces too.
+    @Test func theProgressBarIsTheBrowsers() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("tests/fixtures/equation-progress.json"))) as? [String: Any])
+        let stated = try #require(fixture["parameters"] as? [String: Double])
+        #expect(stated == FigureProgress.Kind.equationParameters)
+        let cases = try #require(fixture["cases"] as? [[String: Any]])
+        #expect(cases.count >= 13)
+        func int(_ v: Any?) -> Int? { (v as? NSNumber).map(\.intValue) }
+        func double(_ v: Any?) -> Double? { (v as? NSNumber).map(\.doubleValue) }
+        for item in cases {
+            let input = try #require(item["input"] as? [String: Any]), expected = try #require(item["expected"] as? [String: Any])
+            let state = FigureProgress.state(FigureProgress.Input(stage: try #require(FigureProgress.Stage(rawValue: input["stage"] as? String ?? "")),
+                summary: input["summary"] as? Bool ?? false, parts: int(input["parts"]) ?? 0, characters: int(input["characters"]) ?? 0,
+                charactersAtLast: int(input["charactersAtLast"]) ?? 0, expected: int(input["expected"]), previous: double(input["previous"])), kind: .equation)
+            #expect(state.label == expected["label"] as? String, "\(item["name"] ?? "?"): \(state.label)")
+            #expect(state.value == double(expected["value"]), "\(item["name"] ?? "?")")
+        }
+    }
+
+    /// The symbols as their events arrive: stage labels, the symbols so far growing one by one (each once, in order), the
+    /// count only as the model announced it, and the final `equation` replacing what was streamed; an older server's lone
+    /// final `equation` too.
+    @Test func theTrackerFollowsStreamedSymbols() {
+        let beta = EquationSymbols.Symbol(symbol: "β", meaning: "Temperature.", source: .general)
+        let sigma = EquationSymbols.Symbol(symbol: "σ", meaning: "Logistic.", source: .general)
+        var tracker = FigureProgress.EquationTracker(), grew: [Bool] = []
+        var labels = [tracker.state().label]
+        tracker.opened(); labels.append(tracker.state().label)
+        func step(_ event: ChatStreamEvent) { grew.append(tracker.apply(event)) }
+        step(.equationProgress(.init(stage: .writing, characters: 10)))
+        labels.append(tracker.state().label)
+        #expect(tracker.state().value == nil, "no count yet: indeterminate")
+        step(.equationProgress(.init(stage: .writing, characters: 20, symbols: 2)))
+        step(.equationSummary("The loss."))
+        step(.equationSummary("Again"))
+        labels.append(tracker.state().label)
+        step(.equationSymbol(index: 0, symbol: beta)); step(.equationSymbol(index: 0, symbol: sigma))
+        labels.append(tracker.state().label)
+        step(.equationSymbol(index: 1, symbol: sigma))
+        labels.append(tracker.state().label)
+        #expect(labels == ["Preparing the equation…", "Reading the equation…", "Writing the summary…", "Explaining symbol 1 of 2…",
+                           "Explaining symbol 2 of 2…", "Explaining symbol 3…"])
+        #expect(tracker.symbolsSoFar == EquationSymbols(summary: "The loss.", symbols: [beta, sigma]))
+        let final = EquationSymbols(summary: "The loss.", symbols: [beta])
+        step(.equation(final)); step(.equationSymbol(index: 2, symbol: beta))
+        #expect(tracker.symbolsSoFar == final)
+        #expect(grew == [false, false, true, false, true, false, true, false, false])
+        var old = FigureProgress.EquationTracker()
+        old.opened(); old.apply(.equation(final))
+        #expect(old.state() == .init(label: "Reading the equation…", value: nil) && old.symbolsSoFar == final)
+    }
+
     @Test func theEquationsOwnMarkupAndNumberAreFoundByItsID() throws {
         let data = try #require(try bundle().data(for: "index.html"))
         let page = try #require(String(data: data, encoding: .utf8))
