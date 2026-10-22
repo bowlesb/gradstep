@@ -9,6 +9,7 @@ import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
 import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
 import { figureSummary, isFigureAction, MAX_SECTIONS, parseFigureSection, parseFigureWalkthrough, type FigureSection, type FigureWalkthrough } from './figure-view';
+import { provenanceFor, rememberProvenance } from './ai-usage';
 
 // v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md); v4
 // (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
@@ -310,6 +311,8 @@ export async function recordStop(account: string, operationID: string, signal?: 
  * has its request from a server that sends no `figure_progress`. */
 export async function* streamAnswer(account: string, request: ChatRequest, signal: AbortSignal, opened?: () => void): AsyncGenerator<StreamEvent> {
   const parser = new SSEParser();
+  // Your AI usage names this operation's conversation and paper from what this browser knew (lib/ai-usage.ts); kept here only.
+  rememberProvenance(account, request.operationID, provenanceFor(request));
   for await (const chunk of functionStream('chat', requestBody(request), { account, signal, maximum: MAX_STREAM_BYTES, minimumValidity: 300 })) {
     if (opened) { const open = opened; opened = undefined; open(); }
     for (const event of parser.consume(chunk)) yield event;

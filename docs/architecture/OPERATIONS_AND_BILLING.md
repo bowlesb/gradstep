@@ -1,5 +1,57 @@
 # Infrastructure, spending, and recovery
 
+## Your AI usage — 2026-10-22
+
+Owner: "a way to see a table of my recent AI token spend for all the different activities to give users insight into
+what types of things cost what tokens … basically just a table, with rows ordered by time, each row being an activity,
+and the exact cost, so that a user can figure out where their credits are going."
+
+**What readers see.** Settings › AI credits › **Your AI usage** (also from Get credits, including its Unlimited testing
+page; browser: account menu › AI credits › Your AI usage). One row per metered request of the signed-in account, newest
+first: time; the activity (Paper chat, General chat, Explain in Chat, Figure explainer, Equation explainer, Study,
+Related papers, Why it matters, Add paper, Diagram repair, Podcast, Recommendations, Tags, Paper lookup, Web search, …);
+the paper's title when this device's library knows it; the model; tokens (input + cache writes, cached reads, output,
+searches, audio); and the cost exactly as settled, **in credits** ("4 credits", "Up to 30" while running, "Free" for work
+Gradstep pays for). Stopped (charged for the part written), Didn't finish · not charged, In progress, Being checked and
+Not charged rows say so. A row opens to its parts — the answer, the chat's title, suggested questions, study map, web
+searches, podcast script, script check and audio — each with its model and exact tokens (one charge covers the request;
+the parts show where its tokens went). Activity chips (only activities present), a period in ⋯ (7, 30, 90 days, 12
+months; remembered per device), totals for the period and filter, and an ⓘ on what affects cost. 25 rows a page, more as
+the list scrolls. Shared words: `AIUsage.swift` / `lib/ai-usage.ts`, checked against `tests/fixtures/ai-usage.json`.
+
+**Units.** Credits only, plus tokens. The product shows no credit-to-dollar conversion ("A credit is a Gradstep usage
+unit, not cash"; DECISIONS.md: in-app credits do not equal dollars without a published conversion policy), and dollar
+settlement is still design only ([Dollar balance](DOLLAR_BALANCE.md)). Whether readers should also see dollars is an
+owner question (OWNER_ACTIONS.md). Provider dollars stay in Admin › Costs.
+
+**Server (migration 0144, `v1_ai_usage(p_days, p_activity, p_before_created_at, p_before_id, p_limit)`).** Security
+definer; the account is the authenticated actor (`require_actor`), never a parameter; a closed account is refused; rate
+rule `account-usage` 600 an hour per account, 6,000 for the service. Read only, from the existing ledger:
+`metered_operations` (credits charged or held, state), `provider_attempts` (model, route, the feature recorded at dispatch,
+units; refused-before-send `denied` attempts left out) and `chat_endings` (the chat action and how it ended). Activities:
+`app_private.usage_activity` (chat action or dispatched feature; operation kind; tags by route); parts:
+`app_private.usage_part` (route, then the title/suggestions/study-map features). A settled operation that was free and
+reached no provider (a reference lookup answered from the catalog) is left out. Keyset pages on `(created_at, id)`,
+1–50 rows; totals over the whole window with the activity filter, and the activities present (no filter), on the first
+page. The reply carries no prompt, answer, title, paper, document, provider request id, digest, transport metadata or
+dollar amount. `tests/backend/ai-usage.test.ts` fails when a new chat action, provider route or operation kind has no
+reader-facing name, or when the clients' names drift from the server's.
+
+**Paper titles stay on the device.** The server does not record whether a chat was about a paper or which one. When a
+device sends a cloud request it remembers, on that device only, the operation id, the conversation kind (paper,
+general, or a question started from a passage) and the paper's library identity (membership or document id) — never a
+title or text (iOS/Mac: UserDefaults per environment and account, bounded to 2,000, erased with the account's local
+data; browser: localStorage, the same bound, removed with the account's other browser keys). The usage screen looks the
+title up in that device's library. A request made on another device shows its activity ("Chat") without a paper.
+
+**Budget.** New fixed commitments **$0**; no new infrastructure; no price, credit rate, consent text or budget change.
+Paid verification: one Haiku 5.5 question on staging for the live read-back, ≈ $0.001 (970 in / 4 out tokens; ≤ $0.02
+allowed). The $100/month ceiling is unchanged.
+
+**Status (2026-10-22 05:45 UTC):** migration 0144 applied to staging after encrypted backup
+`20261022T054157Z-a9f669e7a1b6`; live read-back passed with disposable accounts (`scripts/ai-usage-live-check.mjs`);
+apps and browser local, not released. Evidence: IMPLEMENTATION_STATUS.md "Your AI usage".
+
 ## OpenRouter exclusively and cost per account — 2026-10-21
 
 Owner: "exclusively use open router for better breakdowns of user by cost" ([decision](../DECISIONS.md)). Status:

@@ -2212,6 +2212,7 @@ final class ReaderModel {
             if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
         }
         try? KeychainVault.deleteAll(namesContaining: "\(environment).\(accountID.wire).")
+        AIUsageProvenanceStore(environment: environment, accountID: accountID).forget()
     }
 
     /// Sign-out clears presentation immediately; wait here before retiring any
@@ -3985,8 +3986,11 @@ final class ReaderModel {
     // MARK: - Cloud answers
 
     var chatTransport: (any ChatTransport)? {
-        (chatTransportOverride ?? backend).map { IdleBoundedChatTransport(base: $0, idle: chatIdleDeadline) }
+        // Your AI usage: each cloud operation's conversation kind and paper are remembered on this device (AIUsageService.swift).
+        (chatTransportOverride ?? backend).map { UsageRecordingChatTransport(base: IdleBoundedChatTransport(base: $0, idle: chatIdleDeadline), environment: usageEnvironment) }
     }
+    /// The environment that names this device's per-account usage record.
+    var usageEnvironment: String { configuration?.environment ?? "local" }
     /// How long an answer may send nothing before it ends as interrupted (the server pings every 15 s). Tests shorten it
     /// (`--chat-idle-deadline=<seconds>`, Debug only).
     @ObservationIgnored var chatIdleDeadline: Duration = {

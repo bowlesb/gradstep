@@ -1,0 +1,706 @@
+{
+ "about": "Your AI usage: a v1_ai_usage page (migration 0144) and the words both clients show for it (apps/web/src/lib/ai-usage.ts, AIUsage.swift). UPDATE_USAGE_FIXTURE=1 (apps/web: npx vitest run tests/ai-usage.test.ts) rewrites expected.",
+ "page": {
+  "generated_at": "2026-10-22T04:40:00.000000+00:00",
+  "since": "2026-09-23T00:00:00+00:00",
+  "days": 30,
+  "activity": null,
+  "limit": 25,
+  "operations": [
+   {
+    "id": "14400000-0000-4000-8001-00000000000b",
+    "created_at": "2026-10-22T04:39:30.000000+00:00",
+    "settled_at": "2026-10-22T04:39:41.000000+00:00",
+    "kind": "chat",
+    "activity": "chat",
+    "action": "answer",
+    "ending": "completed",
+    "outcome": "completed",
+    "paid_by": "you",
+    "credits": 2,
+    "credits_held": 0,
+    "model": "anthropic/claude-sonnet-5.5",
+    "calls": 1,
+    "input_tokens": 777,
+    "cached_tokens": 0,
+    "cache_write_tokens": 0,
+    "output_tokens": 77,
+    "searches": 0,
+    "audio_ms": 0,
+    "estimated": false,
+    "pending": false,
+    "parts": [
+     {
+      "part": "answer",
+      "model": "anthropic/claude-sonnet-5.5",
+      "calls": 1,
+      "input_tokens": 777,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 77,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-00000000000a",
+    "created_at": "2026-10-22T04:39:00.000000+00:00",
+    "settled_at": "2026-10-22T04:39:09.000000+00:00",
+    "kind": "recommend",
+    "activity": "recommendations",
+    "action": null,
+    "ending": null,
+    "outcome": "not_charged",
+    "paid_by": "you",
+    "credits": 0,
+    "credits_held": 0,
+    "model": "anthropic/claude-haiku-5.5",
+    "calls": 1,
+    "input_tokens": 4000,
+    "cached_tokens": 0,
+    "cache_write_tokens": 0,
+    "output_tokens": 200,
+    "searches": 0,
+    "audio_ms": 0,
+    "estimated": false,
+    "pending": false,
+    "parts": [
+     {
+      "part": "answer",
+      "model": "anthropic/claude-haiku-5.5",
+      "calls": 1,
+      "input_tokens": 4000,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 200,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000007",
+    "created_at": "2026-10-22T04:38:00.000000+00:00",
+    "settled_at": "2026-10-22T04:38:04.000000+00:00",
+    "kind": "metadata",
+    "activity": "tags",
+    "action": null,
+    "ending": null,
+    "outcome": "free",
+    "paid_by": "gradstep",
+    "credits": 0,
+    "credits_held": 0,
+    "model": "anthropic/claude-haiku-5.5",
+    "calls": 1,
+    "input_tokens": 1500,
+    "cached_tokens": 0,
+    "cache_write_tokens": 0,
+    "output_tokens": 60,
+    "searches": 0,
+    "audio_ms": 0,
+    "estimated": false,
+    "pending": false,
+    "parts": [
+     {
+      "part": "tags",
+      "model": "anthropic/claude-haiku-5.5",
+      "calls": 1,
+      "input_tokens": 1500,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 60,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000006",
+    "created_at": "2026-10-22T04:37:00.000000+00:00",
+    "settled_at": "2026-10-22T04:39:00.000000+00:00",
+    "kind": "podcast",
+    "activity": "podcast",
+    "action": null,
+    "ending": null,
+    "outcome": "completed",
+    "paid_by": "you",
+    "credits": 55,
+    "credits_held": 0,
+    "model": "anthropic/claude-sonnet-5.5",
+    "calls": 3,
+    "input_tokens": 42000,
+    "cached_tokens": 0,
+    "cache_write_tokens": 0,
+    "output_tokens": 65600,
+    "searches": 0,
+    "audio_ms": 300000,
+    "estimated": false,
+    "pending": false,
+    "parts": [
+     {
+      "part": "podcast_script",
+      "model": "anthropic/claude-sonnet-5.5",
+      "calls": 1,
+      "input_tokens": 30000,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 5000,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     },
+     {
+      "part": "podcast_review",
+      "model": "anthropic/claude-sonnet-5.5",
+      "calls": 1,
+      "input_tokens": 8000,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 600,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     },
+     {
+      "part": "podcast_audio",
+      "model": "gemini-3.8-flash-tts",
+      "calls": 1,
+      "input_tokens": 4000,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 60000,
+      "searches": 0,
+      "audio_ms": 300000,
+      "estimated": false,
+      "pending": false
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000005",
+    "created_at": "2026-10-22T04:36:00.000000+00:00",
+    "settled_at": null,
+    "kind": "chat",
+    "activity": "study",
+    "action": null,
+    "ending": null,
+    "outcome": "in_progress",
+    "paid_by": "you",
+    "credits": null,
+    "credits_held": 30,
+    "model": "anthropic/claude-sonnet-5.5",
+    "calls": 1,
+    "input_tokens": 0,
+    "cached_tokens": 0,
+    "cache_write_tokens": 0,
+    "output_tokens": 0,
+    "searches": 0,
+    "audio_ms": 0,
+    "estimated": false,
+    "pending": true,
+    "parts": [
+     {
+      "part": "answer",
+      "model": "anthropic/claude-sonnet-5.5",
+      "calls": 1,
+      "input_tokens": 0,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 0,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": true
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000004",
+    "created_at": "2026-10-22T04:35:00.000000+00:00",
+    "settled_at": "2026-10-22T04:35:03.000000+00:00",
+    "kind": "chat",
+    "activity": "equation_explainer",
+    "action": "equation",
+    "ending": "provider",
+    "outcome": "failed",
+    "paid_by": "you",
+    "credits": 0,
+    "credits_held": 0,
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "calls": 1,
+    "input_tokens": 0,
+    "cached_tokens": 0,
+    "cache_write_tokens": 0,
+    "output_tokens": 0,
+    "searches": 0,
+    "audio_ms": 0,
+    "estimated": false,
+    "pending": false,
+    "parts": [
+     {
+      "part": "answer",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "calls": 1,
+      "input_tokens": 0,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 0,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000003",
+    "created_at": "2026-10-22T04:34:00.000000+00:00",
+    "settled_at": "2026-10-22T04:34:20.000000+00:00",
+    "kind": "chat",
+    "activity": "chat",
+    "action": "answer",
+    "ending": "stopped",
+    "outcome": "stopped",
+    "paid_by": "you",
+    "credits": 1,
+    "credits_held": 0,
+    "model": "gemini-3.8-flash",
+    "calls": 1,
+    "input_tokens": 5000,
+    "cached_tokens": 0,
+    "cache_write_tokens": 0,
+    "output_tokens": 300,
+    "searches": 0,
+    "audio_ms": 0,
+    "estimated": true,
+    "pending": false,
+    "parts": [
+     {
+      "part": "answer",
+      "model": "gemini-3.8-flash",
+      "calls": 1,
+      "input_tokens": 5000,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 300,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": true,
+      "pending": false
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000002",
+    "created_at": "2026-10-22T04:33:00.000000+00:00",
+    "settled_at": "2026-10-22T04:33:12.000000+00:00",
+    "kind": "chat",
+    "activity": "figure_explainer",
+    "action": "figure",
+    "ending": "completed",
+    "outcome": "completed",
+    "paid_by": "you",
+    "credits": 3,
+    "credits_held": 0,
+    "model": "anthropic/claude-sonnet-5.5",
+    "calls": 1,
+    "input_tokens": 3000,
+    "cached_tokens": 40000,
+    "cache_write_tokens": 0,
+    "output_tokens": 1200,
+    "searches": 0,
+    "audio_ms": 0,
+    "estimated": false,
+    "pending": false,
+    "parts": [
+     {
+      "part": "answer",
+      "model": "anthropic/claude-sonnet-5.5",
+      "calls": 1,
+      "input_tokens": 3000,
+      "cached_tokens": 40000,
+      "cache_write_tokens": 0,
+      "output_tokens": 1200,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000001",
+    "created_at": "2026-10-22T04:32:00.000000+00:00",
+    "settled_at": "2026-10-22T04:32:15.000000+00:00",
+    "kind": "chat",
+    "activity": "chat",
+    "action": "answer",
+    "ending": "completed",
+    "outcome": "completed",
+    "paid_by": "you",
+    "credits": 4,
+    "credits_held": 0,
+    "model": "anthropic/claude-sonnet-5.5",
+    "calls": 4,
+    "input_tokens": 1500,
+    "cached_tokens": 20000,
+    "cache_write_tokens": 100,
+    "output_tokens": 750,
+    "searches": 1,
+    "audio_ms": 0,
+    "estimated": false,
+    "pending": false,
+    "parts": [
+     {
+      "part": "answer",
+      "model": "anthropic/claude-sonnet-5.5",
+      "calls": 1,
+      "input_tokens": 900,
+      "cached_tokens": 20000,
+      "cache_write_tokens": 100,
+      "output_tokens": 700,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     },
+     {
+      "part": "suggestions",
+      "model": "anthropic/claude-haiku-5.5",
+      "calls": 1,
+      "input_tokens": 400,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 40,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     },
+     {
+      "part": "title",
+      "model": "anthropic/claude-haiku-5.5",
+      "calls": 1,
+      "input_tokens": 200,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 10,
+      "searches": 0,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     },
+     {
+      "part": "web_search",
+      "model": "search-basic",
+      "calls": 1,
+      "input_tokens": 0,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 0,
+      "searches": 1,
+      "audio_ms": 0,
+      "estimated": false,
+      "pending": false
+     }
+    ]
+   }
+  ],
+  "totals": {
+   "operations": 9,
+   "credits": 65,
+   "credits_held": 30,
+   "input_tokens": 57777,
+   "cached_tokens": 60000,
+   "cache_write_tokens": 100,
+   "output_tokens": 68187,
+   "searches": 1,
+   "audio_ms": 300000
+  },
+  "activities": [
+   {
+    "activity": "podcast",
+    "operations": 1,
+    "credits": 55
+   },
+   {
+    "activity": "chat",
+    "operations": 3,
+    "credits": 7
+   },
+   {
+    "activity": "figure_explainer",
+    "operations": 1,
+    "credits": 3
+   },
+   {
+    "activity": "equation_explainer",
+    "operations": 1,
+    "credits": 0
+   },
+   {
+    "activity": "recommendations",
+    "operations": 1,
+    "credits": 0
+   },
+   {
+    "activity": "study",
+    "operations": 1,
+    "credits": 0
+   },
+   {
+    "activity": "tags",
+    "operations": 1,
+    "credits": 0
+   }
+  ],
+  "next": {
+   "created_at": "2026-10-22T04:32:00.000000+00:00",
+   "id": "14400000-0000-4000-8001-000000000001"
+  }
+ },
+ "provenance": {
+  "14400000-0000-4000-8001-000000000001": {
+   "kind": "explain",
+   "membership": "m-dpo"
+  },
+  "14400000-0000-4000-8001-000000000003": {
+   "kind": "paper",
+   "membership": "m-dpo"
+  },
+  "14400000-0000-4000-8001-00000000000b": {
+   "kind": "general"
+  }
+ },
+ "models": [
+  "anthropic/claude-sonnet-5.5",
+  "anthropic/claude-haiku-5.5",
+  "gemini-3.8-flash",
+  "gemini-3.8-flash-tts",
+  "deepseek/deepseek-v4.1-flash-1017",
+  "claude-sonnet-5-5",
+  "search-basic",
+  "openai/gpt-5-mini",
+  "x-ai/grok_4",
+  ""
+ ],
+ "numbers": [
+  0,
+  950,
+  999,
+  1000,
+  1049,
+  1500,
+  9960,
+  20000,
+  999999,
+  1250000
+ ],
+ "expected": {
+  "rows": [
+   {
+    "id": "14400000-0000-4000-8001-00000000000b",
+    "activity": "General chat",
+    "outcome": null,
+    "credits": "2 credits",
+    "model": "Claude Sonnet 5.5",
+    "tokens": "777 in · 77 out",
+    "parts": [
+     {
+      "label": "Answer",
+      "model": "Claude Sonnet 5.5",
+      "tokens": "777 in · 77 out"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-00000000000a",
+    "activity": "Recommendations",
+    "outcome": "Not charged",
+    "credits": "0 credits",
+    "model": "Claude Haiku 5.5",
+    "tokens": "4k in · 200 out",
+    "parts": [
+     {
+      "label": "Answer",
+      "model": "Claude Haiku 5.5",
+      "tokens": "4,000 in · 200 out"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000007",
+    "activity": "Tags",
+    "outcome": null,
+    "credits": "Free",
+    "model": "Claude Haiku 5.5",
+    "tokens": "1.5k in · 60 out",
+    "parts": [
+     {
+      "label": "Tags",
+      "model": "Claude Haiku 5.5",
+      "tokens": "1,500 in · 60 out"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000006",
+    "activity": "Podcast",
+    "outcome": null,
+    "credits": "55 credits",
+    "model": "Claude Sonnet 5.5",
+    "tokens": "42k in · 66k out · 5 min audio",
+    "parts": [
+     {
+      "label": "Script",
+      "model": "Claude Sonnet 5.5",
+      "tokens": "30,000 in · 5,000 out"
+     },
+     {
+      "label": "Script check",
+      "model": "Claude Sonnet 5.5",
+      "tokens": "8,000 in · 600 out"
+     },
+     {
+      "label": "Audio",
+      "model": "Gemini 3.8 Flash TTS",
+      "tokens": "4,000 in · 60,000 out · 5 min audio"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000005",
+    "activity": "Study",
+    "outcome": "In progress",
+    "credits": "Up to 30",
+    "model": "Claude Sonnet 5.5",
+    "tokens": "—",
+    "parts": [
+     {
+      "label": "Answer",
+      "model": "Claude Sonnet 5.5",
+      "tokens": "—"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000004",
+    "activity": "Equation explainer",
+    "outcome": "Didn’t finish · not charged",
+    "credits": "0 credits",
+    "model": "DeepSeek V4.1 Flash",
+    "tokens": "—",
+    "parts": [
+     {
+      "label": "Answer",
+      "model": "DeepSeek V4.1 Flash",
+      "tokens": "—"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000003",
+    "activity": "Paper chat",
+    "outcome": "Stopped",
+    "credits": "1 credit",
+    "model": "Gemini 3.8 Flash",
+    "tokens": "≈ 5k in · 300 out",
+    "parts": [
+     {
+      "label": "Answer",
+      "model": "Gemini 3.8 Flash",
+      "tokens": "≈ 5,000 in · 300 out"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000002",
+    "activity": "Figure explainer",
+    "outcome": null,
+    "credits": "3 credits",
+    "model": "Claude Sonnet 5.5",
+    "tokens": "3k in · 40k cached · 1.2k out",
+    "parts": [
+     {
+      "label": "Answer",
+      "model": "Claude Sonnet 5.5",
+      "tokens": "3,000 in · 40,000 cached · 1,200 out"
+     }
+    ]
+   },
+   {
+    "id": "14400000-0000-4000-8001-000000000001",
+    "activity": "Explain in Chat",
+    "outcome": null,
+    "credits": "4 credits",
+    "model": "Claude Sonnet 5.5",
+    "tokens": "1.6k in · 20k cached · 750 out · 1 search",
+    "parts": [
+     {
+      "label": "Answer",
+      "model": "Claude Sonnet 5.5",
+      "tokens": "1,000 in · 20,000 cached · 700 out"
+     },
+     {
+      "label": "Suggested questions",
+      "model": "Claude Haiku 5.5",
+      "tokens": "400 in · 40 out"
+     },
+     {
+      "label": "Chat title",
+      "model": "Claude Haiku 5.5",
+      "tokens": "200 in · 10 out"
+     },
+     {
+      "label": "Web search",
+      "model": "Tavily search",
+      "tokens": "1 search"
+     }
+    ]
+   }
+  ],
+  "totals": "65 credits · 9 requests · 186k tokens · 30 held",
+  "models": [
+   "Claude Sonnet 5.5",
+   "Claude Haiku 5.5",
+   "Gemini 3.8 Flash",
+   "Gemini 3.8 Flash TTS",
+   "DeepSeek V4.1 Flash",
+   "Claude Sonnet 5.5",
+   "Tavily search",
+   "GPT 5 mini",
+   "Grok 4",
+   "—"
+  ],
+  "compact": [
+   "0",
+   "950",
+   "999",
+   "1k",
+   "1k",
+   "1.5k",
+   "10k",
+   "20k",
+   "1M",
+   "1.3M"
+  ],
+  "chips": [
+   "Podcast",
+   "Chat",
+   "Figure explainer",
+   "Equation explainer",
+   "Recommendations",
+   "Study",
+   "Tags"
+  ]
+ }
+}

@@ -20,6 +20,18 @@ const CODE = '123456';
 const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
 const CHAT_PROFILES_AUTO = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 const CHAT_PROFILES_GEMINI = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-gemini.json', import.meta.url), 'utf8'));
+// Your AI usage (migration 0144): the shared page (tests/fixtures/ai-usage.json), this account's own chat requests on top
+// as the server would list them, and thirty older answers so the list pages. /__usage sets failures and empty accounts.
+const USAGE_FIXTURE = JSON.parse(readFileSync(new URL('../../../tests/fixtures/ai-usage.json', import.meta.url), 'utf8')).page;
+function usageRows(a) {
+  const base = Date.parse('2026-10-22T04:40:00Z');
+  const asked = a.chatRequests.map((r, n) => ({ ...USAGE_FIXTURE.operations[0], id: r.operation_id, created_at: new Date(Date.now() - 1000 * (a.chatRequests.length - n)).toISOString(),
+    settled_at: now(), activity: r.action === 'study' ? 'study' : r.action === 'equation' || r.action === 'equation_background' ? 'equation_explainer'
+      : r.action === 'figure' || r.action === 'figure_simpler' ? 'figure_explainer' : 'chat', credits: 3 })).reverse();
+  const older = Array.from({ length: 30 }, (_, n) => ({ ...USAGE_FIXTURE.operations[8], id: `14400000-0000-4000-8003-${String(n).padStart(12, '0')}`,
+    created_at: new Date(base - 3_600_000 * (n + 2)).toISOString(), settled_at: new Date(base - 3_600_000 * (n + 2) + 15_000).toISOString(), credits: 2 }));
+  return [...asked, ...USAGE_FIXTURE.operations, ...older];
+}
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -208,6 +220,26 @@ const rpcs = {
     return null;
   },
   v1_credit_balance: (id, a) => a.balance ?? { available: 1000, reserved: 0 },
+  v1_ai_usage: (_id, a, p) => {
+    const activities = ['chat', 'figure_explainer', 'equation_explainer', 'study', 'related_papers', 'why_it_matters', 'add_paper', 'diagram_repair', 'podcast',
+      'recommendations', 'tags', 'paper_lookup', 'web_search', 'paper_ocr', 'diagram', 'other'];
+    if (!Number.isSafeInteger(p.p_days) || p.p_days < 1 || p.p_days > 366 || !Number.isSafeInteger(p.p_limit) || p.p_limit < 1 || p.p_limit > 50
+      || (p.p_activity !== null && !activities.includes(p.p_activity)) || (p.p_before_created_at === null) !== (p.p_before_id === null)) throw pg('invalid_usage_query');
+    if (a.usageFail) throw pg('request_failed');
+    a.usageQueries = [...(a.usageQueries ?? []), p];
+    const all = a.usageEmpty ? [] : usageRows(a).filter(o => p.p_days >= 30 || Date.parse(o.created_at) > Date.parse('2026-10-22T02:00:00Z'));
+    const shown = all.filter(o => p.p_activity === null || o.activity === p.p_activity);
+    const start = p.p_before_id === null ? 0 : shown.findIndex(o => o.id === p.p_before_id) + 1;
+    const page = shown.slice(start, start + p.p_limit), more = shown.length > start + p.p_limit;
+    const sum = (rows, k) => rows.reduce((t, o) => t + (o[k] ?? 0), 0);
+    const totals = rows => ({ operations: rows.length, credits: sum(rows, 'credits'), credits_held: sum(rows, 'credits_held'), input_tokens: sum(rows, 'input_tokens'),
+      cached_tokens: sum(rows, 'cached_tokens'), cache_write_tokens: sum(rows, 'cache_write_tokens'), output_tokens: sum(rows, 'output_tokens'), searches: sum(rows, 'searches'), audio_ms: sum(rows, 'audio_ms') });
+    const counts = [...new Set(all.map(o => o.activity))].map(activity => ({ activity, operations: all.filter(o => o.activity === activity).length,
+      credits: sum(all.filter(o => o.activity === activity), 'credits') })).sort((x, y) => y.credits - x.credits || y.operations - x.operations);
+    return { generated_at: now(), since: '2026-09-23T00:00:00+00:00', days: p.p_days, activity: p.p_activity, limit: p.p_limit, operations: page,
+      totals: start ? null : totals(shown), activities: start ? null : counts,
+      next: more ? { created_at: page.at(-1).created_at, id: page.at(-1).id } : null };
+  },
   // The active subscription (migration 018): none unless a journey sets one (/__store).
   v1_store_summary: (id, a) => a.storePlan ? { plan: a.storePlan, product_id: `ai.gradstep.${a.storePlan}.monthly`, expires_at: '2026-11-16T00:00:00Z' } : { plan: null },
   // The reader's Stop (migration 079): its own chat operation only; recorded before the app cancels the stream.
@@ -381,6 +413,12 @@ createServer(async (request, response) => {
     if (p?.plan === null || typeof p?.plan === 'string') a.storePlan = p.plan;
     return send(response, 200, { ok: true });
   }
+  if (url.pathname === '/__usage' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
+    a.usageFail = p?.fail === true; a.usageEmpty = p?.empty === true;
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__usage-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { queries: a.usageQueries ?? [] }); }
   if (url.pathname === '/__search-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { server: a.serverSearches ?? [] }); }
   if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests, stops: a.chatStops }); }
   if (url.pathname === '/__large-library' && request.method === 'POST') {

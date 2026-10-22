@@ -1,5 +1,46 @@
 # Implementation status
 
+## Your AI usage — 2026-10-22 UTC (server on staging; apps and browser local, not released)
+
+Owner: "a table of my recent AI token spend for all the different activities … each row being an activity, and the exact
+cost, so that a user can figure out where their credits are going." Settings › AI credits › Your AI usage (and Get
+credits, including its Unlimited testing page; browser account menu): one row per metered request, newest first, with
+activity, the paper's title from this device's library, model, tokens, credits; Stopped / Didn't finish · not charged /
+In progress / Free labeled; parts on opening a row; activity chips, period in ⋯, totals, ⓘ; 25 a page, more on
+scrolling. Credits and tokens only (no dollars: OWNER_ACTIONS #12). Design: [Operations](architecture/OPERATIONS_AND_BILLING.md#your-ai-usage--2026-10-22).
+
+- **Server (staging):** migration `202610220144_account_ai_usage.sql` (`v1_ai_usage`, read only; rate rule
+  `account-usage`) applied 05:43 UTC by `scripts/deploy-staging.py staging --functions` (no function changed) after the
+  encrypted backup `.artifacts/backups/20261022T054157Z-a9f669e7a1b6` (25 objects, 10.3 MB database). Deploy checks 17
+  pass, 3 skip, 1 warn, 1 fail — the fail and warn are the month's provider budget already at 80 % ($32.08 of $40 spent
+  before this change; `budget.health`), unrelated to it.
+- **Live read-back** (`node scripts/ai-usage-live-check.mjs`, record `.artifacts/ai-usage-20261022/live-check.json`): a
+  disposable account asked one general question on Haiku 5.5 (low, brief, no title/suggestions; 970 in / 4 out tokens,
+  ≈ $0.001 provider cost, 1 synthetic credit); `v1_ai_usage` returned exactly that operation — chat, completed, 1
+  credit, `anthropic/claude-haiku-5.5`, the same tokens — with totals; a second disposable account saw nothing; anonymous
+  (401) and a bad query refused; both accounts deleted through account-delete.
+- **Evidence (local):** `npm run test:database` passed (95 s; `tests/database/account_usage.sql`: own rows only, a second
+  and an empty account see nothing, activities/outcomes/parts/tokens, three keyset pages without gaps, totals, filter,
+  window, closed account refused, read only); `tests/backend/ai-usage.test.ts` 5/5 (every chat action, route and kind
+  named; server and both clients' names identical; no dollar or private fields); browser `ai-usage.test.ts` 5/5 and Core
+  `AIUsageTests` 6/6 against the shared `tests/fixtures/ai-usage.json`; Playwright `ai-usage.spec.ts` desktop + phone 6/6;
+  native `AIUsageJourneyTests` on an iPhone 17 Pro Simulator (run one at a time). Screenshots:
+  `.artifacts/ai-usage-20261022/` (`usage-iphone-{light,dark}-{list,parts}.png`, `browser-{desktop,phone}-{light,dark}-{list,parts}.png`).
+- **Not done:** iPad/Mac journeys (the wide column layout is built, not screenshot-checked), browser deploy, TestFlight,
+  physical phone (paused). Requests made on another device show their activity without a paper (titles stay on the
+  device that asked).
+
+## Collapsible snippet cards — 2026-10-22 UTC (apps and browser local, not released)
+
+Owner request: each snippet in a collection is its own card with the crop/quotation in a framed inner box; a chevron
+collapses it to one line (time · short paper title · first words of the comment), remembered per device (never synced);
+the collection's ⋯ adds Collapse all / Expand all. iPhone/iPad/Mac share the SwiftUI view; the browser matches it and
+the shared fixture `tests/fixtures/notes/collapsed-lines.json`. Evidence: Core `NoteCollapseTests`, browser
+`note-collapse.test.ts`, native `NotesJourneyTests.testSnippetCardsCollapseAndRemember` /
+`testSnippetCardsDarkAndLargeText` (iPhone 17 Pro Simulator), Playwright `notes.spec.ts` desktop + phone; screenshots in
+`.artifacts/snippets-20261022/`. Not run: iPad/Mac journeys, physical device (paused). Details:
+[Notes and snippets](architecture/NOTES_AND_SNIPPETS.md#collapsible-snippet-cards-owner-2026-10-22-local-source-not-released).
+
 ## TestFlight 81 and browser release — 2026-10-22 UTC
 
 iOS and Mac build 81 uploaded; browser redeployed. Adds since 80: the streamed figure walkthrough (summary and each

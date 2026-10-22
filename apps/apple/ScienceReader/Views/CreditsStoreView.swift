@@ -22,8 +22,14 @@ struct CreditsStoreView: View {
                 } else if !model.canPurchase {
                     deviceNotReady
                 } else if model.creditBalance?.unlimitedTesting == true {
-                    ContentUnavailableView("Unlimited testing", systemImage: "infinity",
-                                           description: Text("You don’t need to buy credits for this account. Your testing allowance replenishes automatically."))
+                    ContentUnavailableView {
+                        Label("Unlimited testing", systemImage: "infinity")
+                    } description: {
+                        Text("You don’t need to buy credits for this account. Your testing allowance replenishes automatically.")
+                    } actions: {
+                        // What each request used, still worth seeing with unlimited testing (owner, 2026-10-22).
+                        NavigationLink("Your AI usage") { AIUsageView(model: model) }.accessibilityIdentifier("store.aiUsage.unlimited")
+                    }
                 } else if model.storeOwnershipKnown {
                     StoreView(ids: model.planOwnedElsewhere ? [StoreProducts.pack] : StoreProducts.all) { product in
                         Image(systemName: product.id == StoreProducts.pack ? "plus.circle" : product.id == StoreProducts.pro ? "sparkles" : "star")
@@ -110,10 +116,19 @@ struct CreditsStoreView: View {
             }
             Text("Credits pay for AI answers, searches and podcast generation. Reading papers is free.")
                 .font(.footnote).foregroundStyle(.secondary)
-            NavigationLink {
-                CreditUsageView()
-            } label: {
-                Label("How credits are used", systemImage: "questionmark.circle")
+            HStack(spacing: 20) {
+                NavigationLink {
+                    CreditUsageView()
+                } label: {
+                    Label("How credits are used", systemImage: "questionmark.circle")
+                }
+                // Owner, 2026-10-22: each request with its tokens and the credits it used.
+                NavigationLink {
+                    AIUsageView(model: model)
+                } label: {
+                    Label("Your AI usage", systemImage: "list.bullet.rectangle")
+                }
+                .accessibilityIdentifier("store.aiUsage")
             }
             .font(.subheadline)
         }
