@@ -585,7 +585,7 @@ end $$;
 create table app_private.spend_alerts (
  id uuid primary key default gen_random_uuid(),
  period date not null check(extract(day from period)=1),
- kind text not null check(kind in ('budget_50','budget_80','budget_100','free_pool_exhausted','spend_over_income')),
+ kind text not null constraint spend_alerts_kind check(kind in ('budget_50','budget_80','budget_100','free_pool_exhausted','spend_over_income')),
  created_at timestamptz not null default now(),
  details jsonb not null check(jsonb_typeof(details)='object' and octet_length(details::text)<=2048),
  delivery text not null default 'pending' check(delivery in ('pending','sent','failed','not_configured')),
