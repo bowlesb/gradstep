@@ -1,5 +1,14 @@
 # Implementation status
 
+## TestFlight 83 and browser release — 2026-10-22 UTC
+
+iOS and Mac build 83 uploaded; browser redeployed. Adds since 82 (owner's build-82 feedback): the paper AI Explainer's
+one Key concepts card, its cards (with ¶ links and the drawn diagram) carried into Chat by Open in Chat, summaries that
+never stop mid-word, minimal reasoning on Gemini (staging summary 16 s → 6–8 s); Download your assets (a .zip built on
+the device) and the Snippets row's chevron. Gates: `npm test` passes; Core `swift test` 436 pass; iPhone 17 Simulator
+`StudyExplainerJourneyTests` 3/3 and `AssetsExportJourneyTests` 1/1 pass on merged main; import acceptance 15/15 on the
+uploaded source. Not verified: iPad/Mac journeys, physical device (paused).
+
 ## Paper AI Explainer, build-82 feedback: Key concepts, cards in Chat, no cut-off summary, faster on Gemini — 2026-10-22 UTC (server on staging; apps and browser local, not released)
 
 - **Server (staging):** `chat` deployed 15:08 UTC from this branch (base `50dd3c50`): Gemini explainer at `minimal`
