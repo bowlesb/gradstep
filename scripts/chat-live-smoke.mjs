@@ -33,9 +33,13 @@ import { dirname, resolve } from 'node:path';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT_REF = 'coxhjvqpflgxkleydati';
 const QUESTIONS = Number(process.argv.find(a => a.startsWith('--questions='))?.split('=')[1] ?? 1);
-// --study: a tutored conversation instead (chat-study.ts): the opening turn, a partly right answer, a "don't know"; the
-// map after each turn is printed (counts, states, next step). About three Sonnet answers plus three Haiku map updates.
+// --study: a tutored conversation instead (Study mode, chat-study.ts, 2026-10-22): the opening turn, a partly right answer,
+// "Give me a hint.", a "don't know"; each turn's hidden notes (`study_state`) are printed and sent back, and the answer
+// text is checked never to carry them. One answer per turn (no side request).
 const STUDY = process.argv.includes('--study');
+/** `--paper-explainer`: the paper's AI Explainer (chat-paper-explainer.ts): the stream's timings (reading, count, summary,
+ * each entry, the final explainer), the entries and links. */
+const PAPER_EXPLAINER = process.argv.includes('--paper-explainer');
 /** `--question=…` asks this instead of the built-in first question (e.g. one that invites a visual answer). */
 const QUESTION = process.argv.find(a => a.startsWith('--question='))?.slice(11) ?? null;
 /** `--figure=N` attaches the bundle's figure N image (consent cloud-ai-v3), as the app does for a question naming it. */
@@ -388,7 +392,7 @@ try {
     manifest_sha256, source_sha256, text };
   const turns = [];
   let equationAction = null, equationLatex = '';
-  let followUps = [], studyMap = { concepts: [], links: [], focus: null, journey: [], next: 'calibrate' };
+  let followUps = [], studyNotes = null, explainerAction = false;
   const ask = async (question, figureNumber = 0) => {
     turns.push({ role: 'user', text: question });
     const figures = forced ? figureImages(forced) : (figureNumber || FIGURE) && turns.length === 1 ? figureImages(figureNumber || FIGURE) : [];
@@ -397,12 +401,14 @@ try {
     const body = { operation_id: randomUUID(), consent_version: consent, mode: 'paper', local_context, messages: turns,
       topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
       ...(PROFILE ? { profile: PROFILE } : {}),
-      ...(STUDY ? { action: 'study', study: studyMap } : equationAction ? { action: equationAction, selection: { quote: equationLatex } }
+      ...(STUDY ? { action: 'study', ...(studyNotes ? { study_state: studyNotes } : {}) } : explainerAction ? { action: 'paper_explainer' }
+        : equationAction ? { action: equationAction, selection: { quote: equationLatex } }
         : INGEST ? { action: 'ingest', selection: { quote: INGEST } } : ACTION ? { action: ACTION, selection: { quote: SELECTION ?? 'x' }, follow_ups: true } : { follow_ups: true }) };
     if (INGEST) delete body.topic_title;
     if (process.argv.includes('--no-auxiliaries')) { delete body.topic_title; delete body.follow_ups; }
     if (CAPS) body.capabilities = CAPS;
-    if (equationAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
+    if (equationAction || explainerAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
+    if (STUDY || explainerAction) { delete body.topic_title; if (explainerAction) body.capabilities = ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal']; }
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
     const started = Date.now();
     const r = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
@@ -412,6 +418,7 @@ try {
     let answer = '', buffer = '', first = 0; const events = []; let done = null, failure = null, parts = null, visual = null, diagram = null; followUps = [];
     // The equation explainer's stream (seconds from sending): what the reader sees and when.
     const eq = { reading: null, count: null, summary: null, symbols: [], final: null, done: null, progress: 0 };
+    const pe = { reading: null, count: null, summary: null, items: [], final: null, progress: 0 };
     const since = () => Number(((Date.now() - started) / 1000).toFixed(2));
     const reader = r.body.getReader(); const decoder = new TextDecoder();
     const dispatch = frame => {
@@ -422,7 +429,11 @@ try {
       events.push(name);
       if (name === 'text' || name === 'delta') { if (!first) first = Date.now(); answer += payload.text ?? payload.delta ?? ''; }
       else if (name === 'followups') followUps = payload.questions ?? [];
-      else if (name === 'study') { studyMap = payload.map; log(`study map: ${studyMap.concepts.length} concepts ${JSON.stringify(studyMap.concepts.map(c => `${c.label}:${c.state}`))} links ${studyMap.links.length} focus ${studyMap.focus} next ${studyMap.next} journey ${studyMap.journey.join('>')}`); }
+      else if (name === 'study_state') { studyNotes = payload.state; log(`study notes: turn ${studyNotes.turn} level ${studyNotes.level} ${JSON.stringify(studyNotes.concepts.map(c => `${c.name}:${c.status}`))} next "${studyNotes.next}"`); }
+      else if (name === 'paper_progress') { pe.progress++; if (payload.stage === 'reading') pe.reading ??= since(); if (payload.items && pe.count === null) pe.count = [since(), payload.items]; }
+      else if (name === 'paper_summary') pe.summary ??= since();
+      else if (name === 'paper_item') { pe.items.push(since()); (pe.streamed ??= []).push(payload.item); }
+      else if (name === 'paper_explainer') { pe.final = since(); pe.explainer = payload; }
       else if (name === 'figure_parts') { parts = payload; log(`figure parts: “${payload.title}” on ${payload.figure} ¶${payload.paragraph}: ${payload.parts.map(p => `${p.label} [${p.box.map(n => n.toFixed(2)).join(',')}]`).join(' | ')}`); }
       else if (name === 'visual') { visual = payload; log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`); }
       else if (name === 'diagram') { diagram = payload; log(`diagram: “${payload.title}”, ${payload.source.split('\n')[0]}`); }
@@ -450,7 +461,19 @@ try {
     log(`follow-ups (${followUps.length}): ${JSON.stringify(followUps)}`);
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
     if (failure || !done) throw new Error(`Chat did not complete: ${failure?.code ?? 'missing_done'}`);
-    if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'ingest'].includes(e)))
+    if (STUDY && /study_state|<study/i.test(answer)) throw new Error('The tutor\'s hidden notes reached the answer text');
+    if (explainerAction) {
+      const x = pe.explainer;
+      log(`explainer stream: reading ${pe.reading ?? '-'} s, count ${pe.count ? `${pe.count[1]} at ${pe.count[0]}` : '-'}, summary ${pe.summary ?? '-'} s, entries [${pe.items.join(' ')}], final ${pe.final ?? '-'} s; streamed = final entries: ${pe.streamed && x ? JSON.stringify(pe.streamed) === JSON.stringify([...x.background, ...x.ideas]) : 'n/a'}`);
+      if (x) {
+        log(`summary: ${x.summary}`);
+        for (const i of x.background) log(`  background ${i.id} ${i.name} — ${i.line} ¶${i.paragraphs.join(',')}`);
+        for (const i of x.ideas) log(`  idea ${i.id} ${i.name} — ${i.line} ¶${i.paragraphs.join(',')}`);
+        log(`  links: ${x.links.map(l => `${l.from} -${l.label}-> ${l.to}`).join('; ')}`);
+      }
+      if (!x) throw new Error('The paper explainer delivered no explainer');
+    }
+    if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'ingest', 'paper_explainer'].includes(e)))
       throw new Error('Chat completed without an answer or a usable tool result');
     if (equationAction === 'equation') {
       const firstVisible = eq.summary ?? eq.symbols[0] ?? eq.final;
@@ -511,10 +534,14 @@ try {
     }
   } else if (EVAL) {
     for (const item of EVAL_QUESTIONS) { turns.length = 0; log(`=== ${item.key} ===`); await ask(item.question, item.figure ?? 0); results.at(-1).key = item.key; }
+  } else if (PAPER_EXPLAINER) {
+    explainerAction = true;
+    await ask('Explain this paper');
   } else if (STUDY) {
-    await ask('Start studying this paper.');
+    await ask('Quiz me and help me learn this paper.');
     await ask('I think the reference model is the model you start from, and the loss compares how much more likely the chosen answer is than the rejected one under the policy versus the reference.');
-    await ask('I’m not sure what beta does. Is it a learning rate?');
+    await ask('Give me a hint.');
+    await ask('I’m not sure. Is beta a learning rate?');
   } else {
     await ask(QUESTION ?? 'Why does the DPO objective need a reference model, and which equation defines the loss?');
     if (QUESTIONS >= 2) await ask(followUps[0] ?? 'What is the main limitation of that answer? Explain using the paper.');
