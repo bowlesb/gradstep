@@ -250,7 +250,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
                   onClick={() => { close(false); void onAsk(s.text); }}><Icon name="chat" size={14} /> Ask in chat about this</button>}
               </>}</MenuButton>
             </div>
-            {shown && source && <ViewportCard key={shown.frame.join()} image={source} part={shown} label={`${heading}, the part of the figure it describes`} testID="figure-crop"
+            {shown && source && <ViewportCard key={shown.frame.join()} image={source} part={shown} label={`${heading}, the part of the figure it describes`} title={`${label} · ${heading}`} testID="figure-crop"
               width={`min(100%, ${Math.round(Math.min(560, 320 * aspect(shown, source)))}px)`} recordKey={arxiv ? recordKey('walkthrough', i) : undefined} register={registerCapture(`card:${key}`)} />}
             {s.kind === 'related_work' && <p className="fine">As described in this paper</p>}
             <Answer text={s.text} />

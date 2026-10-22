@@ -125,8 +125,9 @@ test('a figure is explained only on request, part by part with its crop; a part 
  // The figure gets smaller while its walkthrough shows, so the words are in view.
  expect((await viewer.locator('iframe.figure-frame').boundingBox())!.height).toBeLessThan(470);
  await expect(viewer.getByRole('heading',{name:'What it shows'})).toBeInViewport();
- await crop.locator('..').getByRole('button',{name:'Zoom into crop'}).click(); await expect(crop).toHaveAttribute('data-scale','1.5');
- await crop.locator('..').getByRole('button',{name:'Zoom out of crop'}).click(); await expect(crop).toHaveAttribute('data-scale','1');
+ // The card never zooms in place (2026-10-22): no zoom controls, only Full screen.
+ await expect(crop.locator('..').getByRole('button',{name:/Zoom/})).toHaveCount(0);
+ await expect(crop.locator('..').getByRole('button',{name:'Full screen',exact:true})).toBeVisible();
  let sent=await chats();
  expect(sent).toHaveLength(1);
  expect(sent[0]).toMatchObject({action:'figure',mode:'paper',consent_version:'cloud-ai-v6',selection:{quote:'Figure 1: A test figure.'},messages:[{role:'user',text:'Figure 1'}],
@@ -435,27 +436,22 @@ test('parts are framed by confidence: an imprecise box is looser and outlined, a
   await expect(left.getByTestId('part-outline')).toBeHidden();await expect(right.getByTestId('part-outline')).toBeVisible();
   const aspect=async(l:typeof left)=>{const b=(await l.boundingBox())!;return b.width/b.height;};
   expect(await aspect(left)).toBeCloseTo(684/504,1);
-  // Accessibility labels keep their meaning.
-  await expect(left).toHaveAccessibleName('Left plot · Reward against KL divergence, the part of the figure it describes');
-  // Zooming out of the tight card reveals the figure around the part, the part outlined.
-  await left.locator('..').getByRole('button',{name:'Zoom out of crop'}).click();
-  await expect(left.getByTestId('part-outline')).toBeVisible();
-  await left.scrollIntoViewIfNeeded();
-  await page.screenshot({path:shot('walkthrough-left-zoomed-out-light')});
-  await left.dblclick();await expect(left).toHaveAttribute('data-scale','1');await expect(left.getByTestId('part-outline')).toBeHidden();
-  // A tap expands the imprecise part to the whole figure, the part outlined (and framed first).
+  // Accessibility labels keep their meaning; the card is a control that opens the full screen.
+  await expect(left).toHaveAccessibleName('Open Left plot · Reward against KL divergence, the part of the figure it describes full screen');
+  await expect(left).toHaveAttribute('role','button');
+  // A tap opens the imprecise part full screen, framed on the part, outlined; a double-click shows the whole figure.
   await right.click();
-  const full=page.locator('.fullscreen-figure');
+  const full=page.getByTestId('figure-fullscreen');
   await expect(full).toBeVisible();
   const whole=full.getByTestId('fullscreen-crop');
-  await expect(whole).toHaveAttribute('data-view','whole');
+  await expect(whole).toHaveAttribute('data-view','part');
   await expect(whole.getByTestId('part-outline')).toBeVisible();
-  await page.waitForTimeout(700);
-  await page.screenshot({path:shot('expanded-whole-light')});
-  await full.getByRole('button',{name:'Show part'}).click();await expect(whole).toHaveAttribute('data-view','part');
-  await page.waitForTimeout(700);
+  await expect(full).toHaveAttribute('data-phase','open');
   await page.screenshot({path:shot('expanded-part-light')});
-  await full.getByRole('button',{name:'Close',exact:true}).click();
+  await whole.dblclick();await expect(whole).toHaveAttribute('data-view','whole');
+  await page.waitForTimeout(500);
+  await page.screenshot({path:shot('expanded-whole-light')});
+  await full.getByTestId('fullscreen-close').click();await expect(full).toHaveCount(0);
  }else{
   await right.locator('..').getByRole('button',{name:'Open fullscreen'}).click();
   await page.waitForTimeout(500);
@@ -534,10 +530,10 @@ for(const grouped of [false,true])test(`a real multi-image figure's parts are it
  await page.emulateMedia({colorScheme:'light'});
  // A tap expands a part to the whole figure, the part outlined.
  await card(2).click();
- const whole=page.locator('.fullscreen-figure').getByTestId('fullscreen-crop');
- await expect(whole).toHaveAttribute('data-view','whole');await expect(whole.getByTestId('part-outline')).toBeVisible();
+ const whole=page.getByTestId('figure-fullscreen').getByTestId('fullscreen-crop');
+ await expect(whole).toHaveAttribute('data-view','part');await expect(whole.getByTestId('part-outline')).toBeVisible();
  await page.waitForTimeout(700);await page.screenshot({path:shot('expanded-b-light')});
- await page.locator('.fullscreen-figure').getByRole('button',{name:'Close',exact:true}).click();
+ await page.getByTestId('figure-fullscreen').getByTestId('fullscreen-close').click();
 });
 
 // Owner, 2026-10-22: "very very slow … unusable at this speed. Also it needs a progress bar." The walkthrough streams
@@ -665,4 +661,131 @@ test('a server without progress events still shows the walkthrough: Reading the 
  await expect(viewer.getByTestId('figure-progress')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-section-1').getByTestId('figure-crop')).toBeVisible();
  await page.screenshot({path:streamShot('old-server-done-light')});
+});
+
+// Owner, 2026-10-22: "when you try to click into a subfigure and zoom. The transition needs to be improved … whenever you
+// try to interact with it, it becomes a full screen thing, with the outline fading away so you can see where the subfigure
+// was in relation to the entire figure … with not really any in-between" (FIGURE_VIEW.md "Full screen on any interaction").
+const fsShot=(name:string)=>`../../.artifacts/figure-fullscreen/web/${name}-${test.info().project.name}.png`;
+async function partCards(page:Page,request:APIRequestContext){
+ await openFixture(page,request,html,twoPlots);
+ await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{mode:'figure_panels_loose'}});
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
+ const viewer=await openFigure(page);
+ await viewer.getByTestId('figure-explain').click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ const left=viewer.getByTestId('figure-section-0').getByTestId('figure-crop'),right=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
+ await expect(right).toBeVisible();await expect(viewer.getByTestId('figure-progress')).toHaveCount(0);
+ return {viewer,left,right};
+}
+/** What of the full-screen layer shows on screen: its clip (an inset) carried through its transform. */
+const shownRect=(page:Page)=>page.getByTestId('figure-fullscreen-layer').evaluate(e=>{
+ const cs=getComputedStyle(e),m=new DOMMatrixReadOnly(cs.transform==='none'?undefined:cs.transform);
+ const n=(cs.clipPath.match(/inset\(([^)]*)\)/)?.[1]??'0px').split('round')[0].trim().split(/\s+/).map(parseFloat);
+ const [t,r,b,l]=[n[0],n[1]??n[0],n[2]??n[0],n[3]??n[1]??n[0]],W=innerWidth,H=innerHeight;
+ const a=m.transformPoint({x:l,y:t}),z=m.transformPoint({x:W-r,y:H-b});
+ return {x:a.x,y:a.y,width:z.x-a.x,height:z.y-a.y};
+});
+const outlineOpacity=(page:Page)=>page.getByTestId('figure-fullscreen').getByTestId('part-outline').evaluate(e=>Number(getComputedStyle(e).opacity));
+
+test('a part card opens full screen in one step from the card; its outline fades; a double tap toggles the whole figure; Esc goes back into the card',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ const {right}=await partCards(page,request);
+ // The card is still: no zoom controls, the page scrolls over it; it says it opens full screen.
+ await expect(right.locator('..').getByRole('button',{name:/Zoom/})).toHaveCount(0);
+ expect(await right.evaluate(e=>getComputedStyle(e).touchAction)).toBe('pan-y');
+ await right.scrollIntoViewIfNeeded();
+ const card=(await right.boundingBox())!;
+ // Freeze the transition at its start (Chromium's animation clock), then let it run slowly, to see each moment.
+ const cdp=await page.context().newCDPSession(page);await cdp.send('Animation.enable');
+ await cdp.send('Animation.setPlaybackRate',{playbackRate:0});
+ await right.click();
+ const full=page.getByTestId('figure-fullscreen'),stage=full.getByTestId('fullscreen-crop');
+ await expect(full).toBeVisible();await expect(full).toHaveAttribute('data-phase','opening');
+ // At its start the figure is exactly the card: where it was and as it framed the part.
+ const start=await shownRect(page);
+ for(const k of ['x','y','width','height'] as const) expect(Math.abs(start[k]-card[k]),k).toBeLessThan(2.5);
+ await page.screenshot({path:fsShot('opening-start-light')});
+ await cdp.send('Animation.setPlaybackRate',{playbackRate:0.05});await page.waitForTimeout(2600);await cdp.send('Animation.setPlaybackRate',{playbackRate:0});
+ const mid=await shownRect(page),viewport=page.viewportSize()!;
+ expect(mid.width).toBeGreaterThan(card.width+4);expect(mid.width).toBeLessThan(viewport.width-4);
+ await expect(stage.getByTestId('part-outline')).toBeVisible();
+ await page.screenshot({path:fsShot('mid-transition-light')});
+ await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:fsShot('mid-transition-dark')});await page.emulateMedia({colorScheme:'light'});
+ await cdp.send('Animation.setPlaybackRate',{playbackRate:1});
+ // Settled: the whole screen, framed on the part, the part outlined, then the outline fades over about a second.
+ await expect(full).toHaveAttribute('data-phase','open');
+ // A moment on (the bar has come in; the outline has only begun to fade), held still for the screenshots.
+ await cdp.send('Animation.setPlaybackRate',{playbackRate:0.1});await page.waitForTimeout(1200);await cdp.send('Animation.setPlaybackRate',{playbackRate:0});
+ const settled=await shownRect(page);
+ expect(Math.round(settled.width)).toBe(viewport.width);expect(Math.round(settled.height)).toBe(viewport.height);
+ await expect(stage).toHaveAttribute('data-view','part');
+ expect(await outlineOpacity(page)).toBeGreaterThan(0.5);
+ for(const scheme of ['light','dark'] as const){await page.emulateMedia({colorScheme:scheme});await page.screenshot({path:fsShot(`settled-outline-${scheme}`)});}
+ await page.emulateMedia({colorScheme:'light'});
+ await cdp.send('Animation.setPlaybackRate',{playbackRate:1});
+ await expect.poll(()=>outlineOpacity(page),{timeout:3000}).toBe(0);
+ for(const scheme of ['light','dark'] as const){await page.emulateMedia({colorScheme:scheme});await page.screenshot({path:fsShot(`settled-faded-${scheme}`)});}
+ await page.emulateMedia({colorScheme:'light'});
+ // The whole figure to roam: a double tap (or the toggle) shows all of it, again the part (outlined again, then fading).
+ await stage.dblclick();await expect(stage).toHaveAttribute('data-view','whole');await expect(full.getByTestId('fullscreen-toggle')).toHaveText('Show part');
+ await page.waitForTimeout(450);await page.screenshot({path:fsShot('whole-light')});
+ await full.getByTestId('fullscreen-toggle').click();await expect(stage).toHaveAttribute('data-view','part');
+ // Wheel and the − / + buttons zoom; arrows pan.
+ await stage.hover();await page.mouse.wheel(0,-300);await expect(stage).toHaveAttribute('data-view','custom');
+ await full.getByRole('button',{name:'Zoom out'}).click();
+ await stage.press('ArrowLeft');
+ // Esc goes back into the card, which has the focus again.
+ await page.keyboard.press('Escape');
+ await expect(full).toHaveAttribute('data-phase','closing');
+ await expect(full).toHaveCount(0);
+ await expect(right).toBeFocused();
+});
+
+test('every interaction with a card opens it full screen: tap, pinch, a sideways drag, ⌃ + wheel, Enter and its button; an upward or downward drag does not',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ const {right}=await partCards(page,request);
+ await right.scrollIntoViewIfNeeded();
+ const full=page.getByTestId('figure-fullscreen');
+ const closeIt=async()=>{await expect(full).toHaveAttribute('data-phase','open');await full.getByTestId('fullscreen-close').click();await expect(full).toHaveCount(0);};
+ const b=(await right.boundingBox())!,cx=b.x+b.width/2,cy=b.y+b.height/2;
+ const pointer=(type:string,id:number,x:number,y:number)=>right.dispatchEvent(type,{pointerId:id,pointerType:'touch',isPrimary:id===1,clientX:x,clientY:y,bubbles:true});
+ // A vertical drag is the page's: nothing opens.
+ await pointer('pointerdown',1,cx,cy);await pointer('pointermove',1,cx+2,cy+30);await pointer('pointercancel',1,cx+2,cy+30);
+ await page.waitForTimeout(300);await expect(full).toHaveCount(0);
+ // Pinch: a second finger.
+ await pointer('pointerdown',1,cx-10,cy);await pointer('pointerdown',2,cx+10,cy);await closeIt();
+ await pointer('pointerup',1,cx-10,cy);await pointer('pointerup',2,cx+10,cy);
+ // A sideways drag.
+ await pointer('pointerdown',1,cx,cy);await pointer('pointermove',1,cx+30,cy+3);await closeIt();await pointer('pointerup',1,cx+30,cy+3);
+ // A trackpad pinch (⌃ + wheel).
+ await page.mouse.move(cx,cy);await page.keyboard.down('Control');await page.mouse.wheel(0,-40);await page.keyboard.up('Control');await closeIt();
+ // Enter on the focused card, and the Full screen button.
+ await right.focus();await page.keyboard.press('Enter');await closeIt();
+ await right.locator('..').getByRole('button',{name:'Full screen',exact:true}).click();await closeIt();
+ if(test.info().project.name==='phone'){
+  // A swipe down at the whole figure closes it (touch).
+  await right.click();await expect(full).toHaveAttribute('data-phase','open');
+  const stage=full.getByTestId('fullscreen-crop');await stage.dblclick();await expect(stage).toHaveAttribute('data-view','whole');
+  const s=(await stage.boundingBox())!,x=s.x+s.width/2,y=s.y+s.height/2;
+  const touch=(type:string,yy:number)=>stage.dispatchEvent(type,{pointerId:7,pointerType:'touch',isPrimary:true,clientX:x,clientY:yy,bubbles:true});
+  await touch('pointerdown',y);await touch('pointermove',y+80);await touch('pointermove',y+220);await touch('pointerup',y+220);
+  await expect(full).toHaveCount(0);
+ }
+});
+
+test('under Reduce Motion the full screen cross-fades, and the outline shows for a second, then goes without a fade',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await page.emulateMedia({reducedMotion:'reduce'});
+ const {right}=await partCards(page,request);
+ await right.scrollIntoViewIfNeeded();await right.click();
+ const full=page.getByTestId('figure-fullscreen');
+ await expect(full).toHaveAttribute('data-phase','open');
+ // No movement: the layer is the whole screen from the start.
+ expect(await page.getByTestId('figure-fullscreen-layer').evaluate(e=>getComputedStyle(e).transform)).toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
+ expect(await outlineOpacity(page)).toBe(1);
+ await page.screenshot({path:fsShot('reduced-motion-outline-light')});
+ await expect.poll(()=>outlineOpacity(page),{timeout:2500}).toBe(0);
+ expect(await full.getByTestId('part-outline').evaluate(e=>getComputedStyle(e).transitionDuration)).toBe('0s');
+ await page.keyboard.press('Escape');await expect(full).toHaveCount(0);
 });

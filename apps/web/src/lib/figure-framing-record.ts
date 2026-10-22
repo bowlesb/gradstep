@@ -11,6 +11,9 @@ import type { FramingLevel } from './figure-framing';
 /** A public arXiv figure: the paper's id and revision and the figure's number as the paper names it ("Figure 3"). */
 export interface ArxivFigure { sourceID: string; revision: number; figure: string }
 export type FramingSurface = 'walkthrough' | 'chat';
+/** How the reader opened a card full screen (FIGURE_VIEW.md "Full screen on any interaction", 2026-10-22): every
+ * interaction with a card opens it; the record keeps the first. The apps' FigureFramingRecord uses these raw values. */
+export type OpenGesture = 'tap' | 'pinch' | 'drag' | 'double_tap' | 'keyboard' | 'button';
 
 /** One card's record. Rectangles are [x0, y0, x1, y1] fractions of the figure (a frame may reach past 0–1 by its margin). */
 export interface FramingRecord {
@@ -21,9 +24,12 @@ export interface FramingRecord {
   level: FramingLevel;
   /** The AI's box, the completed region and the frame shown at first. */
   box: Rect; region: Rect; frame: Rect;
-  /** The view the reader left the card at (the frame when untouched), and what they did. */
+  /** The full-screen view as the reader last closed it (the frame when never opened), fractions of the figure, and what
+   * they did there (zoomed, panned). The card itself no longer zooms or pans (2026-10-22). */
   finalView: Rect;
-  zoomed: boolean; panned: boolean; expanded: boolean;
+  zoomed: boolean; panned: boolean;
+  /** Opened full screen at least once; how the first time (null when never); how many times. */
+  expanded: boolean; opened: OpenGesture | null; opens: number;
 }
 
 const LIMIT = 200;
@@ -38,20 +44,22 @@ export function arxivFigure(paper: { source?: string | null; kind?: string | nul
 }
 
 /** A card was shown: its record starts (again) at its frame. `key` names the card (figure, surface, part). */
-export function framingShown(key: string, init: Omit<FramingRecord, 'finalView' | 'zoomed' | 'panned' | 'expanded'> | null): void {
+export function framingShown(key: string, init: Omit<FramingRecord, 'finalView' | 'zoomed' | 'panned' | 'expanded' | 'opened' | 'opens'> | null): void {
   if (!init) return;
   if (records.has(key)) return;
-  records.set(key, { ...init, box: round(init.box), region: round(init.region), frame: round(init.frame), finalView: round(init.frame), zoomed: false, panned: false, expanded: false });
+  records.set(key, { ...init, box: round(init.box), region: round(init.region), frame: round(init.frame), finalView: round(init.frame), zoomed: false, panned: false,
+    expanded: false, opened: null, opens: 0 });
   while (records.size > LIMIT) records.delete(records.keys().next().value!);
 }
-/** The reader zoomed or panned the card (`view` is where it now shows), or expanded it to the whole figure. */
-export function framingChanged(key: string, change: { view?: Rect; zoomed?: boolean; panned?: boolean; expanded?: boolean }): void {
+/** The reader opened the card full screen (`opened`: how), zoomed or panned there, or closed it (`view`: where the full
+ * screen showed then). */
+export function framingChanged(key: string, change: { view?: Rect; zoomed?: boolean; panned?: boolean; opened?: OpenGesture }): void {
   const record = records.get(key);
   if (!record) return;
   if (change.view) record.finalView = round(change.view);
   if (change.zoomed) record.zoomed = true;
   if (change.panned) record.panned = true;
-  if (change.expanded) record.expanded = true;
+  if (change.opened) { record.expanded = true; record.opens += 1; record.opened ??= change.opened; }
 }
 /** What is kept (copies), for a future consented upload and for tests. */
 export const framingRecords = (): FramingRecord[] => [...records.values()].map(r => ({ ...r }));
