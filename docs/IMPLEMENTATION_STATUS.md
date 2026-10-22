@@ -1,5 +1,41 @@
 # Implementation status
 
+## Figure explainer: streamed, faster, with a progress bar; figures default Sonnet — 2026-10-22 UTC (server on staging; apps and browser local, not released)
+
+Owner: "very very slow … unusable at this speed. Also it needs a progress bar"; then "change the default to Sonnet for
+that one". Design and measurements: [FIGURE_VIEW.md "Speed"](architecture/FIGURE_VIEW.md#speed-a-streamed-walkthrough-at-low-effort-with-a-progress-bar--2026-10-22-server-on-staging-apps-and-browser-local-not-released);
+decisions: [DECISIONS](DECISIONS.md#figure-explainer-streamed-at-low-effort-owner-request-2026-10-22-agent-decision-with-evidence-reversible).
+
+- **Server (staging, chat function deployed 02:17 and 02:50 UTC after an encrypted backup
+  `.artifacts/backups/20261022T021542Z-9d899fdbba30`; deploy suite 19 pass / 0 fail both times; no migration):** the
+  walkthrough is written as JSON in the reply and streamed part by part (`figure_summary`, `figure_section`,
+  `figure_progress`), each part checked as the final `figure` is (unchanged for older builds); figure actions at low
+  effort for Gemini and automatic effort; DeepSeek at low without thinking; `default_figures` = Sonnet low in the
+  published table; the paper's membership read overlaps the balance check.
+- **Live, before → after** (DPO, as the apps send it): Gemini (the previous figures default) 24.1 s and 13.8 s with
+  nothing shown until the end → summary 7.2 s / 4.6 s, whole 15.4 s / 9.4 s; PRISM Figure 5 summary 6.7 s, four parts by
+  15.6 s (the model alone took 45 s at medium). Sonnet low (new default): summary 3.6–4.5 s, whole 10–12 s, $0.022 a
+  walkthrough on a cached paper ($0.24 when it first writes the paper). DeepSeek: medium (the owner's runs, 19–97 s) 23 /
+  38 s → low without thinking 3.5 / 18.8 s. Cost per Gemini walkthrough $0.0115–0.0167 → $0.0081–0.0118.
+- **Apps (iPhone/iPad/Mac) and browser:** progressive rendering, skeleton and an honest progress bar from shared rules
+  (`FigureProgress.swift` / `figure-progress.ts`, one fixture), old-server compatibility, figures default from
+  `default_figures` with a one-time migration of the old recommended Gemini choice, new ⓘ text.
+- **Evidence:** `npm test` passes (backend 715 including new stream, effort, DeepSeek and default tests; browser units
+  including `figure-progress`, `figure-view`, `figures-default`); `swift test` 412 pass (new `FigureProgressTests`,
+  `FigureViewTests`, `FigureFramingTests`, `ChatProfilesTests`); app unit tests `FigureViewAppTests` (incl.
+  `FiguresDefaultTests`), `UnsentDraftTests`, `ChatGenerationTests` pass on the iPhone 17 Simulator; Playwright
+  `figure-view.spec.ts` desktop and phone 27 pass / 1 skip (streaming layout, reduced motion, older server), AI-options
+  journeys pass; native `FigureViewJourneyTests` streaming light/dark and older server on iPhone 17, streaming on iPad Pro 13
+  and Mac Catalyst, the existing walkthrough journeys on iPhone (5/5). Screenshots: `.artifacts/figure-streaming/`
+  (browser) and `.artifacts/figure-streaming/native/`, reviewed. Live records: `.artifacts/figure-view/2026-10-22T02-*`,
+  `.artifacts/figure-speed/`. Spend ≈ $0.92 of the $2 allowed.
+- **Known:** `ChatControlsTests/testDefaultOptionsInSettings` fails at its last step (tapping the Chat tab while Settings
+  is open; "New chat" not found) — reproduced identically on the code before these changes, so not caused by them. The
+  Mac `FigureViewJourneyTests` no longer compiled (`pinch` is unavailable on macOS); that step is now skipped on the Mac.
+  Not done: browser deploy, TestFlight, phone (paused). Open: Gemini's five-minute cache (a walkthrough after five idle
+  minutes writes the paper again: +4–8 s); moving DeepSeek's pin to Together (2–3.5× faster, needs consent naming it) is
+  a proposal for the owner.
+
 ## TestFlight 80 and browser release — 2026-10-22 UTC
 
 iOS and Mac build 80 uploaded ~00:10 UTC (iOS VALID at the time of writing); browser redeployed. Adds since 79: figure parts

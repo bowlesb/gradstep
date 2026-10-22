@@ -1,6 +1,6 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
-## Speed: a streamed walkthrough at low effort, with a progress bar — 2026-10-22 (server on staging; clients local)
+## Speed: a streamed walkthrough at low effort, with a progress bar — 2026-10-22 (server on staging; apps and browser local, not released)
 
 Owner, 2026-10-22: "I like the experience, but it's very very slow. Can we make it much much faster?" and "it's unusable
 at this speed. Also it needs a progress bar." The experience is unchanged (one walkthrough: summary, then part by part,
@@ -47,6 +47,37 @@ viewports are cut from).
   (`gemini-low-standard`); `openRouterChatParams` now sends Gemini the request's effort (every chat profile still sends
   medium). The allowance is the walkthrough's 6,000 tokens plus low's thinking.
 - **One round trip fewer:** the paper's membership is read alongside the price-card and balance checks.
+
+**Clients (iPhone/iPad/Mac one SwiftUI path, and the browser; local source, not released).**
+- **Progressive.** The three events are parsed (malformed ones dropped, never fatal; parts checked by the same per-part
+  check as `figure`); the summary shows when it arrives and each part card is appended in order when it arrives, framed
+  by confidence with the parts so far and **without the count check** (`countCheck: false`, new in `FigureFraming` /
+  `figure-framing.ts`), which applies once the final `figure` gives the count. A card keeps the frame it was first shown
+  with until the end; at the end the walkthrough is framed again and only a card whose framing changed is redrawn. The
+  final `figure` replaces the streamed walkthrough and is the only thing kept (sealed store / session memory, as before).
+  On an error the streamed parts are dropped and the existing failure with Try again shows; a walkthrough cut off at its
+  allowance keeps its parts with "Not charged". Part menus work once the walkthrough is done. The coverage note now sits
+  after the parts (shown at the end above them it would push every card down).
+- **Progress bar** (owner: "it needs a progress bar"). Rules shared by both clients: `figure-progress.ts` /
+  `FigureProgress.swift`, fixture `tests/fixtures/figure-progress.json`. A stage label always — "Preparing the figure…"
+  (until the stream opens), "Reading the figure…", "Writing the summary…", "Writing part 2 of 3…", "Writing part 4…" — and
+  a determinate value only while the number of parts is known (announced by the model, else the figure's own sub-figures,
+  else the caption's lettered panels) and not exceeded: 10 % for the summary, then parts, each part's share filled by
+  its characters against a measured 1,500 (capped at 90 % of the part); the value never goes back and never waits at a
+  made-up 99 %: past the estimate it turns indeterminate until done. It sits where the walkthrough will appear, with a
+  skeleton (summary lines and one part card) shown at once, then below the last part shown (content above never moves),
+  and fades out at the end. Accessibility: one element (label = stage, value = percent when determinate); VoiceOver /
+  an `aria-live="polite"` region announce stage changes only; under Reduce Motion nothing pulses, shimmers or fades.
+- **Older servers** (only `figure`): Preparing → Reading → the whole walkthrough at once, as before.
+- **Figures default** (owner, below): the table's `default_figures` (Sonnet, low, standard) for the figures-and-tables
+  activity, else Sonnet low when offered, else the general default; the activity no longer inherits the reader's general
+  chat default; a saved figures choice stays, except the old recommended `gemini-medium-standard`, migrated once. Its ⓘ
+  text (both clients, word for word): "Figures and tables: the model looks at the figure’s image as well as its caption,
+  so it must read images (every cloud model listed does). Sonnet is the default: it reads dense plots carefully and its
+  walkthrough starts appearing within seconds. Speed differs by model: DeepSeek writes more slowly, and much more slowly
+  at a higher effort."
+- **Fixtures:** the browser fixture backend and the apps' `--chat-fixture-mode=figure_walkthrough` stream like the server
+  (`figureStream` fast/slow/step/old; `--figure-fixture-step-ms`, `--figure-fixture-old-server`).
 
 **Measured.** Model alone (`scripts/figure-speed.mjs`: the server's own request through the production adapter, straight
 to OpenRouter; cache read unless noted), seconds from sending:
@@ -137,8 +168,8 @@ tariff card and a check that its revision stays `-1017`; until then DeepSeek sta
 
 Gemini's own first-token time varied 3.3–5.7 s on staging against 2–4 s in the direct runs; in every run the streamed parts
 equalled the final walkthrough. Records: `.artifacts/figure-view/2026-10-22T02-02-00-800Z-2305.18290v3.json` (before),
-`…T02-18-42-277Z-2305.18290v3.json`, `…T02-20-46-434Z-2610.14704v1.json` (after). Spend for this work: $0.50 direct
-(ledger `.artifacts/figure-speed/spend.json`) and $0.06 on staging.
+`…T02-18-42-277Z-2305.18290v3.json`, `…T02-20-46-434Z-2610.14704v1.json` (after). Spend for this work: $0.59 direct
+(ledger `.artifacts/figure-speed/spend.json`) and $0.33 on staging (Sonnet's cache write on DPO $0.24 of it); about $0.92 in all.
 
 **Open.** Gemini's five-minute prompt cache: a walkthrough more than five minutes after the paper's last request writes
 the paper again (4–8 s more before the first token and ~$0.03); a longer Gemini cache TTL would change every Gemini chat's

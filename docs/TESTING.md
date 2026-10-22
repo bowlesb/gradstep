@@ -1,5 +1,19 @@
 # Fast and slow tests
 
+## Streamed figure walkthrough and progress bar — October 22
+
+Fast: backend `tests/backend/chat.test.ts` (the stream scanner in any chunking, malformed and cut-off parts, the
+announced count; JSON-reply and tool-call streaming with the final `figure` unchanged; low effort, DeepSeek without
+thinking, `default_figures`), browser `tests/figure-progress.test.ts` (writes `tests/fixtures/figure-progress.json` with
+`UPDATE_PROGRESS_FIXTURE=1`), `figure-view.test.ts`, `figures-default.test.ts`; Core `swift test --filter
+"FigureProgressTests|FigureViewTests|FigureFramingTests|ChatProfilesTests"`; app `FigureViewAppTests`. Slow, opt-in:
+Playwright `e2e/figure-view.spec.ts` (fixture `figureStream` fast/slow/step/old) and native `FigureViewJourneyTests`
+streaming journeys (`--figure-fixture-step-ms=…`, `--figure-fixture-old-server`). Paid, explicit:
+`node scripts/figure-speed.mjs --paper=dpo --figure=2 --configs=gemini-low,sonnet-low,deepseek-low-nothink@together`
+(model alone, straight to OpenRouter, durable ledger) and `node scripts/chat-live-smoke.mjs --figure-view=2,1
+--figure-walkthrough-only --profile=…` (staging, disposable account; prints the stream's timings and the server stages
+read back from the database).
+
 ## Structure first and the count check — October 21
 
 Fast: browser `tests/figure-structure.test.ts` and `tests/figure-framing.test.ts` (in `npm test`); Core
