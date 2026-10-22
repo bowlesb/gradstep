@@ -10,6 +10,12 @@ in relation to my incoming money."* The figures default moves to Gemini Flash (l
 agent. How it works in plain words: [PRICING_HOW_IT_WORKS](PRICING_HOW_IT_WORKS.md); what to do when spend is high:
 [RUNBOOK_SPENDING](RUNBOOK_SPENDING.md).
 
+**App Store Connect (owner approved, 2026-10-22: "I approve"):** `node scripts/asc-pricing-plan.mjs --apply
+--owner-approved=2026-10-22` made all eight API changes and the read-back matched: Plus $7.99 with one introductory
+offer, Plus yearly $79.99, Pro 2,000 credits, Pro yearly $199.99, packs 300 and 700. The new products show "Missing
+metadata" until the owner adds review screenshots; removing `credits.400` from sale and submitting the products with
+the next version are manual (OWNER_ACTIONS #13).
+
 | Accepted | Value |
 |---|---|
 | Free | 50 credits a month (≈ 15 answers), fast models only (Gemini Flash, DeepSeek, Haiku), no web search, podcasts or premium models; at most 20 a day and $0.25 of provider cost per account a month |
