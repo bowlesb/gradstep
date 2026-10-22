@@ -1059,3 +1059,7 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .screenshot-cover.drafting { opacity: .75; }
 .screenshot-crop { position: absolute; border: 2px solid #f5c400; box-shadow: 0 0 0 9999px #0006; }
 
+
+/* Download your assets (owner, build 82). */
+.assets-export-progress { display: grid; gap: 4px; margin-block: 8px; }
+.assets-export-progress progress { width: 100%; accent-color: var(--accent); }

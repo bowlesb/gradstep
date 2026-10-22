@@ -165,12 +165,17 @@ extension ReaderModel {
     /// The decrypted, verified image for a descriptor: memory, this device's encrypted copy, then a download.
     func noteImage(_ media: NoteMedia) async throws -> UIImage {
         if let cached = notes.cachedImage(media) { return cached }
-        guard let store, let accountID else { throw NotesWriteError.unavailable }
-        let transport: (any NoteAssetTransport)? = notesTransportOverride ?? backend.map { BackendNoteAssets(backend: $0, accountID: accountID) }
-        let data = try await NoteAssetSync.image(media, accountID: accountID, store: store, transport: transport)
+        let data = try await noteImageData(media)
         let image = try await Task.detached(priority: .userInitiated) { try SnippetImageEncoder.decode(data, media: media) }.value
         notes.cache(image, for: media)
         return image
+    }
+
+    /// The image's verified bytes (PNG or JPEG as captured): this device's encrypted copy, else a download.
+    func noteImageData(_ media: NoteMedia) async throws -> Data {
+        guard let store, let accountID else { throw NotesWriteError.unavailable }
+        let transport: (any NoteAssetTransport)? = notesTransportOverride ?? backend.map { BackendNoteAssets(backend: $0, accountID: accountID) }
+        return try await NoteAssetSync.image(media, accountID: accountID, store: store, transport: transport)
     }
 
     /// Notes › an entry's Open in paper: the paper when it is in the library, at the captured passage where it can be found.

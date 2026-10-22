@@ -1,0 +1,342 @@
+{
+ "about": "Download your assets (apps/web/src/lib/assets-export.ts, Swift AssetsExport.swift): the same input makes the same files and the same zip, byte for byte. UPDATE_EXPORT_FIXTURE=1 (browser test) rewrites `expected` from the browser's builder; review the diff.",
+ "input": {
+  "exportedAt": 1792677723456,
+  "chats": [
+   {
+    "id": "c2",
+    "title": "What is DPO / why it works?",
+    "paper": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+    "startedAt": 1792591200000,
+    "passage": "We show that   the\nKL-constrained objective",
+    "versions": 2,
+    "messages": [
+     {
+      "role": "user",
+      "text": "Explain the loss.",
+      "at": 1792591200000
+     },
+     {
+      "role": "assistant",
+      "text": "The **DPO** loss is a logistic loss on log-ratios.\n\n$$\\mathcal{L} = -\\log\\sigma(\\beta h)$$",
+      "at": 1792591210000,
+      "model": "gemini-3.8-flash"
+     },
+     {
+      "role": "user",
+      "text": "And the gradient?",
+      "at": 1792591300000
+     },
+     {
+      "role": "assistant",
+      "text": "It up-weights wrong rankings",
+      "at": 1792591310000,
+      "model": "claude-sonnet-5-5",
+      "interrupted": true
+     }
+    ]
+   },
+   {
+    "id": "c1",
+    "title": "  .hidden: résumé\tnotes ",
+    "messages": [
+     {
+      "role": "user",
+      "text": "Hello"
+     },
+     {
+      "role": "assistant",
+      "text": "Hi."
+     }
+    ]
+   },
+   {
+    "id": "c3",
+    "title": "Empty",
+    "messages": []
+   }
+  ],
+  "diagrams": [
+   {
+    "id": "d1",
+    "title": "How DPO fits",
+    "format": "mermaid-v1",
+    "source": "flowchart TD\n  A[RLHF] --> B[DPO]",
+    "at": 1792591400000,
+    "chat": "What is DPO / why it works?"
+   },
+   {
+    "id": "d2",
+    "title": "Loss <visual>",
+    "format": "html-v1",
+    "source": "<div><p>Loss &amp; gradient</p></div>",
+    "at": 1792591500000
+   },
+   {
+    "id": "d3",
+    "title": "Figure 1 parts",
+    "format": "figure-parts-v1",
+    "source": "{}",
+    "at": 1792591600000
+   },
+   {
+    "id": "d4",
+    "title": "How DPO fits",
+    "format": "mermaid-v1",
+    "source": "flowchart LR\n  X --> Y",
+    "at": 1792591400000
+   }
+  ],
+  "collections": [
+   {
+    "id": "n2",
+    "title": "Reading list",
+    "snippets": [
+     {
+      "id": "e3",
+      "kind": "text",
+      "at": 1792674000000,
+      "comment": "Check the appendix."
+     },
+     {
+      "id": "e1",
+      "kind": "region",
+      "at": 1792670400000,
+      "comment": "The key figure.",
+      "image": "image/png",
+      "source": {
+       "title": "Direct Preference Optimization",
+       "section": "5 Experiments",
+       "label": "Figure 2",
+       "url": "https://arxiv.org/abs/2305.18290v3"
+      }
+     },
+     {
+      "id": "e2",
+      "kind": "quote",
+      "at": 1792672200000,
+      "comment": "",
+      "quote": "DPO is stable,\nperformant and computationally lightweight.",
+      "source": {
+       "title": "Local notes.pdf",
+       "page": 3
+      }
+     }
+    ]
+   },
+   {
+    "id": "n1",
+    "title": "Ideas",
+    "snippets": [
+     {
+      "id": "e4",
+      "kind": "region",
+      "at": 1792675800000,
+      "comment": "Missing image here",
+      "image": "image/jpeg"
+     },
+     {
+      "id": "e5",
+      "kind": "region",
+      "at": 1792675900000,
+      "comment": "Another",
+      "image": "image/jpeg"
+     }
+    ]
+   }
+  ],
+  "explanations": [
+   {
+    "kind": "paper",
+    "action": "paper_explainer",
+    "paper": "Direct Preference Optimization",
+    "label": "AI Explainer",
+    "at": 1792677599000,
+    "model": "gemini-3.8-flash",
+    "summary": "DPO replaces RLHF's reward model and RL step with one classification loss.",
+    "background": [
+     {
+      "name": "Bradley-Terry model",
+      "line": "Preference probability from a reward difference.",
+      "paragraphs": [
+       18,
+       19
+      ]
+     }
+    ],
+    "ideas": [
+     {
+      "name": "The DPO loss",
+      "line": "",
+      "paragraphs": []
+     }
+    ],
+    "links": [
+     {
+      "from": "Bradley-Terry model",
+      "to": "The DPO loss",
+      "label": "defines likelihood"
+     }
+    ],
+    "text": ""
+   },
+   {
+    "kind": "figure",
+    "action": "figure",
+    "paper": "Direct Preference Optimization",
+    "label": "Figure 2",
+    "at": 1792677598000,
+    "model": "claude-sonnet-5-5",
+    "summary": "Two panels compare reward and KL.",
+    "sections": [
+     {
+      "name": "a",
+      "title": "IMDb sentiment",
+      "text": "Reward vs KL frontier.",
+      "paragraphs": [
+       64
+      ]
+     },
+     {
+      "name": "Concept",
+      "title": "Concept",
+      "text": "KL measures drift.",
+      "paragraphs": []
+     }
+    ],
+    "text": ""
+   },
+   {
+    "kind": "figure",
+    "action": "figure_simpler",
+    "paper": "Direct Preference Optimization",
+    "label": "Figure 2",
+    "at": 1792677598500,
+    "text": "Higher and further left is better."
+   },
+   {
+    "kind": "equation",
+    "action": "equation",
+    "paper": "Direct Preference Optimization",
+    "label": "Equation (7)",
+    "at": 1792677597000,
+    "model": "gemini-3.8-flash",
+    "summary": "The DPO objective.",
+    "symbols": [
+     {
+      "symbol": "π_θ",
+      "latex": "\\pi_\\theta",
+      "meaning": "The policy being trained",
+      "source": "paper",
+      "paragraph": 27
+     },
+     {
+      "symbol": "σ",
+      "meaning": "The logistic function",
+      "source": "general"
+     }
+    ],
+    "text": ""
+   },
+   {
+    "kind": "equation",
+    "action": "equation_background",
+    "paper": "Direct Preference Optimization",
+    "label": "Equation (7)",
+    "at": 1792677597500,
+    "text": "It comes from substituting the reward."
+   },
+   {
+    "kind": "equation",
+    "action": "equation",
+    "paper": "",
+    "label": "Equation",
+    "at": 1792677597400,
+    "text": "Words instead of symbols."
+   }
+  ],
+  "skipped": [
+   "1 chat couldn’t be read on this device."
+  ]
+ },
+ "images": {
+  "e1": "89504e470d0a1a0a0000000d49484452",
+  "e5": "ffd8ffe000104a464946"
+ },
+ "expected": {
+  "fileName": "Gradstep export 2026-10-22.zip",
+  "skipped": [
+   "1 figure breakdown from chats isn’t included: it is cut from the paper itself.",
+   "An image in “Ideas” wasn’t available on this device.",
+   "1 chat couldn’t be read on this device."
+  ],
+  "files": [
+   {
+    "path": "Gradstep export 2026-10-22/README.md",
+    "text": "# Gradstep export\n\nExported 2026-10-22 14:02 UTC. Everything here was put together on this device from your own content.\n\n- Chats: 2\n- Diagrams: 3\n- Snippets: 5 in 2 collections\n- Equation explanations: 3\n- Figure explanations: 2\n- Paper explanations: 1\n\nDownloaded papers aren’t included: get them again from each paper’s source. Explanations are kept on each device, so these are the ones kept on this one.\n\n## Left out\n\n- 1 figure breakdown from chats isn’t included: it is cut from the paper itself.\n- An image in “Ideas” wasn’t available on this device.\n- 1 chat couldn’t be read on this device.\n\n## Chats\n\n- [.hidden: résumé notes](<chats/hidden résumé notes.md>)\n- [What is DPO / why it works?](<chats/2026-10-21 What is DPO why it works.md>)\n\n## Diagrams\n\n- [How DPO fits](<diagrams/2026-10-21 How DPO fits.mmd>)\n- [How DPO fits](<diagrams/2026-10-21 How DPO fits 2.mmd>)\n- [Loss <visual>](<diagrams/2026-10-21 Loss visual.html>)\n\n## Snippets\n\n- [Ideas](<snippets/Ideas.md>)\n- [Reading list](<snippets/Reading list.md>)\n\n## Equation explanations\n\n- [Unknown paper – Equation](<explanations/equations/Unknown paper – Equation.md>)\n- [Direct Preference Optimization – Equation (7)](<explanations/equations/Direct Preference Optimization – Equation (7).md>)\n- [Direct Preference Optimization – Equation (7) (background)](<explanations/equations/Direct Preference Optimization – Equation (7) (background).md>)\n\n## Figure explanations\n\n- [Direct Preference Optimization – Figure 2](<explanations/figures/Direct Preference Optimization – Figure 2.md>)\n- [Direct Preference Optimization – Figure 2 (more simply)](<explanations/figures/Direct Preference Optimization – Figure 2 (more simply).md>)\n\n## Paper explanations\n\n- [Direct Preference Optimization](<explanations/papers/Direct Preference Optimization.md>)\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/chats/2026-10-21 What is DPO why it works.md",
+    "text": "# What is DPO / why it works?\n\n- Paper: Direct Preference Optimization: Your Language Model is Secretly a Reward Model\n- Started: 2026-10-21 14:00 UTC\n- Passage: “We show that the KL-constrained objective”\n- This chat has 2 versions; this is the most recent.\n\n---\n\n**You** · 2026-10-21 14:00 UTC\n\nExplain the loss.\n\n**AI** · gemini-3.8-flash · 2026-10-21 14:00 UTC\n\nThe **DPO** loss is a logistic loss on log-ratios.\n\n$$\\mathcal{L} = -\\log\\sigma(\\beta h)$$\n\n**You** · 2026-10-21 14:01 UTC\n\nAnd the gradient?\n\n**AI** · claude-sonnet-5-5 · 2026-10-21 14:01 UTC (stopped early)\n\nIt up-weights wrong rankings\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/chats/hidden résumé notes.md",
+    "text": "# .hidden: résumé notes\n\n---\n\n**You**\n\nHello\n\n**AI**\n\nHi.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/diagrams/2026-10-21 How DPO fits 2.mmd",
+    "text": "%% How DPO fits\nflowchart LR\n  X --> Y\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/diagrams/2026-10-21 How DPO fits.mmd",
+    "text": "%% How DPO fits\n%% From the chat “What is DPO / why it works?”\nflowchart TD\n  A[RLHF] --> B[DPO]\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/diagrams/2026-10-21 Loss visual.html",
+    "text": "<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Loss &lt;visual&gt;</title></head>\n<body>\n<div><p>Loss &amp; gradient</p></div>\n</body></html>\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/explanations/equations/Direct Preference Optimization – Equation (7) (background).md",
+    "text": "# Equation (7) (background)\n\n- Paper: Direct Preference Optimization\n- Saved: 2026-10-22 13:59 UTC\n\nIt comes from substituting the reward.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/explanations/equations/Direct Preference Optimization – Equation (7).md",
+    "text": "# Equation (7)\n\n- Paper: Direct Preference Optimization\n- Saved: 2026-10-22 13:59 UTC\n- Model: gemini-3.8-flash\n\nThe DPO objective.\n\n## Symbols\n\n- **π_θ** `\\pi_\\theta`: The policy being trained (¶27)\n- **σ**: The logistic function (general knowledge)\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/explanations/equations/Unknown paper – Equation.md",
+    "text": "# Equation\n\n- Paper: Unknown paper\n- Saved: 2026-10-22 13:59 UTC\n\nWords instead of symbols.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/explanations/figures/Direct Preference Optimization – Figure 2 (more simply).md",
+    "text": "# Figure 2 (more simply)\n\n- Paper: Direct Preference Optimization\n- Saved: 2026-10-22 13:59 UTC\n\nHigher and further left is better.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/explanations/figures/Direct Preference Optimization – Figure 2.md",
+    "text": "# Figure 2\n\n- Paper: Direct Preference Optimization\n- Saved: 2026-10-22 13:59 UTC\n- Model: claude-sonnet-5-5\n\nTwo panels compare reward and KL.\n\n## a: IMDb sentiment\n\nReward vs KL frontier. (¶64)\n\n## Concept\n\nKL measures drift.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/explanations/papers/Direct Preference Optimization.md",
+    "text": "# AI Explainer\n\n- Paper: Direct Preference Optimization\n- Saved: 2026-10-22 13:59 UTC\n- Model: gemini-3.8-flash\n\n## In short\n\nDPO replaces RLHF's reward model and RL step with one classification loss.\n\n## Background\n\n- **Bradley-Terry model**: Preference probability from a reward difference. (¶18, ¶19)\n\n## Key ideas\n\n- **The DPO loss**\n\n## How it fits together\n\n- Bradley-Terry model → The DPO loss: defines likelihood\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/snippets/Ideas.md",
+    "text": "# Ideas\n\n## 2026-10-22 13:30 UTC · Region\n\n_The image wasn’t available on this device._\n\nMissing image here\n\n## 2026-10-22 13:31 UTC · Region\n\n![Snippet](<images/e5.jpg>)\n\nAnother\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/snippets/Reading list.md",
+    "text": "# Reading list\n\n## 2026-10-22 12:00 UTC · Region\n\n![Snippet](<images/e1.png>)\n\nThe key figure.\n\nSource: Direct Preference Optimization — 5 Experiments — Figure 2 — https://arxiv.org/abs/2305.18290v3\n\n## 2026-10-22 12:30 UTC · Quote\n\n> DPO is stable,\n> performant and computationally lightweight.\n\nSource: Local notes.pdf — page 3\n\n## 2026-10-22 13:00 UTC · Note\n\nCheck the appendix.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/snippets/images/e1.png",
+    "sha256": "02a3e298f1533f62558c58e4c70edcab9af5a50d62d925fd5390942020fb0fb8"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/snippets/images/e5.jpg",
+    "sha256": "45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1"
+   }
+  ],
+  "zipBytes": 8244,
+  "zipSHA256": "3d3fc22a4d1342bc6ae31891b60d2b14a4c2b5e98e9153d885bf1a13e6e64851"
+ }
+}

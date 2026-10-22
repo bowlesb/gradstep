@@ -29,6 +29,7 @@ import type { TextAnchor } from '../lib/events';
 import { Brand, Dialog, InfoTip } from './common';
 import { DiagramsDialog } from './DiagramsDialog';
 import { ExplanationsDialog } from './ExplanationsDialog';
+import { AssetsExportDialog } from './AssetsExportDialog';
 import { UsageDialog } from './UsageDialog';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { PaperSearchView, usePaperSearch } from './PaperSearch';
@@ -217,6 +218,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
+  // Your assets › Download your assets (owner, build 82).
+  const [assetsExportOpen, setAssetsExportOpen] = useState(false);
   const [howGradstepWorks, setHowGradstepWorks] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
@@ -858,7 +861,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <AccountMenu compact={phone} onAdd={library.state === 'ready' ? () => setAdding(true) : null} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
-            onNotes={() => void navigate('/notes')} onExplanations={chat ? setExplanationsOpen : null} onUsage={() => setUsageOpen(true)} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
+            onNotes={() => void navigate('/notes')} onExplanations={chat ? setExplanationsOpen : null} onUsage={() => setUsageOpen(true)} onDownloadAssets={chat ? () => setAssetsExportOpen(true) : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -907,6 +910,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} topics={paperTopics} />
       </RegionBoundary>
       {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} account={account} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
+      {chat && assetsExportOpen && <RegionBoundary region="assets-export" label="Download your assets" compact onReport={report}><AssetsExportDialog chat={chat} papers={paperNames} open onClose={() => setAssetsExportOpen(false)} /></RegionBoundary>}
       {chat && <RegionBoundary region="diagrams" label="All diagrams" compact resetKey={diagramsOpen} onReport={report}><DiagramsDialog chat={chat} open={diagramsOpen} onClose={() => setDiagramsOpen(false)} /></RegionBoundary>}
       {chat && explanationsOpen && <RegionBoundary region="explanations" label="Explanations" compact onReport={report}><ExplanationsDialog chat={chat} kind={explanationsOpen}
         onClose={() => setExplanationsOpen(null)}
@@ -1007,11 +1011,11 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
   </nav>;
 }
 
-function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onNotes, onDiagrams, onExplanations, onUsage, passageMarks, onPassageMarks, sync }: {
+function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onNotes, onDiagrams, onExplanations, onUsage, onDownloadAssets, passageMarks, onPassageMarks, sync }: {
   compact?: boolean;
   /** Add paper, the menu's first row (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
   onAdd: (() => void) | null; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onNotes: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
+  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onNotes: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null; onDownloadAssets: (() => void) | null;
   /** Your AI usage, under AI credits. */
   onUsage: () => void;
   passageMarks: boolean; onPassageMarks: (on: boolean) => void;
@@ -1085,6 +1089,8 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('equation'); }} data-testid="assets-equations"><Icon name="function" size={14} /> Equation explanations</button>
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('figure'); }} data-testid="assets-figures"><Icon name="image" size={14} /> Figure explanations</button>
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('paper'); }} data-testid="assets-papers"><Icon name="sparkles" size={14} /> Paper explanations</button>
+            {/* Owner, build 82: "Need a download assets button": this browser's own content as a .zip made here. */}
+            <button role="menuitem" className="menu-item" disabled={!onDownloadAssets} onClick={() => { setOpen(false); onDownloadAssets?.(); }} data-testid="assets-download"><Icon name="download" size={14} /> Download your assets</button>
           </div>
           <div className="menu-row" role="group" aria-label="Appearance">
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>

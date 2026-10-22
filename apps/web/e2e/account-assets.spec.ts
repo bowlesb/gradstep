@@ -34,7 +34,7 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   await row(page, 'account-plan', 'Plan', 'Pro');
   // Nothing to buy here: credits and plans are bought in the apps.
   await expect(menu).not.toContainText(/Get credits|Buy|Upgrade/);
-  await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/, /Snippets$/, /Equation explanations$/, /Figure explanations$/, /Paper explanations$/]);
+  await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/, /Snippets$/, /Equation explanations$/, /Figure explanations$/, /Paper explanations$/, /Download your assets$/]);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-menu.png` });
 
   // The explanations sit behind ⓘ beside the words; the rest of the page darkens; Esc hides only the bubble.

@@ -1,5 +1,27 @@
 # Implementation status
 
+## Download your assets — 2026-10-22 UTC (apps and browser local, not released)
+
+Owner, build 82: "Need a download assets button". Decisions:
+[DECISIONS](DECISIONS.md#download-your-assets-owner-build-82-built-not-released).
+
+- **Apps:** Settings › Your assets ends with **Download your assets** (ⓘ: what is in it; downloaded papers aren't).
+  `AssetsExporter` gathers this device's chats, diagrams, every snippet collection (images decrypted here, downloaded
+  encrypted only when missing) and the explanations kept here; `AssetsExport` (Core) writes the files and the zip off the
+  main thread; progress shows "n of N snippet images"; what was left out shows under the row and in the README. Share
+  sheet on iPhone/iPad, save panel on the Mac. The Snippets row now has a chevron like the rows around it.
+- **Browser:** account menu › Your assets › **Download your assets** opens a small dialog (what is in it, progress,
+  "Downloaded …", what was left out); the zip is the same format, made by `lib/assets-export.ts` from
+  `lib/assets-export-gather.ts`; `NotesStore.imageBytes` gives the verified bytes the image URLs already used.
+- **Evidence:** `npm test` passes (browser units include `tests/assets-export.test.ts`: the shared fixture's files and zip
+  SHA-256, the zip read back, names, empty export); Core `swift test` 436 pass, `AssetsExportTests` produces the same
+  files and the same zip SHA-256 as the browser from the same fixture; `unzip -t` and macOS `ditto` open the fixture zip;
+  Playwright `assets-export.spec.ts` desktop and phone pass (the downloaded zip has README first, the collection with its
+  comment, and a decrypted PNG/JPEG; no remote request), `account-assets.spec.ts` updated and passing; iPhone 17 Simulator
+  `AssetsExportJourneyTests` passes (share sheet offered, the zip's paths include the collection, no PDF); Mac Catalyst
+  builds. Not verified: physical device (paused), iPad and Mac UI journeys, very large exports (the zip is built in
+  memory; snippet images are at most 2 MB each).
+
 ## Study mode reworked, the paper's AI Explainer, App Store pricing applied — 2026-10-22 UTC (server, browser and TestFlight 82 released)
 
 - **Study mode** (owner: "too complex"): "Enter Study Mode – Quiz me and help me learn" is a starter in an empty paper

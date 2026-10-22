@@ -62,6 +62,8 @@ const paths = {
   // Draw snippet: a selection's four corners around a region.
   scan: <><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /><rect x="8.5" y="8.5" width="7" height="7" rx="1" strokeDasharray="2 2" /></>,
   paper: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="14 3 14 9 20 9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="13" y2="17" /></>,
+  // Download your assets: an arrow into a tray.
+  download: <><path d="M12 4v11" /><polyline points="7 10 12 15 17 10" /><path d="M5 19h14" /></>,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

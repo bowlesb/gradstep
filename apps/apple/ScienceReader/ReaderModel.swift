@@ -4089,7 +4089,7 @@ final class ReaderModel {
         try? equationResultStore()?.write(answer, for: key)
         if key.localModel == nil, let subject = answer.subject { keptEquationFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
     }
-    private func equationResultStore() -> EquationResultStore? {
+    func equationResultStore() -> EquationResultStore? {
         if let equationStore { return equationStore }
         guard let configuration, let device, let accountID, device.accountID == accountID,
               let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
@@ -4357,7 +4357,7 @@ final class ReaderModel {
         paperExplainerAnswers[key] = answer
         try? paperExplainerResultStore()?.write(answer, for: key)
     }
-    private func paperExplainerResultStore() -> EquationResultStore? {
+    func paperExplainerResultStore() -> EquationResultStore? {
         if let paperExplainerStore { return paperExplainerStore }
         guard let configuration, let device, let accountID, device.accountID == accountID,
               let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
@@ -4392,7 +4392,7 @@ final class ReaderModel {
         select(paper)
         return true
     }
-    private func figureResultStore() -> EquationResultStore? {
+    func figureResultStore() -> EquationResultStore? {
         if let figureStore { return figureStore }
         guard let configuration, let device, let accountID, device.accountID == accountID,
               let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }

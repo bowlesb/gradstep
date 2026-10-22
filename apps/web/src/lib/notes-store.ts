@@ -228,6 +228,14 @@ export class NotesStore {
     return url;
   }
   private async load(media: MediaDescriptor): Promise<string> {
+    const plain = await this.imageBytes(media);
+    const url = URL.createObjectURL(new Blob([plain], { type: media.type }));
+    if (this.retired) { URL.revokeObjectURL(url); throw new NotesError('closed'); }
+    return url;
+  }
+  /** A snippet image's verified bytes (PNG or JPEG as captured): this browser's encrypted copy, else a download. */
+  async imageBytes(media: MediaDescriptor): Promise<Bytes> {
+    if (this.retired) throw new NotesError('closed');
     const journal = this.history.localJournal;
     let stored = journal ? await journal.readBlob(media.blobID).catch(() => null) : null, downloaded = false;
     if (!stored || stored.length !== media.bytes) { stored = await this.transport.get(media.blobID, media.bytes, this.signal); downloaded = true; }
@@ -238,9 +246,7 @@ export class NotesStore {
       if (size.width !== media.width || size.height !== media.height) throw new BlobError('blob_dimensions');
     }
     if (downloaded && journal) void journal.cacheBlob(media.blobID, stored).catch(() => {});
-    const url = URL.createObjectURL(new Blob([plain], { type: media.type }));
-    if (this.retired) { URL.revokeObjectURL(url); throw new NotesError('closed'); }
-    return url;
+    return plain;
   }
 
   retire() {

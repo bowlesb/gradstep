@@ -1402,8 +1402,11 @@ struct SettingsView: View {
                         model.closeSettings(); model.notes.openNoteID = nil; model.tab = .notes
                         if !model.compactLayout { model.wideMode = .notes }
                     } label: {
-                        LabeledContent("Snippets", value: Self.count(model.notes.shownNotes.count))
-                            .foregroundStyle(Color.primary)
+                        // Owner, build 82: the count without a chevron looked unlike the rows around it.
+                        HStack {
+                            LabeledContent("Snippets", value: Self.count(model.notes.shownNotes.count))
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
+                        }.foregroundStyle(Color.primary).contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("settings.notes")
                     // Owner, build 62: "Equation Explanations, and Figure Explanations in the list of your assets".
@@ -1422,6 +1425,8 @@ struct SettingsView: View {
                         let bytes = model.downloadedPapers.reduce(0) { $0 + $1.totalBytes }
                         LabeledContent("Downloaded papers", value: bytes > 0 ? DownloadedPapersView.size(bytes) : "None")
                     }.accessibilityIdentifier("settings.downloads")
+                    // Owner, build 82: "Need a download assets button". The reader's own content as a .zip made here.
+                    if model.isSignedIn { AssetsExportRow(model: model) }
                 }
                 // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.
                 Section {

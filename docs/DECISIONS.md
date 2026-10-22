@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Download your assets (owner, build 82; built, not released)
+
+Owner, TestFlight build-82 feedback on Settings › Your assets: *"Need a download assets button"*. Interpreted as
+**download = export your own content as a zip**: one action at the bottom of Your assets (apps) and the account menu's
+Your assets (browser), not a per-row download and not a re-download of papers.
+
+| Decision | Value |
+|---|---|
+| What is in it | Chats (Markdown per chat, the version whose last message is newest; diagrams as `.mmd` Mermaid or `.html` visuals), snippet collections (Markdown, images as captured PNG/JPEG), equation / figure / paper explanations kept on this device (Markdown), and a README listing everything and what was left out |
+| Not in it | Downloaded papers and reader copies (publishers' content; the README says so, the ⓘ too). Figure breakdowns (cut from the paper itself; counted in the README). Explanations kept on other devices (they are per device) |
+| Where it is made | On the device or in the browser, from what it holds or decrypts (E2EE content never leaves as plaintext). No new endpoint; only a snippet image not yet on this device is downloaded, encrypted, through the existing note-assets read |
+| Format | `Gradstep export YYYY-MM-DD.zip`, one folder inside, stored (uncompressed) entries, UTF-8 names, dates UTC. Swift `AssetsExport.swift` and browser `lib/assets-export.ts` produce identical bytes for the shared fixture (`tests/fixtures/assets-export/assets-export-v1.json`) |
+| Hand-off | iPhone/iPad: the share sheet (Save to Files, AirDrop…); Mac: a save panel; browser: an ordinary download. The apps' temporary zip (complete file protection) is removed when the sheet closes |
+| Also | The Snippets row in Your assets gets the chevron the other rows have |
+
 ## Pricing accepted, with safeguards against spend outrunning income (owner, 2026-10-22; built, staging)
 
 Owner, verbatim: *"I will take your defaults"* (on [PRICING_PROPOSAL_20261022](proposals/PRICING_PROPOSAL_20261022.md)),

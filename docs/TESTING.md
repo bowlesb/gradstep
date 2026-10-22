@@ -1,5 +1,14 @@
 # Fast and slow tests
 
+## Download your assets — October 22
+
+Fast (in `npm test`): browser `tests/assets-export.test.ts` (writes `tests/fixtures/assets-export/assets-export-v1.json`
+expectations with `UPDATE_EXPORT_FIXTURE=1`; `EXPORT_ZIP_OUT=<path>` also writes the zip to open with `unzip -t`). Core
+`swift test --filter AssetsExportTests` (same fixture: same files, same zip SHA-256). Slow, opt-in: Playwright
+`npx playwright test assets-export.spec.ts --project=desktop --project=phone` (screenshots under
+`.artifacts/web-e2e/assets-export/`); native, on an iPhone Simulator,
+`-only-testing:ScienceReaderUITests/AssetsExportJourneyTests` (`TEST_RUNNER_GS_SCREENSHOT_DIR` for screenshots).
+
 ## Full screen on touch; streamed equation explanation — October 22
 
 Fast: backend `tests/backend/chat.test.ts` (the symbols stream in any chunking, count, cut-off and malformed symbols;
