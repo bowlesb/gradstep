@@ -139,24 +139,26 @@ export const AI_DEFAULTS_GUIDE = {
   general: 'General chat answers questions that aren’t about a paper. Speed usually matters most, so a fast, low-cost model fits.',
   paper: 'Paper chat reads the whole paper with each question. A balanced model handles most questions; a stronger one helps with long derivations and critique.',
   equations: 'Equation explanations walk through symbols and derivations, which reward careful reasoning, so a stronger model is often worth the extra credits.',
-  figures: 'Figures and tables: the model looks at the figure’s image as well as its caption, so it must read images (every cloud model listed does). Sonnet is the default: it reads dense plots carefully and its walkthrough starts appearing within seconds. Speed differs by model: DeepSeek writes more slowly, and much more slowly at a higher effort.',
+  figures: 'Figures and tables: the model looks at the figure’s image as well as its caption, so it must read images (every cloud model listed does). Gemini Flash is the default: it reads plots closely at a low cost, and its walkthrough starts appearing within seconds. Sonnet is a little quicker to start and also careful, at about three times the cost. Speed differs by model: DeepSeek writes more slowly, and much more slowly at a higher effort.',
   podcasts: 'Podcasts: the writer drafts and checks a whole episode script, a long output, so its cost adds up and longer episodes cost more. The voices are the same whichever writer you choose.',
 } as const;
 /** One activity's ⓘ: what it does, then the general considerations. */
 export const aiDefaultsGuide = (activity: AIActivity) => `${AI_DEFAULTS_GUIDE[activity]}\n\n${AI_DEFAULTS_GUIDE.overview}\n\n${AI_DEFAULTS_GUIDE.whenToChange}`;
 const contextualKey = (documentID: string, anchor: TextAnchor) => JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
 const scenarioKey = 'gradstep.ai.scenarios.v1';
-/** The figures default before 2026-10-22 (Gemini Flash · medium · Standard, the recommended default then). A figures
- * choice saved equal to it is let go once (`figuresDefaultV2`, kept in the same object), so the reader gets the new
- * default (Sonnet); an explicit Gemini choice made after that sticks. */
-const OLD_FIGURES_DEFAULT: ProfileChoice = { model: 'gemini', effort: 'medium', length: 'standard' };
+/** The short-lived figures default of 2026-10-22 (Sonnet · low · Standard; owner, later that day: "Let's try Gemini
+ * instead of Sonnet for Figures then"). A figures choice saved equal to it is let go once (`figuresDefaultV3`, kept in
+ * the same object), so the reader follows the default again (Gemini Flash); an explicit Sonnet choice made after that
+ * sticks, and any other saved choice is never touched. */
+const OLD_FIGURES_DEFAULT: ProfileChoice = { model: 'sonnet', effort: 'low', length: 'standard' };
+const FIGURES_GEMINI: ProfileChoice = { model: 'gemini', effort: 'medium', length: 'standard' };
 export function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
   try {
     const stored=localStorage.getItem(scenarioKey), value=JSON.parse(stored??'{}');
     const choices: Partial<Record<AIUseCase,ProfileChoice>> = Object.fromEntries(['general','paper','equations','figures'].flatMap(k=>isProfileChoice(value?.[k])?[[k,{model:value[k].model,effort:value[k].effort,length:value[k].length}]]:[]));
-    if (stored !== null && value?.figuresDefaultV2 !== true) {
+    if (stored !== null && value?.figuresDefaultV3 !== true) {
       if (choices.figures && sameProfile(choices.figures, OLD_FIGURES_DEFAULT)) delete choices.figures;
-      try { localStorage.setItem(scenarioKey, JSON.stringify({ ...choices, figuresDefaultV2: true })); } catch { /* per-browser convenience only */ }
+      try { localStorage.setItem(scenarioKey, JSON.stringify({ ...choices, figuresDefaultV3: true })); } catch { /* per-browser convenience only */ }
     }
     return choices;
   } catch { return {}; }
@@ -355,15 +357,15 @@ export class ChatSession {
   }
   /** Use the recommended default for an activity: its saved choice is let go (figures: the table's figures default). */
   resetScenarioProfile(kind:AIUseCase) { delete this.scenarioChoices[kind]; this.saveScenarios(); this.publish(); }
-  private saveScenarios() { try {localStorage.setItem(scenarioKey,JSON.stringify({...this.scenarioChoices,figuresDefaultV2:true}));} catch {} }
-  /** The figures activity's default (owner, 2026-10-22: "change the default to Sonnet for that one"): the table's
-   * `default_figures`, else Sonnet · low · Standard where offered, else the server's general default. Never this
-   * browser's general choice: a figure's image wants a model chosen for figures. */
+  private saveScenarios() { try {localStorage.setItem(scenarioKey,JSON.stringify({...this.scenarioChoices,figuresDefaultV3:true}));} catch {} }
+  /** The figures activity's default (owner, 2026-10-22: "Let's try Gemini instead of Sonnet for Figures then"): the
+   * table's `default_figures`, else Gemini Flash · Standard where offered (the figure view runs it at low effort), else
+   * the server's general default. Never this browser's general choice: a figure's image wants a model chosen for figures. */
   get figuresDefault(): ProfileChoice {
     const table = this.profiles.table;
     if (!table) return STANDARD_PROFILE;
     if (table.figuresDefault && available(table, table.figuresDefault)) return table.figuresDefault;
-    if (available(table, STANDARD_PROFILE)) return STANDARD_PROFILE;
+    if (available(table, FIGURES_GEMINI)) return FIGURES_GEMINI;
     const auto = table.autoDefault;
     return auto ? withChoice(table, table.defaultChoice, { model: auto.model, length: auto.length }) : table.defaultChoice;
   }

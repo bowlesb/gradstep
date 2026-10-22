@@ -2474,9 +2474,10 @@ test('the figure view thinks at low effort unless the reader chose an effort for
   }
   assert.deepEqual(deep.map(p => [p.output_config?.effort, p.thinking?.type]), [['low', 'disabled'], ['medium', 'adaptive'], ['low', 'adaptive']]);
   assert.deepEqual(openRouterChatParams(deep[0]).reasoning, { enabled: false });
-  // The figures activity's published default: Sonnet at low effort (owner, 2026-10-22).
-  assert.deepEqual(publishedProfiles({ deepseek: true, gemini: true }).default_figures, { model: 'sonnet', effort: 'low', length: 'standard' });
-  assert.equal(publishedProfiles({ deepseek: true, gemini: true, available: model => !model.includes('sonnet') }).default_figures, undefined, 'not offered without Sonnet');
+  // Since the owner's "Let's try Gemini instead of Sonnet for Figures then" (2026-10-22): Gemini Flash, run at low.
+  assert.deepEqual(publishedProfiles({ deepseek: true, gemini: true }).default_figures, { model: 'gemini', effort: 'medium', length: 'standard' });
+  assert.equal(publishedProfiles({ deepseek: true }).default_figures, undefined, 'not offered without Gemini');
+  assert.equal(publishedProfiles({ deepseek: true, gemini: true, available: model => !model.includes('gemini') }).default_figures, undefined, 'nor when its card lapses');
 });
 
 // One part extracted (owner, TestFlight 62: "Extract the subfigure and more context"): `figure_detail`, the walkthrough's

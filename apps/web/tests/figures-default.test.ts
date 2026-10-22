@@ -1,7 +1,8 @@
-// The figures activity's default (owner, 2026-10-22: "change the default to Sonnet for that one"): the table's
-// `default_figures`, else Sonnet · low · Standard where offered, else the server's default; never the reader's general
-// choice. A saved figures choice is kept, except one equal to the old recommended default (Gemini · medium · Standard),
-// let go once (`figuresDefaultV2`), so a later explicit Gemini choice sticks. Other activities are unchanged.
+// The figures activity's default (owner, 2026-10-22: "Let's try Gemini instead of Sonnet for Figures then"; it was Sonnet ·
+// low earlier that day): the table's `default_figures` (Gemini Flash · Standard, run at low effort by the server), else
+// Gemini where offered, else the server's default; never the reader's general choice. A saved figures choice is kept,
+// except one equal to the short-lived Sonnet default, let go once (`figuresDefaultV3`), so a later explicit Sonnet choice
+// sticks. Other activities are unchanged.
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
 import { decodeProfileTable, type ProfileChoice } from '../src/lib/chat-profiles';
@@ -13,7 +14,7 @@ vi.mock('../src/lib/backend', async original => {
 const { ChatSession } = await import('../src/lib/chat-session');
 const { History } = await import('../src/lib/history');
 const { keyRing, generateBundle } = await import('../src/lib/wire');
-// The server's table (tests/fixtures/chat-profiles-gemini.json, copied here): recommended Gemini, figures Sonnet.
+// The server's table (tests/fixtures/chat-profiles-gemini.json, copied here): recommended Gemini, figures Gemini.
 const table = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-gemini.json', import.meta.url), 'utf8'));
 const account = '11111111-2222-4333-8444-555555555555', device = 'aaaaaaaa-0000-4000-8000-000000000001', key = 'gradstep.ai.scenarios.v1';
 const sonnetLow: ProfileChoice = { model: 'sonnet', effort: 'low', length: 'standard' }, geminiMedium: ProfileChoice = { model: 'gemini', effort: 'medium', length: 'standard' };
@@ -34,11 +35,11 @@ async function session(raw: unknown = table, general: ProfileChoice | null = nul
 }
 afterEach(() => vi.unstubAllGlobals());
 
-it('a new reader’s figures default is the table’s figures default (Sonnet · low), not the general one', async () => {
+it('a new reader’s figures default is the table’s figures default (Gemini Flash), not the general one', async () => {
   storage(null);
   const chat = await session();
-  expect(chat.profileTable!.figuresDefault).toEqual(sonnetLow);
-  expect(chat.scenarioProfile('figures')).toEqual(sonnetLow);
+  expect(chat.profileTable!.figuresDefault).toEqual(geminiMedium);
+  expect(chat.scenarioProfile('figures')).toEqual(geminiMedium);
   expect(chat.scenarioProfile('general')).toEqual(geminiMedium); expect(chat.scenarioProfile('paper')).toEqual(geminiMedium);
 });
 
@@ -47,39 +48,43 @@ it('no longer inherits the reader’s general default (DeepSeek)', async () => {
   const chat = await session(table, deepseekLow);
   expect(chat.defaultProfile).toEqual(deepseekLow);
   expect(chat.scenarioProfile('paper')).toEqual(deepseekLow); // other activities unchanged
-  expect(chat.scenarioProfile('figures')).toEqual(sonnetLow);
+  expect(chat.scenarioProfile('figures')).toEqual(geminiMedium);
 });
 
-it('falls back: without default_figures to Sonnet · low · Standard, without Sonnet to the server’s default', async () => {
+it('falls back: without default_figures to Gemini where offered, without Gemini to the server’s default', async () => {
   storage(null);
   const { default_figures: _, ...older } = table;
   expect(decodeProfileTable(older)!.figuresDefault).toBeNull();
-  expect((await session(older, deepseekLow)).scenarioProfile('figures')).toEqual(sonnetLow);
-  const { default_auto: __, ...withoutAuto } = older;
-  const noSonnet = { ...withoutAuto, default: geminiMedium, profiles: older.profiles.filter((p: { model: string; length: string }) => !(p.model === 'sonnet' && p.length === 'standard')) };
-  expect((await session(noSonnet, deepseekLow)).scenarioProfile('figures')).toEqual(geminiMedium);
+  expect((await session(older, deepseekLow)).scenarioProfile('figures')).toEqual(geminiMedium);
+  const { default_recommended: __, ...noGemini } = { ...older, models: older.models.filter((m: { id: string }) => m.id !== 'gemini'),
+    profiles: older.profiles.filter((p: { model: string }) => p.model !== 'gemini') };
+  const fallback = await session(noGemini, deepseekLow);
+  expect(fallback.scenarioProfile('figures')).toEqual(fallback.profileTable!.autoDefault
+    ? { model: fallback.profileTable!.autoDefault.model, effort: fallback.scenarioProfile('figures').effort, length: 'standard' } : fallback.profileTable!.defaultChoice);
+  expect(fallback.scenarioProfile('figures').model).toBe('sonnet');
   // A default_figures the table doesn't offer is ignored.
-  const unoffered = { ...table, default: geminiMedium, default_figures: sonnetLow, profiles: table.profiles.filter((p: { model: string; length: string }) => !(p.model === 'sonnet' && p.length === 'standard')) };
-  expect(decodeProfileTable(unoffered)!.figuresDefault).toBeNull();
-  expect(decodeProfileTable({ ...table, default_figures: { model: 'sonnet', effort: 'low' } })!.figuresDefault).toBeNull();
+  expect(decodeProfileTable({ ...noGemini, default_figures: geminiMedium })!.figuresDefault).toBeNull();
+  expect(decodeProfileTable({ ...table, default_figures: { model: 'gemini', effort: 'medium' } })!.figuresDefault).toBeNull();
 });
 
-it('keeps a saved figures choice (DeepSeek)', async () => {
+it('keeps a saved figures choice (DeepSeek, Gemini)', async () => {
   const saved = storage({ figures: deepseekLow, paper: geminiMedium });
   expect((await session()).scenarioProfile('figures')).toEqual(deepseekLow);
-  expect(saved()).toEqual({ figures: deepseekLow, paper: geminiMedium, figuresDefaultV2: true });
+  expect(saved()).toEqual({ figures: deepseekLow, paper: geminiMedium, figuresDefaultV3: true });
+  storage({ figures: geminiMedium, figuresDefaultV2: true });
+  expect((await session()).scenarioProfile('figures')).toEqual(geminiMedium);
 });
 
-it('lets go of a saved Gemini · medium figures choice once; a Gemini choice made after sticks; the recommended default is Sonnet', async () => {
-  const saved = storage({ figures: geminiMedium, paper: geminiMedium });
+it('lets go of a saved Sonnet · low figures choice once; a Sonnet choice made after sticks; the recommended default is Gemini', async () => {
+  const saved = storage({ figures: sonnetLow, paper: sonnetLow, figuresDefaultV2: true });
   const chat = await session();
-  expect(chat.scenarioProfile('figures')).toEqual(sonnetLow); expect(chat.scenarioProfile('paper')).toEqual(geminiMedium);
-  expect(saved()).toEqual({ paper: geminiMedium, figuresDefaultV2: true });
-  chat.setScenarioProfile('figures', geminiMedium);
-  expect(saved()).toEqual({ paper: geminiMedium, figures: geminiMedium, figuresDefaultV2: true });
+  expect(chat.scenarioProfile('figures')).toEqual(geminiMedium); expect(chat.scenarioProfile('paper')).toEqual(sonnetLow);
+  expect(saved()).toEqual({ paper: sonnetLow, figuresDefaultV3: true });
+  chat.setScenarioProfile('figures', sonnetLow);
+  expect(saved()).toEqual({ paper: sonnetLow, figures: sonnetLow, figuresDefaultV3: true });
   const later = await session();
-  expect(later.scenarioProfile('figures')).toEqual(geminiMedium);
+  expect(later.scenarioProfile('figures')).toEqual(sonnetLow);
   // Use the recommended default: the figures default again.
   later.resetScenarioProfile('figures');
-  expect(later.scenarioProfile('figures')).toEqual(sonnetLow); expect(saved()).toEqual({ paper: geminiMedium, figuresDefaultV2: true });
+  expect(later.scenarioProfile('figures')).toEqual(geminiMedium); expect(saved()).toEqual({ paper: sonnetLow, figuresDefaultV3: true });
 });
