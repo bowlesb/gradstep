@@ -604,9 +604,9 @@ final class WorkflowJourneyTests: XCTestCase {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
-                               "-appearance", appearance, "--equation-fixture-step-ms=1200"] + (oldServer ? ["--equation-fixture-old-server"] : [])
+                               "-appearance", appearance, "--equation-fixture-step-ms=4000"] + (oldServer ? ["--equation-fixture-old-server"] : [])
         app.launch()
-        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 20) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
         app.show("paper")
         let number = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
         XCTAssertTrue(number.waitForExistence(timeout: 15))
@@ -622,19 +622,19 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(wait { ["Reading the equation…", "Writing the summary…", "Preparing the equation…"].contains(progress.label) }, "its stage: \(progress.label)")
         capture(app, "Equation progress: bar and placeholders (\(appearance)\(oldServer ? ", older server" : ""))")
         if oldServer {
-            XCTAssertTrue(second.waitForExistence(timeout: 10), "all at once")
-            XCTAssertTrue(wait { !progress.exists }); return
+            XCTAssertTrue(second.waitForExistence(timeout: 20), "all at once")
+            XCTAssertTrue(wait(20) { !progress.exists }); return
         }
-        XCTAssertTrue(summary.waitForExistence(timeout: 10), "the summary first")
+        XCTAssertTrue(summary.waitForExistence(timeout: 20), "the summary first")
         XCTAssertTrue(progress.exists && !first.exists, "the bar stays below what has arrived")
-        XCTAssertTrue(first.waitForExistence(timeout: 10), "then symbol 1")
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "then symbol 1")
         let top = summary.frame.minY
-        XCTAssertTrue(wait { progress.label == "Explaining symbol 2 of 2…" }, "symbol 2 of the announced 2: \(progress.label)")
+        XCTAssertTrue(wait(20) { progress.label == "Explaining symbol 2 of 2…" }, "symbol 2 of the announced 2: \(progress.label)")
         XCTAssertGreaterThan(progress.frame.minY, first.frame.maxY - 1, "the bar is below the last symbol")
         capture(app, "Equation progress: mid-stream (\(appearance))")
-        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        XCTAssertTrue(second.waitForExistence(timeout: 20))
         XCTAssertEqual(summary.frame.minY, top, accuracy: 1, "nothing above moves as symbols arrive")
-        XCTAssertTrue(wait { !progress.exists && !skeleton.exists }, "the bar goes at the end")
+        XCTAssertTrue(wait(20) { !progress.exists && !skeleton.exists }, "the bar goes at the end")
         capture(app, "Equation progress: done (\(appearance))")
     }
 

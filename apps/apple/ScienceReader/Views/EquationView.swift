@@ -446,6 +446,7 @@ struct EquationView: View {
                             symbolRow(symbol, index: index + 1, paperID: session.context.paperID)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading) // full width from the first row: nothing resizes as symbols arrive
                     .padding(.horizontal, 14).padding(.vertical, 4)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
                 }

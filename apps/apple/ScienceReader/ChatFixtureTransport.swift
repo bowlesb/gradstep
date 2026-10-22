@@ -217,7 +217,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.finish(); return
                     }
                     if request.action == .equation {
-                        if Self.equationOldServer { try await Task.sleep(for: .milliseconds(400)) } else { try await Self.streamSymbols(Self.equationSymbols, continuation) }
+                        if Self.equationOldServer { try await Task.sleep(for: Self.equationStep * 3) } else { try await Self.streamSymbols(Self.equationSymbols, continuation) }
                         continuation.yield(.equation(Self.equationSymbols))
                         continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
