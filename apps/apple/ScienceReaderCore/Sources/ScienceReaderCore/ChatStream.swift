@@ -214,6 +214,12 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case figureProgress(FigureStreamProgress)
     case figureSummary(String)
     case figureSection(index: Int, section: FigureWalkthrough.Section)
+    /// The streamed symbols (action `equation`, servers from 2026-10-22; EQUATION_VIEW.md "Streamed explanation"), all
+    /// before the final `equation`: where the writing is, the summary once, then each checked symbol with its place in the
+    /// final symbols. Builds without these cases ignore the events and read only the final `equation`.
+    case equationProgress(EquationStreamProgress)
+    case equationSummary(String)
+    case equationSymbol(index: Int, symbol: EquationSymbols.Symbol)
     /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
     case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
     /// `credits`: what the failed answer cost (0 when the provider never started it; servers from 2026-10-14).
@@ -271,6 +277,19 @@ public struct FigureStreamProgress: Equatable, Sendable {
         self.stage = stage
         self.characters = characters.flatMap { (0...10_000_000).contains($0) ? $0 : nil }
         self.parts = parts.flatMap { (1...FigureWalkthrough.maximumSections).contains($0) ? $0 : nil }
+    }
+}
+
+/// Where the equation's symbols are (`equation_progress`): `reading` once the model was asked, then `writing` with the
+/// characters written so far and, once the model said it, how many symbols it will list.
+public struct EquationStreamProgress: Equatable, Sendable {
+    public let stage: FigureStreamProgress.Stage
+    public let characters: Int?
+    public let symbols: Int?
+    public init(stage: FigureStreamProgress.Stage, characters: Int? = nil, symbols: Int? = nil) {
+        self.stage = stage
+        self.characters = characters.flatMap { (0...10_000_000).contains($0) ? $0 : nil }
+        self.symbols = symbols.flatMap { (1...EquationSymbols.maximumSymbols).contains($0) ? $0 : nil }
     }
 }
 
@@ -419,6 +438,19 @@ public struct ChatSSEParser: Sendable {
         case "figure_section":
             // Informational: an unusable part is dropped; the final `figure` decides what is kept.
             return FigureWalkthrough.streamedSection(payload).map { .figureSection(index: $0.index, section: $0.section) }
+        case "equation_progress":
+            // Informational: a malformed step is dropped, never fatal.
+            struct Progress: Decodable { let stage: String; let characters: Double?; let symbols: Double? }
+            guard let progress = try? JSONDecoder().decode(Progress.self, from: payload),
+                  let stage = FigureStreamProgress.Stage(rawValue: progress.stage) else { return nil }
+            func whole(_ value: Double?) -> Int? { value.flatMap { $0.isFinite && $0.rounded() == $0 && abs($0) < 1e9 ? Int($0) : nil } }
+            return .equationProgress(EquationStreamProgress(stage: stage, characters: whole(progress.characters), symbols: whole(progress.symbols)))
+        case "equation_summary":
+            // Informational: an unusable summary is dropped; the final `equation` still carries it.
+            return EquationSymbols.streamedSummary(payload).map(ChatStreamEvent.equationSummary)
+        case "equation_symbol":
+            // Informational: an unusable symbol is dropped; the final `equation` decides what is kept.
+            return EquationSymbols.streamedSymbol(payload).map { .equationSymbol(index: $0.index, symbol: $0.symbol) }
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }

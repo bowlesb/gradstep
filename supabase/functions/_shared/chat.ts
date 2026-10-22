@@ -21,7 +21,8 @@ import { freeModel, switchRefusal, type AiSwitches } from './ai-switches.ts';
 export type { AiSwitches } from './ai-switches.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
-import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationFallbackText, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
+import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationFallbackText, equationSymbols, EquationSymbolsStream, isEquationAction, paragraphCount,
+  type EquationStreamItem, type EquationSymbol, type EquationSymbols } from './chat-equation.ts';
 import { FIGURE_DETAIL_INSTRUCTIONS, FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureDetail, figureDetailMaxTokens,
   figureMaxTokens, figureViewEffort, figureWalkthrough, FigureWalkthroughStream, figureWalkthroughText, offeredBoxes, isFigureAction, walkthroughJSON,
   type FigureDetail, type FigureSection, type FigureStreamItem, type FigureWalkthrough } from './chat-figure-view.ts';
@@ -512,8 +513,16 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   /** Follow-up questions the answer suggested (2026-10-14), sent once before `done`; never logged or stored. */
   | { event: 'followups'; data: { questions: string[] } }
   | { event: 'study'; data: { map: StudyMap } }
-  /** The equation view's checked symbols (EQUATION_VIEW.md). */
+  /** The equation view's checked symbols (EQUATION_VIEW.md), sent once before `done`: all of them, also after they were
+   * streamed (the record a device keeps; builds before streaming read only this). */
   | { event: 'equation'; data: EquationSymbols }
+  /** The streamed explanation (EQUATION_VIEW.md "Streamed explanation", 2026-10-22): its summary, then each symbol, checked
+   * as the final `equation` checks them and equal to its symbols in order (`index` is the symbol's place there); where the
+   * model is (`reading`: dispatched, nothing written yet; `writing`: `characters` of the JSON written so far and, once the
+   * model has said it, the number of `symbols` it will list). Builds that predate them ignore unknown events. */
+  | { event: 'equation_summary'; data: { summary: string } }
+  | { event: 'equation_symbol'; data: { index: number; symbol: EquationSymbol } }
+  | { event: 'equation_progress'; data: { stage: 'reading' | 'writing'; characters?: number; symbols?: number } }
   /** The figure view's checked walkthrough (FIGURE_VIEW.md), sent once before `done`: the whole of it, also after its
    * parts were streamed (the record a device keeps; builds before streaming read only this). */
   | { event: 'figure'; data: FigureWalkthrough }
@@ -629,8 +638,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The reader's model, effort and length, `auto` resolved from the length and this question before anything is held
   // (chat-profiles.ts autoEffort); the quote, the request and the answer all carry the resolved profile.
   const resolved = resolveChoice(request.choice, { question: request.turns.at(-1)!.text, selection: request.selection, figures: request.figures.length });
-  // The figure view thinks at low effort unless the reader chose one for a Claude model (FIGURE_VIEW.md "Speed").
-  const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler')
+  // The figure view and the equation's symbols think at low effort unless the reader chose one for a Claude model
+  // (FIGURE_VIEW.md "Speed"; EQUATION_VIEW.md "Speed": Gemini at low wrote the same symbols, sources and paragraphs as
+  // at medium, its summary sooner and steadier). The equation's background keeps the chat's effort.
+  const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler' || request.action === 'equation')
     ? { ...resolved, effort: figureViewEffort(request.choice, resolved.effort) } : resolved;
   const profile = resolveProfile(choice);
   // Every answer goes to OpenRouter, so the reader's consent must name it (v5, or v6 which also names DeepSeek's route).
@@ -836,11 +847,31 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   };
   if (walkStreams && !signal.aborted) emit({ event: 'figure_progress', data: { stage: 'reading' } });
+  // The streamed equation symbols (EQUATION_VIEW.md "Streamed explanation"): the same reader over the reply's JSON; the
+  // summary and every complete symbol, checked exactly as the final symbols are, go to the device at once.
+  const symbolStream = symbolsOnly ? new EquationSymbolsStream(paragraphCount(paper?.text ?? '')) : null;
+  let symbolProgressAt = -Infinity, firstSymbolMs = null as number | null;
+  const relaySymbols = (piece: string) => {
+    if (!symbolStream) return;
+    const items: EquationStreamItem[] = symbolStream.push(piece);
+    if (signal.aborted) return;
+    for (const item of items) {
+      if (item.kind === 'summary') emit({ event: 'equation_summary', data: { summary: item.summary } });
+      else if (item.kind === 'symbol') { firstSymbolMs ??= now() - generationStarted; emit({ event: 'equation_symbol', data: { index: item.index, symbol: item.symbol } }); }
+    }
+    // Where the writing is, at most every 400 ms, and when the count is announced (a device's progress bar).
+    const counted = items.some(i => i.kind === 'count');
+    if (symbolStream.length && (counted || now() - symbolProgressAt >= 400)) {
+      symbolProgressAt = now();
+      emit({ event: 'equation_progress', data: { stage: 'writing', characters: symbolStream.length, ...(symbolStream.count ? { symbols: symbolStream.count } : {}) } });
+    }
+  };
+  if (symbolStream && !signal.aborted) emit({ event: 'equation_progress', data: { stage: 'reading' } });
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
-        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); relayWalk('text', text); return; }
+        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); relayWalk('text', text); relaySymbols(text); return; }
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       ...(walkStreams ? { onToolInput: (call: { index: number; name: string }, piece: string) => {
         if (call.name === FIGURE_WALKTHROUGH_TOOL.name) relayWalk('tool', piece);
@@ -889,7 +920,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   }
 
-  const described = symbolsOnly ? equationSymbols(heldText, paragraphCount(paper?.text ?? '')) : null;
+  // The symbols: the whole JSON when it parses, else (cut off at its allowance, or a malformed later part) the symbols that
+  // streamed, so the final `equation` never takes back a symbol the device was shown.
+  const described = symbolsOnly ? equationSymbols(heldText, paragraphCount(paper?.text ?? '')) ?? symbolStream!.symbols() : null;
   const symbolWords = symbolsOnly && !described ? equationFallbackText(heldText) : '';
   // The figure view's walkthrough, checked; without one, the words in its call (else the model's own) are the description.
   const walkthroughCall = offersWalkthrough ? answer.toolCalls?.find(c => c.name === FIGURE_WALKTHROUGH_TOOL.name) : undefined;
@@ -1031,7 +1064,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // The equation view's symbols: checked JSON, relayed once (format equation-symbols-v1). Without usable JSON the
     // model's words are the description, so the reader still sees something for what was paid.
     if (symbolsOnly && !signal.aborted) {
-      deps.log({ event: described ? 'chat_equation' : 'chat_equation_invalid_output', operation_id: request.operationID, symbols: described?.symbols.length ?? 0 });
+      deps.log({ event: described ? 'chat_equation' : 'chat_equation_invalid_output', operation_id: request.operationID, symbols: described?.symbols.length ?? 0,
+        // Streaming (counts and times only): how many symbols streamed, when the first did.
+        streamed: symbolStream?.items.length ?? 0, first_symbol_ms: firstSymbolMs });
       if (described) emit({ event: 'equation', data: described });
       else if (symbolWords) emit({ event: 'delta', data: { text: symbolWords } });
     }

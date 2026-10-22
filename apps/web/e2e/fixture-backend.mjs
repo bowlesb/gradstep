@@ -368,6 +368,10 @@ createServer(async (request, response) => {
     // 'slow' (~350 ms a step, its parts ~700 ms apart), 'step' (each step waits for POST /__figure-step, so a journey
     // sees every state), or 'old' (a server before 2026-10-22: only the whole `figure`, after a pause).
     if (['fast', 'slow', 'step', 'old'].includes(p?.figureStream)) a.figureStream = p.figureStream;
+    // equationStream: the same for the equation's symbols (EQUATION_VIEW.md "Streamed explanation"); 'step' shares
+    // POST /__figure-step; 'error' fails after the summary and one symbol; 'cut' ends at its allowance after two symbols
+    // (no final `equation`, done not charged).
+    if (['fast', 'slow', 'step', 'old', 'error', 'cut'].includes(p?.equationStream)) a.equationStream = p.equationStream;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
@@ -648,12 +652,39 @@ createServer(async (request, response) => {
       event('done', { stop_reason: 'end_turn', credits: 4 }); return response.end();
     }
     if (body.action === 'equation') {
-      event('equation', { format: 'equation-symbols-v1', summary: 'It squares x: the value multiplied by itself.', symbols: [
+      const explained = { format: 'equation-symbols-v1', summary: 'It squares x: the value multiplied by itself.', symbols: [
         { symbol: 'x', latex: 'x', meaning: 'The value the paper squares.', source: 'paper', paragraph: 2 },
         { symbol: '²', latex: '^{2}', meaning: 'Squaring: a number multiplied by itself.', source: 'general' },
         // No LaTeX from the model: the text itself is typeset.
-        { symbol: 'L_DPO(π_θ; π_ref)', meaning: 'The loss, named as the paper names it.', source: 'general' }] });
-      event('done', { stop_reason: 'end_turn', credits: 2 }); return response.end();
+        { symbol: 'L_DPO(π_θ; π_ref)', meaning: 'The loss, named as the paper names it.', source: 'general' }] };
+      // As the server streams it (chat.ts relaySymbols): the stream opens, Reading, the writing's progress (the JSON's
+      // characters so far, the count announced), the summary, each symbol at its place, then the whole `equation` and done.
+      response.write(': open\n\n');
+      const mode = a.equationStream ?? 'fast';
+      const end = () => { event('equation', explained); event('done', { stop_reason: 'end_turn', credits: 2, charged: true }); response.end(); };
+      if (mode === 'old') { a.timers.push(setTimeout(end, 900)); return; }
+      const n = explained.symbols.length, writing = characters => () => event('equation_progress', { stage: 'writing', characters, symbols: n });
+      let characters = 12 + JSON.stringify(explained.summary).length;
+      const steps = [() => event('equation_progress', { stage: 'reading' }), writing(Math.round(characters / 2)), writing(characters),
+        () => event('equation_summary', { summary: explained.summary })];
+      explained.symbols.forEach((symbol, index) => {
+        const start = characters; characters += JSON.stringify(symbol).length + 1;
+        steps.push(writing(Math.round((start + characters) / 2)), writing(characters), () => event('equation_symbol', { index, symbol }));
+      });
+      if (mode === 'error') { steps.splice(9); steps.push(() => { event('error', { code: 'provider_unavailable', charged: false, reason: 'provider' }); response.end(); }); }
+      else if (mode === 'cut') { steps.splice(12); steps.push(() => { event('done', { stop_reason: 'max_tokens', credits: 0, charged: false, reason: 'limit' }); response.end(); }); }
+      else steps.push(end);
+      a.figureWaiting = [];
+      const next = () => {
+        if (response.destroyed) return;
+        steps.shift()(); a.figureLeft = steps.length;
+        if (!steps.length) return;
+        if (mode === 'step') a.figureWaiting.push(next);
+        else a.timers.push(setTimeout(next, mode === 'slow' ? 350 : 25));
+      };
+      a.figureLeft = steps.length;
+      if (mode === 'step') a.figureWaiting.push(next); else next();
+      return;
     }
     if (body.action === 'equation_background') {
       // Several paragraphs, a heading and a list, streamed in small pieces as the model writes them.

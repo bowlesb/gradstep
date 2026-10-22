@@ -7,7 +7,7 @@ import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profile
 import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
 import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
-import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
+import { equationSummary, isEquationAction, MAX_SYMBOLS, parseEquationSymbol, parseEquationSymbols, type EquationSymbol, type EquationSymbols } from './equation';
 import { figureSummary, isFigureAction, MAX_SECTIONS, parseFigureSection, parseFigureWalkthrough, type FigureSection, type FigureWalkthrough } from './figure-view';
 import { provenanceFor, rememberProvenance } from './ai-usage';
 
@@ -119,6 +119,12 @@ export type StreamEvent =
   | { type: 'figure_request'; figure: string }
   /** The equation view's symbols (action `equation`, servers from 2026-10-15; equation.ts). */
   | { type: 'equation'; symbols: EquationSymbols }
+  /** The streamed symbols (action `equation`, servers from 2026-10-22; EQUATION_VIEW.md "Streamed explanation"), all
+   * before `equation`: where the writing is (`reading`, then `writing` with the JSON's characters and, once announced,
+   * how many symbols it will list), its summary and each checked symbol at its place. */
+  | { type: 'equation_progress'; stage: 'reading' | 'writing'; characters?: number; symbols?: number }
+  | { type: 'equation_summary'; summary: string }
+  | { type: 'equation_symbol'; index: number; symbol: EquationSymbol }
   /** The figure view's walkthrough (action `figure`, servers from 2026-10-16; figure-view.ts). */
   | { type: 'figure'; walkthrough: FigureWalkthrough }
   /** The streamed walkthrough (action `figure`, servers from 2026-10-22; FIGURE_VIEW.md "Streamed walkthrough"), all
@@ -241,6 +247,20 @@ export class SSEParser {
         // Informational: symbols that are not usable are dropped, never fatal (the view then says so).
         const symbols = parseEquationSymbols(v);
         return symbols ? { type: 'equation', symbols } : null;
+      }
+      // The streamed symbols: informational, checked as the `equation` event's rows; anything unusable is dropped, never
+      // fatal (the final `equation` is the explanation).
+      case 'equation_progress': {
+        if (v?.stage === 'reading') return { type: 'equation_progress', stage: 'reading' };
+        const characters = v?.characters, count = v?.symbols;
+        if (v?.stage !== 'writing' || !Number.isSafeInteger(characters) || (characters as number) < 0) return null;
+        const announced = Number.isSafeInteger(count) && (count as number) >= 1 && (count as number) <= MAX_SYMBOLS ? count as number : undefined;
+        return { type: 'equation_progress', stage: 'writing', characters: characters as number, ...(announced ? { symbols: announced } : {}) };
+      }
+      case 'equation_summary': return typeof v?.summary === 'string' ? { type: 'equation_summary', summary: equationSummary(v.summary) } : null;
+      case 'equation_symbol': {
+        const index = v?.index, symbol = parseEquationSymbol(v?.symbol);
+        return Number.isSafeInteger(index) && (index as number) >= 0 && (index as number) < MAX_SYMBOLS && symbol ? { type: 'equation_symbol', index: index as number, symbol } : null;
       }
       case 'figure': {
         // Informational: a walkthrough that is not usable is dropped, never fatal (the view then shows the words).

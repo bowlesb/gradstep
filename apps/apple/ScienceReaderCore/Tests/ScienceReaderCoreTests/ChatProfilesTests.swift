@@ -34,7 +34,7 @@ import Testing
         #expect(table.estimateText(ChatProfileChoice(model: .haiku, effort: .low, length: .brief)) == "Usually 1–2 credits · up to 2")
         #expect(table.estimateText(ChatProfileChoice(model: .opus, effort: .high, length: .detailed)) == "Usually 27–69 credits · up to 126")
         #expect(table.label(.opus) == "Opus" && table.detail(.haiku) == "Quick, economical explanations · OpenRouter → Google Vertex")
-        #expect(table.figuresDefault == .standard, "the figures default: Sonnet, low effort, standard length")
+        #expect(table.figuresDefault == nil, "without Gemini no figures default is published (owner, 2026-10-22: Gemini for figures)")
         #expect(table.label(.medium) == "Medium" && table.label(.detailed) == "Detailed")
         #expect(table.note?.contains("Web searches") == true)
         #expect(ChatProfileText.estimate(.init(low: 1, high: 1, max: 1)) == "About 1 credit · up to 1")
@@ -44,7 +44,7 @@ import Testing
     @Test func theFiguresDefaultIsReadWhenOffered() throws {
         var json = try #require(try JSONSerialization.jsonObject(with: try fixture("chat-profiles-gemini")) as? [String: Any])
         let table = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
-        #expect(table.figuresDefault == ChatProfileChoice(model: .sonnet, effort: .low, length: .standard))
+        #expect(table.figuresDefault == ChatProfileChoice(model: .gemini, effort: .medium, length: .standard), "Gemini Flash, run at low")
         #expect(table.defaultChoice.id == "gemini-medium-standard", "the general default is unchanged")
         json["default_figures"] = ["model": "opus", "effort": "max", "length": "standard"]
         #expect(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json))?.figuresDefault == nil, "unknown effort: none")

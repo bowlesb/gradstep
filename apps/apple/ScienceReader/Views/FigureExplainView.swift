@@ -232,30 +232,31 @@ struct FigureExplainView: View {
         .accessibilityIdentifier("figureView.walkthrough")
     }
 
-    private func expandable(_ image: CGImage, label: String, identifier: String) -> some View {
-        // The fullscreen control sits under the crop, never over it (2026-10-21: the round button hid each crop's title).
-        VStack(alignment: .trailing, spacing: 4) {
-            ZoomableFigureImage(image: image).aspectRatio(CGFloat(image.width) / CGFloat(image.height), contentMode: .fit)
-                .accessibilityLabel(label).accessibilityIdentifier(identifier)
-            Button { expandedImage = FigureImagePresentation(image: image, label: label) } label: {
-                Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right").font(.footnote.weight(.medium))
-                    .frame(minHeight: 44).contentShape(Rectangle())
-            }.buttonStyle(.borderless).accessibilityLabel("View \(label) fullscreen").accessibilityIdentifier("figureView.fullscreen")
-        }
+    /// Opens the full-screen figure from a card (FIGURE_VIEW.md "Full screen on touch"): at once, from the card's own place
+    /// (`at`, window coordinates), recording how (the local framing record).
+    private func open(_ image: CGImage, part: FramedPart?, label: String, identifier: String, recordKey: String?,
+                      _ gesture: FigureFramingRecord.OpenGesture, at rect: CGRect?) {
+        if let recordKey { FigureFramingRecorder.shared.changed(recordKey, opened: gesture) }
+        let card = FigureViewportScroll.shown.object(forKey: identifier as NSString)
+        let source = rect ?? card.flatMap { $0.window == nil ? nil : $0.convert($0.bounds, to: nil) }
+        presentFigureImage { expandedImage = FigureImagePresentation(image: image, part: part, label: label, recordKey: recordKey, source: source, sourceKey: identifier) }
     }
 
-    /// A part's card: a viewport into the whole figure framed by confidence (FIGURE_VIEW.md "Parts as viewports"), its
-    /// aspect the frame's; a tap or Full screen expands it to the whole figure with the part outlined.
-    private func partCard(_ part: FramedPart, image: CGImage, label: String, identifier: String, maxHeight: CGFloat, recordKey: String?) -> some View {
-        let W = Double(image.width), H = Double(image.height)
-        let frameWidth = (part.frame.x1 - part.frame.x0) * W, frameHeight = (part.frame.y1 - part.frame.y0) * H
-        let expand = { expandedImage = FigureImagePresentation(image: image, part: part, label: label, recordKey: recordKey) }
+    /// A card that opens full screen when touched (the whole figure, or a part framed by confidence: FIGURE_VIEW.md "Parts as
+    /// viewports"), its aspect the frame's, with a Full screen button under it, never over it (2026-10-21: the round button
+    /// hid each crop's title).
+    private func partCard(_ part: FramedPart?, image: CGImage, label: String, identifier: String, maxHeight: CGFloat, recordKey: String?) -> some View {
+        let W = Double(image.width), H = Double(image.height), shown = part ?? .whole(width: image.width, height: image.height)
+        let frameWidth = (shown.frame.x1 - shown.frame.x0) * W, frameHeight = (shown.frame.y1 - shown.frame.y0) * H
+        let expand = { (gesture: FigureFramingRecord.OpenGesture, rect: CGRect?) in
+            open(image, part: part, label: label, identifier: identifier, recordKey: recordKey, gesture, at: rect)
+        }
         return VStack(alignment: .trailing, spacing: 4) {
-            FigureViewport(image: image, part: part, recordKey: recordKey, snippetKey: identifier, onTap: expand)
-                .id(identifier + "\(part.frame)")
+            FigureViewport(image: image, part: shown, recordKey: recordKey, snippetKey: identifier, onOpen: { gesture, rect in expand(gesture, rect) })
+                .id(identifier + "\(shown.frame)")
                 .aspectRatio(frameWidth / frameHeight, contentMode: .fit)
                 .accessibilityLabel(label).accessibilityIdentifier(identifier)
-            Button(action: expand) {
+            Button { expand(.button, nil) } label: {
                 Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right").font(.footnote.weight(.medium))
                     .frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.borderless).accessibilityLabel("View \(label) fullscreen").accessibilityIdentifier("figureView.fullscreen")
@@ -306,12 +307,8 @@ struct FigureExplainView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Whole figure").font(.subheadline.weight(.semibold))
             if let image = session.image {
-                // Figures are drawn on white in the paper; keep that in dark mode too.
-                expandable(image, label: context.label, identifier: "figureView.figure").id(context.figureID)
-                    // Even a tiny bitmap needs enough room for a two-finger gesture.
-                    .frame(maxWidth: max(160, CGFloat(image.width) * 2), maxHeight: min(300, max(160, CGFloat(image.height) * 2)))
-                    .padding(8).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .frame(maxWidth: .infinity)
+                // Figures are drawn on white in the paper; keep that in dark mode too. Touched, it opens full screen.
+                partCard(nil, image: image, label: context.label, identifier: "figureView.figure", maxHeight: 300, recordKey: nil).id(context.figureID)
             }
             ChatMessageText(source: context.caption, fontSize: bodySize * 0.82, streaming: false, speaker: "Caption", identifier: "figureView.caption")
                 .foregroundStyle(.secondary)
@@ -488,6 +485,7 @@ struct FigureExplainView: View {
 /// known, else moving. One accessibility element: the stage is its label, the share its value (none while indeterminate).
 struct FigureProgressBar: View {
     let state: FigureProgress.State
+    var identifier = "figureView.progress"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -504,7 +502,7 @@ struct FigureProgressBar: View {
         .accessibilityLabel(state.label)
         .accessibilityValue(state.value.map { "\(Int(($0 * 100).rounded())) percent" } ?? "")
         .accessibilityAddTraits(.updatesFrequently)
-        .accessibilityIdentifier("figureView.progress")
+        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -563,7 +561,7 @@ private struct FigureWalkthroughSkeleton: View {
             withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { dim = true }
         }
         .onChange(of: reduceMotion) { _, still in if still { dim = false } }
-        .modifier(SkeletonAccessibility())
+        .modifier(SkeletonAccessibility(identifier: "figureView.skeleton"))
     }
 
     private var line: some View {
@@ -571,10 +569,11 @@ private struct FigureWalkthroughSkeleton: View {
     }
 }
 
-private struct SkeletonAccessibility: ViewModifier {
+struct SkeletonAccessibility: ViewModifier {
+    let identifier: String
     func body(content: Content) -> some View {
         #if DEBUG && FIXTURE_HOST
-        content.accessibilityElement(children: .ignore).accessibilityIdentifier("figureView.skeleton")
+        content.accessibilityElement(children: .ignore).accessibilityIdentifier(identifier)
         #else
         content.accessibilityHidden(true)
         #endif
@@ -637,41 +636,54 @@ final class FigureZoomScroll: UIScrollView, UIScrollViewDelegate {
 
 /// A part card as a viewport into the whole figure (owner, 2026-10-21: "present it as a crop of the whole thing, that they
 /// can expand, rather than an actual crop"; FIGURE_VIEW.md "Parts as viewports"). The whole figure, on its white margin,
-/// is zoomed and placed so the part's frame (FigureFraming) fills the card: a tight frame looks as a crop did, a loose one
-/// shows some of the figure around the part (softly veiled, the part outlined), a low one the whole figure with the part
-/// outlined. Pinching moves the view over the whole figure (out to all of it, in to 8×); once pinched, it pans; a double
-/// tap returns to the frame; a tap expands to the whole figure. At the frame the card doesn't pan, so the page scrolls.
+/// is placed so the part's frame (FigureFraming) fills the card: a tight frame looks as a crop did, a loose one shows some
+/// of the figure around the part (softly veiled, the part outlined), a low one the whole figure with the part outlined.
+///
+/// Full screen on touch (owner, 2026-10-22: "whenever you try to interact with it, it becomes a full screen thing … with
+/// not really any in-between"; FIGURE_VIEW.md "Full screen on touch"): the card itself never zooms or pans (the page
+/// scrolls over it). A tap, a double tap, a pinch, a sideways drag, VoiceOver's activate or the Full screen button opens
+/// the full-screen viewer at once, from the card's own place and framing (`FigureFullscreenStage`).
 struct FigureViewport: UIViewRepresentable {
     let image: CGImage
     let part: FramedPart
-    /// Fullscreen: the view starts on the part's frame and widens to the whole figure (`showPart` frames the part again).
-    var fullscreen = false
-    var showPart = false
-    /// The card's framing record (FigureFramingRecorder), and its key for Save snippet.
+    /// The card's framing record (FigureFramingRecorder), and its key for Save snippet and for closing back onto it.
     var recordKey: String?
     var snippetKey: String?
-    var onTap: (() -> Void)?
+    /// How the reader opened it, and where the card is (window coordinates).
+    var onOpen: ((FigureFramingRecord.OpenGesture, CGRect) -> Void)?
     func makeUIView(context: Context) -> FigureViewportScroll {
-        FigureViewportScroll(image: image, part: part, fullscreen: fullscreen, recordKey: recordKey, snippetKey: snippetKey, onTap: onTap)
+        FigureViewportScroll(image: image, part: part, fullscreen: false, outlines: true, recordKey: recordKey, snippetKey: snippetKey, onOpen: onOpen)
     }
-    func updateUIView(_ view: FigureViewportScroll, context: Context) {
-        view.onTap = onTap
-        if fullscreen { view.show(part: showPart) }
-    }
+    func updateUIView(_ view: FigureViewportScroll, context: Context) { view.onOpen = onOpen }
+}
+
+/// Decides for one view's own gesture recognizers (UIView's `gestureRecognizerShouldBegin` is the view's, so these live
+/// apart): whether one may begin, and whether it may run alongside the page's scrolling.
+final class FigureGestureFilter: NSObject, UIGestureRecognizerDelegate {
+    var shouldBegin: (UIGestureRecognizer) -> Bool = { _ in true }
+    var simultaneous = false
+    func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool { shouldBegin(gesture) }
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { simultaneous }
 }
 
 final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
-    /// The cards on screen by their snippet key (Save snippet draws what one shows).
+    /// The cards on screen by their snippet key (Save snippet draws what one shows; full screen closes back onto it).
     static let shown = NSMapTable<NSString, FigureViewportScroll>.strongToWeakObjects()
-    private let canvas = UIView(), picture = UIImageView(), veil = CAShapeLayer(), outline = CAShapeLayer()
-    private let pixels: CGImage, part: FramedPart, fullscreen: Bool, recordKey: String?
-    var onTap: (() -> Void)?
-    private var laidOut = CGSize.zero, restZoom: CGFloat = 1, interacted = false, wantsPart = false, widened = false
+    private let canvas = UIView(), picture = UIImageView()
+    /// The veil and outline, each in its own layer so full screen can fade them (`lookLayer`).
+    private let lookLayer = CALayer(), veil = CAShapeLayer(), outline = CAShapeLayer()
+    let pixels: CGImage, part: FramedPart
+    private let fullscreen: Bool, outlines: Bool, recordKey: String?
+    var onOpen: ((FigureFramingRecord.OpenGesture, CGRect) -> Void)?
+    /// Full screen: the zoom state changed (true at the whole figure), for the Whole figure / Show part control.
+    var onWhole: ((Bool) -> Void)?
+    private var laidOut = CGSize.zero
+    private(set) var restZoom: CGFloat = 1
     private let pad: CGSize
-    private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
+    private let filter = FigureGestureFilter()
 
-    init(image: CGImage, part: FramedPart, fullscreen: Bool, recordKey: String?, snippetKey: String?, onTap: (() -> Void)?) {
-        pixels = image; self.part = part; self.fullscreen = fullscreen; self.recordKey = recordKey; self.onTap = onTap
+    init(image: CGImage, part: FramedPart, fullscreen: Bool, outlines: Bool, recordKey: String?, snippetKey: String?, onOpen: ((FigureFramingRecord.OpenGesture, CGRect) -> Void)?) {
+        pixels = image; self.part = part; self.fullscreen = fullscreen; self.outlines = outlines; self.recordKey = recordKey; self.onOpen = onOpen
         pad = CGSize(width: part.padX * Double(image.width), height: part.padY * Double(image.height))
         super.init(frame: .zero)
         delegate = self; bounces = false; bouncesZoom = false; contentInsetAdjustmentBehavior = .never
@@ -683,56 +695,73 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
         canvas.addSubview(picture)
         veil.fillRule = .evenOdd; veil.fillColor = UIColor.white.cgColor
         outline.fillColor = nil; outline.strokeColor = FigurePartCrop.outline
-        canvas.layer.addSublayer(veil); canvas.layer.addSublayer(outline)
+        lookLayer.frame = canvas.bounds
+        lookLayer.addSublayer(veil); lookLayer.addSublayer(outline); canvas.layer.addSublayer(lookLayer)
         let region = regionRect
-        veil.path = { let p = UIBezierPath(rect: canvas.bounds.insetBy(dx: -4000, dy: -4000)); p.append(UIBezierPath(rect: region)); return p.cgPath }()
+        veil.path = { let p = UIBezierPath(rect: canvas.bounds); p.append(UIBezierPath(rect: region)); return p.cgPath }()
         addSubview(canvas)
-        panGestureRecognizer.isEnabled = fullscreen
-        isAccessibilityElement = true; accessibilityTraits = [.image, .adjustable]
-        accessibilityHint = fullscreen ? "Pinch to zoom, drag to pan." : "Shows the whole figure with this part outlined. Pinch to zoom; double tap to return."
-        accessibilityValue = "100%"
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:))); doubleTap.numberOfTapsRequired = 2
-        addGestureRecognizer(doubleTap)
-        if !fullscreen {
-            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped)); tap.require(toFail: doubleTap)
-            addGestureRecognizer(tap)
+        isAccessibilityElement = true
+        if fullscreen {
+            accessibilityTraits = [.image, .adjustable]
+            accessibilityHint = "Pinch to zoom, drag to pan, double tap for the whole figure or the part."
+            let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:))); doubleTap.numberOfTapsRequired = 2
+            addGestureRecognizer(doubleTap)
+        } else {
+            // The card: nothing zooms or pans here; any of these opens full screen at once.
+            accessibilityTraits = [.image, .button]
+            accessibilityHint = "Opens the whole figure full screen."
+            isScrollEnabled = false; pinchGestureRecognizer?.isEnabled = false
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped)); addGestureRecognizer(tap)
+            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))); pinch.delegate = filter; addGestureRecognizer(pinch)
+            let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:))); drag.delegate = filter; drag.maximumNumberOfTouches = 1
+            addGestureRecognizer(drag)
+            // A sideways drag opens; an up-or-down one is the page's scroll (which runs alongside until then).
+            filter.simultaneous = true
+            filter.shouldBegin = { [weak self] gesture in
+                guard let self, let pan = gesture as? UIPanGestureRecognizer else { return true }
+                let v = pan.velocity(in: self)
+                return abs(v.x) > abs(v.y) * 1.2
+            }
         }
         if let snippetKey { Self.shown.setObject(self, forKey: snippetKey as NSString) }
         applyLook()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// The part's region and the rest frame, in canvas points (1 point = 1 pixel of the figure at zoom 1).
-    private var regionRect: CGRect { rect(part.region) }
+    /// The part's region and a frame, in canvas points (1 point = 1 pixel of the figure at zoom 1).
+    var regionRect: CGRect { rect(part.region) }
+    var frameRect: CGRect { rect(part.frame) }
     private func rect(_ r: CropRect) -> CGRect {
         let W = Double(pixels.width), H = Double(pixels.height)
         return CGRect(x: r.x0 * W + pad.width, y: r.y0 * H + pad.height, width: (r.x1 - r.x0) * W, height: (r.y1 - r.y0) * H)
     }
-    /// The frame grown to the view's shape about its centre (fullscreen's box is the whole figure's shape).
+    /// The frame grown to the view's shape about its centre.
     private func fitted(_ r: CGRect) -> CGRect {
         guard bounds.width > 0, bounds.height > 0 else { return r }
         let aspect = bounds.width / bounds.height, w = r.width / r.height > aspect ? r.width : r.height * aspect
         return CGRect(x: r.midX - w / 2, y: r.midY - w / aspect / 2, width: w, height: w / aspect)
     }
-    private var restRect: CGRect { fitted(rect(part.frame)) }
+    private var restRect: CGRect { fitted(frameRect) }
+    /// The zoom at which the whole canvas fits (full screen's smallest).
+    var wholeZoom: CGFloat { min(bounds.width / max(1, canvas.bounds.width), bounds.height / max(1, canvas.bounds.height)) }
+    var showsWhole: Bool { zoomScale <= wholeZoom * 1.01 }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         guard bounds.size != laidOut, bounds.width > 0, bounds.height > 0 else { return }
         laidOut = bounds.size
-        let rest = restRect, whole = canvas.frame.size == .zero ? CGSize(width: 1, height: 1) : CGSize(width: canvas.bounds.width, height: canvas.bounds.height)
-        restZoom = bounds.width / rest.width
-        let fit = min(bounds.width / whole.width, bounds.height / whole.height)
-        minimumZoomScale = min(fit, restZoom); maximumZoomScale = restZoom * 8
-        if fullscreen && widened && !wantsPart { showWhole(animated: false) } else if !interacted || fullscreen { goTo(rest, animated: false) }
-        if fullscreen && !widened {
-            widened = true
-            // Opens on the part's frame, then widens to the whole figure (at once with Reduce Motion).
-            if reduceMotion { showWhole(animated: false) } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in if self?.wantsPart == false { self?.showWhole(animated: true) } } }
+        restZoom = bounds.width / restRect.width
+        if fullscreen {
+            // Zoom limits sized to the whole figure: out to all of it, in to 8× that (at least 3× the part's own frame).
+            minimumZoomScale = min(wholeZoom, restZoom); maximumZoomScale = max(wholeZoom * 8, restZoom * 3)
+        } else {
+            minimumZoomScale = restZoom; maximumZoomScale = restZoom
         }
+        goTo(restRect, animated: false)
     }
 
-    private func goTo(_ r: CGRect, animated: Bool) {
+    /// Shows `r` (canvas points), fitted to the view; inside an animation block it animates with it.
+    func goTo(_ r: CGRect, animated: Bool, duration: TimeInterval = 0.4) {
         let zoom = min(maximumZoomScale, max(minimumZoomScale, bounds.width / r.width))
         let apply = { [self] in
             setZoomScale(zoom, animated: false)
@@ -740,18 +769,13 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
             setContentOffset(CGPoint(x: r.minX * zoom - contentInset.left, y: r.minY * zoom - contentInset.top), animated: false)
             clampOffset()
         }
-        if animated { UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseInOut], animations: apply) } else { apply() }
-        updateValue()
+        if animated { UIView.animate(withDuration: duration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply) } else { apply() }
+        applyLook(); updateValue(); onWhole?(showsWhole)
     }
-    private func showWhole(animated: Bool) { goTo(fitted(canvas.bounds), animated: animated) }
-    /// Fullscreen's Show part / Whole figure.
-    func show(part showing: Bool) {
-        guard showing != wantsPart else { return }
-        wantsPart = showing
-        guard laidOut != .zero else { return }
-        if showing { goTo(restRect, animated: !reduceMotion) } else { showWhole(animated: !reduceMotion) }
-        if !showing, let recordKey { FigureFramingRecorder.shared.changed(recordKey, expanded: true) }
-    }
+    func showPart(animated: Bool) { goTo(restRect, animated: animated) }
+    func showWhole(animated: Bool) { goTo(fitted(canvas.bounds), animated: animated) }
+    /// Where the part's frame is now, in `view`'s coordinates (the card's matched geometry).
+    func frameOnScreen(in view: UIView) -> CGRect { canvas.convert(frameRect, to: view) }
 
     private func clampOffset() {
         let maxX = max(-contentInset.left, contentSize.width - bounds.width), maxY = max(-contentInset.top, contentSize.height - bounds.height)
@@ -760,36 +784,63 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
     private func centre() {
         contentInset = UIEdgeInsets(top: max(0, (bounds.height - contentSize.height) / 2), left: max(0, (bounds.width - contentSize.width) / 2), bottom: 0, right: 0)
     }
+    /// At the top edge (a swipe down there closes full screen rather than panning).
+    var atTop: Bool { contentOffset.y <= -contentInset.top + 1 }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
-    func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { reveal() }
-    func scrollViewDidZoom(_ scrollView: UIScrollView) { centre(); applyLook(); updateValue() }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) { centre(); applyLook(); updateValue(); onWhole?(showsWhole) }
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { record(zoomed: true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { record(panned: true) } }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { record(panned: true) }
 
-    private func reveal() {
-        guard !interacted else { return }
-        interacted = true; panGestureRecognizer.isEnabled = true; applyLook()
-    }
+    /// The veil and outline: the card's look at rest; full screen's revealed look (soft veil, the part outlined), which
+    /// `fadeLook` fades away. The whole figure as a part has neither.
     private func applyLook() {
-        let look = part.look(revealed: interacted || fullscreen)
+        let look = part.look(revealed: fullscreen)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        veil.fillColor = UIColor.white.withAlphaComponent(look.veil).cgColor; veil.isHidden = look.veil <= 0
-        outline.isHidden = !look.outlined
+        veil.fillColor = UIColor.white.withAlphaComponent(look.veil).cgColor; veil.isHidden = look.veil <= 0 || !outlines
+        outline.isHidden = !look.outlined || !outlines
         let line = 2 / max(zoomScale, 0.01)
         outline.lineWidth = line; outline.path = UIBezierPath(rect: regionRect.insetBy(dx: -line, dy: -line)).cgPath
         CATransaction.commit()
     }
-    private func updateValue() { accessibilityValue = "\(Int((zoomScale / max(restZoom, 0.0001) * 100).rounded()))%" }
+    /// Full screen: the outline (and veil) seen, then gone over `duration` (or, with Reduce Motion, after it at once).
+    func fadeLook(after delay: TimeInterval, duration: TimeInterval, reduceMotion: Bool) {
+        lookLayer.removeAllAnimations()
+        CATransaction.begin(); CATransaction.setDisableActions(true); lookLayer.opacity = 1; CATransaction.commit()
+        lookShown = true; updateValue()
+        if reduceMotion {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay + duration) { [weak self] in
+                CATransaction.begin(); CATransaction.setDisableActions(true); self?.lookLayer.opacity = 0; CATransaction.commit()
+                self?.lookShown = false; self?.updateValue()
+            }
+            return
+        }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1; fade.toValue = 0; fade.beginTime = lookLayer.convertTime(CACurrentMediaTime(), from: nil) + delay
+        fade.duration = duration; fade.fillMode = .backwards; fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        lookLayer.opacity = 0
+        lookLayer.add(fade, forKey: "fade")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay + duration) { [weak self] in self?.lookShown = false; self?.updateValue() }
+    }
+    private var lookShown = false
+    private func updateValue() {
+        let percent = "\(Int((zoomScale / max(restZoom, 0.0001) * 100).rounded()))%"
+        #if DEBUG && FIXTURE_HOST
+        // The journeys read where the view is and whether the outline still shows.
+        accessibilityValue = fullscreen ? "\(percent), \(showsWhole ? "whole" : "part"), outline \(lookShown ? "shown" : "hidden")" : percent
+        #else
+        accessibilityValue = percent
+        #endif
+    }
 
     /// What the view shows, in pixels of the figure (it may reach into the white margin).
-    private var visible: CropRect {
+    var visible: CropRect {
         let z = max(zoomScale, 0.0001), x = (contentOffset.x) / z - pad.width, y = (contentOffset.y) / z - pad.height
         return CropRect(Double(x), Double(y), Double(x + bounds.width / z), Double(y + bounds.height / z))
     }
-    private func record(zoomed: Bool = false, panned: Bool = false) {
-        guard let recordKey else { return }
+    func record(zoomed: Bool = false, panned: Bool = false) {
+        guard let recordKey, fullscreen else { return }
         let v = visible, W = Double(pixels.width), H = Double(pixels.height)
         FigureFramingRecorder.shared.changed(recordKey, view: CropRect(v.x0 / W, v.y0 / H, v.x1 / W, v.y1 / H), zoomed: zoomed, panned: panned)
     }
@@ -799,33 +850,229 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
     func visibleImage() -> CGImage? {
         let v = visible, screen = window?.screen.scale ?? 2, z = max(zoomScale, 0.0001)
         let scale = max(1, Double(bounds.width * screen) / max(1, v.x1 - v.x0))
-        return part.render(pixels, view: v, scale: scale, revealed: interacted || fullscreen, outline: FigurePartCrop.outline, lineWidth: 2 * scale / Double(z))
+        return part.render(pixels, view: v, scale: scale, revealed: fullscreen, outline: FigurePartCrop.outline, lineWidth: 2 * scale / Double(z))
     }
 
-    @objc private func tapped() { onTap?(); if let recordKey { FigureFramingRecorder.shared.changed(recordKey, expanded: true) } }
+    // The card's ways in: each opens full screen at once.
+    private func open(_ gesture: FigureFramingRecord.OpenGesture) { onOpen?(gesture, convert(bounds, to: nil)) }
+    @objc private func tapped() { open(.tap) }
+    @objc private func pinched(_ gesture: UIPinchGestureRecognizer) { if gesture.state == .began { open(.pinch); gesture.state = .cancelled } }
+    @objc private func dragged(_ gesture: UIPanGestureRecognizer) { if gesture.state == .began { open(.drag); gesture.state = .cancelled } }
+
     @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
-        if interacted && !fullscreen {
-            interacted = false; panGestureRecognizer.isEnabled = false
-            goTo(restRect, animated: !reduceMotion); applyLook(); record()
-        } else {
-            reveal()
-            let at = gesture.location(in: canvas), size = CGSize(width: bounds.width / (zoomScale * 2), height: bounds.height / (zoomScale * 2))
-            zoom(to: CGRect(x: at.x - size.width / 2, y: at.y - size.height / 2, width: size.width, height: size.height), animated: !reduceMotion)
+        // Full screen: the whole figure ↔ the part.
+        let reduce = UIAccessibility.isReduceMotionEnabled
+        if showsWhole { showPart(animated: !reduce); if outlines { fadeLook(after: 0.4, duration: 1, reduceMotion: reduce) } } else { showWhole(animated: !reduce) }
+        record(zoomed: true)
+    }
+    override func accessibilityActivate() -> Bool {
+        guard !fullscreen, onOpen != nil else { return false }
+        open(.accessibility); return true
+    }
+    override func accessibilityIncrement() {
+        guard fullscreen else { return }
+        setZoomScale(min(maximumZoomScale, zoomScale * 1.5), animated: false); record(zoomed: true)
+    }
+    override func accessibilityDecrement() {
+        guard fullscreen else { return }
+        setZoomScale(max(minimumZoomScale, zoomScale / 1.5), animated: false); record(zoomed: true)
+    }
+}
+
+/// The full-screen viewer's stage (UIKit, so the open and close are one exact, interruptible motion): a backdrop and the
+/// figure's view. Opening, the view starts exactly where the card was, showing exactly what the card showed (its frame
+/// mapped onto the card, clipped to it), and in one motion becomes the full screen framed on the part; then the part's
+/// outline fades over about a second while the whole figure is the reader's to pan and zoom. Closing (X, Escape, a swipe
+/// down at the top) runs the same motion back onto the card. Reduce Motion: a cross-fade each way, the outline shown for a
+/// second and then hidden.
+final class FigureFullscreenStage: UIView {
+    let scroll: FigureViewportScroll
+    private let backdrop = UIView(), clip = UIView()
+    /// Where the card was (window coordinates) and how to find it again when closing; nil: no card to open from (the Mac).
+    private let source: CGRect?, sourceKey: String?
+    private let outlines: Bool
+    private var opened = false, closing = false
+    private let filter = FigureGestureFilter()
+    var onChrome: ((Bool) -> Void)?
+    var onClosed: (() -> Void)?
+    var onWhole: ((Bool) -> Void)? { didSet { scroll.onWhole = onWhole } }
+    private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
+    /// Fixture builds may slow the motion down to photograph it mid-way (`--figure-fullscreen-slow=<factor>`).
+    private static var slow: Double {
+        #if DEBUG && FIXTURE_HOST
+        if let value = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--figure-fullscreen-slow=") }).flatMap({ Double($0.dropFirst("--figure-fullscreen-slow=".count)) }) {
+            return min(40, max(1, value))
+        }
+        #endif
+        return 1
+    }
+    static let openDuration = 0.35, fadeDuration = 1.0
+
+    init(image: CGImage, part: FramedPart, outlines: Bool, label: String, recordKey: String?, source: CGRect?, sourceKey: String?) {
+        scroll = FigureViewportScroll(image: image, part: part, fullscreen: true, outlines: outlines, recordKey: recordKey, snippetKey: nil, onOpen: nil)
+        self.source = source; self.sourceKey = sourceKey; self.outlines = outlines
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        backdrop.backgroundColor = .systemBackground; backdrop.alpha = 0
+        addSubview(backdrop); addSubview(scroll)
+        scroll.backgroundColor = .clear
+        scroll.accessibilityLabel = label
+        scroll.accessibilityIdentifier = "figureView.fullscreen.image"
+        clip.backgroundColor = .black
+        let dismiss = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:))); dismiss.delegate = filter; dismiss.maximumNumberOfTouches = 1
+        // A swipe down at the top of the figure closes (iPhone/iPad; the Mac has the X and Escape).
+        filter.shouldBegin = { [weak self] gesture in
+            guard let self, let pan = gesture as? UIPanGestureRecognizer else { return true }
+            let v = pan.velocity(in: self)
+            return !closing && v.y > abs(v.x) * 1.2 && scroll.atTop
+        }
+        addGestureRecognizer(dismiss)
+        scroll.panGestureRecognizer.require(toFail: dismiss)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        backdrop.frame = bounds
+        guard !closing, scroll.transform == .identity || !opened else { return }
+        if scroll.frame != bounds { scroll.frame = bounds; scroll.layoutIfNeeded() }
+        guard !opened, bounds.width > 0, bounds.height > 0, window != nil else { return }
+        opened = true
+        open()
+    }
+
+    private var sourceCard: FigureViewportScroll? {
+        sourceKey.flatMap { FigureViewportScroll.shown.object(forKey: $0 as NSString) }
+    }
+    private func finish() {
+        sourceCard?.alpha = 1
+        onClosed?()
+    }
+    deinit { MainActor.assumeIsolated { sourceCard?.alpha = 1 } }
+
+    /// The card's rectangle now, in this view's coordinates (nil when it is gone or off screen).
+    private func cardRect() -> CGRect? {
+        if let key = sourceKey, let card = FigureViewportScroll.shown.object(forKey: key as NSString), let w = card.window, w === window {
+            let r = card.convert(card.bounds, to: self)
+            return r.intersects(bounds) ? r : nil
+        }
+        return source.map { convert($0, from: nil) }
+    }
+    /// The part's frame as the view now shows it, in this view's coordinates without the view's own transform.
+    private func frameInStage() -> CGRect {
+        let f = scroll.frameOnScreen(in: scroll), b = scroll.bounds
+        return f.offsetBy(dx: scroll.center.x - b.width / 2 - b.minX, dy: scroll.center.y - b.height / 2 - b.minY)
+    }
+    /// The transform that puts the part's frame (as the view now shows it) onto `target`, about the view's centre.
+    private func transform(onto target: CGRect) -> CGAffineTransform {
+        let f = frameInStage(), s = target.width / max(1, f.width)
+        let c = scroll.center
+        let tx = target.midX - c.x - s * (f.midX - c.x), ty = target.midY - c.y - s * (f.midY - c.y)
+        return CGAffineTransform(translationX: tx, y: ty).scaledBy(x: s, y: s)
+    }
+
+    private func open() {
+        let slow = Self.slow
+        guard !reduceMotion, let card = cardRect() else {
+            // No card to come from (or Reduce Motion): a cross-fade.
+            scroll.alpha = 0
+            UIView.animate(withDuration: 0.18 * slow, delay: 0, options: [.curveEaseOut]) { [self] in backdrop.alpha = 1; scroll.alpha = 1 }
+                completion: { [weak self] _ in self?.settled() }
+            onChrome?(true)
+            return
+        }
+        // Start: the frame exactly on the card, clipped to it (the card's own rounded corners). The card itself is hidden
+        // while the viewer is up (the viewer is it, moved), and shown again once the viewer has closed back onto it.
+        sourceCard?.alpha = 0
+        let f = scroll.frameOnScreen(in: scroll)
+        clip.frame = f; clip.layer.cornerRadius = 8 / max(0.01, card.width / max(1, f.width))
+        scroll.mask = clip
+        scroll.transform = transform(onto: card)
+        UIView.animate(withDuration: Self.openDuration * slow, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.allowUserInteraction]) { [self] in
+            scroll.transform = .identity
+            clip.frame = scroll.bounds; clip.layer.cornerRadius = 0
+            backdrop.alpha = 1
+        } completion: { [weak self] _ in
+            self?.scroll.mask = nil
+            self?.settled()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12 * slow) { [weak self] in self?.onChrome?(true) }
+    }
+
+    /// Open: the outline fades (or, with Reduce Motion, shows for a second, then goes).
+    private func settled() {
+        guard outlines else { return }
+        scroll.fadeLook(after: 0.1 * Self.slow, duration: Self.fadeDuration * Self.slow, reduceMotion: reduceMotion)
+    }
+
+    /// Whole figure ↔ the part (the top row's control).
+    func toggle() {
+        if scroll.showsWhole {
+            scroll.showPart(animated: !reduceMotion)
+            if outlines { scroll.fadeLook(after: 0.4, duration: Self.fadeDuration, reduceMotion: reduceMotion) }
+        } else { scroll.showWhole(animated: !reduceMotion) }
+        scroll.record(zoomed: true)
+    }
+
+    /// Back onto the card (or a fade without one), then `onClosed`.
+    func close() {
+        guard !closing else { return }
+        closing = true
+        scroll.record()
+        onChrome?(false)
+        let slow = Self.slow
+        guard !reduceMotion, let card = cardRect() else {
+            UIView.animate(withDuration: 0.18 * slow, delay: 0, options: [.curveEaseIn]) { [self] in backdrop.alpha = 0; scroll.alpha = 0 }
+                completion: { [weak self] _ in self?.finish() }
+            return
+        }
+        // The view returns to the card's framing as it shrinks onto the card.
+        let dragged = scroll.transform
+        scroll.transform = .identity
+        clip.frame = scroll.bounds; clip.layer.cornerRadius = 0; scroll.mask = clip
+        scroll.transform = dragged
+        UIView.animate(withDuration: Self.openDuration * slow, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: []) { [self] in
+            scroll.showPart(animated: false)
+            let f = scroll.frameOnScreen(in: scroll)
+            scroll.transform = transform(onto: card)
+            clip.frame = f; clip.layer.cornerRadius = 8 / max(0.01, card.width / max(1, f.width))
+            backdrop.alpha = 0
+        } completion: { [weak self] _ in self?.finish() }
+    }
+
+    @objc private func swiped(_ pan: UIPanGestureRecognizer) {
+        let dy = max(0, pan.translation(in: self).y), share = min(1, dy / max(1, bounds.height))
+        switch pan.state {
+        case .changed:
+            scroll.transform = CGAffineTransform(translationX: 0, y: dy).scaledBy(x: 1 - 0.25 * share, y: 1 - 0.25 * share)
+            backdrop.alpha = 1 - min(1, share * 1.6)
+            onChrome?(dy < 24)
+        case .ended, .cancelled:
+            if pan.state == .ended, dy > 110 || pan.velocity(in: self).y > 900 { close() }
+            else {
+                UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) { [self] in
+                    scroll.transform = .identity; backdrop.alpha = 1
+                }
+                onChrome?(true)
+            }
+        default: break
         }
     }
-    override func accessibilityActivate() -> Bool { guard let onTap else { return false }; onTap(); return true }
-    override func accessibilityIncrement() { reveal(); setZoomScale(min(maximumZoomScale, zoomScale * 1.5), animated: false); record(zoomed: true) }
-    override func accessibilityDecrement() { reveal(); setZoomScale(max(minimumZoomScale, zoomScale / 1.5), animated: false); record(zoomed: true) }
+
+    override func accessibilityPerformEscape() -> Bool { close(); return true }
 }
 
 struct FigureImagePresentation: Identifiable {
     let id = UUID()
     /// The whole figure.
     let image: CGImage
-    /// A part card's framing: fullscreen opens on it and widens to the whole figure, the part outlined.
+    /// A part card's framing: full screen opens on it, the part outlined; nil for the whole figure.
     var part: FramedPart?
     let label: String
     var recordKey: String?
+    /// Where the card was (window coordinates), and its key to find it again when closing.
+    var source: CGRect?
+    var sourceKey: String?
 }
 
 private struct FigureViewerWindowSizeKey: EnvironmentKey { static let defaultValue = CGSize.zero }
@@ -836,60 +1083,94 @@ extension EnvironmentValues {
     }
 }
 
+/// Presents or dismisses the full-screen figure without the system's slide: the stage itself moves from and back to the
+/// card (FigureFullscreenStage).
+@MainActor func presentFigureImage(_ change: () -> Void) { var t = Transaction(); t.disablesAnimations = true; withTransaction(t, change) }
+
 private struct FigureImageCover: ViewModifier {
     @Binding var image: FigureImagePresentation?
     @Environment(\.figureViewerWindowSize) private var windowSize
     func body(content: Content) -> some View {
         #if targetEnvironment(macCatalyst)
         content.sheet(item: $image) { value in
-            // The presenting sheet has its own smaller geometry. Carry the owning window's size from RootView.
+            // The presenting sheet has its own smaller geometry. Carry the owning window's size from RootView. The Mac has
+            // no card to open from in another window's coordinates: the viewer fades in, framed on the part.
             if #available(iOS 18.0, *), windowSize.width > 0, windowSize.height > 0 {
-                FullscreenFigureImage(image: value) { image = nil }
+                FullscreenFigureImage(image: value, matched: false) { image = nil }
                     .frame(width: windowSize.width, height: windowSize.height)
                     .presentationSizing(.fitted)
             } else {
-                FullscreenFigureImage(image: value) { image = nil }
+                FullscreenFigureImage(image: value, matched: false) { image = nil }
             }
         }
         #else
         content.fullScreenCover(item: $image) { value in
-            FullscreenFigureImage(image: value) { image = nil }
+            FullscreenFigureImage(image: value, matched: true) { presentFigureImage { image = nil } }
+                .presentationBackground(.clear)
         }
         #endif
     }
 }
 
+/// The full-screen figure: the stage, and over it a slim top row (the figure's name, Whole figure / Show part, and X).
 struct FullscreenFigureImage: View {
     let image: FigureImagePresentation
+    /// Whether the stage moves from and back to the card (iPhone/iPad); the Mac's sheet fades.
+    var matched = true
     let close: () -> Void
-    /// A part's fullscreen opens on its frame and widens to the whole figure; Show part frames it again.
-    @State private var showPart = false
+    @State private var stage: FigureFullscreenStage?
+    @State private var chrome = false
+    @State private var whole = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(image.label).font(.headline)
-                Spacer()
-                if image.part != nil {
-                    Button(showPart ? "Whole figure" : "Show part") { showPart.toggle() }
-                }
-                Button(action: close) { Image(systemName: "xmark").frame(width: 44, height: 44) }
+        FigureStageView(image: image, matched: matched, stage: $stage, chrome: $chrome, whole: $whole, closed: close)
+            .ignoresSafeArea()
+            .overlay(alignment: .top) {
+                HStack(spacing: 8) {
+                    Text(image.label).font(.headline).lineLimit(1)
+                    Spacer(minLength: 8)
+                    if image.part != nil {
+                        Button(whole ? "Show part" : "Whole figure") { stage?.toggle() }
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12).frame(minHeight: 36)
+                            .background(Capsule().fill(.regularMaterial))
+                            .accessibilityIdentifier("figureView.fullscreen.toggle")
+                    }
+                    Button { stage?.close() } label: {
+                        Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).frame(width: 36, height: 36)
+                            .background(Circle().fill(.regularMaterial))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Close fullscreen image").accessibilityIdentifier("figureView.fullscreen.close")
                     .keyboardShortcut(.escape, modifiers: [])
-            }.padding(.horizontal, 16)
-            Group {
-                if let part = image.part {
-                    // The whole figure's shape, inside 16 pt of the screen's edges, the part outlined.
-                    FigureViewport(image: image.image, part: part, fullscreen: true, showPart: showPart, recordKey: image.recordKey)
-                        .aspectRatio((Double(image.image.width) * (1 + 2 * part.padX)) / (Double(image.image.height) * (1 + 2 * part.padY)), contentMode: .fit)
-                        .padding(16)
-                        .accessibilityLabel(image.label)
-                } else {
-                    ZoomableFigureImage(image: image.image, inset: 16)
                 }
+                .padding(.horizontal, 16).padding(.top, 4)
+                .opacity(chrome ? 1 : 0)
+                .allowsHitTesting(chrome)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: chrome)
             }
-            .accessibilityIdentifier("figureView.fullscreen.image")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Text("Pinch to zoom · Drag to pan · Double tap to reset").font(.footnote).foregroundStyle(.secondary).padding(12)
-        }.background(Color(uiColor: .systemBackground)).macSheetKeys()
+            .macSheetKeys()
     }
+}
+
+private struct FigureStageView: UIViewRepresentable {
+    let image: FigureImagePresentation
+    let matched: Bool
+    @Binding var stage: FigureFullscreenStage?
+    @Binding var chrome: Bool
+    @Binding var whole: Bool
+    let closed: () -> Void
+    func makeUIView(context: Context) -> FigureFullscreenStage {
+        let part = image.part ?? .whole(width: image.image.width, height: image.image.height)
+        let view = FigureFullscreenStage(image: image.image, part: part, outlines: image.part != nil, label: image.label, recordKey: image.recordKey,
+                                         source: matched ? image.source : nil, sourceKey: matched ? image.sourceKey : nil)
+        view.onChrome = { shown in Task { @MainActor in chrome = shown } }
+        view.onWhole = { at in Task { @MainActor in if whole != at { whole = at } } }
+        view.onClosed = closed
+        Task { @MainActor in stage = view }
+        return view
+    }
+    func updateUIView(_ view: FigureFullscreenStage, context: Context) {}
 }

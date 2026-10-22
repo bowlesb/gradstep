@@ -42,6 +42,52 @@ agent. How it works in plain words: [PRICING_HOW_IT_WORKS](PRICING_HOW_IT_WORKS.
   equations, cheaper models only, pause all AI) with a 7-day dry-run preview, audited and reversible. Recommended
   external backstop: a credit limit on the OpenRouter key itself (OWNER_ACTIONS).
 
+## Figures default: Gemini Flash again (owner decision 2026-10-22; deployed to staging, clients local)
+
+Owner, 2026-10-22, after the pricing proposal (docs/proposals/PRICING_PROPOSAL_20261022.md): "Let's try Gemini instead of
+Sonnet for Figures then." Supersedes the morning's Sonnet default (below, under "Figure explainer: streamed, at low effort").
+- The server publishes `default_figures` = `gemini-medium-standard` (Gemini's one published profile; the figure view runs
+  it at low effort, `done.profile` `gemini-low-standard`), only where Gemini is offered. Chat function deployed to staging
+  2026-10-22 05:58 UTC after backup `.artifacts/backups/20261022T055356Z-4a3671a898cc`, from the deployed study-mode build
+  plus this change (so neither undoes the other); read back from `GET chat`.
+- Apps and browser: the figures activity falls back to Gemini Flash when the table lacks `default_figures` but offers
+  Gemini (apps also before the table loads), else the chat default. The morning's one-time migration is reversed: a saved
+  figures choice equal to the Sonnet default (`sonnet-low-standard`) is let go once (`ai.figuresDefaultGemini.migrated`,
+  browser `figuresDefaultV3`); any other saved choice (DeepSeek, Gemini, Opus, Haiku…) is kept, and an explicit Sonnet
+  choice made after the migration sticks. The figures ⓘ text names Gemini Flash as the default and Sonnet as a little
+  quicker at about three times the cost.
+- Measured basis (FIGURE_VIEW.md "Speed"): Gemini at low read the same panels, values and boxes as Sonnet low; summary
+  in ~3–7 s, whole walkthrough 8–15 s; ~$0.008–0.012 a walkthrough on a cached paper vs Sonnet's ~$0.022 (and $0.24 for
+  Sonnet's first request on a paper).
+
+## Equation explainer streamed; figure parts full screen on touch (owner request 2026-10-22; agent decisions with evidence, reversible)
+
+Owner, 2026-10-22: "I like the changes. The one issue is when you try to click into a subfigure and zoom. The transition
+needs to be improved. My suggestion is that whenever you try to interact with it, it becomes a full screen thing, with the
+outline fading away … but you can easily navigate, using the entire full screen, the entire extent of the figure, with
+not really any in-between … But overall, the equations AI explainer needs the same progress with the progress bar."
+
+- **Figure parts: no in-card zoom; any touch opens full screen in one motion** from the card's place and framing, the
+  outline fading over ~1 s while the whole figure is the reader's to pan and zoom (zoom limits sized to the whole figure;
+  double tap toggles whole ↔ part). Choices made: a *sideways* drag opens (an up-or-down drag stays the page's scroll, so
+  reading the walkthrough is unchanged); the **Whole figure / Show part** control stays in the full-screen top row (the
+  one non-gesture way for VoiceOver, Switch Control and keyboard users), as does the **Full screen** button under a card
+  (discoverable); the apps' whole-figure card at the top of the walkthrough behaves the same way; the Mac keeps its
+  window-sized sheet, which fades in rather than moving from the card. The local framing record gains `opened` / `opens`.
+  FIGURE_VIEW.md "Full screen on touch".
+- **Equation symbols streamed** like the figure walkthrough (summary, then each symbol as written, checked exactly as the
+  final `equation`, which is unchanged for older builds), under the same progress bar ("Explaining symbol k of N" only once
+  the model has announced N). EQUATION_VIEW.md "Streamed explanation".
+- **Equation symbols at low effort** for Gemini Flash and automatic effort (an effort chosen for a Claude model stays;
+  background unchanged). Evidence (DPO's loss and gradient): Gemini low listed the same symbols and paragraphs as medium
+  and reached its summary in 4.5–5.3 s against 2.7–9.0 s at medium (medium sometimes thought ~800 tokens first); live on
+  staging the default went from 9.3–12.3 s with nothing shown to the summary in 2.9–5.6 s and everything in 6.5–8.8 s.
+- **Equations default model unchanged** (the chat's default, Gemini Flash recommended). Sonnet 5.5 at low was a little
+  faster to the summary (2.6–3.6 s) and as fast overall (7.2–8.4 s), with comparable symbols, but costs ~3× per
+  explanation on a cached paper ($0.019–0.021 vs $0.006) and, unlike the chat's own model, writes the paper to its own
+  cache the first time (~$0.23 on DPO); the equation view was designed to reuse the chat's cache. Not changed without the
+  owner; reversible by publishing an equations default like `default_figures`.
+
 ## Your AI usage (owner request 2026-10-22; agent decisions, reversible)
 
 Owner: "a table of my recent AI token spend for all the different activities … rows ordered by time, each row being an
@@ -79,7 +125,7 @@ confidence-framed viewports); what changed is how fast it arrives:
   ~3–4.5 s and the whole walkthrough in 8–11 s, at about two thirds of the cost. Haiku 5.5 at low was fastest but drew no
   boxes on three of four figures and once wrote malformed JSON; Sonnet 5.5 at low matched Gemini's speed at 2–3× the cost
   (and once returned no usable part). Record: FIGURE_VIEW.md "Speed".
-- **Figures default: Claude Sonnet 5.5 at low effort** (owner, 2026-10-22: "I think we should probably change the default
+- *Superseded the same day by "Figures default: Gemini Flash again" (above).* **Figures default: Claude Sonnet 5.5 at low effort** (owner, 2026-10-22: "I think we should probably change the default
   to Sonnet for that one", after "I tried Sonnet, it was much faster than DeepSeek"). Published as `default_figures`
   (`sonnet-low-standard`); new readers, readers with no saved figures choice (the activity no longer inherits the general
   chat default) and readers whose saved choice was the old recommended `gemini-medium-standard` (migrated once) start

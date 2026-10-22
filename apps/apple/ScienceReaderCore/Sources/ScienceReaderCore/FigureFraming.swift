@@ -203,6 +203,14 @@ public struct FramedPart: Equatable, Sendable {
     /// One of the figure's own sub-figures (its band of the composed image): exact, framed tightly.
     public var exact = false
 
+    /// The whole figure as a "part" (the walkthrough's whole-figure card and its full-screen view): framed whole on its
+    /// white margin, nothing veiled or outlined.
+    public static func whole(width: Int, height: Int) -> FramedPart {
+        let W = Double(max(1, width)), H = Double(max(1, height)), pad = Double(FigureCropCompletion.padding(width: max(1, width), height: max(1, height)))
+        return FramedPart(level: .low, score: 1, reasons: [], frame: CropRect(-pad / W, -pad / H, 1 + pad / W, 1 + pad / H), region: CropRect(0, 0, 1, 1),
+                          padX: pad / W, padY: pad / H, veil: 0, outlined: false, extra: false)
+    }
+
     /// The frame's aspect (width ÷ height) in pixels of an image of this size: the card's.
     public func aspect(width: Int, height: Int) -> Double {
         (frame.x1 - frame.x0) * Double(width) / max(1e-6, (frame.y1 - frame.y0) * Double(height))

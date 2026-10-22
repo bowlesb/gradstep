@@ -94,6 +94,10 @@ final class WorkflowJourneyTests: XCTestCase {
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
 
+    private func wait(_ timeout: TimeInterval = 8, _ condition: @escaping () -> Bool) -> Bool {
+        XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)], timeout: timeout) == .completed
+    }
+
     private func finalReply(in app: XCUIApplication) -> XCUIElement {
         app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
             "chat.message.text.", "This is a synthetic conversation for layout testing")).firstMatch
@@ -588,6 +592,52 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Equation view: large, symbols described (dark)")
     }
 
+    /// The equation explainer streams with a progress bar (owner, 2026-10-22: "the equations AI explainer needs the same
+    /// progress with the progress bar"; EQUATION_VIEW.md "Streamed explanation"): at once the bar and placeholders where the
+    /// explanation will be; the summary, then each symbol as it is written with the bar below the last one ("Explaining
+    /// symbol 2 of 2…"), nothing above it moving; the bar gone at the end. An older server's symbols come all at once.
+    func testEquationSymbolsStreamWithAProgressBar() throws { equationStreaming(appearance: "light") }
+    func testEquationSymbolsStreamWithAProgressBarDark() throws { equationStreaming(appearance: "dark") }
+    func testAnOlderServersEquationSymbolsStillShow() throws { equationStreaming(appearance: "light", oldServer: true) }
+
+    private func equationStreaming(appearance: String, oldServer: Bool = false) {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
+                               "-appearance", appearance, "--equation-fixture-step-ms=4000"] + (oldServer ? ["--equation-fixture-old-server"] : [])
+        app.launch()
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 20) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        app.show("paper")
+        let number = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
+        XCTAssertTrue(number.waitForExistence(timeout: 15))
+        number.tap()
+        let item = app.revealEditMenuItem("Focus")
+        XCTAssertTrue(item.exists); item.tap(); app.askEquationExplainer()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        let progress = app.descendants(matching: .any)["equation.progress"], skeleton = app.descendants(matching: .any)["equation.skeleton"]
+        let summary = app.staticTexts["equation.summary"], first = app.descendants(matching: .any)["equation.symbol.1"], second = app.descendants(matching: .any)["equation.symbol.2"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 5), "a progress bar at once")
+        XCTAssertTrue(skeleton.exists, "placeholders where the explanation will be")
+        XCTAssertTrue(wait { ["Reading the equation…", "Writing the summary…", "Preparing the equation…"].contains(progress.label) }, "its stage: \(progress.label)")
+        capture(app, "Equation progress: bar and placeholders (\(appearance)\(oldServer ? ", older server" : ""))")
+        if oldServer {
+            XCTAssertTrue(second.waitForExistence(timeout: 20), "all at once")
+            XCTAssertTrue(wait(20) { !progress.exists }); return
+        }
+        XCTAssertTrue(summary.waitForExistence(timeout: 20), "the summary first")
+        XCTAssertTrue(progress.exists && !first.exists, "the bar stays below what has arrived")
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "then symbol 1")
+        let top = summary.frame.minY
+        XCTAssertTrue(wait(20) { progress.label == "Explaining symbol 2 of 2…" }, "symbol 2 of the announced 2: \(progress.label)")
+        XCTAssertGreaterThan(progress.frame.minY, first.frame.maxY - 1, "the bar is below the last symbol")
+        capture(app, "Equation progress: mid-stream (\(appearance))")
+        XCTAssertTrue(second.waitForExistence(timeout: 20))
+        XCTAssertEqual(summary.frame.minY, top, accuracy: 1, "nothing above moves as symbols arrive")
+        XCTAssertTrue(wait(20) { !progress.exists && !skeleton.exists }, "the bar goes at the end")
+        capture(app, "Equation progress: done (\(appearance))")
+    }
+
     func testEquationViewDescribesSymbolsAndLeadsToThePaperAndTheChat() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
@@ -631,7 +681,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertFalse(app.buttons["sheet.close"].exists, "no X on a touch screen (build 78): the sheet swipes away")
         XCTAssertFalse(app.buttons["equation.explain"].exists, "asked already")
         XCTAssertFalse(app.buttons["Done"].exists, "no Done")
-        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8), "the symbols stream in")
         XCTAssertTrue(app.staticTexts["equation.summary"].exists)
         XCTAssertTrue(app.buttons["equation.symbolSource.1"].exists, "a symbol the paper defines links to its paragraph")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "General meaning")).firstMatch.exists, "a symbol it doesn't is marked so")

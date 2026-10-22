@@ -2,6 +2,7 @@
 // paper where the paper describes it, general usage where not), optional background, and a way into the chat. Both
 // requests are chat actions sent exactly as this browser's chat would send them, so they share the chat's cached paper.
 import type { VerifiedBundle } from './bundle';
+import type { FigureStreamProgress } from './figure-view';
 
 export const EQUATION_FORMAT = 'equation-symbols-v1';
 export type EquationAction = 'equation' | 'equation_background';
@@ -10,7 +11,12 @@ export interface EquationSymbol { symbol: string; latex?: string; meaning: strin
 export interface EquationSymbols { format: typeof EQUATION_FORMAT; summary: string; symbols: EquationSymbol[] }
 /** What the view shows for one request: the symbols (or, without usable JSON, the model's words), the credits used. */
 export interface EquationResult { phase: 'loading' | 'done' | 'failed'; symbols: EquationSymbols | null; text: string; credits: number | null; issue: string | null;
-  /** The model that answered, when the server named it (shown under the explanation, B7). */ model?: string }
+  /** The model that answered, when the server named it (shown under the explanation, B7). */ model?: string;
+  /** Whether the reader paid and, when not, why (servers from 2026-10-16): a cut-off explanation says "not charged". */
+  charged?: boolean; reason?: string;
+  /** While the symbols stream (EQUATION_VIEW.md "Streamed explanation", servers from 2026-10-22): the progress bar's inputs
+   * (`parts` are the symbols shown, `announced` the count the model gave). Never kept. */
+  progress?: FigureStreamProgress }
 export const MAX_SYMBOLS = 24;
 
 const clean = (value: unknown, limit: number) => typeof value === 'string'
@@ -22,17 +28,25 @@ export function parseEquationSymbols(value: unknown): EquationSymbols | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
   if (v.format !== EQUATION_FORMAT || !Array.isArray(v.symbols)) return null;
-  const summary = clean(v.summary, 600);
+  const summary = equationSummary(v.summary);
   const symbols: EquationSymbol[] = [];
-  for (const raw of v.symbols.slice(0, MAX_SYMBOLS)) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-    const row = raw as Record<string, unknown>;
-    const symbol = clean(row.symbol, 80), meaning = clean(row.meaning, 500), latex = clean(row.latex, 200);
-    if (!symbol || !meaning) continue;
-    const n = row.paragraph, paragraph = row.source === 'paper' && Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= 99_999 ? n as number : undefined;
-    symbols.push({ symbol, ...(latex ? { latex } : {}), meaning, source: paragraph ? 'paper' : 'general', ...(paragraph ? { paragraph } : {}) });
+  for (const raw of v.symbols) {
+    if (symbols.length >= MAX_SYMBOLS) break;
+    const symbol = parseEquationSymbol(raw);
+    if (symbol) symbols.push(symbol);
   }
   return summary || symbols.length ? { format: EQUATION_FORMAT, summary, symbols } : null;
+}
+/** The summary as the `equation` event's (control characters dropped, at most 600 characters). */
+export const equationSummary = (value: unknown) => clean(value, 600);
+/** One symbol row, checked as the `equation` event's rows are (and the streamed `equation_symbol`'s): null when unusable. */
+export function parseEquationSymbol(raw: unknown): EquationSymbol | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const symbol = clean(row.symbol, 80), meaning = clean(row.meaning, 500), latex = clean(row.latex, 200);
+  if (!symbol || !meaning) return null;
+  const n = row.paragraph, paragraph = row.source === 'paper' && Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= 99_999 ? n as number : undefined;
+  return { symbol, ...(latex ? { latex } : {}), meaning, source: paragraph ? 'paper' : 'general', ...(paragraph ? { paragraph } : {}) };
 }
 
 /** An equation element's printed tag as its number ("(7)"); null for none or an unusable one. */

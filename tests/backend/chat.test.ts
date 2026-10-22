@@ -13,7 +13,7 @@ import { openRouterChat } from '../../supabase/functions/_shared/openrouter-chat
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
-import { EQUATION_MAX_TOKENS, equationSymbols, paragraphCount } from '../../supabase/functions/_shared/chat-equation.ts';
+import { EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, EquationSymbolsStream, paragraphCount, type EquationStreamItem } from '../../supabase/functions/_shared/chat-equation.ts';
 import { figureBox, figureDetail, figureDetailMaxTokens, figureMaxTokens, figureViewEffort, figureWalkthrough, FigureWalkthroughStream, figureWalkthroughText, offeredBoxes,
   type FigureStreamItem } from '../../supabase/functions/_shared/chat-figure-view.ts';
 import { openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
@@ -2045,14 +2045,17 @@ test('Flash symbols reserve reasoning as well as the JSON answer, without changi
   const profile = { model: 'gemini', effort: 'medium', length: 'standard' };
   for (const action of ['equation', 'equation_background'])
     await runChat(h.deps, equationBody({ action, profile, consent_version: 'cloud-ai-v5' }), h.emit, new AbortController().signal);
-  assert.equal(sent[0].max_tokens, 6_000, '2,000 answer tokens plus 4,000 for medium reasoning');
+  assert.equal(sent[0].max_tokens, 4_000, 'the symbols at low effort (EQUATION_VIEW.md "Speed"): 2,000 answer tokens plus 2,000 for low reasoning');
+  assert.equal(sent[1].max_tokens, 10_000, 'the background keeps the chat\'s effort (medium) and length');
+  assert.deepEqual([sent[0].output_config?.effort, sent[1].output_config?.effort], ['low', 'medium']);
+  assert.equal((openRouterChatParams(sent[0]).reasoning as { effort: string }).effort, 'low');
   assert.deepEqual(sent[0].thinking, sent[1].thinking);
   assert.deepEqual(sent[0].tools, sent[1].tools);
   assert.deepEqual((sent[0].system as unknown[]).slice(0, 2), (sent[1].system as unknown[]).slice(0, 2));
   const reservation = h.calls.find(c => c.name === 'worker_reserve_chat')!.params;
   assert.equal((reservation.p_quote as Record<string, unknown>).max_output_tokens, sent[0].max_tokens);
   assert.ok(Number(reservation.p_microusd) >= 12_000);
-  assert.equal(h.events[0].event, 'equation');
+  assert.ok(h.events.some(e => e.event === 'equation'));
   assert.equal(settledWith(h).p_actual_microusd, 12_000);
   assert.equal(settledWith(h).p_ending, 'completed');
 });
@@ -2065,7 +2068,7 @@ test('broken equation JSON is never displayed or charged, even when the provider
   ] as const) {
     const h = equationHarness({ generate: async (_params, stream) => { stream.onText(text); return completeOutcome({ stopReason }); } });
     await runChat(h.deps, equationBody(), h.emit, new AbortController().signal);
-    assert.deepEqual(h.events.map(e => e.event), ['done']);
+    assert.deepEqual(h.events.map(e => e.event).filter(k => k !== 'equation_progress'), ['done']);
     const settle = settledWith(h);
     assert.equal(settle.p_actual_credits, 0);
     assert.equal(settle.p_ending, stopReason === 'max_tokens' ? 'limit' : 'provider');
@@ -2078,20 +2081,99 @@ test('symbols are held back, checked and relayed once; a made-up paragraph becom
     + '{"symbol":"σ","meaning":"Logistic function.","source":"general"},{"symbol":"x","meaning":"Margin.","source":"paper","paragraph":99},{"symbol":"","meaning":"dropped"}]}\n```';
   const h = equationHarness({ generate: async (_params, stream) => { for (const piece of json.match(/.{1,17}/gs)!) stream.onText(piece); return completeOutcome(); } });
   await runChat(h.deps, equationBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events.map(e => e.event), ['equation', 'done'], 'no raw JSON reaches the device');
-  assert.deepEqual(h.events[0].data, { format: 'equation-symbols-v1', summary: 'The DPO loss.', symbols: [
+  assert.deepEqual(h.events.map(e => e.event).filter(k => k !== 'equation_progress'),
+    ['equation_summary', 'equation_symbol', 'equation_symbol', 'equation_symbol', 'equation', 'done'], 'no raw JSON reaches the device');
+  assert.deepEqual(h.events.find(e => e.event === 'equation')!.data, { format: 'equation-symbols-v1', summary: 'The DPO loss.', symbols: [
     { symbol: 'β', latex: '\\beta', meaning: 'Temperature.', source: 'paper', paragraph: 2 },
     { symbol: 'σ', meaning: 'Logistic function.', source: 'general' },
     { symbol: 'x', meaning: 'Margin.', source: 'general' }] });
   const words = equationHarness({ generate: async (_params, stream) => { stream.onText('β is the temperature.'); return completeOutcome(); } });
   await runChat(words.deps, equationBody(), words.emit, new AbortController().signal);
-  assert.deepEqual(words.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(words.events[0].data, { text: 'β is the temperature.' });
+  assert.deepEqual(words.events.map(e => e.event), ['equation_progress', 'delta', 'done']); assert.deepEqual(words.events[1].data, { text: 'β is the temperature.' });
   // Background streams like an answer; a tool the model calls anyway is never relayed.
   const background = equationHarness({ generate: async (_params, stream) => { stream.onText('It compares two responses'); stream.onText(' [¶2].');
     return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 't', source: 'flowchart LR\nA-->B' } }] }); } });
   await runChat(background.deps, equationBody({ action: 'equation_background' }), background.emit, new AbortController().signal);
   assert.deepEqual(background.events.map(e => e.event), ['delta', 'delta', 'done']);
   assert.equal(equationSymbols('no json here', 3), null); assert.equal(paragraphCount(equationContext.text), 3);
+});
+
+// The streamed explanation (EQUATION_VIEW.md "Streamed explanation", 2026-10-22): the symbols' JSON read as it is written,
+// the summary and each checked symbol relayed at once, the final `equation` unchanged for builds that predate streaming.
+const symbolsInput = { count: 3, summary: 'The DPO loss [¶3].', symbols: [
+  { symbol: 'β', latex: '\\beta', meaning: 'Temperature.', source: 'paper', paragraph: 2 },
+  { symbol: '', meaning: 'dropped' },
+  { symbol: 'σ', meaning: 'Logistic function.', source: 'general' },
+  { symbol: 'x', meaning: 'Margin.', source: 'paper', paragraph: 99 }] };
+const symbolItems = (reader: EquationSymbolsStream, pieces: string[]) => pieces.flatMap(piece => reader.push(piece));
+const pieces = (text: string, size: number) => Array.from({ length: Math.ceil(text.length / size) }, (_, i) => text.slice(i * size, (i + 1) * size));
+
+test('the symbols stream: the count, the summary, then each checked symbol as its object closes, equal to the final check in any chunking', () => {
+  const json = JSON.stringify(symbolsInput), final = equationSymbols(json, 3)!;
+  assert.equal(final.symbols.length, 3);
+  for (const size of [1, 3, 11, json.length]) {
+    const reader = new EquationSymbolsStream(3);
+    const got = symbolItems(reader, pieces(json, size));
+    assert.deepEqual(got.map(i => i.kind), ['count', 'summary', 'symbol', 'symbol', 'symbol'], `chunks of ${size}`);
+    assert.deepEqual(got[0], { kind: 'count', count: 3 }); assert.equal(reader.count, 3);
+    assert.deepEqual(got[1], { kind: 'summary', summary: final.summary });
+    const symbols = got.slice(2) as Extract<EquationStreamItem, { kind: 'symbol' }>[];
+    assert.deepEqual(symbols.map(i => i.index), [0, 1, 2], 'indexes are places in the final symbols (the empty one is skipped)');
+    assert.deepEqual(symbols.map(i => i.symbol), final.symbols);
+    assert.deepEqual(reader.symbols(), final); assert.equal(reader.complete, true); assert.equal(reader.length, json.length);
+  }
+  // A fence around it is ignored; cut off, the complete symbols stay; a malformed symbol is left out, the next one kept.
+  assert.deepEqual(symbolItems(new EquationSymbolsStream(3), ['```json\n', JSON.stringify(symbolsInput), '\n```']).map(i => i.kind),
+    ['count', 'summary', 'symbol', 'symbol', 'symbol']);
+  const cut = new EquationSymbolsStream(3);
+  symbolItems(cut, [json.slice(0, json.indexOf('"σ"'))]);
+  assert.deepEqual(cut.symbols(), { ...final, symbols: [final.symbols[0]] }); assert.equal(cut.complete, false);
+  const broken = new EquationSymbolsStream(3);
+  assert.deepEqual(symbolItems(broken, ['{"summary": "S.", "symbols": [{"symbol": "a", "meaning": [1}, {"symbol": "b", "meaning": "B."}]}'])
+    .map(i => i.kind === 'symbol' ? i.symbol.symbol : i.kind), ['summary', 'b']);
+  assert.equal(new EquationSymbolsStream(3).symbols(), null);
+  for (const bad of [0, 25, '"3"']) assert.equal((() => { const r = new EquationSymbolsStream(3); r.push(`{"count": ${bad}, "summary": "S.", "symbols": []}`); return r.count; })(), null, String(bad));
+  // The instructions ask for the count first and say the reader sees each symbol as it is written.
+  assert.match(EQUATION_INSTRUCTIONS, /"count": <the number of symbols you will list>,\n "summary"/);
+});
+
+test('the symbols stream to the device: reading, then the summary, each symbol with progress, then the same final equation and done', async () => {
+  const json = JSON.stringify(symbolsInput), final = equationSymbols(json, paragraphCount(equationContext.text))!;
+  let clock = 0;
+  const h = equationHarness({ generate: async (_params, stream) => { for (const piece of pieces(json, 30)) { clock += 100; stream.onText(piece); } return completeOutcome(); } });
+  h.deps.now = () => clock;
+  await runChat(h.deps, equationBody(), h.emit, new AbortController().signal);
+  const kinds = h.events.map(e => e.event);
+  assert.deepEqual(h.events[0], { event: 'equation_progress', data: { stage: 'reading' } });
+  assert.deepEqual(kinds.filter(k => k !== 'equation_progress'), ['equation_summary', 'equation_symbol', 'equation_symbol', 'equation_symbol', 'equation', 'done']);
+  const writing = h.events.filter(e => e.event === 'equation_progress').slice(1).map(e => e.data as { stage: string; characters: number; symbols?: number });
+  assert.ok(writing.length >= 3 && writing.every(p => p.stage === 'writing'), 'progress while it is written');
+  assert.ok(writing.every((p, i) => i === 0 || p.characters > writing[i - 1].characters), 'characters grow');
+  assert.ok(writing.every(p => p.symbols === 3), 'the announced count (the first field) rides on every writing step');
+  assert.deepEqual(h.events.find(e => e.event === 'equation_summary')!.data, { summary: final.summary });
+  const streamed = h.events.filter(e => e.event === 'equation_symbol').map(e => e.data as { index: number; symbol: unknown });
+  assert.deepEqual(streamed.map(s => s.index), [0, 1, 2]);
+  assert.deepEqual(streamed.map(s => s.symbol), final.symbols, 'the streamed symbols are the final symbols');
+  assert.deepEqual(h.events.find(e => e.event === 'equation')!.data, final, 'what a build that predates streaming reads');
+  assert.ok(!kinds.includes('delta'));
+  assert.deepEqual(h.logs, [{ event: 'chat_equation', operation_id: operation, symbols: 3, streamed: 3, first_symbol_ms: 500 }]);
+  assert.equal(settledWith(h).p_ending, 'completed');
+  // Cut off at its allowance after one symbol: the device keeps what it was shown (the final equation is that), not charged.
+  const cut = equationHarness({ generate: async (_params, stream) => { stream.onText(json.slice(0, json.indexOf('"σ"'))); return completeOutcome({ stopReason: 'max_tokens' }); } });
+  await runChat(cut.deps, equationBody(), cut.emit, new AbortController().signal);
+  assert.deepEqual(cut.events.map(e => e.event).filter(k => k !== 'equation_progress'), ['equation_summary', 'equation_symbol', 'equation', 'done']);
+  assert.deepEqual((cut.events.find(e => e.event === 'equation')!.data as { symbols: unknown[] }).symbols, [final.symbols[0]]);
+  assert.deepEqual([settledWith(cut).p_ending, settledWith(cut).p_actual_credits], ['limit', 0]);
+  assert.deepEqual([(cut.events.at(-1)!.data as { charged: boolean }).charged, (cut.events.at(-1)!.data as { reason: string }).reason], [false, 'limit']);
+  // Only a summary, then garbage: the summary was shown, no explanation is delivered and nothing is charged.
+  const garbled = equationHarness({ generate: async (_params, stream) => { stream.onText('{"summary": "S.", "symbols": [{"symb'); return completeOutcome(); } });
+  await runChat(garbled.deps, equationBody(), garbled.emit, new AbortController().signal);
+  assert.deepEqual(garbled.events.map(e => e.event).filter(k => k !== 'equation_progress'), ['equation_summary', 'done']);
+  assert.equal(settledWith(garbled).p_ending, 'provider');
+  // Background still streams words only.
+  const background = equationHarness({ generate: async (_params, stream) => { stream.onText('Words [¶2].'); return completeOutcome(); } });
+  await runChat(background.deps, equationBody({ action: 'equation_background' }), background.emit, new AbortController().signal);
+  assert.deepEqual(background.events.map(e => e.event), ['delta', 'done']);
 });
 
 // The figure view (chat-figure-view.ts, docs/architecture/FIGURE_VIEW.md): a walkthrough as one checked tool call and one
@@ -2393,9 +2475,10 @@ test('the figure view thinks at low effort unless the reader chose an effort for
   }
   assert.deepEqual(deep.map(p => [p.output_config?.effort, p.thinking?.type]), [['low', 'disabled'], ['medium', 'adaptive'], ['low', 'adaptive']]);
   assert.deepEqual(openRouterChatParams(deep[0]).reasoning, { enabled: false });
-  // The figures activity's published default: Sonnet at low effort (owner, 2026-10-22).
-  assert.deepEqual(publishedProfiles({ deepseek: true, gemini: true }).default_figures, { model: 'sonnet', effort: 'low', length: 'standard' });
-  assert.equal(publishedProfiles({ deepseek: true, gemini: true, available: model => !model.includes('sonnet') }).default_figures, undefined, 'not offered without Sonnet');
+  // Since the owner's "Let's try Gemini instead of Sonnet for Figures then" (2026-10-22): Gemini Flash, run at low.
+  assert.deepEqual(publishedProfiles({ deepseek: true, gemini: true }).default_figures, { model: 'gemini', effort: 'medium', length: 'standard' });
+  assert.equal(publishedProfiles({ deepseek: true }).default_figures, undefined, 'not offered without Gemini');
+  assert.equal(publishedProfiles({ deepseek: true, gemini: true, available: model => !model.includes('gemini') }).default_figures, undefined, 'nor when its card lapses');
 });
 
 // One part extracted (owner, TestFlight 62: "Extract the subfigure and more context"): `figure_detail`, the walkthrough's

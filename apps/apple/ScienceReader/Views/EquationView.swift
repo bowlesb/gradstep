@@ -59,10 +59,16 @@ enum EquationViewOutcome {
         var symbols: EquationSymbols?
         var credits: Int?
         var answeredModel: String?
+        /// Cut off at its length after some symbols were shown: kept, and the server charged nothing.
+        var notCharged = false
     }
 
     private(set) var symbols = Part()
     private(set) var background = Part()
+    /// The symbols' progress bar while they are asked for from the cloud (EQUATION_VIEW.md "Streamed explanation"): the
+    /// stage and, once the model announced the count, how far; nil otherwise.
+    private(set) var progress: FigureProgress.State?
+    @ObservationIgnored private var tracker = FigureProgress.EquationTracker()
     let context: EquationViewContext
     let localModelID: String?
     @ObservationIgnored private weak var model: ReaderModel?
@@ -107,7 +113,14 @@ enum EquationViewOutcome {
         set(action, Part(state: .failed("Cloud explanations need your consent. Try again to choose.", retryable: true)))
     }
 
-    func stop() { for task in tasks.values { task.cancel() }; tasks = [:] }
+    func stop() { for task in tasks.values { task.cancel() }; tasks = [:]; endProgress() }
+
+    /// Shows where the request is; unchanged steps leave the bar alone (each write re-renders the view).
+    private func showProgress() {
+        let state = tracker.state()
+        if progress != state { progress = state }
+    }
+    private func endProgress() { if progress != nil { progress = nil } }
 
     private func run(_ action: ChatAction) {
         guard let model else { return }
@@ -131,6 +144,7 @@ enum EquationViewOutcome {
             let message = localModelID != nil ? ChatFailureText.message(for: "local_context_large") : "This equation couldn’t be sent."
             set(action, Part(state: .failed(message, retryable: false))); return
         }
+        if action == .equation && localModelID == nil { tracker = FigureProgress.EquationTracker(); showProgress() }
         set(action, Part(state: .loading))
         tasks[action]?.cancel()
         let answerKey = key(action, profile: profile)
@@ -138,19 +152,28 @@ enum EquationViewOutcome {
     }
 
     private func stream(_ action: ChatAction, request: ChatGenerationRequest, key: EquationResultKey) async {
-        var part = Part(state: .loading), model: String?
+        var part = Part(state: .loading), model: String?, stopReason = ""
         let scope = self.model?.readerSessionID
+        // The streamed symbols (servers from 2026-10-22): the summary and the symbols so far, shown as they arrive; the
+        // final `equation` replaces them and is what is kept. Older servers send only the final `equation`.
+        let streaming = action == .equation && localModelID == nil
         do {
-            guard let events = try await self.model?.equationStream(request, localModelID: localModelID) else { set(action, Part(state: .needsSignIn)); return }
+            guard let events = try await self.model?.equationStream(request, localModelID: localModelID) else { set(action, Part(state: .needsSignIn)); endProgress(); return }
+            if streaming { tracker.opened(); showProgress() }
             for try await event in events {
                 guard !Task.isCancelled else { return }
+                if streaming {
+                    let grew = tracker.apply(event)
+                    showProgress()
+                    if grew { part.symbols = tracker.symbolsSoFar; set(action, part) }
+                }
                 switch event {
                 case .delta(let piece):
                     part.text += piece
                     // Background streams as it is written; the symbols' words (no usable symbols) come whole.
                     if action == .equationBackground || localModelID != nil { set(action, part) }
                 case .equation(let described): part.symbols = described
-                case .done(_, let credits, let answered, _): part.credits = credits; part.state = .done; model = answered; part.answeredModel = answered
+                case .done(let reason, let credits, let answered, _): part.credits = credits; part.state = .done; model = answered; part.answeredModel = answered; stopReason = reason
                 case .failure(let code, let credits): part.credits = credits; part.state = Self.failure(code)
                 default: break
                 }
@@ -160,6 +183,12 @@ enum EquationViewOutcome {
         catch { guard !Task.isCancelled else { return }; part.state = Self.failure("transport") }
         guard !Task.isCancelled, self.model?.readerSessionID == scope else { return }
         if part.state == .loading { part.state = Self.failure("transport") }
+        if streaming {
+            // At the end: the final symbols, else (none came) the symbols that streamed; a failure drops what streamed.
+            part.symbols = part.state == .done ? tracker.final ?? (tracker.symbols.isEmpty ? nil : tracker.symbolsSoFar) : nil
+            endProgress()
+        }
+        part.notCharged = part.state == .done && part.credits == 0 && part.symbols != nil && !["end_turn", "stop_sequence", "stop", "tool_use"].contains(stopReason)
         // Free AI that couldn't pay says why (migration 0150): the balance is read again once.
         if part.state == .failed(Self.noCredits, retryable: true), let reader = self.model {
             await reader.refreshCreditBalance()
@@ -208,6 +237,7 @@ struct EquationView: View {
     @AppStorage("equation.scale") private var scale = 1.6
     @State private var displayHeight: CGFloat = 96
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let scales: ClosedRange<Double> = 1.0...4.0
 
@@ -404,6 +434,9 @@ struct EquationView: View {
 
     // MARK: Symbols
 
+    /// The symbols as they arrive (EQUATION_VIEW.md "Streamed explanation"): at once a progress bar with its stage and
+    /// placeholders where the summary and the symbols will be; then the summary, then each symbol appended in order with the
+    /// bar below the last one, so nothing above it moves; the bar fades when they are done (at once with Reduce Motion).
     @ViewBuilder private func symbols(_ session: EquationSession) -> some View {
         let part = session.symbols
         VStack(alignment: .leading, spacing: 14) {
@@ -420,6 +453,7 @@ struct EquationView: View {
                             symbolRow(symbol, index: index + 1, paperID: session.context.paperID)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading) // full width from the first row: nothing resizes as symbols arrive
                     .padding(.horizontal, 14).padding(.vertical, 4)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
                 }
@@ -428,7 +462,21 @@ struct EquationView: View {
                 ChatMessageText(source: part.text, fontSize: bodySize, streaming: part.state == .loading, speaker: "Assistant", identifier: "equation.description",
                                 assistant: true, onCite: cite(session))
             }
-            status(part, session: session, action: .equation, working: "Describing the symbols…")
+            if part.state == .loading, let progress = session.progress {
+                FigureProgressBar(state: progress, identifier: "equation.progress").transition(.opacity)
+                EquationSymbolsSkeleton(summary: (part.symbols?.summary ?? "").isEmpty, rows: part.symbols?.symbols.isEmpty == false ? 1 : 3)
+                    .transition(.opacity)
+            }
+            if part.state == .done, part.notCharged {
+                Text("This explanation stopped before the end. Not charged.")
+                    .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("equation.notCharged")
+            }
+            status(part, session: session, action: .equation, working: "Describing the symbols…", showsLoading: session.progress == nil)
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: session.progress == nil)
+        .onChange(of: session.progress?.label) { _, label in
+            // VoiceOver hears each new stage ("Explaining symbol 2 of 9…"), not every step of the bar.
+            if let label, UIAccessibility.isVoiceOverRunning { AccessibilityNotification.Announcement(label).post() }
         }
     }
 
@@ -483,9 +531,9 @@ struct EquationView: View {
 
     // MARK: Shared
 
-    @ViewBuilder private func status(_ part: EquationSession.Part, session: EquationSession, action: ChatAction, working: String) -> some View {
+    @ViewBuilder private func status(_ part: EquationSession.Part, session: EquationSession, action: ChatAction, working: String, showsLoading: Bool = true) -> some View {
         switch part.state {
-        case .loading where part.text.isEmpty:
+        case .loading where part.text.isEmpty && showsLoading:
             HStack(spacing: 10) { ProgressView(); Text(working).foregroundStyle(.secondary) }
                 .accessibilityElement(children: .combine).accessibilityIdentifier("equation.loading")
         case .failed(let message, let retryable):
@@ -511,6 +559,48 @@ struct EquationView: View {
     private func cite(_ session: EquationSession) -> ChatCiteHandler {
         let paperID = session.context.paperID
         return { marker in rememberReturn(); finish(.paragraph(paperID: paperID, marker: marker)) }
+    }
+}
+
+/// Where the symbols will appear while they are asked for: summary lines (until the summary arrives) and symbol rows in
+/// the symbols' card. Still under Reduce Motion, else a slow pulse; hidden from VoiceOver (the progress bar says where it is).
+private struct EquationSymbolsSkeleton: View {
+    let summary: Bool
+    let rows: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if summary {
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach([1.0, 0.7], id: \.self) { share in line.frame(maxWidth: .infinity, alignment: .leading).scaleEffect(x: share, y: 1, anchor: .leading) }
+                }
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(0..<rows, id: \.self) { index in
+                    if index > 0 { Divider() }
+                    HStack(alignment: .top, spacing: 14) {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color(uiColor: .tertiarySystemFill)).frame(width: 34, height: 18)
+                        VStack(alignment: .leading, spacing: 8) { line; line.scaleEffect(x: 0.55, y: 1, anchor: .leading) }
+                    }
+                    .padding(.vertical, 12)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
+        }
+        .opacity(dim ? 0.55 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { dim = true }
+        }
+        .onChange(of: reduceMotion) { _, still in if still { dim = false } }
+        .modifier(SkeletonAccessibility(identifier: "equation.skeleton"))
+    }
+
+    private var line: some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color(uiColor: .tertiarySystemFill)).frame(height: 12)
     }
 }
 
