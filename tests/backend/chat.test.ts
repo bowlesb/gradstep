@@ -1901,7 +1901,8 @@ test('the paper explainer streams its summary and entries, then the whole explai
   assert.equal(params.max_tokens, paperExplainerMaxTokens('low'));
   assert.ok(!params.tools?.some(t => t.name === 'search_web'));
   assert.deepEqual(params.tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure', 'figure_walkthrough'], 'the chat\'s own tools (its cache)');
-  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_action, 'paper_explainer');
+  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_action, 'answer', 'settled as an answer (no migration)');
+  assert.equal(h.answers[0].action, 'paper_explainer', 'logged as the explainer');
   assert.equal(h.generations(), 1, 'no title or suggestion request');
   assert.ok(h.logs.some(l => l.event === 'chat_paper_explainer' && l.background === 2 && l.ideas === 2 && l.links === 3));
   // Words without JSON are the description; an unreadable object shows nothing and charges nothing.

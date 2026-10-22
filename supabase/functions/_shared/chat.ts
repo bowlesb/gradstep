@@ -973,7 +973,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const absorbed = credits > 0 ? Math.max(0, actual - Math.ceil(delivered)) : actual;
   if (credits > 0 && priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
   else if (credits > 0 && creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
-  const settledAs = await settle(deps, request.operationID, { credits, microusd: actual, action: request.action ?? 'answer', ending, absorbed });
+  // The paper's explainer settles as an answer (the settlement check's actions are fixed by migration 083; it needs no
+  // migration of its own: chat_answer logs carry `paper_explainer`, and cost reports count both as chat).
+  const settledAs = await settle(deps, request.operationID, { credits, microusd: actual,
+    action: request.action === 'paper_explainer' ? 'answer' : request.action ?? 'answer', ending, absorbed });
   // A23: the reader is told what was recorded. A settlement the database refused, or one that could not be confirmed and
   // reads back unsettled, is settled later by the stale sweep as our server's ending, charging nothing.
   const reported = settledAs === 'settled' ? { credits, charged } : await settlementReadback(deps, request.operationID);

@@ -154,8 +154,10 @@ A calibrated loop, one focused question at a time, grounded in the paper:
   (`PaperExplainerStream`) and relays `paper_progress {stage, characters?, items?}`, `paper_summary {summary}`,
   `paper_item {kind: "background"|"idea", index, item}` (each checked exactly as the final one is), then the final
   `paper_explainer {format: "paper-explainer-v1", summary, background, ideas, links}`. Unusable JSON: the model's words
-  as `delta` (shown as the description). No title, no suggestions. Settled as `paper_explainer` (migration 0144-series,
-  additive: the settlement check gains the name).
+  as `delta` (shown as the description). No title, no suggestions. Settled as an ordinary answer (`answer` in the settlement record,
+  `paper_explainer` in the `chat_answer` log), so it needs no migration: a migration numbered after the parallel usage
+  work's 0144 would have broken that work's deploy (the deploy refuses an applied ledger that is not a prefix of the
+  source).
 - Checks (`paperExplainer`): summary ≤ 600 characters; background 1–10 and ideas 1–6 entries, each a unique slug id,
   name ≤ 60, line ≤ 240 (one line, `[¶N]` markers removed), paragraphs within the paper (≤ 6); links only between known
   ids, no self links or duplicates, label ≤ 40, at most 24. Null when there is no entry.
