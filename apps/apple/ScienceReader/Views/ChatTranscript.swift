@@ -55,7 +55,7 @@ struct ChatTranscript: View {
                 }.id(scope)
             } else {
             TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, progress: model.chatStreamingProgress,
-                fontSize: fontSize, diagrams: model.chatDiagrams, followUps: model.chatFollowUpQuestions,
+                fontSize: fontSize, diagrams: model.chatDiagrams, followUps: model.chatSuggestions,
                 openDiagram: { model.openDiagram($0) }, papers: ChatPaperContext(model: model, actions: paperActions), jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
                 insets: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0),
@@ -70,7 +70,9 @@ struct ChatTranscript: View {
             if messages.isEmpty, model.promotedChatContext == nil {
                 if showsStarters {
                     // Keep the starters above the message box, on the ordinary flat chat background (build 65 feedback).
-                    ChatStarterList(starters: starters) { model.useFollowUp($0) }
+                    // Study mode (2026-10-22): always offered after the starters in a paper chat that can study.
+                    ChatStarterList(starters: starters, study: model.canStudyPaper && model.localAIModelID == nil
+                                    ? { Task { await model.startStudy() } } : nil) { model.useFollowUp($0) }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, insets.bottom + 4)
                 } else {
@@ -94,7 +96,7 @@ struct ChatTranscript: View {
 
     /// An empty chat that can be asked: starters instead of a notice.
     private var showsStarters: Bool {
-        !model.chatWasDeleted && !model.chatHasRemovedMessages && (model.generalChat || model.canUsePaperChat) && model.chatStudyMap == nil
+        !model.chatWasDeleted && !model.chatHasRemovedMessages && (model.generalChat || model.canUsePaperChat) && !model.chatStudying
     }
     /// Three starters for this chat: about its paper (from the paper's reading index, when on this device), else general.
     private var starters: [ChatStarters.Starter] {
@@ -118,6 +120,8 @@ struct ChatTranscript: View {
 /// puts the question in the message box; nothing is sent until the reader sends it.
 private struct ChatStarterList: View {
     let starters: [ChatStarters.Starter]
+    /// Enter Study Mode, a row of its own after the starters: one tap starts the tutor (it sends the opening turn).
+    var study: (() -> Void)? = nil
     let use: (String) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -135,6 +139,21 @@ private struct ChatStarterList: View {
                 .buttonStyle(.plain)
                 .accessibilityHint("Puts this question in the message box")
                 .accessibilityIdentifier("chat.starter.\(index)")
+            }
+            if let study {
+                Button(action: study) {
+                    HStack(spacing: 16) {
+                        Image(systemName: "graduationcap").font(.system(size: 19, weight: .regular))
+                            .foregroundStyle(.tint).frame(width: 28)
+                        Text(StudyMode.entry).font(.body).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 11).padding(.horizontal, 12).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Starts a tutor that asks you questions about this paper")
+                .accessibilityIdentifier("chat.starter.study")
             }
         }
         .readableColumn()
@@ -282,7 +301,10 @@ struct TranscriptMessage: View {
                         }
                         .buttonStyle(.plain).accessibilityIdentifier("chat.followUps.toggle")
                         if showsFollowUps {
-                            if model.localAIModelID == nil {
+                            let questions = followUps.filter { $0 != StudyMode.entry }
+                            // The generic rows only when the model offered no picture of its own (LEARNING_GUIDE.md: at most
+                            // one specific diagram or visual suggestion, generated with the others).
+                            if model.localAIModelID == nil, !questions.contains(where: VisualFollowUp.isVisual) {
                                 Button("Draw a diagram") { model.useFollowUp("Draw a Mermaid diagram explaining the answer above.") }
                                     .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                                 if model.visualAnswers {
@@ -290,11 +312,20 @@ struct TranscriptMessage: View {
                                         .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                                 }
                             }
-                            ForEach(followUps, id: \.self) { question in
+                            ForEach(questions, id: \.self) { question in
                                 Button { model.useFollowUp(question) } label: {
                                     Text(verbatim: question).font(.system(size: fontSize * 0.82)).multilineTextAlignment(.leading).lineLimit(3)
                                 }
                                 .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small).tint(.accentColor)
+                            }
+                            // Enter Study Mode (paper chats that can study): one tap starts the tutor.
+                            if followUps.contains(StudyMode.entry) {
+                                Button { Task { await model.startStudy() } } label: {
+                                    Label(StudyMode.entry, systemImage: "graduationcap").font(.system(size: fontSize * 0.82))
+                                        .multilineTextAlignment(.leading).lineLimit(2)
+                                }
+                                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small).tint(.accentColor)
+                                .accessibilityIdentifier("chat.followUps.study")
                             }
                         }
                     }

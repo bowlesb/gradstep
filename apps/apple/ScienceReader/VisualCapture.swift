@@ -32,7 +32,7 @@ import UIKit
             }
         }
         if arguments.contains("--visual-study") {
-            // Study (2026-10-14): the fixture's numbered paper, the opening turn, the reader's answer, the map bar.
+            // Study mode (2026-10-22): the fixture’s numbered paper, the opening turn, the reader’s answer, the study row.
             // The numbered fixture paper's chat (the Reader split on the Mac and iPad, the Chat tab on the phone).
             if let numbered = model.papers.first(where: { $0.sourceID == "2601.01234" }) { model.select(numbered) }
             model.askAboutSelectedPaper()

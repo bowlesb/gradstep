@@ -18,8 +18,9 @@ public enum ChatRequestError: Error, Equatable {
 /// `related` (server: always searches the web for related papers) needs a server that accepts it
 /// (chat.ts, 2026-10-06); `ingest` adds the cited paper. `relevance` (Why it matters: the paper only, never the web)
 /// and `diagramFix` (one corrected diagram for one the device could not parse) need the chat function of 2026-10-07.
-/// `study` (2026-10-14, experimental): a tutored turn on the paper numbered on this device; it carries the reader's
-/// knowledge map (`StudyMap`) and needs no selection.
+/// `study` (reworked 2026-10-22): a tutored turn on the paper numbered on this device; it carries the tutor's hidden
+/// notes from its previous turn (`StudyNotes`, none on the first) and needs no selection.
+/// `paperExplainer` (2026-10-22): the paper's AI Explainer, one turn on the paper numbered on this device, no selection.
 /// `equation` and `equationBackground` (2026-10-15): the equation view's symbols and its optional background, on the
 /// paper numbered on this device with the chat's own profile, so they share the chat's cached paper
 /// (docs/architecture/EQUATION_VIEW.md). They are no conversation: no title, no follow-ups.
@@ -29,8 +30,10 @@ public enum ChatRequestError: Error, Equatable {
 /// the one figure result. The server still accepts it from older builds; this client never sends it.)
 public enum ChatAction: String, Equatable, Sendable {
     case ingest, related, relevance, diagramFix = "diagram_fix", study, equation, equationBackground = "equation_background"
-    case figure, figureSimpler = "figure_simpler"
+    case figure, figureSimpler = "figure_simpler", paperExplainer = "paper_explainer"
     public var isEquation: Bool { self == .equation || self == .equationBackground }
+    /// The explainers: no conversation (no title, no follow-ups).
+    public var isExplainer: Bool { isEquation || isFigure || self == .paperExplainer }
     public var isFigure: Bool { self == .figure || self == .figureSimpler }
 }
 
@@ -54,8 +57,8 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public let profile: ChatProfileChoice
     /// Ask the server for a topic title alongside the answer (server 2026-10-08).
     public let topicTitle: Bool
-    /// Study: the knowledge map so far (an empty map first); present exactly when the action is `study`.
-    public let study: StudyMap?
+    /// Study mode: the tutor's notes from its previous turn (none on the first); sent only with the action `study`.
+    public let studyNotes: StudyNotes?
     /// The reader's "Visual answers" setting: with it the server may draw diagrams and HTML visuals (sent as the
     /// `visual_answers` capability; an empty list says it is off).
     public let visualAnswers: Bool
@@ -74,7 +77,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     /// starts and ends with a user turn; empty turns are skipped.
     public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?,
                             action: ChatAction? = nil, profile: ChatProfileChoice = .standard,
-                            topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil,
+                            topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil, studyNotes: StudyNotes? = nil,
                             visualAnswers: Bool = true, figures: [ChatFigureImage] = []) throws -> ChatGenerationRequest {
         let usable = transcript.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let last = usable.last, last.role == .user else { throw ChatRequestError.emptyContext }
@@ -89,12 +92,13 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         while let first = kept.first, first.role != .user { kept.removeFirst() }
         let quote = selection.map { bounded($0, scalars: maximumSelectionScalars) }
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        // Every selection action needs its quote; Study acts on the paper (a quote only starts it on a passage).
-        let kept_action = action == .study || quote != nil ? action : nil
-        return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
+        // Every selection action needs its quote; Study and the paper's explainer act on the paper (a quote only starts a
+        // study on a passage; the explainer takes none).
+        let kept_action = action == .study || action == .paperExplainer || quote != nil ? action : nil
+        return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: kept_action == .paperExplainer ? nil : quote,
                                      action: kept_action, profile: profile, topicTitle: topicTitle, localContext: localContext,
-                                     study: kept_action == .study ? study ?? .empty : nil, visualAnswers: visualAnswers,
-                                     figures: kept_action == .ingest || (documentID == nil && localContext == nil) ? [] : Array(figures.prefix(3)))
+                                     studyNotes: kept_action == .study ? studyNotes : nil, visualAnswers: visualAnswers,
+                                     figures: kept_action == .ingest || kept_action == .paperExplainer || (documentID == nil && localContext == nil) ? [] : Array(figures.prefix(3)))
     }
 
     /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
@@ -111,10 +115,10 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     }
 
     private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?,
-                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil, visualAnswers: Bool = true,
+                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil, studyNotes: StudyNotes? = nil, visualAnswers: Bool = true,
                  figures: [ChatFigureImage] = []) {
         self.operationID = operationID; self.documentID = localContext == nil ? documentID : nil; self.localContext = localContext; self.turns = turns; self.selection = selection; self.action = action
-        self.profile = profile; self.topicTitle = topicTitle; self.study = study; self.visualAnswers = visualAnswers; self.figures = figures
+        self.profile = profile; self.topicTitle = topicTitle; self.studyNotes = studyNotes; self.visualAnswers = visualAnswers; self.figures = figures
     }
 
     public func encoded() throws -> Data {
@@ -137,8 +141,8 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let topic_title: Bool?
             /// Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest, not Study: the tutor asks).
             let follow_ups: Bool?
-            /// Study: the knowledge map this turn answers against.
-            let study: StudyMap?
+            /// Study mode: the tutor's notes from its previous turn (never the retired `study` map).
+            let study_state: StudyNotes?
             /// The figures the question is about (consent v3).
             let figures: [Figure]?
         }
@@ -148,9 +152,9 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
             capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers, figureRequests: localContext != nil,
                                             paper: documentID != nil || localContext != nil), profile: profile == .standard ? nil : profile,
-            topic_title: topicTitle && action?.isEquation != true && action?.isFigure != true ? true : nil,
-            follow_ups: action == .diagramFix || action == .ingest || action == .study || action?.isEquation == true || action?.isFigure == true ? nil : true,
-            study: action == .study ? study ?? .empty : nil,
+            topic_title: topicTitle && action?.isExplainer != true ? true : nil,
+            follow_ups: action == .diagramFix || action == .ingest || action == .study || action?.isExplainer == true ? nil : true,
+            study_state: action == .study ? studyNotes : nil,
             figures: figures.isEmpty ? nil : figures.map { Figure(id: $0.id, paragraph: $0.paragraph, caption: $0.caption, media_type: $0.mediaType,
                                                                  data: $0.data, width: $0.width, height: $0.height) }))
     }
@@ -173,7 +177,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     /// The same question again with the figures the model asked for (a new operation: the first one is settled).
     public func attaching(_ figures: [ChatFigureImage]) -> ChatGenerationRequest {
         ChatGenerationRequest(operationID: UUID(), documentID: documentID, turns: turns, selection: selection, action: action, profile: profile,
-                              topicTitle: topicTitle, localContext: localContext, study: study, visualAnswers: visualAnswers, figures: Array(figures.prefix(3)))
+                              topicTitle: topicTitle, localContext: localContext, studyNotes: studyNotes, visualAnswers: visualAnswers, figures: Array(figures.prefix(3)))
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {
@@ -201,9 +205,15 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case title(String)
     /// Follow-up questions the answer suggested (servers from 2026-10-14), sent before `done`; shown, never saved.
     case followUps([String])
-    /// Study: the updated knowledge map after a tutored answer (servers from 2026-10-14), sent before `done`; kept
-    /// with the open chat only.
-    case study(StudyMap)
+    /// Study mode: the tutor's hidden notes after a tutored answer (servers from 2026-10-22), sent before `done`; kept
+    /// with the open chat only and sent back with the next study turn.
+    case studyState(StudyNotes)
+    /// The paper's AI Explainer (action `paper_explainer`, servers from 2026-10-22): where the model is, the summary, each
+    /// entry as it is complete (with its place among its kind), then the whole explainer.
+    case paperProgress(PaperStreamProgress)
+    case paperSummary(String)
+    case paperItem(kind: PaperExplainer.Kind, index: Int, item: PaperExplainer.Item)
+    case paperExplainer(PaperExplainer)
     /// The equation view's symbols (action `equation`, servers from 2026-10-15), sent once before `done`.
     case equation(EquationSymbols)
     /// The figure view's walkthrough (action `figure`, servers from 2026-10-16), sent once before `done`.
@@ -392,12 +402,22 @@ public struct ChatSSEParser: Sendable {
             guard let decoded = try? JSONDecoder().decode(FollowUps.self, from: payload) else { return nil }
             let questions = ChatFollowUps.clean(decoded.questions)
             return questions.isEmpty ? nil : .followUps(questions)
-        case "study":
-            // A map that is not whole is dropped; the answer and the previous map are unaffected.
-            struct Study: Decodable { let map: StudyMapBox }
-            struct StudyMapBox: Decodable { let data: Data; init(from decoder: Decoder) throws { data = try JSONEncoder().encode(AnyJSON(from: decoder)) } }
-            guard let study = try? JSONDecoder().decode(Study.self, from: payload), let map = StudyMap.validated(study.map.data) else { return nil }
-            return .study(map)
+        case "study_state":
+            // Notes that can't be read are dropped; the answer and the previous notes are unaffected.
+            guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any], let state = object["state"] as? [String: Any],
+                  let notes = StudyNotes.validated(state) else { return nil }
+            return .studyState(notes)
+        case "paper_progress":
+            // Informational: a malformed step is dropped, never fatal.
+            guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+                  let stage = (object["stage"] as? String).flatMap(PaperStreamProgress.Stage.init(rawValue:)) else { return nil }
+            return .paperProgress(PaperStreamProgress(stage: stage, characters: StudyNotes.whole(object["characters"]), items: StudyNotes.whole(object["items"])))
+        case "paper_summary":
+            return PaperExplainer.streamedSummary(payload).map(ChatStreamEvent.paperSummary)
+        case "paper_item":
+            return PaperExplainer.streamedItem(payload).map { .paperItem(kind: $0.kind, index: $0.index, item: $0.item) }
+        case "paper_explainer":
+            return PaperExplainer.validated(payload).map(ChatStreamEvent.paperExplainer)
         case "equation":
             // Informational: symbols that are not usable are dropped (the view then says it couldn't describe them).
             guard let symbols = EquationSymbols.validated(payload) else { return nil }

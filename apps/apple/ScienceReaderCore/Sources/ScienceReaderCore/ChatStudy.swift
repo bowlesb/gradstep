@@ -1,139 +1,103 @@
 import Foundation
 
-/// Study (experimental, 2026-10-14; docs/architecture/CHAT.md "Study"): an adaptive tutor for one paper. Every
-/// `study` turn carries the reader's knowledge map (concepts with a state, links between them, the journey so far);
-/// the server's tutor adapts to it and sends the updated map back as a `study` event. The map lives in memory with
-/// the open chat and is never written to the device or the cloud. The port of `_shared/chat-study.ts`.
-public struct StudyMap: Codable, Equatable, Sendable {
-    public enum State: String, Codable, CaseIterable, Sendable { case unknown, learning, known, verified }
-    public enum LinkKind: String, Codable, CaseIterable, Sendable { case prerequisite, deeper, related }
-    public enum Next: String, Codable, CaseIterable, Sendable { case calibrate, teach, verify, deeper, tangent, revisit }
+/// Study mode (reworked 2026-10-22; docs/proposals/LEARNING_GUIDE.md "Study mode, reworked"): a paper chat whose turns
+/// carry `action: "study"` is a tutor that asks one focused question at a time and backs off to a short explanation when
+/// the reader is shaky. The tutor keeps light notes on the reader (concepts covered, how sure the reader is, its plan)
+/// that the server strips from the reply and sends once as a `study_state` event; the device keeps them with the open
+/// chat (memory only, never stored) and sends them back as `study_state` with the next study turn. The 2026-10-14
+/// knowledge map (a map, journey and concepts the reader saw) is retired. The port of `_shared/chat-study.ts`.
+public struct StudyNotes: Codable, Equatable, Sendable {
+    public enum Level: String, Codable, CaseIterable, Sendable { case intro, core, deep }
+    public enum Status: String, Codable, CaseIterable, Sendable { case new, shaky, ok, solid }
     public struct Concept: Codable, Equatable, Sendable {
-        public let id: String
-        public let label: String
-        public let state: State
-        public let paragraphs: [Int]
-        public let note: String?
-        public init(id: String, label: String, state: State, paragraphs: [Int], note: String? = nil) {
-            self.id = id; self.label = label; self.state = state; self.paragraphs = paragraphs; self.note = note
+        public let name: String
+        public let status: Status
+        public let asked: [Int]
+        public let paras: [Int]
+        public init(name: String, status: Status, asked: [Int] = [], paras: [Int] = []) {
+            self.name = name; self.status = status; self.asked = asked; self.paras = paras
         }
     }
-    public struct Link: Codable, Equatable, Sendable {
-        public let from: String
-        public let to: String
-        public let kind: LinkKind
-        public init(from: String, to: String, kind: LinkKind) { self.from = from; self.to = to; self.kind = kind }
-    }
-    public var concepts: [Concept]
-    public var links: [Link]
-    public var focus: String?
-    public var journey: [String]
-    public var next: Next
+    public let turn: Int
+    public let level: Level
+    public let concepts: [Concept]
+    public let next: String
 
-    public init(concepts: [Concept], links: [Link], focus: String?, journey: [String], next: Next) {
-        self.concepts = concepts; self.links = links; self.focus = focus; self.journey = journey; self.next = next
+    public init(turn: Int, level: Level, concepts: [Concept], next: String) {
+        self.turn = turn; self.level = level; self.concepts = concepts; self.next = next
     }
-    public static let empty = StudyMap(concepts: [], links: [], focus: nil, journey: [], next: .calibrate)
 
     public enum Limits {
-        public static let concepts = 60, links = 120, label = 80, note = 160, paragraphs = 8, journey = 80, bytes = 16_384
-    }
-    /// The reader's opening turn: the tutor starts with a calibrating question (on the selected passage when there is one).
-    public static func startMessage(selection: String? = nil) -> String {
-        if let selection, !selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Start studying this paper, beginning with this passage: \(selection)"
-        }
-        return "Start studying this paper."
+        public static let concepts = 12, name = 60, asked = 8, paras = 6, next = 200, bytes = 4_096, turn = 500
     }
 
-    /// The map as the server sends it, whole or not at all: ids are slugs, labels bounded and cleaned, states and
-    /// link kinds known, links between concepts on the map (no self links; duplicates collapse), the journey and the
-    /// focus on the map (a focus that is not is dropped), an unknown next step calibrates.
-    public static func validated(_ data: Data) -> StudyMap? {
-        struct Raw: Decodable {
-            struct Concept: Decodable { let id: String?; let label: String?; let state: String?; let paragraphs: [Int]?; let note: String? }
-            struct Link: Decodable { let from: String?; let to: String?; let kind: String? }
-            let concepts: [Concept]?; let links: [Link]?; let focus: String?; let journey: [String]?; let next: String?
-        }
-        guard let raw = try? JSONDecoder().decode(Raw.self, from: data), let concepts = raw.concepts, let links = raw.links,
-              concepts.count <= Limits.concepts, links.count <= Limits.links, let journey = raw.journey, journey.count <= Limits.journey else { return nil }
-        var kept: [Concept] = [], ids = Set<String>()
-        for concept in concepts {
-            guard let id = concept.id, isID(id), !ids.contains(id), let label = concept.label.flatMap({ clean($0, limit: Limits.label) }),
-                  let state = concept.state.flatMap(State.init(rawValue:)) else { return nil }
-            let paragraphs = Array(Set((concept.paragraphs ?? []).filter { (1...100_000).contains($0) })).sorted()
-            guard paragraphs.count <= Limits.paragraphs else { return nil }
-            ids.insert(id)
-            kept.append(Concept(id: id, label: label, state: state, paragraphs: paragraphs, note: concept.note.flatMap { clean($0, limit: Limits.note) }))
-        }
-        var keptLinks: [Link] = [], seen = Set<String>()
-        for link in links {
-            guard let from = link.from, let to = link.to, ids.contains(from), ids.contains(to), from != to,
-                  let kind = link.kind.flatMap(LinkKind.init(rawValue:)) else { return nil }
-            guard seen.insert("\(from)>\(to)").inserted else { continue }
-            keptLinks.append(Link(from: from, to: to, kind: kind))
-        }
-        guard journey.allSatisfy({ ids.contains($0) }) else { return nil }
-        let map = StudyMap(concepts: kept, links: keptLinks, focus: raw.focus.flatMap { ids.contains($0) ? $0 : nil }, journey: journey,
-                           next: raw.next.flatMap(Next.init(rawValue:)) ?? .calibrate)
-        guard let encoded = try? JSONEncoder().encode(map), encoded.count <= Limits.bytes else { return nil }
-        return map
+    /// The notes from the server (untrusted), repaired rather than refused as the server repairs them: an unknown level
+    /// is `core`, an unknown status `new`, a concept without a name is dropped, a repeated name keeps the newest, lists are
+    /// bounded, unique and sorted. Nil only when the shape is unusable (not an object) or the result is over 4 KB.
+    public static func validated(_ data: Data, paragraphs: Int = 100_000) -> StudyNotes? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return validated(object, paragraphs: paragraphs)
     }
 
-    private static func isID(_ id: String) -> Bool {
-        guard (1...40).contains(id.count), let first = id.unicodeScalars.first, first.properties.isASCIIHexDigit || ("a"..."z").contains(first) else { return false }
-        return id.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "_" || $0 == "-" }
-    }
-    private static func clean(_ value: String, limit: Int) -> String? {
-        let scalars = value.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }.joined()
-        let text = scalars.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return text.isEmpty || text.unicodeScalars.count > limit ? nil : text
+    public static func validated(_ v: [String: Any], paragraphs: Int = 100_000) -> StudyNotes? {
+        let turn = whole(v["turn"]).flatMap { $0 >= 1 ? min($0, Limits.turn) : nil } ?? 1
+        let level = (v["level"] as? String).flatMap(Level.init(rawValue:)) ?? .core
+        var order: [String] = [], byName: [String: Concept] = [:]
+        for raw in ((v["concepts"] as? [Any]) ?? []).prefix(64) {
+            guard let c = raw as? [String: Any], let name = line(c["name"], limit: Limits.name) else { continue }
+            let status = (c["status"] as? String).flatMap(Status.init(rawValue:)) ?? .new
+            let key = name.lowercased()
+            order.removeAll { $0 == key }; order.append(key)
+            byName[key] = Concept(name: name, status: status, asked: numbers(c["asked"], max: Limits.turn, limit: Limits.asked),
+                                  paras: numbers(c["paras"], max: paragraphs, limit: Limits.paras))
+        }
+        let concepts = order.suffix(Limits.concepts).compactMap { byName[$0] }
+        let notes = StudyNotes(turn: turn, level: level, concepts: concepts, next: line(v["next"], limit: Limits.next) ?? "")
+        guard let encoded = try? JSONEncoder().encode(notes), encoded.count <= Limits.bytes else { return nil }
+        return notes
     }
 
-    public func concept(_ id: String?) -> Concept? { id.flatMap { id in concepts.first { $0.id == id } } }
-    public var focusConcept: Concept? { concept(focus) }
-    public func count(_ state: State) -> Int { concepts.filter { $0.state == state }.count }
-    /// "3 concepts · 1 known · 1 learning · 1 not yet" (known counts the verified too).
-    public var summary: String {
-        guard !concepts.isEmpty else { return "Built from your answers as you go" }
-        return "\(concepts.count) \(concepts.count == 1 ? "concept" : "concepts") · \(count(.known) + count(.verified)) known · \(count(.learning)) learning · \(count(.unknown)) not yet"
+    /// A whole number from JSON (an integral double counts, as in JavaScript).
+    static func whole(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let double = number.doubleValue
+        guard double.isFinite, double.rounded() == double, abs(double) <= 9_007_199_254_740_991 else { return nil }
+        return Int(double)
     }
-
-    /// The map as a Mermaid flowchart, drawn by the same strict-mode renderer as the agent's diagrams. Labels are
-    /// quoted and stripped of the characters Mermaid reads as syntax; ids are prefixed so none is a keyword.
-    public var mermaid: String {
-        func node(_ id: String) -> String { "s_" + String(id.map { $0.isLetter || $0.isNumber || $0 == "_" ? $0 : "_" }) }
-        func label(_ text: String) -> String {
-            let stripped = String(text.map { "\"\\[]{}()<>|#;`".contains($0) ? " " : $0 })
-            let collapsed = stripped.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            return collapsed.isEmpty ? "concept" : String(collapsed.prefix(48))
-        }
-        var lines = ["flowchart TD"]
-        for concept in concepts { lines.append("  \(node(concept.id))[\"\(label(concept.label))\"]:::\(concept.state.rawValue)") }
-        for link in links {
-            let edge = switch link.kind { case .prerequisite: "-->"; case .deeper: "-.->"; case .related: "---" }
-            lines.append("  \(node(link.from)) \(edge) \(node(link.to))")
-        }
-        lines += ["  classDef unknown fill:#fbe3e1,stroke:#c0392b,color:#1b1b1b", "  classDef learning fill:#fff1cc,stroke:#d68910,color:#1b1b1b",
-                  "  classDef known fill:#dbe9fb,stroke:#2e6fd0,color:#1b1b1b", "  classDef verified fill:#dcf3e2,stroke:#1f8f4e,color:#1b1b1b"]
-        if let focus { lines.append("  style \(node(focus)) stroke-width:3px") }
-        return lines.joined(separator: "\n")
+    private static func numbers(_ value: Any?, max: Int, limit: Int) -> [Int] {
+        let kept = ((value as? [Any]) ?? []).compactMap(whole).filter { $0 >= 1 && $0 <= max }
+        return Array(Array(Set(kept)).sorted().suffix(limit))
+    }
+    /// One line: control characters and angle brackets out, white space collapsed, cut at the limit with "…".
+    private static func line(_ value: Any?, limit: Int) -> String? {
+        guard let value = value as? String else { return nil }
+        let cleaned = String(String.UnicodeScalarView(value.unicodeScalars.map { scalar -> Unicode.Scalar in
+            (scalar.value <= 0x1F || (0x7F...0x9F).contains(scalar.value) || scalar == "<" || scalar == ">") ? " " : scalar
+        }))
+        let text = cleaned.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !text.isEmpty else { return nil }
+        let scalars = Array(text.unicodeScalars)
+        guard scalars.count > limit else { return text }
+        let cut = String(String.UnicodeScalarView(scalars.prefix(limit - 1)))
+        return cut.replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression) + "…"
     }
 }
 
-public extension StudyMap.State {
-    var text: String {
-        switch self { case .unknown: "Not yet"; case .learning: "Learning"; case .known: "Known"; case .verified: "Verified" }
-    }
+/// What Study mode says and sends (LEARNING_GUIDE.md): the entry the suggestions offer, the opening turn it sends, and the
+/// two quick replies the study row sends.
+public enum StudyMode {
+    public static let entry = "Enter Study Mode – Quiz me and help me learn"
+    public static let opening = "Quiz me and help me learn this paper."
+    public static let hint = "Give me a hint."
+    public static let explainInstead = "Explain it to me instead."
 }
-public extension StudyMap.Next {
-    var text: String {
-        switch self {
-        case .calibrate: "Finding your starting point"; case .teach: "Teaching"; case .verify: "Checking what you learned"
-        case .deeper: "Going deeper"; case .tangent: "Moving to a related idea"; case .revisit: "Returning to an earlier gap"
-        }
+
+/// Follow-up suggestions that ask for a picture (a diagram or a visual explanation; the server keeps at most one): the
+/// app then leaves out its own generic "Draw a diagram" and "Create a visual explanation" rows. The server's pattern
+/// (chat-follow-ups.ts `VISUAL_FOLLOW_UP_PATTERN`).
+public enum VisualFollowUp {
+    static let pattern = #"^(?:please\s+)?(?:(?:draw|sketch|diagram|visuali[sz]e|illustrate)\b|(?:create|make|show|give me|build)\b.*\b(?:diagram|visual|flow ?chart|chart|mind ?map|concept map|picture|illustration)s?\b)"#
+    public static func isVisual(_ question: String) -> Bool {
+        question.trimmingCharacters(in: .whitespacesAndNewlines).range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
-}
-public extension StudyMap.LinkKind {
-    var text: String { switch self { case .prerequisite: "builds on"; case .deeper: "goes deeper into"; case .related: "relates to" } }
 }

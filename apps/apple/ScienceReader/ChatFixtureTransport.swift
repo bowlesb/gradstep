@@ -14,6 +14,10 @@ import ScienceReaderCore
 /// every mode — a three-part walkthrough of the sample's Figure 1 with one crop and `[¶N]` links, streamed as the server
 /// streams it (progress, summary, each part, then the final `figure`; `--figure-fixture-old-server` sends only the final
 /// one, `--figure-fixture-step-ms=<n>` slows it), and a part more simply.
+/// Study turns (action `study`) are answered in every mode: a tutor's question, its hidden notes sent only as
+/// `study_state` (never in the text). The paper's AI Explainer (action `paper_explainer`) is answered in every mode,
+/// streamed as the server streams it (`--paper-fixture-step-ms=<n>` slows it; `--paper-fixture-words` sends words
+/// instead of an explainer; `--paper-fixture-fail` fails it, not charged).
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 /// Answers report their model and profile and, when asked, a topic title (server 2026-10-08);
 /// `--chat-fixture-no-profiles` behaves like a server without them.
@@ -170,15 +174,32 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.finish(); return
                     }
                     if request.action == .study {
-                        // Study (2026-10-14): a calibrating question first, then a judgement, a taught passage and one
-                        // bold question; the map grows as the live server's would.
+                        // Study mode (2026-10-22): an approachable first question, then feedback and one bold question (a
+                        // hint or an explanation when asked); the notes come only as `study_state`, as the live server sends them.
                         try await Task.sleep(for: .milliseconds(300))
-                        let first = request.turns.count == 1
-                        for piece in Self.pieces(of: first ? Self.studyFirst : Self.studyNext, size: 14) {
+                        let turn = request.turns.filter { $0.role == .user }.count
+                        for piece in Self.pieces(of: Self.studyReply(to: request.turns.last?.text ?? "", turn: turn), size: 14) {
                             continuation.yield(.delta(piece)); try await Task.sleep(for: .milliseconds(30))
                         }
-                        continuation.yield(.study(first ? Self.studyMapFirst : Self.studyMapNext))
-                        continuation.yield(.done(stopReason: "end_turn", credits: 4, model: "claude-sonnet-5-5", profile: request.profile.id))
+                        continuation.yield(.studyState(Self.studyNotes(turn: turn)))
+                        continuation.yield(.done(stopReason: "end_turn", credits: 2, model: "claude-sonnet-5-5", profile: request.profile.id))
+                        continuation.finish(); return
+                    }
+                    if request.action == .paperExplainer {
+                        if Self.paperFail {
+                            try await Task.sleep(for: .milliseconds(400))
+                            continuation.yield(.failure(code: "provider_unavailable", credits: 0))
+                            continuation.finish(); return
+                        }
+                        if Self.paperWords {
+                            try await Task.sleep(for: .milliseconds(400))
+                            continuation.yield(.paperProgress(.init(stage: .reading)))
+                            continuation.yield(.delta("This paper is a short authored fixture about reading HTML papers [¶4]. This is a synthetic fixture answer; no AI request was made."))
+                        } else {
+                            try await Self.streamPaperExplainer(Self.paperExplainer, continuation)
+                            continuation.yield(.paperExplainer(Self.paperExplainer))
+                        }
+                        continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
                     }
                     if request.action == .equation {
@@ -282,7 +303,8 @@ struct ChatFixtureTransport: ChatTransport {
                             // A server from before profiles (`--chat-fixture-no-profiles`) sends neither a title nor labels.
                             if Self.serverHasProfiles {
                                 if request.topicTitle { continuation.yield(.title(Self.topicTitle(for: request))) }
-                                continuation.yield(.followUps(Self.followUps))
+                                // A numbered paper's answer also suggests one picture (the server keeps at most one).
+                                continuation.yield(.followUps(cited ? Self.followUps + [Self.visualFollowUp] : Self.followUps))
                                 // The server records the effort it chose for an automatic request (low, in the fixture).
                                 var answered = request.profile
                                 if answered.effort == .auto { answered.effort = .low }
@@ -300,13 +322,68 @@ struct ChatFixtureTransport: ChatTransport {
         }
     }
 
-    static let studyFirst = "Let’s start with the central idea. **In one sentence, what does attention compute?**"
-    static let studyNext = "Partly right. Attention weights the values by how well each key matches the query [¶4]. **What does the softmax do to large scores?**"
-    static let studyMapFirst = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .learning, paragraphs: [4])],
-                                        links: [], focus: "attention", journey: ["attention"], next: .calibrate)
-    static let studyMapNext = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .known, paragraphs: [4], note: "Knows the weighted sum"),
-                                                  StudyMap.Concept(id: "softmax", label: "Softmax", state: .learning, paragraphs: [4])],
-                                       links: [StudyMap.Link(from: "softmax", to: "attention", kind: .prerequisite)], focus: "softmax", journey: ["attention", "softmax"], next: .teach)
+    static let studyFirst = "We’ll go one question at a time; ask for a hint or an explanation whenever you like. The paper is about reading papers as HTML [¶4].\n\n**In one sentence, what does the reader keep from the HTML?**\n\n(If this is new to you, say so and I’ll explain it first.)"
+    static let studyHint = "Hint: think about what the paper says is numbered [¶4].\n\n**What does the reader keep from the HTML?**"
+    static let studyExplain = "The reader keeps the paper’s blocks, each numbered, so an answer can point at one [¶4]. For example, a figure’s caption is one block.\n\n**Is a figure’s caption one block or several?**"
+    static let studyNext = "Partly right: the blocks are kept, and each is numbered [¶4].\n\n**Why does numbering the blocks help an answer?**"
+    static func studyReply(to answer: String, turn: Int) -> String {
+        if turn <= 1 { return studyFirst }
+        if answer == StudyMode.hint { return studyHint }
+        if answer == StudyMode.explainInstead { return studyExplain }
+        return studyNext
+    }
+    static func studyNotes(turn: Int) -> StudyNotes {
+        StudyNotes(turn: turn, level: turn <= 1 ? .core : .intro, concepts: [StudyNotes.Concept(name: "Numbered blocks", status: turn <= 1 ? .new : .shaky, asked: Array(1...max(1, turn)), paras: [4])],
+                   next: "check numbered blocks again")
+    }
+
+    /// The paper's AI Explainer of the authored fixture paper (three background concepts, two ideas, links).
+    static let paperExplainer = PaperExplainer(summary: "This short authored paper shows how an HTML reader keeps a paper’s blocks and numbers them, so answers can point at a passage.",
+        background: [
+            .init(id: "b1", name: "HTML documents", line: "Web pages built from nested elements; the paper reads its text from them.", paragraphs: [4]),
+            .init(id: "b2", name: "Figures and captions", line: "An image with the text that explains it; kept as one block.", paragraphs: [6]),
+            .init(id: "b3", name: "Citations", line: "Pointers from a statement to its source; answers cite blocks.", paragraphs: [4])],
+        ideas: [
+            .init(id: "i1", name: "Numbered blocks", line: "Each paragraph, equation and figure gets a number the reader can jump to.", paragraphs: [4]),
+            .init(id: "i2", name: "Grounded answers", line: "Answers cite the numbered blocks they rely on.", paragraphs: [6])],
+        links: [.init(from: "b1", to: "i1", label: "is split into"), .init(from: "b2", to: "i1", label: "becomes one of"),
+                .init(from: "b3", to: "i2", label: "shapes"), .init(from: "i1", to: "i2", label: "makes possible")])
+    static var paperWords: Bool { ProcessInfo.processInfo.arguments.contains("--paper-fixture-words") }
+    static var paperFail: Bool { ProcessInfo.processInfo.arguments.contains("--paper-fixture-fail") }
+    static var paperStep: Duration {
+        let value = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--paper-fixture-step-ms=") }
+            .flatMap { Int($0.dropFirst("--paper-fixture-step-ms=".count)) }
+        return .milliseconds(min(10_000, max(50, value ?? 350)))
+    }
+    /// The explainer streamed as the server of 2026-10-22 streams it: `reading`, `writing` with the characters so far and
+    /// the announced count, the summary, then each entry; the caller sends the final `paper_explainer` and `done`.
+    static func streamPaperExplainer(_ explainer: PaperExplainer, _ continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation) async throws {
+        let step = paperStep
+        func size<T: Encodable>(_ value: T) -> Int { (try? JSONEncoder().encode(value).count) ?? 0 }
+        let count = explainer.background.count + explainer.ideas.count
+        try await Task.sleep(for: .milliseconds(300))
+        continuation.yield(.paperProgress(.init(stage: .reading)))
+        try await Task.sleep(for: step)
+        var written = 30 + size(explainer.summary)
+        continuation.yield(.paperProgress(.init(stage: .writing, characters: written / 2, items: count)))
+        try await Task.sleep(for: step)
+        continuation.yield(.paperProgress(.init(stage: .writing, characters: written, items: count)))
+        continuation.yield(.paperSummary(explainer.summary))
+        for (kind, items) in [(PaperExplainer.Kind.background, explainer.background), (.idea, explainer.ideas)] {
+            for (index, item) in items.enumerated() {
+                let length = size(item)
+                try await Task.sleep(for: step)
+                continuation.yield(.paperProgress(.init(stage: .writing, characters: written + length / 2, items: count)))
+                try await Task.sleep(for: step)
+                written += length
+                continuation.yield(.paperProgress(.init(stage: .writing, characters: written, items: count)))
+                continuation.yield(.paperItem(kind: kind, index: index, item: item))
+            }
+        }
+        try await Task.sleep(for: step)
+    }
+    /// The numbered paper's one picture among the suggestions.
+    static let visualFollowUp = "Create a diagram explaining the background of scaled dot-product attention"
 
     /// Follow-up questions every complete fixture answer suggests (servers from 2026-10-14).
     static let followUps = ["Why does the softmax saturate without the scaling?", "How does this compare with additive attention?"]

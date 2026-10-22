@@ -124,8 +124,9 @@ struct ChatAnswerTurn: Equatable, Sendable {
     /// The chat's model, effort and length when Send was pressed (2026-10-08); a retry asks with the same.
     var profile: ChatProfileChoice? = nil
     var paperReference: SourcePaperReference? = nil
-    /// Study: the knowledge map this turn answers against (memory only; a retry sends the same map).
-    var study: StudyMap? = nil
+    /// Study mode: whether this turn is a tutored one, and the tutor's notes it answers against (memory only; a retry
+    /// sends the same notes).
+    var studyNotes: StudyNotes? = nil
     /// Captured at Send; retry/stop can never switch between local inference and a paid cloud request.
     var localModelID: String? = nil
 }

@@ -2,89 +2,73 @@ import Foundation
 import Testing
 @testable import ScienceReaderCore
 
-/// Study (ChatStudy.swift, 2026-10-14): the knowledge map, the tutored request and the `study` stream event.
+/// Study mode (ChatStudy.swift, reworked 2026-10-22): the tutor's hidden notes, the tutored request and the `study_state`
+/// stream event; the visual-suggestion pattern the server uses.
 @Suite struct ChatStudyTests {
-    static let sample = StudyMap(concepts: [
-        StudyMap.Concept(id: "scaling", label: "Scaled dot-product attention", state: .learning, paragraphs: [2], note: "Mixes up d_k and d_model"),
-        StudyMap.Concept(id: "softmax", label: "Softmax saturation", state: .unknown, paragraphs: [2]),
-        StudyMap.Concept(id: "end", label: "End of sequence", state: .known, paragraphs: [])],
-        links: [StudyMap.Link(from: "softmax", to: "scaling", kind: .prerequisite), StudyMap.Link(from: "scaling", to: "end", kind: .deeper)],
-        focus: "scaling", journey: ["scaling", "softmax", "scaling"], next: .verify)
+    static let notes = StudyNotes(turn: 2, level: .core, concepts: [
+        StudyNotes.Concept(name: "Scaled dot-product attention", status: .shaky, asked: [1, 2], paras: [3, 4]),
+        StudyNotes.Concept(name: "Softmax saturation", status: .new, asked: [2], paras: [4])], next: "check scaling from a new angle")
     static func json(_ value: Any) -> Data { try! JSONSerialization.data(withJSONObject: value) }
-    static var sampleJSON: [String: Any] { [
-        "concepts": [["id": "scaling", "label": "Scaled dot-product attention", "state": "learning", "paragraphs": [2], "note": "Mixes up d_k and d_model"],
-                     ["id": "softmax", "label": "Softmax saturation", "state": "unknown", "paragraphs": [2]],
-                     ["id": "end", "label": "End of sequence", "state": "known", "paragraphs": []]],
-        "links": [["from": "softmax", "to": "scaling", "kind": "prerequisite"], ["from": "scaling", "to": "end", "kind": "deeper"]],
-        "focus": "scaling", "journey": ["scaling", "softmax", "scaling"], "next": "verify"] }
+    static var notesJSON: [String: Any] { [
+        "turn": 2, "level": "core", "next": "check scaling from a new angle",
+        "concepts": [["name": "Scaled dot-product attention", "status": "shaky", "asked": [1, 2], "paras": [3, 4]],
+                     ["name": "Softmax saturation", "status": "new", "asked": [2], "paras": [4]]]] }
 
-    @Test func validationKeepsWholeMapsOnlyAndCleansWhatItKeeps() {
-        #expect(StudyMap.validated(Self.json(Self.sampleJSON)) == Self.sample)
-        let cleaned = StudyMap.validated(Self.json(["concepts": [["id": "scaling", "label": " Scaled\u{0}attention ", "state": "known", "paragraphs": [2, 2, 0, 1_000_000_000]]],
-                                                    "links": [], "focus": "ghost", "journey": [], "next": "sideways"]))
-        #expect(cleaned == StudyMap(concepts: [StudyMap.Concept(id: "scaling", label: "Scaled attention", state: .known, paragraphs: [2])], links: [], focus: nil, journey: [], next: .calibrate))
-        var broken = Self.sampleJSON
-        broken["concepts"] = [["id": "x", "label": "x", "state": "mastered", "paragraphs": []]]
-        #expect(StudyMap.validated(Self.json(broken)) == nil, "unknown state")
-        broken = Self.sampleJSON; broken["links"] = [["from": "scaling", "to": "ghost", "kind": "related"]]
-        #expect(StudyMap.validated(Self.json(broken)) == nil, "dangling link")
-        broken = Self.sampleJSON; broken["links"] = [["from": "scaling", "to": "scaling", "kind": "related"]]
-        #expect(StudyMap.validated(Self.json(broken)) == nil, "self link")
-        broken = Self.sampleJSON; broken["journey"] = ["ghost"]
-        #expect(StudyMap.validated(Self.json(broken)) == nil, "journey off the map")
-        broken = Self.sampleJSON; broken["concepts"] = (broken["concepts"] as! [[String: Any]]) + [["id": "scaling", "label": "dup", "state": "known", "paragraphs": []]]
-        #expect(StudyMap.validated(Self.json(broken)) == nil, "duplicate id")
-        #expect(StudyMap.validated(Self.json(["concepts": []])) == nil, "no links")
-        #expect(StudyMap.validated(Self.json(["concepts": [], "links": [], "journey": []])) == .empty)
-        #expect(Self.sample.summary == "3 concepts · 1 known · 1 learning · 1 not yet")
-        #expect(StudyMap.empty.summary == "Built from your answers as you go")
-        #expect(Self.sample.focusConcept?.label == "Scaled dot-product attention")
+    @Test func notesAreRepairedAsTheServerRepairsThem() throws {
+        #expect(StudyNotes.validated(Self.json(Self.notesJSON)) == Self.notes)
+        let repaired = try #require(StudyNotes.validated(Self.json(["turn": "x", "level": "expert", "next": " revisit\u{0} <softmax> ",
+            "concepts": [["name": " Softmax ", "status": "mastered", "asked": [3, 1, 1, 0, 9_999], "paras": [40, 2, 2]], ["name": ""], "junk",
+                         ["name": "softmax", "status": "ok", "asked": [2], "paras": [4]]]]), paragraphs: 30))
+        #expect(repaired.turn == 1); #expect(repaired.level == .core); #expect(repaired.next == "revisit softmax")
+        #expect(repaired.concepts == [StudyNotes.Concept(name: "softmax", status: .ok, asked: [2], paras: [4])], "a repeated name keeps the newest")
+        let unknown = try #require(StudyNotes.validated(Self.json(["concepts": [["name": "A", "status": "mastered", "asked": [3, 1, 1, 0, 9_999], "paras": [40, 2, 2]]]]), paragraphs: 30))
+        #expect(unknown.concepts == [StudyNotes.Concept(name: "A", status: .new, asked: [1, 3], paras: [2])])
+        let many = try #require(StudyNotes.validated(Self.json(["concepts": (0..<20).map { ["name": "Concept \($0)", "status": "ok"] }])))
+        #expect(many.concepts.count == 12); #expect(many.concepts.first?.name == "Concept 8", "the newest twelve are kept")
+        #expect(StudyNotes.validated(Self.json([1, 2])) == nil)
+        #expect(StudyNotes.validated(Self.json(["next": String(repeating: "n", count: 300)]))?.next.unicodeScalars.count == 200)
     }
 
-    @Test func mermaidUsesSafeIdsQuotedCleanedLabelsAndStateClasses() {
-        var map = Self.sample
-        map.concepts[2] = StudyMap.Concept(id: "end", label: "End \"of\" [seq] {x} <y>", state: .known, paragraphs: [])
-        let source = map.mermaid
-        #expect(source.hasPrefix("flowchart TD\n"))
-        #expect(source.contains("s_scaling[\"Scaled dot-product attention\"]:::learning"))
-        #expect(source.contains("s_end[\"End of seq x y\"]:::known"))
-        #expect(source.contains("s_softmax --> s_scaling")); #expect(source.contains("s_scaling -.-> s_end"))
-        #expect(source.contains("style s_scaling stroke-width:3px"))
-        #expect(!source.contains("\n  end"))
-        #expect(StudyMap.empty.mermaid.contains("classDef verified"))
-    }
-
-    @Test func aStudyTurnCarriesTheMapNeedsNoSelectionAndAsksForNoFollowUps() throws {
-        let request = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: [ChatTurnInput(role: .user, text: StudyMap.startMessage())],
-                                                     selection: nil, action: .study, topicTitle: true, study: Self.sample)
-        #expect(request.action == .study); #expect(request.study == Self.sample); #expect(request.selection == nil)
+    @Test func aStudyTurnCarriesTheNotesNeedsNoSelectionAndAsksForNoFollowUps() throws {
+        let request = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: [ChatTurnInput(role: .user, text: StudyMode.opening)],
+                                                     selection: nil, action: .study, topicTitle: true, studyNotes: Self.notes)
+        #expect(request.action == .study); #expect(request.studyNotes == Self.notes); #expect(request.selection == nil)
         let body = try JSONSerialization.jsonObject(with: request.encoded()) as! [String: Any]
         #expect(body["action"] as? String == "study"); #expect(body["follow_ups"] == nil); #expect(body["topic_title"] as? Bool == true)
-        let study = body["study"] as! [String: Any]
-        #expect((study["concepts"] as! [[String: Any]]).count == 3); #expect(study["focus"] as? String == "scaling"); #expect(study["next"] as? String == "verify")
-        // The first turn sends an empty map; other actions still need their quote and carry no map.
-        let first = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: [ChatTurnInput(role: .user, text: "Start")], selection: nil, action: .study)
-        #expect(first.study == .empty)
+        #expect(body["study"] == nil, "the retired knowledge map is never sent")
+        let state = try #require(body["study_state"] as? [String: Any])
+        #expect(state["turn"] as? Int == 2); #expect(state["level"] as? String == "core")
+        #expect(((state["concepts"] as? [[String: Any]])?.first?["paras"] as? [Int]) == [3, 4])
+        // The first turn has no notes yet; other actions never carry them.
+        let first = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: [ChatTurnInput(role: .user, text: StudyMode.opening)], selection: nil, action: .study)
         let firstBody = try JSONSerialization.jsonObject(with: first.encoded()) as! [String: Any]
-        #expect(((firstBody["study"] as! [String: Any])["concepts"] as! [Any]).isEmpty)
-        let plain = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: [ChatTurnInput(role: .user, text: "x")], selection: nil, action: .relevance, study: Self.sample)
-        #expect(plain.action == nil); #expect(plain.study == nil)
-        #expect(StudyMap.startMessage(selection: "divide by sqrt(d_k)").contains("divide by sqrt(d_k)"))
-        #expect(StudyMap.startMessage(selection: "  ") == "Start studying this paper.")
+        #expect(firstBody["study_state"] == nil); #expect(firstBody["action"] as? String == "study")
+        let plain = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: [ChatTurnInput(role: .user, text: "x")], selection: nil,
+                                                   action: .relevance, studyNotes: Self.notes)
+        #expect(plain.action == nil); #expect(plain.studyNotes == nil)
+        #expect(StudyMode.entry == "Enter Study Mode – Quiz me and help me learn")
     }
 
-    @Test func parserReadsTheStudyEventAndDropsUnusableMapsAndReadsFailureCredits() throws {
+    @Test func parserReadsStudyStateAndDropsUnusableNotes() throws {
         var parser = ChatSSEParser()
-        let payload = String(decoding: Self.json(["map": Self.sampleJSON]), as: UTF8.self)
-        let events = try parser.consume(Array("event: study\ndata: \(payload)\n\n".utf8))
-        #expect(events == [.study(Self.sample)])
-        for body in ["{\"map\":{\"concepts\":[{\"id\":\"x\",\"label\":\"x\",\"state\":\"fluent\",\"paragraphs\":[]}],\"links\":[],\"journey\":[]}}", "{\"map\":\"none\"}", "{}"] {
+        let payload = String(decoding: Self.json(["state": Self.notesJSON]), as: UTF8.self)
+        #expect(try parser.consume(Array("event: study_state\ndata: \(payload)\n\n".utf8)) == [.studyState(Self.notes)])
+        for body in ["{\"state\":[1]}", "{\"state\":\"none\"}", "{}", "[]"] {
             var ignored = ChatSSEParser()
-            #expect(try ignored.consume(Array("event: study\ndata: \(body)\n\n".utf8)).isEmpty, Comment(rawValue: body))
+            #expect(try ignored.consume(Array("event: study_state\ndata: \(body)\n\n".utf8)).isEmpty, Comment(rawValue: body))
         }
+        // The retired `study` event is ignored as any unknown event.
+        var old = ChatSSEParser()
+        #expect(try old.consume(Array("event: study\ndata: {\"map\":{\"concepts\":[],\"links\":[],\"journey\":[]}}\n\n".utf8)).isEmpty)
         var failure = ChatSSEParser()
         #expect(try failure.consume(Array("event: error\ndata: {\"code\":\"provider_unavailable\",\"credits\":0}\n\n".utf8)) == [.failure(code: "provider_unavailable", credits: 0)])
-        #expect(try failure.consume(Array("event: error\ndata: {\"code\":\"provider_unavailable\",\"credits\":-1}\n\n".utf8)) == [.failure(code: "provider_unavailable", credits: nil)])
-        #expect(try failure.consume(Array("event: error\ndata: {\"code\":\"refused\"}\n\n".utf8)) == [.failure(code: "refused")])
+    }
+
+    @Test func visualSuggestionsAreTheServersPattern() {
+        for q in ["Create a diagram explaining the background of RLHF", "Draw how attention flows step by step", "Show the DPO pipeline as a visual",
+                  "Make a flowchart of the training loop", "please sketch the encoder"] { #expect(VisualFollowUp.isVisual(q), Comment(rawValue: q)) }
+        for q in ["Show how DPO compares to PPO", "What does Figure 2 show?", "Show me Figure 3", "How is the reward model trained?"] {
+            #expect(!VisualFollowUp.isVisual(q), Comment(rawValue: q))
+        }
     }
 }

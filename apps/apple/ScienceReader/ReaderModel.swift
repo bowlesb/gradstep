@@ -1019,9 +1019,11 @@ final class ReaderModel {
     private var chatStreamProgress: [UUID: ChatProgress] = [:]
     /// The newest complete answer's suggested follow-up questions per composer (memory only; the next question clears them).
     private var chatFollowUps: [UUID: (messageID: UUID, questions: [String])] = [:]
-    /// Study (ChatStudy.swift): the knowledge map per composer while its chat is a study. Memory only: never written
-    /// to this device or the cloud; a new chat or sign-out drops it.
-    private var chatStudyMaps: [UUID: StudyMap] = [:]
+    /// Study mode (ChatStudy.swift, reworked 2026-10-22): per composer while its chat is studying, the tutor's latest
+    /// hidden notes (nil before the first). Memory only: never written to this device or the cloud; a new chat, Stop or
+    /// sign-out drops it.
+    private var chatStudies: [UUID: StudySession] = [:]
+    struct StudySession: Equatable { var notes: StudyNotes? }
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     /// `prefix`: the reader completes the prompt with their own question (Ask in chat from the equation view), so the
@@ -2255,7 +2257,7 @@ final class ReaderModel {
         readerUpdates = [:]; failedHTMLOpens = []; legacyBundleFallback = []; finishedImportSources = []
         cancelDeviceModelReading(); deviceModelIssue = nil; deviceModelSummaries = [:]; deviceModelHTMLBundles = [:]
         chatProfileFetch = nil; chatProfilesRefreshing = false; chatProfileTable = nil; chatProfileTableFailed = false
-        pendingChatProfiles = [:]; chatStudyMaps = [:]; chatFollowUps = [:]; figureImageCache.removeAllObjects(); figurePartCropCache = [:]
+        pendingChatProfiles = [:]; chatStudies = [:]; chatFollowUps = [:]; figureImageCache.removeAllObjects(); figurePartCropCache = [:]
         FigureFramingRecorder.shared.clear() // the figure framing record (in memory only) leaves with the account
         let oldLibrary = libraryService; libraryService = nil; libraryContextAuthenticated = false
         Task { await oldLibrary?.invalidate() }
@@ -3917,9 +3919,9 @@ final class ReaderModel {
         let selection = pending?.quote
         let consumedSelection = pendingSelection?.composerID == submission.composerID ? pendingSelection : nil
         if consumedSelection != nil { pendingSelection = nil }
-        // While a chat is a study, every message is the reader's answer to the tutor (a selection action still acts).
-        let studyMap = chatStudyMaps[submission.composerID]
-        let action = pending?.action ?? (studyMap != nil ? ChatAction.study : nil)
+        // While a chat is studying, every message is the reader's answer to the tutor (a selection action still acts).
+        let study = chatStudies[submission.composerID]
+        let action = pending?.action ?? (study != nil ? ChatAction.study : nil)
         // A remote user message is not a local scrolling action. Capture the
         // accepted submit gesture before saving, scoped to its own composer.
         chatFollowRequest = ChatFollowRequest(composerID: submission.composerID)
@@ -3969,7 +3971,7 @@ final class ReaderModel {
                 requestAnswer(for: ChatAnswerTurn(sessionID: scope, accountID: device.accountID, deviceID: device.deviceID,
                     composerID: submission.composerID, conversationID: submission.conversationID, documentID: documentID,
                     userMessageID: question, selection: selection, action: action, profile: chosenProfile, paperReference: reference,
-                    study: action == .study ? studyMap ?? .empty : nil, localModelID: chosenLocalModel), state: snapshot.state)
+                    studyNotes: action == .study ? study?.notes : nil, localModelID: chosenLocalModel), state: snapshot.state)
             }
         } catch {
             if sessionID == scope {
@@ -4303,18 +4305,75 @@ final class ReaderModel {
     /// Settings shows them: every sealed answer is opened, so not on every change).
     private(set) var keptEquationExplanations: [ExplanationSubject] = []
     private(set) var keptFigureExplanations: [ExplanationSubject] = []
+    /// The paper's AI Explainer answers kept here (2026-10-22): each paper once, newest first.
+    private(set) var keptPaperExplanations: [ExplanationSubject] = []
     func refreshKeptExplanations() async {
-        let equations = equationResultStore(), figures = figureResultStore()
-        let (equationSubjects, figureSubjects) = await Task.detached(priority: .utility) {
+        let equations = equationResultStore(), figures = figureResultStore(), explainers = paperExplainerResultStore()
+        let (equationSubjects, figureSubjects, paperSubjects) = await Task.detached(priority: .utility) {
             // An older build's "Extract the subfigure" answers (`figure_detail`, removed 2026-10-21) are not listed.
             (equations?.all(as: EquationAnswer.self).compactMap(\.subject) ?? [],
-             figures?.all(as: FigureAnswer.self).compactMap(\.subject).filter { FigureAnswer.isShownFigureAction($0.action) } ?? [])
+             figures?.all(as: FigureAnswer.self).compactMap(\.subject).filter { FigureAnswer.isShownFigureAction($0.action) } ?? [],
+             explainers?.all(as: PaperExplainerAnswer.self).compactMap(\.subject) ?? [])
         }.value
         let distinct = { (subjects: [ExplanationSubject]) -> [ExplanationSubject] in
             var seen = Set<String>()
             return subjects.sorted { $0.savedAt > $1.savedAt }.filter { seen.insert("\($0.paperID.wire)/\($0.itemID)").inserted }
         }
         keptEquationExplanations = distinct(equationSubjects); keptFigureExplanations = distinct(figureSubjects)
+        keptPaperExplanations = distinct(paperSubjects)
+    }
+
+    // MARK: The paper's AI Explainer (2026-10-22; docs/proposals/LEARNING_GUIDE.md "Paper AI Explainer")
+
+    /// The paper as its explainer needs it: its bundle and the numbered paper the request carries (nil when it isn't an
+    /// arXiv paper on this device).
+    func paperExplainerContext(paperID: UUID) -> PaperExplainerContext? {
+        guard let paper = papers.first(where: { $0.id == paperID }) ?? (selectedPaper?.id == paperID ? selectedPaper : nil),
+              let bundle = paper.readerBundle else { return nil }
+        return PaperExplainerContext(paperID: paper.id, title: paper.title, bundle: bundle, localContext: figureLocalContext(paper, bundle: bundle))
+    }
+    /// Whether Paper › … offers AI Explainer: an arXiv paper numbered on this device.
+    func canExplainPaper(_ paper: Paper) -> Bool { paper.readerBundle.map { figureLocalContext(paper, bundle: $0) != nil } ?? false }
+
+    /// A kept explainer: the exact one (paper revision and model), else the newest kept for that paper revision.
+    func paperExplainerAnswer(_ key: PaperExplainerKey) -> PaperExplainerAnswer? {
+        if let kept = paperExplainerAnswers[key] { return kept }
+        let store = paperExplainerResultStore()
+        let stored = store?.read(key, as: PaperExplainerAnswer.self)
+            ?? (key.localModel == nil ? store?.all(as: PaperExplainerAnswer.self).first { $0.subject?.manifestSHA256 == key.manifestSHA256 && $0.model?.hasPrefix("local/") != true } : nil)
+        if let stored { paperExplainerAnswers[key] = stored }
+        return stored
+    }
+    func keepPaperExplainerAnswer(_ answer: PaperExplainerAnswer, for key: PaperExplainerKey) {
+        var answer = answer
+        if answer.subject == nil {
+            answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: "paper", action: .paperExplainer) { _ in "AI Explainer" }
+        }
+        paperExplainerAnswers[key] = answer
+        try? paperExplainerResultStore()?.write(answer, for: key)
+    }
+    private func paperExplainerResultStore() -> EquationResultStore? {
+        if let paperExplainerStore { return paperExplainerStore }
+        guard let configuration, let device, let accountID, device.accountID == accountID,
+              let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
+        let directory = base.appendingPathComponent("\(configuration.environment)/\(accountID.wire)/paper-answers", isDirectory: true)
+        #if DEBUG && FIXTURE_HOST
+        if ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture") { try? FileManager.default.removeItem(at: directory) }
+        #endif
+        paperExplainerStore = try? EquationResultStore(directory: directory, accountID: accountID, localKey: device.localStoreKey)
+        return paperExplainerStore
+    }
+    /// Paper › … › AI Explainer: the kept explainer at once; otherwise the model is chosen first (`requesting`).
+    func openPaperExplainer(_ paper: Paper, requesting: Bool) {
+        guard let bundle = paper.readerBundle else { return }
+        presentedExplainer = ExplanationPresentation(subject: ExplanationSubject(paperID: paper.id, paperTitle: paper.title,
+            manifestSHA256: bundle.manifestSHA256, itemID: "paper", label: "AI Explainer", action: ChatAction.paperExplainer.rawValue, savedAt: Date()),
+            requesting: requesting)
+    }
+    /// Whether this paper revision has a kept explainer (any cloud model).
+    func hasPaperExplainer(_ paper: Paper) -> Bool {
+        guard let bundle = paper.readerBundle else { return false }
+        return paperExplainerAnswer(PaperExplainerKey(manifestSHA256: bundle.manifestSHA256, profile: equationProfile)) != nil
     }
 
     /// Opening a kept explanation: its paper opens as any paper does, then the paper's view shows the equation or figure
@@ -4361,31 +4420,57 @@ final class ReaderModel {
     }
 
 
-    // MARK: Study (experimental, 2026-10-14)
+    // MARK: Study mode (reworked 2026-10-22; docs/proposals/LEARNING_GUIDE.md)
 
     /// Study needs the paper numbered on this device (its HTML reader bundle), as the server's tutor cites [¶N].
     var canStudyPaper: Bool {
         guard !generalChat, let paper = chatPaper, let reference = paper.sourceMembership else { return false }
         return papers.first(where: { $0.sourceMembership == reference })?.readerBundle != nil
     }
-    /// The shown chat's knowledge map while it is a study; nil otherwise.
-    var chatStudyMap: StudyMap? { chatComposerID.flatMap { chatStudyMaps[$0] } }
-    /// Starts a study in the shown chat: an empty map and the opening turn, sent as the reader's message (words
-    /// already in the message box open the study instead, so nothing typed is lost).
+    /// Whether the shown chat is studying (the study row above the message box, "Your answer").
+    var chatStudying: Bool { chatComposerID.map { chatStudies[$0] != nil } ?? false }
+    /// The tutor's latest notes for the shown chat (tests and diagnostics; never shown).
+    var chatStudyNotes: StudyNotes? { chatComposerID.flatMap { chatStudies[$0]?.notes } }
+    /// Enter Study Mode (the suggestion, the starter row or the chat's ⋯): the opening turn is sent at once, with the
+    /// selected passage when there is one (words already in the message box are sent instead, so nothing typed is lost).
     func startStudy() async {
-        guard canStudyPaper, !isGenerating, !isAnswering else { return }
-        if chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { chatInput = StudyMap.startMessage() }
+        guard canStudyPaper, !isGenerating, !isAnswering, !chatStudying else { return }
+        let typed = !chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !typed {
+            // A passage waiting with an empty prompt goes with the opening turn.
+            if var waiting = pendingSelection, waiting.composerID == chatComposerID,
+               waiting.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || waiting.prompt == chatInput {
+                waiting.prompt = StudyMode.opening; waiting.action = nil; waiting.prefix = false
+                pendingSelection = waiting
+            }
+            chatInput = StudyMode.opening
+        }
         // The composer exists once the context has a draft.
         guard let composer = chatComposerID else { return }
-        chatStudyMaps[composer] = .empty
+        chatStudies[composer] = StudySession(notes: nil)
         await sendMessage()
         // Nothing left the device (the draft is still here, no turn awaits consent or an answer): no study either.
-        if chatStudyMaps[composer] != nil, chatGenerations[composer] == nil, chatAnswerIssues[composer] == nil, chatConsentPrompt == nil, !chatInput.isEmpty {
-            chatStudyMaps[composer] = nil
+        if chatStudies[composer] != nil, chatGenerations[composer] == nil, chatAnswerIssues[composer] == nil, chatConsentPrompt == nil, !chatInput.isEmpty {
+            chatStudies[composer] = nil
         }
     }
-    /// Ends the study: the chat goes on as an ordinary paper chat; the map is dropped (it was never stored).
-    func endStudy() { if let composer = chatComposerID { chatStudyMaps[composer] = nil } }
+    /// Hint or Explain instead (the study row): sent at once as the reader's turn.
+    func sendStudyReply(_ text: String) async {
+        guard chatStudying, !isGenerating, !isAnswering else { return }
+        chatInput = text
+        await sendMessage()
+    }
+    /// Stop: the chat goes on as an ordinary paper chat; nothing is sent and the notes are dropped (never stored).
+    func endStudy() { if let composer = chatComposerID { chatStudies[composer] = nil } }
+    /// What the newest answer suggests under it (paper chats): the model's questions, then Enter Study Mode when a study
+    /// can start here (LEARNING_GUIDE.md: always offered, not dependent on the model's suggestions). Never beside a tutor
+    /// turn, and never while an answer is on its way.
+    var chatSuggestions: [String] {
+        guard visibleGeneration == nil, !chatStudying, let last = chatMessages.last, last.payload.role == .assistant,
+              last.payload.status == .complete else { return [] }
+        let offered = chatFollowUpQuestions
+        return canStudyPaper && localAIModelID == nil ? offered + [StudyMode.entry] : offered
+    }
 
     /// A tapped follow-up becomes the message; nothing is sent until the reader does.
     func useFollowUp(_ question: String) {
@@ -4627,7 +4712,7 @@ final class ReaderModel {
             request = try ChatGenerationRequest.make(operationID: UUID(), documentID: localContext == nil ? turn.documentID : (turn.paperReference == nil ? nil : turn.documentID),
                                                      transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
-                                                     study: turn.study, visualAnswers: visualAnswers, figures: figures)
+                                                     studyNotes: turn.studyNotes, visualAnswers: visualAnswers, figures: figures)
             }
         } catch ChatTransportError.rejected(let code) {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: code)
@@ -4669,7 +4754,7 @@ final class ReaderModel {
                                choice: ConversationBranchSelections.Choice) async {
         var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?, visual: (title: String, html: String)?
         var figureParts: ChatFigureParts?, figureRequest: String?
-        var title: String?, followUps: [String]?, studyMap: StudyMap?, failedCredits: Int?, doneCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
+        var title: String?, followUps: [String]?, studyNotes: StudyNotes?, failedCredits: Int?, doneCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
         // the HTTP request before any local sealing work begins.
@@ -4690,9 +4775,9 @@ final class ReaderModel {
                 case .figureRequest(let label): figureRequest = label
                 case .title(let topic): title = topic
                 case .followUps(let questions): followUps = questions
-                case .study(let map): studyMap = map
-                // The equation and figure views' own events; an ordinary answer never gets them.
-                case .equation, .figure, .figureProgress, .figureSummary, .figureSection: break
+                case .studyState(let notes): studyNotes = notes
+                // The explainers' own events; an ordinary answer never gets them.
+                case .equation, .figure, .figureProgress, .figureSummary, .figureSection, .paperProgress, .paperSummary, .paperItem, .paperExplainer: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits
@@ -4729,7 +4814,7 @@ final class ReaderModel {
         // that figure; the first answer was only the request and is not kept.
         if let label = figureRequest, request.figures.isEmpty, case .completed? = outcome,
            let found = requestedFigures(label, turn: generation.turn) {
-            text = ""; diagram = nil; visual = nil; figureParts = nil; followUps = nil; studyMap = nil; outcome = nil; figureRequest = nil
+            text = ""; diagram = nil; visual = nil; figureParts = nil; followUps = nil; studyNotes = nil; outcome = nil; figureRequest = nil
             bufferAnswer(generation, text: "")
             chatStreamProgress[generation.id] = ChatProgress(kind: .lookingAtFigure, query: label)
             let second = request.attaching(found.images)
@@ -4755,7 +4840,7 @@ final class ReaderModel {
         }
         labelled.answeredModel = answered.model; labelled.answeredProfile = answered.profile
         await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, visual: visual, figureParts: figureParts, title: title, followUps: followUps,
-                               study: studyMap, failedCredits: failedCredits)
+                               study: studyNotes, failedCredits: failedCredits)
     }
 
     /// Diagrams are checked with the bundled Mermaid before they are kept (2026-10-07). One that doesn't parse is sent
@@ -4811,7 +4896,7 @@ final class ReaderModel {
         let generation: ChatGeneration, text: String, status: PrivateEvent.TurnStatus, outcome: ChatGenerationOutcome
         let choice: ConversationBranchSelections.Choice
         let diagram: (title: String, source: String)?, visual: (title: String, html: String)?, figureParts: ChatFigureParts?
-        let title: String?, followUps: [String]?, study: StudyMap?, failedCredits: Int?
+        let title: String?, followUps: [String]?, study: StudyNotes?, failedCredits: Int?
     }
 
     /// Try again after a failed local save: the same answer is saved again (shown as in progress meanwhile), never
@@ -4841,7 +4926,7 @@ final class ReaderModel {
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
                                   choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil,
                                   visual: (title: String, html: String)? = nil, figureParts: ChatFigureParts? = nil,
-                                  title: String? = nil, followUps: [String]? = nil, study: StudyMap? = nil, failedCredits: Int? = nil,
+                                  title: String? = nil, followUps: [String]? = nil, study: StudyNotes? = nil, failedCredits: Int? = nil,
                                   resealing: Bool = false) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
@@ -4879,9 +4964,9 @@ final class ReaderModel {
         chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil; chatStreamProgress[generation.id] = nil
         // Suggestions belong to a complete, kept answer only.
         chatFollowUps[generation.turn.composerID] = resolution.status == .complete && issue == nil ? followUps.map { (generation.assistantID, $0) } : nil
-        // The map advances only with a complete tutored answer; a failed or interrupted one keeps the previous map.
-        if generation.turn.action == .study, resolution.status == .complete, issue == nil, let study, chatStudyMaps[generation.turn.composerID] != nil {
-            chatStudyMaps[generation.turn.composerID] = study
+        // The notes advance only with a complete tutored answer; a failed or interrupted one keeps the previous notes.
+        if generation.turn.action == .study, resolution.status == .complete, issue == nil, let study, chatStudies[generation.turn.composerID] != nil {
+            chatStudies[generation.turn.composerID] = StudySession(notes: study)
         }
         if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits) }
         // A repeated save asked the server for nothing: the balance and library refreshes already ran.
@@ -4951,7 +5036,7 @@ final class ReaderModel {
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]; chatInterruptionNotes = [:]
         chatAnswerIssues = [:]; unsavedAnswers = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
-        storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; figureAnswers = [:]; figureStore = nil; pendingFigureOutcome = nil; keptEquationFiles = nil; keptFigureFiles = nil; keptEquationExplanations = []; keptFigureExplanations = []; pendingExplanation = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; figureAnswers = [:]; figureStore = nil; paperExplainerAnswers = [:]; paperExplainerStore = nil; keptPaperExplanations = []; pendingFigureOutcome = nil; keptEquationFiles = nil; keptFigureFiles = nil; keptEquationExplanations = []; keptFigureExplanations = []; pendingExplanation = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         recommendation?.task?.cancel(); recommendation = nil; showRecommendations = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
@@ -5039,6 +5124,9 @@ final class ReaderModel {
     @ObservationIgnored private var keptFigureFiles: [String: String]?
     @ObservationIgnored private var figureAnswers: [FigureResultKey: FigureAnswer] = [:]
     @ObservationIgnored private var figureStore: EquationResultStore?
+    /// The paper's AI Explainer answers this session (sealed copies on disk, folder `paper-answers`).
+    @ObservationIgnored private var paperExplainerAnswers: [PaperExplainerKey: PaperExplainerAnswer] = [:]
+    @ObservationIgnored private var paperExplainerStore: EquationResultStore?
     /// What a figure page asked for as it closed (FigureViewOutcome), applied by its container once the sheet has gone.
     @ObservationIgnored var pendingFigureOutcome: FigureViewOutcome?
     private(set) var operatorRoles: [String] = []
@@ -5811,6 +5899,8 @@ extension ReaderModel {
     struct ExplanationPresentation: Identifiable {
         let id = UUID()
         let subject: ExplanationSubject
+        /// The paper's explainer: ask for it on opening (its model was just chosen); a kept one or a return shows as kept.
+        var requesting = false
     }
     struct PromotedChatContext {
         let label: String, text: String, quote: String
@@ -5825,11 +5915,11 @@ extension ReaderModel {
     }
     var promotedChatContext: PromotedChatContext? { chatComposerID.flatMap { promotedChatContexts[$0] } }
 
-    func rememberExplainer(paperID: UUID, manifest: String, item: String, label: String, equation: Bool) {
+    func rememberExplainer(paperID: UUID, manifest: String, item: String, label: String, equation: Bool, action: String? = nil) {
         // One way back at a time: the explainer the reader just left, not an older chat (build 73).
         returnToChatAvailable = false
         explainerReturn = ExplanationSubject(paperID: paperID, paperTitle: selectedPaper?.title ?? "",
-            manifestSHA256: manifest, itemID: item, label: label, action: equation ? "equation" : "figure", savedAt: Date(), localModelID: localAIModelID)
+            manifestSHA256: manifest, itemID: item, label: label, action: action ?? (equation ? "equation" : "figure"), savedAt: Date(), localModelID: localAIModelID)
     }
     func returnToExplainer() {
         guard let subject = explainerReturn,

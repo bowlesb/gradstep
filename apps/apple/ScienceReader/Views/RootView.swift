@@ -1025,9 +1025,9 @@ struct ChatView: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                 .readableColumn()
             }
-            // Study (experimental, 2026-10-14): the knowledge map sits above the message box while the chat is a study.
-            if let map = model.chatStudyMap {
-                StudyMapBar(model: model, map: map).readableColumn()
+            // Study mode (2026-10-22): one slim row above the message box while the chat is studying.
+            if model.chatStudying {
+                StudyModeRow(model: model) { composerFocused = false }.readableColumn()
             }
             if let issue = model.chatDraftIssue {
                 HStack {
@@ -1183,12 +1183,12 @@ struct ChatView: View {
                     Label { Text("Answer options…"); Text(ChatProfileText.summary(model.chatProfile, table: model.chatProfileTable)) }
                         icon: { Image(systemName: "slider.horizontal.3") }
                 }.accessibilityIdentifier("chat.profile")
-                // Study (experimental, 2026-10-14): the tutor.
-                if model.chatStudyMap != nil {
-                    MenuRow("End study mode", systemImage: "graduationcap") { model.endStudy() }
+                // Study mode (reworked 2026-10-22): a tutor that quizzes you and explains when you need it.
+                if model.chatStudying {
+                    MenuRow("End study mode", systemImage: "graduationcap") { model.endStudy() }.accessibilityIdentifier("chat.study.end")
                 } else if model.canStudyPaper {
                     Button { composerFocused = false; Task { await model.startStudy() } } label: {
-                        Label { Text("Study mode"); Text("A tutor asks, teaches and maps what you know") } icon: { Image(systemName: "graduationcap") }
+                        Label { Text("Study mode"); Text("Quiz me and help me learn") } icon: { Image(systemName: "graduationcap") }
                     }.accessibilityIdentifier("chat.study.start")
                 }
             }
@@ -1401,6 +1401,10 @@ struct SettingsView: View {
                     NavigationLink { KeptExplanationsView(model: model, kind: .figures) } label: {
                         LabeledContent("Figure explanations", value: Self.count(model.keptFigureExplanations.count))
                     }.accessibilityIdentifier("settings.figureExplanations")
+                    // The paper's AI Explainer (2026-10-22, LEARNING_GUIDE.md): "Saved per paper like other explanations".
+                    NavigationLink { KeptExplanationsView(model: model, kind: .papers) } label: {
+                        LabeledContent("Paper explanations", value: Self.count(model.keptPaperExplanations.count))
+                    }.accessibilityIdentifier("settings.paperExplanations")
                     // Owner, build 59: "a downloaded papers section… that will allow you to delete them".
                     NavigationLink { DownloadedPapersView(model: model) } label: {
                         let bytes = model.downloadedPapers.reduce(0) { $0 + $1.totalBytes }
@@ -1911,7 +1915,7 @@ private struct ChatComposerBox: View {
 
     var body: some View {
         let keyboardUp = focused.wrappedValue && UIDevice.current.userInterfaceIdiom == .phone
-        let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
+        let prompt = model.chatStudying ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
         VStack(alignment: .leading, spacing: 2) {
             TextField(prompt, text: $model.chatInput, axis: .vertical)
                 .focused(focused).accessibilityIdentifier("chat.composer")

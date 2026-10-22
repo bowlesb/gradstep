@@ -378,10 +378,11 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertTrue(failed.retryable); XCTAssertEqual(failed.actionTitle, "Try again")
     }
 
-    /// Study (experimental, 2026-10-14): a tutored chat on a paper numbered on this device. The opening turn carries
-    /// an empty map; each answer sends the map back; a complete tutored answer advances it; a failed one keeps it;
-    /// ending the study keeps the conversation and drops the map, which is never saved.
-    func testStudySendsTheMapWithEveryTurnAdvancesItOnCompleteAnswersOnlyAndEndsWithoutATrace() async throws {
+    /// Study mode (reworked 2026-10-22): a tutored chat on a paper numbered on this device. Enter Study Mode sends the
+    /// opening turn at once with no notes; each answer sends back the tutor's latest hidden notes; a complete tutored answer
+    /// advances them, a failed one keeps them; Hint and Explain instead are sent as the reader's turns; Stop keeps the
+    /// conversation, sends nothing and drops the notes, which are never saved. The suggestions offer Study Mode.
+    func testStudyModeSendsTheNotesBackAdvancesThemOnCompleteAnswersOnlyAndStopsWithoutATrace() async throws {
         let (model, transport) = try await makeModel(consented: true)
         // The paper numbered on this device: the shared arXiv HTML fixture, as its membership.
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -392,40 +393,46 @@ final class ChatGenerationTests: XCTestCase {
         paper.sourceID = "2601.01234"; paper.sourceRevision = 2; paper.sourceMembership = reference
         let numbered = paper.displaying(bundle)
         model.papers.append(numbered); model.selectedPaper = numbered; model.chatPaperID = numbered.id; model.generalChat = false
-        XCTAssertTrue(model.canStudyPaper); XCTAssertNil(model.chatStudyMap)
-        let first = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .learning, paragraphs: [2])], links: [], focus: "attention", journey: ["attention"], next: .calibrate)
-        let grown = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .known, paragraphs: [2]), StudyMap.Concept(id: "softmax", label: "Softmax", state: .learning, paragraphs: [2])],
-                             links: [StudyMap.Link(from: "softmax", to: "attention", kind: .prerequisite)], focus: "softmax", journey: ["attention", "softmax"], next: .teach)
+        XCTAssertTrue(model.canStudyPaper); XCTAssertFalse(model.chatStudying)
+        let first = StudyNotes(turn: 1, level: .core, concepts: [StudyNotes.Concept(name: "Attention", status: .new, asked: [1], paras: [2])], next: "check attention")
+        let grown = StudyNotes(turn: 2, level: .intro, concepts: [StudyNotes.Concept(name: "Attention", status: .shaky, asked: [1, 2], paras: [2])], next: "explain softmax")
         await model.startStudy()
         try await waitUntil("opening turn issued") { transport.requests.count == 1 }
         let opening = transport.requests[0]
-        XCTAssertEqual(opening.action, .study); XCTAssertEqual(opening.study, .empty); XCTAssertNotNil(opening.localContext); XCTAssertNil(opening.selection)
-        XCTAssertEqual(opening.turns.last?.text, StudyMap.startMessage())
-        XCTAssertEqual(model.chatStudyMap, .empty, "the study starts with an empty map")
-        transport.send(.delta("**What does attention compute?**"), .study(first), .done(stopReason: "end_turn", credits: 4))
+        XCTAssertEqual(opening.action, .study); XCTAssertNil(opening.studyNotes); XCTAssertNotNil(opening.localContext); XCTAssertNil(opening.selection)
+        XCTAssertEqual(opening.turns.last?.text, StudyMode.opening)
+        XCTAssertTrue(model.chatStudying)
+        transport.send(.delta("**What does attention compute?**"), .studyState(first), .done(stopReason: "end_turn", credits: 2))
         try await waitUntil("answer sealed") { !model.isAnswering }
-        XCTAssertEqual(model.chatStudyMap, first)
-        XCTAssertEqual(model.chatFollowUpQuestions, [], "the tutor asks its own question")
-        // The reader's answer carries the current map; a failed answer leaves it unchanged, with its cost shown.
+        XCTAssertEqual(model.chatStudyNotes, first)
+        XCTAssertEqual(model.chatSuggestions, [], "no suggestions beside a tutor turn")
+        XCTAssertFalse(model.chatMessages.contains { ($0.payload.text ?? "").contains("check attention") }, "the notes are never in the conversation")
+        // The reader's answer carries the notes; a failed answer leaves them unchanged, with its cost shown.
         model.chatInput = "A weighted sum of the values."
         await model.sendMessage()
         try await waitUntil("answer turn issued") { transport.requests.count == 2 }
-        XCTAssertEqual(transport.requests[1].action, .study); XCTAssertEqual(transport.requests[1].study, first)
-        // The provider never started: nothing to keep, nothing charged, and the question can be asked again.
-        transport.send(.study(grown), .failure(code: "provider_unavailable", credits: 0))
+        XCTAssertEqual(transport.requests[1].action, .study); XCTAssertEqual(transport.requests[1].studyNotes, first)
+        transport.send(.studyState(grown), .failure(code: "provider_unavailable", credits: 0))
         try await waitUntil("failed") { !model.isAnswering }
-        XCTAssertEqual(model.chatStudyMap, first, "a failed answer keeps the previous map")
+        XCTAssertEqual(model.chatStudyNotes, first, "a failed answer keeps the previous notes")
         XCTAssertEqual(model.chatAnswerIssue?.code, "provider_unavailable"); XCTAssertEqual(model.chatAnswerIssue?.credits, 0)
         model.retryAnswer()
         try await waitUntil("retry issued") { transport.requests.count == 3 }
-        XCTAssertEqual(transport.requests[2].study, first, "a retry sends the same map")
-        transport.send(.delta("Right. **Next?**"), .study(grown), .done(stopReason: "end_turn", credits: 4))
-        try await waitUntil("retry sealed") { !model.isAnswering && model.chatStudyMap == grown }
-        // Nothing of the map was saved: the history holds the messages only.
-        XCTAssertFalse(model.chatMessages.contains { ($0.payload.text ?? "").contains("Softmax") })
+        XCTAssertEqual(transport.requests[2].studyNotes, first, "a retry sends the same notes")
+        transport.send(.delta("Partly. **Next?**"), .studyState(grown), .done(stopReason: "end_turn", credits: 2))
+        try await waitUntil("retry sealed") { !model.isAnswering && model.chatStudyNotes == grown }
+        // Hint: sent at once as the reader's turn, with the notes.
+        await model.sendStudyReply(StudyMode.hint)
+        try await waitUntil("hint issued") { transport.requests.count == 4 }
+        XCTAssertEqual(transport.requests[3].turns.last?.text, StudyMode.hint); XCTAssertEqual(transport.requests[3].studyNotes, grown)
+        transport.send(.delta("Hint: think of weights. **Again?**"), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("hint answered") { !model.isAnswering }
+        XCTAssertEqual(model.chatStudyNotes, grown, "an answer without notes keeps the previous ones")
         model.endStudy()
-        XCTAssertNil(model.chatStudyMap)
-        XCTAssertEqual(model.chatMessages.count, 4, "the conversation stays")
+        XCTAssertFalse(model.chatStudying); XCTAssertNil(model.chatStudyNotes)
+        XCTAssertEqual(model.chatMessages.count, 6, "the conversation stays")
+        // Once stopped, the newest answer offers Study Mode again among the suggestions.
+        XCTAssertEqual(model.chatSuggestions, [StudyMode.entry])
         // A paper without its reader on this device is not offered a study.
         model.generalChat = true
         XCTAssertFalse(model.canStudyPaper)
@@ -900,14 +907,14 @@ final class ChatGenerationTests: XCTestCase {
 
     /// The real check: the bundled Mermaid's parser in an off-screen web view.
     func testTheBundledMermaidParserChecksDiagrams() async throws {
-        // Study (2026-10-14): the knowledge map's flowchart (state classes, link styles, the focus border) is valid
-        // Mermaid for the bundled renderer, labels with Mermaid syntax characters included.
-        let map = StudyMap(concepts: [StudyMap.Concept(id: "scaling", label: "Scaled dot-product attention (QK^T)", state: .learning, paragraphs: [2]),
-            StudyMap.Concept(id: "softmax", label: "Softmax \"saturation\" [large logits]", state: .unknown, paragraphs: [2]), StudyMap.Concept(id: "end", label: "End of sequence", state: .verified, paragraphs: [])],
-            links: [StudyMap.Link(from: "softmax", to: "scaling", kind: .prerequisite), StudyMap.Link(from: "scaling", to: "end", kind: .deeper), StudyMap.Link(from: "end", to: "softmax", kind: .related)],
-            focus: "scaling", journey: ["scaling", "softmax"], next: .teach)
-        if case .invalid(let error) = await MermaidCheck.check(map.mermaid) { XCTFail("The knowledge map must draw: \(error)") }
-        if case .invalid(let error) = await MermaidCheck.check(StudyMap.empty.mermaid) { XCTFail("An empty map must draw: \(error)") }
+        // The paper's AI Explainer (2026-10-22): its diagram (background and idea classes, labelled and unlabelled arrows,
+        // a node id that is a Mermaid keyword, labels with syntax characters) is valid Mermaid for the bundled renderer.
+        let explainer = PaperExplainer(summary: "S.", background: [
+            .init(id: "b1", name: "KL \"divergence\" [D_KL(p || q)] {with} <brackets>; #hash `tick`", line: "", paragraphs: []),
+            .init(id: "end", name: "End of sequence", line: "", paragraphs: [])],
+            ideas: [.init(id: "multi-head", name: "Multi-head attention (QK^T)", line: "", paragraphs: [])],
+            links: [.init(from: "b1", to: "multi-head", label: "is \"used\" | by (sometimes)"), .init(from: "end", to: "multi-head", label: "")])
+        if case .invalid(let error) = await MermaidCheck.check(explainer.mermaid) { XCTFail("The explainer's diagram must draw: \(error)") }
         let valid = await MermaidCheck.check("flowchart TD\n A[\"Input (x)\"] --> B[Encoder]\n B --> C[Loss]")
         XCTAssertEqual(valid, .valid)
         let broken = await MermaidCheck.check("flowchart TD\n A[Input (x)] --> B[Encoder]")

@@ -459,6 +459,11 @@ struct PaperView: View {
                             }
                         }
                         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
+                        // The paper's AI Explainer (2026-10-22, LEARNING_GUIDE.md): an arXiv paper numbered on this device.
+                        if let paper = model.selectedPaper, model.canExplainPaper(paper) {
+                            MenuRow("AI Explainer", systemImage: "sparkles") { model.openPaperExplainer(paper, requesting: false) }
+                                .accessibilityIdentifier("paper.aiExplainer").disabled(readerFailed || loadingPaper)
+                        }
                         if let paper = model.selectedPaper {
                             PodcastListenMenuRow(model: model, paper: paper)
                             PaperShareMenu(paper: paper)
@@ -512,7 +517,16 @@ struct PaperView: View {
                 if let outcome = equationFollowUp { equationFollowUp = nil; model.applyEquationOutcome(outcome) }
             }) { presentation in
                 let subject = presentation.subject
-                if subject.action == "equation" {
+                if subject.action == ChatAction.paperExplainer.rawValue, let context = model.paperExplainerContext(paperID: subject.paperID) {
+                    NavigationStack {
+                        PaperExplainView(model: model, context: context, requesting: presentation.requesting, finish: { outcome in
+                            model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
+                        }, close: { model.presentedExplainer = nil })
+                    }
+                    // The Mac's sheet opens at a reading size (its default is too small for the lists and the diagram).
+                    .frame(minWidth: Platform.isMac ? 680 : nil, minHeight: Platform.isMac ? 640 : nil)
+                    .macSheetKeys()
+                } else if subject.action == "equation" {
                     EquationView(model: model, request: EquationViewRequest(paperID: subject.paperID, equationID: subject.itemID)) { outcome in
                         equationFollowUp = outcome; model.presentedExplainer = nil
                     }
@@ -605,7 +619,10 @@ struct PaperView: View {
             guard !Task.isCancelled, model.pendingExplanation == subject else { return }
             model.pendingExplanation = nil
             let earlier = "This explanation was made for an earlier copy of this paper. Open the \(subject.action.hasPrefix("equation") ? "equation" : "figure") to explain it again."
-            if subject.action.hasPrefix("equation") {
+            if subject.action == ChatAction.paperExplainer.rawValue {
+                // A paper's explainer: kept per paper revision; an earlier revision's shows nothing kept and offers to ask.
+                model.openPaperExplainer(paper, requesting: false)
+            } else if subject.action.hasPrefix("equation") {
                 if bundle.index.equations.contains(where: { $0.id == subject.itemID }) { equation = EquationViewRequest(paperID: paper.id, equationID: subject.itemID) }
                 else { model.error = earlier }
             } else if model.figureContext(paperID: paper.id, figureID: subject.itemID) != nil { figure = subject.itemID }
@@ -719,7 +736,8 @@ struct PaperView: View {
                 HStack(spacing: 8) {
                     if explainerBack, let subject = model.explainerReturn {
                         Button { model.returnToExplainer() } label: {
-                            Label("Back to \(subject.label.hasPrefix("Table") ? "Table" : subject.action == "equation" ? "Equation" : "Figure") Explainer", systemImage: "arrow.uturn.backward")
+                            Label(subject.action == ChatAction.paperExplainer.rawValue ? "Back to AI Explainer"
+                                  : "Back to \(subject.label.hasPrefix("Table") ? "Table" : subject.action == "equation" ? "Equation" : "Figure") Explainer", systemImage: "arrow.uturn.backward")
                                 .font(.subheadline.weight(.semibold)).padding(.horizontal, 12).frame(minHeight: 44)
                         }.modifier(ReaderControlMaterial()).accessibilityIdentifier("reader.explainer.back")
                     } else if back { citationBackButton; citationDismissButton }
