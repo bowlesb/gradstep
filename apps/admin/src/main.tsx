@@ -44,7 +44,7 @@ function fromHash(): { tab: string | null; days: number } {
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountContext | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => oauthReturnError());
   const [tab, setTab] = useState(() => fromHash().tab ?? 'Health');
   const [healthDays, setHealthDays] = useState(() => fromHash().days);
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -197,7 +197,28 @@ function SignIn({ error, setError }: { error: string; setError: (text: string) =
     {error && <p className="error" role="alert">{error}</p>}
     {!backend && <p className="muted">This build needs its backend configuration before sign-in is available.</p>}
     <button type="submit" disabled={busy || !backend}>{busy ? 'Signing in…' : 'Sign in'}</button>
+    <p className="muted">Account made with Google or Apple? Continue with the Google account for the same address (Apple sign-in isn't set up for websites yet).</p>
+    <button type="button" className="quiet" disabled={busy || !backend} onClick={() => void oauth()}>Continue with Google</button>
   </form></div>;
+
+  // The reader app's Google sign-in (PKCE; supabase-js exchanges the returned code on load). A provider signs in to the same
+  // account when it uses the same verified address; two-factor authentication follows as for a password.
+  async function oauth() {
+    if (!backend) return; setBusy(true); setError('');
+    const result = await backend.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+    if (result.error) { setError('Google sign-in could not start. Try again.'); setBusy(false); }
+  }
+}
+
+/** A provider's refusal returned in the address (removed once read), in plain words. */
+export function oauthReturnError(): string {
+  const query = new URLSearchParams(window.location.search), fragment = new URLSearchParams(window.location.hash.slice(1));
+  const error = query.get('error') ?? fragment.get('error');
+  if (!error) return '';
+  window.history.replaceState(null, '', window.location.pathname);
+  const description = query.get('error_description') ?? fragment.get('error_description') ?? '';
+  if (/invitation|signup/i.test(description)) return 'This address has no Gradstep account. Use the address your reader account uses.';
+  return 'Sign-in was not completed. Try again.';
 }
 
 function TwoFactor({ onVerified }: { onVerified: () => Promise<void> }) {

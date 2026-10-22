@@ -556,7 +556,7 @@ check('auth.browser', { title: 'Hosted OAuth has the browser URL and web-capable
   const redirects = String(config.uri_allow_list ?? '').split(',').map(value => value.trim()).filter(Boolean);
   const problems = [];
   if (config.site_url !== 'https://app.gradstep.ai') problems.push(`site_url=${String(config.site_url ?? 'missing')}`);
-  for (const value of ['sciencereader://auth/callback', 'https://app.gradstep.ai/auth/callback']) {
+  for (const value of ['sciencereader://auth/callback', 'https://app.gradstep.ai/auth/callback', 'https://admin.gradstep.ai']) {
     if (!redirects.includes(value)) problems.push(`missing redirect ${value}`);
   }
   if (config.external_google_enabled !== true || !config.external_google_client_id || !config.external_google_secret) {
