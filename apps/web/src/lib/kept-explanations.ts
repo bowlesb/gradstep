@@ -9,7 +9,8 @@ import { idb } from './idb';
 import type { DeviceRecord, PreparedLocal } from './keys';
 import { open, seal } from './wire';
 
-export type KeptKind = 'equation' | 'figure';
+/** `paper`: the paper's AI Explainer (2026-10-22), kept per paper revision and model. */
+export type KeptKind = 'equation' | 'figure' | 'paper';
 export interface KeptEntry {
   kind: KeptKind;
   /** The cache key the session reads it by (equationKey / figureKey: manifest, target, action, model, part). */
@@ -27,14 +28,14 @@ const aad = (account: string) => utf8(`gradstep/web-explanations/v1/${account}`)
 const storageKey = (account: string) => `${config.environment}:${account}`;
 const saves = new Map<string, Promise<void>>();
 
-const validEntry = (e: KeptEntry) => !!e && (e.kind === 'equation' || e.kind === 'figure') && typeof e.key === 'string' && e.key.length <= 1_000
+const validEntry = (e: KeptEntry) => !!e && (e.kind === 'equation' || e.kind === 'figure' || e.kind === 'paper') && typeof e.key === 'string' && e.key.length <= 1_000
   && Number.isSafeInteger(e.savedAt) && !!e.result && typeof e.result === 'object'
   && (e.listed === null || (typeof e.listed === 'object' && typeof e.listed.documentID === 'string' && typeof e.listed.manifest === 'string'
     && typeof e.listed.targetID === 'string' && typeof e.listed.label === 'string' && e.listed.label.length <= 200));
 
 /** Newest first, each key once, at most MAX_KEPT_PER_KIND of each kind. */
 export function boundKept(entries: readonly KeptEntry[]): KeptEntry[] {
-  const seen = new Set<string>(), counts: Record<KeptKind, number> = { equation: 0, figure: 0 }, out: KeptEntry[] = [];
+  const seen = new Set<string>(), counts: Record<KeptKind, number> = { equation: 0, figure: 0, paper: 0 }, out: KeptEntry[] = [];
   for (const e of [...entries].sort((a, b) => b.savedAt - a.savedAt)) {
     const id = `${e.kind}|${e.key}`;
     if (seen.has(id) || counts[e.kind] >= MAX_KEPT_PER_KIND) continue;

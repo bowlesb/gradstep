@@ -5,7 +5,8 @@
 import { BackendError, functionStream, rpc } from './backend';
 import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profiles';
 import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
-import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
+import { studyNotes, type StudyNotes } from './study';
+import { parsePaperExplainer, parsePaperItem, type PaperExplainer, type PaperExplainerItem, type PaperExplainerKind } from './paper-explainer';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
 import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
 import { figureSummary, isFigureAction, MAX_SECTIONS, parseFigureSection, parseFigureWalkthrough, type FigureSection, type FigureWalkthrough } from './figure-view';
@@ -14,9 +15,9 @@ import { figureSummary, isFigureAction, MAX_SECTIONS, parseFigureSection, parseF
 // (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
 export const CONSENT_VERSION = 'cloud-ai-v6';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler';
-/** The equation and figure views: no conversation, so no title or suggestions (chat.ts `isViewAction` on the server). */
-export const isViewAction = (action: ChatAction | null | undefined) => isEquationAction(action) || isFigureAction(action);
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'paper_explainer';
+/** The equation, figure and paper explainers: no conversation, so no title or suggestions (chat.ts `isViewAction` on the server). */
+export const isViewAction = (action: ChatAction | null | undefined) => isEquationAction(action) || isFigureAction(action) || action === 'paper_explainer';
 export interface ChatTurn { role: Role; text: string }
 export interface LocalPaperContext { format:'reader-local-context-v1'|'reader-local-context-v2';membership_id:string;source:'arxiv';source_id:string;revision:number;manifest_sha256:string;source_sha256:string;text:string }
 export interface ChatRequest {
@@ -29,8 +30,9 @@ export interface ChatRequest {
   autoEffort?: boolean;
   /** Ask the server for a topic title alongside the answer (server 2026-10-08). */
   topicTitle: boolean;
-  /** Study: the knowledge map so far (lib/study.ts); sent with every `study` turn, an empty map first. */
-  study?: StudyMap;
+  /** Study mode: the tutor's hidden notes from its previous turn (lib/study.ts), sent back with the next `study` turn;
+   * none on the first turn or when lost (the tutor infers them from the conversation). */
+  studyState?: StudyNotes;
   /** The reader's "Visual answers" setting (chat defaults): false tells the server to answer in prose only. */
   visualAnswers?: boolean;
   /** The figures the question names, from the open paper (consent v3); at most two. */
@@ -58,8 +60,9 @@ export function makeRequest(operationID: string, documentID: string | null, tran
   while (kept.length && kept[0].role !== 'user') kept.shift();
   const quote = selection === null ? null : scalars(selection, MAX_SELECTION_SCALARS);
   const kept_quote = quote && quote.trim() ? quote : null;
-  // Every selection action needs its quote; Study acts on the paper (a quote only starts it on a passage).
-  return { operationID, documentID, turns: kept, selection: kept_quote, action: action === 'study' || kept_quote ? action : null,
+  // Every selection action needs its quote; Study and the paper's explainer act on the paper (Study's quote only starts it
+  // on a passage).
+  return { operationID, documentID, turns: kept, selection: action === 'paper_explainer' ? null : kept_quote, action: action === 'study' || action === 'paper_explainer' || kept_quote ? action : null,
     profile: { ...(action === 'diagram_fix' ? STANDARD_PROFILE : options.profile ?? STANDARD_PROFILE) }, ...(action !== 'diagram_fix' && options.autoEffort ? { autoEffort: true } : {}),
     topicTitle: action !== 'diagram_fix' && options.topicTitle === true, visualAnswers: options.visualAnswers ?? true };
 }
@@ -88,7 +91,7 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own; the
   // equation and figure views are no conversation).
   if (r.action !== 'diagram_fix' && r.action !== 'ingest' && r.action !== 'study' && !isViewAction(r.action)) body.follow_ups = true;
-  if (r.action === 'study') body.study = r.study ?? EMPTY_STUDY_MAP;
+  if (r.action === 'study' && r.studyState) body.study_state = r.studyState;
   // Figures go only with a paper question, never with Add paper or a diagram repair (chat-figures.ts); the figure view
   // sends exactly its figure.
   if (r.figures?.length && body.mode === 'paper' && r.action !== 'ingest' && r.action !== 'diagram_fix' && !isEquationAction(r.action)) {
@@ -110,8 +113,14 @@ export type StreamEvent =
   | { type: 'title'; text: string }
   /** Follow-up questions the answer suggested (servers from 2026-10-14); shown as one-tap suggestions, never saved. */
   | { type: 'followups'; questions: string[] }
-  /** Study: the updated knowledge map after a tutored answer (servers from 2026-10-14); kept with the open chat only. */
-  | { type: 'study'; map: StudyMap }
+  /** Study mode: the tutor's hidden notes after a tutored answer (servers from 2026-10-22); kept with the open chat only. */
+  | { type: 'study_state'; state: StudyNotes }
+  /** The paper's AI Explainer (action `paper_explainer`, servers from 2026-10-22; paper-explainer.ts): where the writing
+   * is, its summary, each checked entry at its place among its kind, then the whole explainer. */
+  | { type: 'paper_progress'; stage: 'reading' | 'writing'; characters?: number; items?: number }
+  | { type: 'paper_summary'; summary: string }
+  | { type: 'paper_item'; kind: PaperExplainerKind; index: number; item: PaperExplainerItem }
+  | { type: 'paper_explainer'; explainer: PaperExplainer }
   /** The parts of an attached figure the answer explains (servers from 2026-10-15); kept as a figure-parts diagram. */
   | { type: 'figure_parts'; parts: FigureParts }
   /** The model asks for a figure of the paper ("Figure 4"); the question is asked again with it attached. */
@@ -260,10 +269,28 @@ export class SSEParser {
         const index = v?.index, section = parseFigureSection(v?.section);
         return Number.isSafeInteger(index) && (index as number) >= 0 && (index as number) < MAX_SECTIONS && section ? { type: 'figure_section', index: index as number, section } : null;
       }
-      case 'study': {
-        // A map that is not whole is dropped; the answer and the previous map are unaffected.
-        const map = studyMap(v?.map);
-        return map ? { type: 'study', map } : null;
+      case 'study_state': {
+        // Notes that are not usable are dropped; the answer and the previous notes are unaffected.
+        const state = studyNotes(v?.state);
+        return state ? { type: 'study_state', state } : null;
+      }
+      // The paper's explainer: informational, each part checked; anything unusable is dropped, never fatal.
+      case 'paper_progress': {
+        if (v?.stage === 'reading') return { type: 'paper_progress', stage: 'reading' };
+        const characters = v?.characters, items = v?.items;
+        if (v?.stage !== 'writing' || !Number.isSafeInteger(characters) || (characters as number) < 0) return null;
+        const announced = Number.isSafeInteger(items) && (items as number) >= 1 && (items as number) <= 16 ? items as number : undefined;
+        return { type: 'paper_progress', stage: 'writing', characters: characters as number, ...(announced ? { items: announced } : {}) };
+      }
+      case 'paper_summary': return typeof v?.summary === 'string' && [...v.summary].length <= 600 ? { type: 'paper_summary', summary: v.summary.replace(/\s+/g, ' ').trim() } : null;
+      case 'paper_item': {
+        const index = v?.index, item = parsePaperItem(v?.item), kind = v?.kind;
+        return (kind === 'background' || kind === 'idea') && Number.isSafeInteger(index) && (index as number) >= 0 && (index as number) < 10 && item
+          ? { type: 'paper_item', kind, index: index as number, item } : null;
+      }
+      case 'paper_explainer': {
+        const explainer = parsePaperExplainer(v);
+        return explainer ? { type: 'paper_explainer', explainer } : null;
       }
       case 'done': {
         if (!(typeof v?.stop_reason === 'string' && Number.isSafeInteger(v.credits) && (v.credits as number) >= 0)) return bad();

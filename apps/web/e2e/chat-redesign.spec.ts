@@ -51,11 +51,15 @@ for (const scheme of ['light', 'dark'] as const) test(`an empty chat shows three
   expect(new Set(categories).size).toBe(3);
   expect(categories.some(c => ['method', 'figure', 'equation', 'table'].includes(c))).toBe(true);
   await expect(starters.locator('svg')).toHaveCount(3);
-  await expect(pane.getByTestId('study-start')).toHaveCount(0); // Study is in the ⋯ menu now, not in the empty chat
+  await expect(pane.getByTestId('study-start')).toHaveCount(0); // ⋯ › Study mode stays in the menu
+  // After the starters, the fixed Enter Study Mode row (2026-10-22, LEARNING_GUIDE.md), its own row not a starter.
+  const rows = pane.getByTestId('chat-starters').locator('button');
+  await expect(rows.last()).toHaveAttribute('data-testid', 'study-entry');
+  await expect(rows.last()).toHaveText('Enter Study Mode – Quiz me and help me learn');
   await expect(box).toHaveAttribute('placeholder', 'Ask anything about the paper');
   // One full-width pill with Send inside it on the right, and the starters directly above it.
   const [pill, composer, sendButton, last] = await Promise.all([pane.locator('.composer-pill').boundingBox(), pane.locator('.chat-composer').boundingBox(),
-    pane.getByRole('button', { name: 'Send', exact: true }).boundingBox(), starters.last().boundingBox()]);
+    pane.getByRole('button', { name: 'Send', exact: true }).boundingBox(), rows.last().boundingBox()]);
   expect(pill!.width).toBeGreaterThan(composer!.width - 32);
   expect(sendButton!.x).toBeGreaterThan(pill!.x + pill!.width / 2); expect(sendButton!.x + sendButton!.width).toBeLessThanOrEqual(pill!.x + pill!.width);
   expect(sendButton!.y).toBeGreaterThanOrEqual(pill!.y); expect(sendButton!.y + sendButton!.height).toBeLessThanOrEqual(pill!.y + pill!.height);

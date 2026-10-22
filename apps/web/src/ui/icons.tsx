@@ -48,6 +48,8 @@ const paths = {
   map: <><polygon points="3 6 3 21 9 18 15 21 21 18 21 3 15 6 9 3 3 6" /><line x1="9" y1="3" x2="9" y2="18" /><line x1="15" y1="6" x2="15" y2="21" /></>,
   // The equation view's Explain (the app's "sparkles").
   sparkles: <><path d="M10 3.5l1.7 4.8 4.8 1.7-4.8 1.7L10 16.5l-1.7-4.8L3.5 10l4.8-1.7z" /><path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8z" /></>,
+  // Study mode (the apps' "graduationcap").
+  cap: <><path d="M2 9.5 12 5l10 4.5-10 4.5z" /><path d="M6 11.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-4.5" /><line x1="22" y1="9.5" x2="22" y2="15" /></>,
   // Reader version details: this paper uses the latest reader.
   check: <polyline points="20 6 9 17 4 12" />,
   // Contents › Figures › View as tiles.

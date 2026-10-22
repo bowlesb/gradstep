@@ -743,33 +743,28 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media(max-width: 600px) { .profile-options .seg { min-height: 36px; } }
 
-/* Study (experimental): the knowledge map between the transcript and the composer. */
-.study-panel { border-top: 1px solid var(--line); background: var(--surface); padding: 4px 12px 6px; max-height: 46dvh; display: flex; flex-direction: column; flex: 0 0 auto; }
-.study-bar { display: flex; align-items: center; gap: 8px; min-height: 28px; }
-.study-toggle { font: inherit; font-size: 13px; background: none; border: 0; color: var(--text); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; padding: 2px 0; }
-.study-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.study-body { overflow: auto; padding: 2px 0 4px; }
-.study-now { margin: 0 0 6px; }
-.study-views { display: flex; gap: 4px; margin-bottom: 6px; max-width: 260px; }
-.study-graph .diagram-viewport { height: 230px; border: 1px solid var(--line); border-radius: 8px; }
-.study-graph .diagram-tools { margin-bottom: 4px; }
-.study-journey { display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; list-style: none; margin: 0; padding: 0; }
-.study-step { display: inline-flex; align-items: center; gap: 4px; }
-.study-arrow { color: var(--muted); }
-.study-chip { font-size: 12px; line-height: 1.3; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); white-space: nowrap; }
-.study-concepts { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
-.study-concept { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 13.5px; }
-.study-cite { font: inherit; font-size: 12px; }
-.study-note, .study-link { flex-basis: 100%; }
-.study-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
-.study-legend li { display: inline-flex; align-items: center; gap: 5px; }
-.study-edges { flex-basis: 100%; }
-.study-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid; display: inline-block; }
-.study-chip.unknown, .study-dot.unknown { background: #fbe3e1; border-color: #c0392b; }
-.study-chip.learning, .study-dot.learning { background: #fff1cc; border-color: #d68910; }
-.study-chip.known, .study-dot.known { background: #dbe9fb; border-color: #2e6fd0; }
-.study-chip.verified, .study-dot.verified { background: #dcf3e2; border-color: #1f8f4e; }
-.study-chip.unknown, .study-chip.learning, .study-chip.known, .study-chip.verified { color: #1b1b1b; }
+/* Study mode (LEARNING_GUIDE.md, 2026-10-22): one slim row above the message box while the chat is a tutor. */
+.study-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 0 0 auto; padding: 5px 12px; border-top: 1px solid var(--line); background: var(--surface); }
+.study-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--accent); margin-right: auto; }
+.study-action { font: inherit; font-size: 12.5px; min-height: 30px; padding: 4px 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); color: var(--text); cursor: pointer; }
+.study-action:hover:not(:disabled), .study-action:focus-visible { border-color: var(--accent); color: var(--accent); }
+.study-action:disabled { opacity: .55; cursor: default; }
+.study-stop { color: var(--muted); }
+.chat-starter-study > span { white-space: normal; }
+.follow-up-study { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 600px) { .study-action { min-height: 36px; } }
+
+/* The paper's AI Explainer (LEARNING_GUIDE.md): the figure explainer's look, for the whole paper. */
+.paper-explainer-dialog .explainer-heading { margin: 4px 0 0; }
+.paper-explainer { display: grid; gap: 14px; max-width: 760px; margin: 0 auto; width: 100%; }
+.paper-explainer-title { margin: 0; color: var(--muted); font-size: 13.5px; }
+.paper-background { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.paper-background li { line-height: 1.45; }
+.paper-background strong { font-weight: 600; }
+.paper-background button.cite { margin-left: 4px; border: 0; font-family: inherit; min-height: 0; min-width: 0; vertical-align: baseline; }
+.paper-kind { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.paper-diagram .diagram-viewport { min-height: 260px; border: 1px solid var(--line); border-radius: 10px; }
+.paper-explainer-intro { margin: 0; }
 
 /* Figures in chat (CHAT.md): the parts of a figure under the answer, and the whole figure with them outlined. */
 .figure-parts{margin-top:10px}

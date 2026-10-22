@@ -545,10 +545,15 @@ createServer(async (request, response) => {
     if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups !== undefined && typeof body.follow_ups !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups === true && (body.action === 'ingest' || body.action === 'diagram_fix')) return send(response, 400, { code: 'invalid_request' });
-    // Study (chat-study.ts): a paper action on numbered local context that carries a whole map and no follow-ups.
-    if (body.action === 'study' && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.study || !Array.isArray(body.study.concepts)
-      || !Array.isArray(body.study.links) || body.follow_ups !== undefined)) return send(response, 400, { code: 'invalid_request' });
-    if (body.action !== 'study' && body.study !== undefined) return send(response, 400, { code: 'invalid_request' });
+    // Study mode (chat-study.ts, 2026-10-22): a paper action on numbered local context, no follow-ups; the tutor's notes
+    // (study_state, an object) travel only with it, and this build never sends the retired map (`study`).
+    if (body.action === 'study' && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || body.follow_ups !== undefined
+      || (body.study_state !== undefined && (!body.study_state || typeof body.study_state !== 'object' || Array.isArray(body.study_state))))) return send(response, 400, { code: 'invalid_request' });
+    if (body.study !== undefined || (body.action !== 'study' && body.study_state !== undefined)) return send(response, 400, { code: 'invalid_request' });
+    // The paper's AI Explainer (chat-paper-explainer.ts): the numbered paper on the device, one turn, no passage, figure,
+    // title or suggestions.
+    if (body.action === 'paper_explainer' && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || body.messages.length !== 1 || body.selection !== undefined
+      || body.figures !== undefined || body.topic_title !== undefined || body.follow_ups !== undefined)) return send(response, 400, { code: 'invalid_request' });
     // The equation view (chat-equation.ts): the numbered paper on the device, one turn, a selection; never a title,
     // suggestions or figures.
     const equation = body.action === 'equation' || body.action === 'equation_background';
@@ -595,15 +600,49 @@ createServer(async (request, response) => {
     if (mode === 'insufficient_credits') { event('error', { code: 'insufficient_credits' }); return response.end(); }
     if (mode === 'refusal') { event('delta', { text: 'Discard this refused partial' }); event('error', { code: 'refused' }); return response.end(); }
     if (body.action === 'study') {
-      // The tutor: a calibrating question first, then a judgement, a taught passage and one bold question; the map grows.
-      const first = body.messages.length === 1;
-      event('delta', { text: first ? 'Let’s start with the central idea. **In one sentence, what does attention compute?**'
-        : 'Partly right. Attention weights the values by how well each key matches the query [¶2]. **What does the softmax do to large scores?**' });
-      event('study', { map: first
-        ? { concepts: [{ id: 'attention', label: 'Attention', state: 'learning', paragraphs: [2] }], links: [], focus: 'attention', journey: ['attention'], next: 'calibrate' }
-        : { concepts: [{ id: 'attention', label: 'Attention', state: 'known', paragraphs: [2], note: 'Knows the weighted sum' }, { id: 'softmax', label: 'Softmax', state: 'learning', paragraphs: [2] }],
-          links: [{ from: 'softmax', to: 'attention', kind: 'prerequisite' }], focus: 'softmax', journey: ['attention', 'softmax'], next: 'teach' } });
-      event('done', { stop_reason: 'end_turn', credits: 4 }); return response.end();
+      // The tutor (chat-study.ts): one question at a time; a hint narrows, Explain instead explains with a light check.
+      // Its notes travel hidden (the server strips them from the text and relays them as study_state).
+      const asked = body.messages.at(-1)?.text ?? '', turn = (body.study_state?.turn ?? 0) + 1;
+      const text = body.messages.length === 1
+        ? 'One question at a time; ask for a hint or an explanation whenever you like. The paper replaces recurrence with attention [¶2].\n\n**In one sentence, what does attention compute?**\n\n(If this is new to you, say so and I’ll explain it first.)'
+        : asked === 'Give me a hint.' ? 'A hint: think of the values as what gets mixed [¶2].\n\n**What decides how much each value counts?**'
+        : asked === 'Explain it to me instead.' ? 'Attention scores each key against the query, turns the scores into weights with a softmax, and sums the values with those weights [¶2]. For example, weights 0.9 and 0.1 take mostly the first value.\n\n**With weights 0.9 and 0.1, which value dominates: (a) the first or (b) the second?**'
+        : 'Partly right. Attention weights the values by how well each key matches the query [¶2].\n\n**What does the softmax do to large scores?**';
+      for (const piece of text.match(/[\s\S]{1,40}/g)) event('delta', { text: piece });
+      event('study_state', { state: { turn, level: turn > 2 ? 'intro' : 'core', concepts: [{ name: 'Attention', status: turn > 1 ? 'shaky' : 'new', asked: [1], paras: [2] },
+        ...(turn > 1 ? [{ name: 'Softmax', status: 'new', asked: [turn], paras: [2] }] : [])], next: 'check the softmax next' } });
+      event('done', { stop_reason: 'end_turn', credits: 4, charged: true }); return response.end();
+    }
+    if (body.action === 'paper_explainer') {
+      // As the server streams it (chat.ts relayExplainer): reading, the writing's progress with the announced count, the
+      // summary, each entry, then the whole explainer and done; slow or step by step like the figure walkthrough.
+      const explainer = { format: 'paper-explainer-v1', summary: 'The paper trains a policy on preferences directly, without a separate reward model, and matches RLHF at a fraction of the cost.',
+        background: [{ id: 'b1', name: 'Reinforcement learning from human feedback', line: 'Trains a reward model on preferences, then the policy with RL; the method this paper simplifies.', paragraphs: [2] },
+          { id: 'b2', name: 'Bradley–Terry model', line: 'Turns pairwise preferences into probabilities; the paper’s loss starts from it.', paragraphs: [2] },
+          { id: 'b3', name: 'KL-regularised objective', line: 'Keeps the policy near a reference model; the paper solves it in closed form.', paragraphs: [2] }],
+        ideas: [{ id: 'i1', name: 'Direct preference loss', line: 'A classification loss on preference pairs that replaces the RL step.', paragraphs: [2] },
+          { id: 'i2', name: 'Matches RLHF on summaries', line: 'As good as PPO-based RLHF on the paper’s tasks, with one stage.', paragraphs: [2] }],
+        links: [{ from: 'b1', to: 'i1', label: 'is replaced by' }, { from: 'b2', to: 'i1', label: 'defines' }, { from: 'b3', to: 'i1', label: 'solved into' }, { from: 'i1', to: 'i2', label: 'evaluated by' }] };
+      response.write(': open\n\n');
+      const writing = characters => () => event('paper_progress', { stage: 'writing', characters, items: 5 });
+      let characters = 30 + JSON.stringify(explainer.summary).length;
+      const steps = [() => event('paper_progress', { stage: 'reading' }), writing(Math.round(characters / 2)), writing(characters), () => event('paper_summary', { summary: explainer.summary })];
+      for (const [kind, list] of [['background', explainer.background], ['idea', explainer.ideas]]) list.forEach((item, index) => {
+        const start = characters; characters += JSON.stringify(item).length + 1;
+        steps.push(writing(Math.round((start + characters) / 2)), writing(characters), () => event('paper_item', { kind, index, item }));
+      });
+      steps.push(() => { event('paper_explainer', explainer); event('done', { stop_reason: 'end_turn', credits: 4, charged: true }); response.end(); });
+      a.figureWaiting = [];
+      const next = () => {
+        if (response.destroyed) return;
+        steps.shift()(); a.figureLeft = steps.length;
+        if (!steps.length) return;
+        if (a.figureStream === 'step') a.figureWaiting.push(next);
+        else a.timers.push(setTimeout(next, a.figureStream === 'slow' ? 350 : 25));
+      };
+      a.figureLeft = steps.length;
+      if (a.figureStream === 'step') a.figureWaiting.push(next); else next();
+      return;
     }
     if (body.action === 'equation') {
       event('equation', { format: 'equation-symbols-v1', summary: 'It squares x: the value multiplied by itself.', symbols: [
@@ -691,7 +730,9 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
       if (body.figures?.length && (body.capabilities ?? []).includes('visual_answers')) event('figure_parts', { figure: body.figures[0].id, paragraph: body.figures[0].paragraph,
         title: 'The figure, part by part', parts: [{ label: 'Left half', box: [0, 0, 0.5, 1], note: 'The left half of the figure.' }, { label: 'Right half', box: [0.5, 0, 1, 1], note: 'The right half.' }] });
       if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
-      if (body.follow_ups === true) event('followups', { questions: ['How is β chosen?', 'What does the KL term do?'] });
+      // The model may make one suggestion a picture of something concrete (2026-10-22), when visual answers are on.
+      if (body.follow_ups === true) event('followups', { questions: ['How is β chosen?', 'What does the KL term do?',
+        ...((body.capabilities ?? []).includes('visual_answers') ? ['Create a diagram explaining the background of the KL penalty'] : [])] });
       // Automatic effort resolves before the answer, and the answer records what was picked (CHAT.md, 2026-10-16).
       const effort = body.profile?.model === 'gemini' ? 'medium' : body.profile?.effort === 'auto' ? (body.profile.length === 'detailed' ? 'medium' : 'low') : body.profile?.effort;
       const profile = body.profile ? `${body.profile.model}-${effort}-${body.profile.length}` : 'sonnet-low-standard';

@@ -134,3 +134,18 @@ export function paperExplainerProgress(input: PaperProgressInput): PaperProgress
   return { label, value: round(Math.min(1, Math.max(input.previous ?? 0, value))) };
 }
 const round = (v: number) => Math.round(v * 10_000) / 10_000;
+
+// ---------- A request and its result (ChatSession.paperExplainer) ----------
+
+/** The explainer's one user turn. */
+export const PAPER_EXPLAINER_TURN = 'Explain this paper';
+/** Where a streamed explainer is, for the progress bar (only while loading, never kept). */
+export interface PaperStreamProgress { stage: PaperProgressStage; summary: boolean; items: number; ideas: number; characters: number; charactersAtLast: number; announced: number | null }
+/** One explainer request: what streamed so far (the summary and entries as they arrive, links once whole), or the model's
+ * words when it wrote no usable explainer; kept per paper revision and model once done. */
+export interface PaperExplainerResult {
+  phase: 'loading' | 'done' | 'failed'; explainer: PaperExplainer | null; text: string; issue: string | null; credits: number | null;
+  model?: string; charged?: boolean; reason?: string; progress?: PaperStreamProgress;
+}
+/** The kept result's key: the paper's bundle and the model/effort/length it was asked with. */
+export const paperExplainerKey = (manifest: string, profile: string) => `${manifest}|paper_explainer|${profile}`;

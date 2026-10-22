@@ -19,7 +19,7 @@ import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL, usePa
 import { Icon, iconName } from './icons';
 import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
-import { StudyPanel } from './StudyPanel';
+import { isVisualFollowUp, STUDY_ENTRY, STUDY_EXPLAIN, STUDY_HINT } from '../lib/study';
 import { PapersInAnswer, type AnswerPapers } from './AnswerPapers';
 import { AnswerSelectionBar, formulaPick, useAnswerSelection } from './AnswerSelection';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
@@ -180,9 +180,11 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
     if (!c.draft.trim()) { if (chat.edit(c, prompt)) send(); }
     else if (chat.edit(c, `${prompt}\n\n${c.draft}`)) focusEnd();
   };
-  // Study (experimental): an adaptive tutor for this paper; offered when the paper is numbered on this device.
+  // Study mode (LEARNING_GUIDE.md): the chat becomes a tutor; offered when the paper is numbered on this device. One tap
+  // enters it and sends the opening turn; Hint and Explain instead send their turn; Stop leaves it and sends nothing.
   const studyOffered = !context && mode === 'paper' && !!paper?.available && chat.canStudy(documentID) && !c.study && !deleted && !retired;
   const startStudy = () => { if (!disabled) void chat.startStudy(c); };
+  const studyBusy = disabled || composerBusy(c) || !!c.answer;
   const choiceBusy = retired || composerBusy(c) || !!c.answer;
   const [answerOptions, setAnswerOptions] = useState(false);
   // The model under the field asks Default or Choose model (B7, the apps' AISelectionButton); Length stays in ⋯ › Answer options.
@@ -304,6 +306,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           {starters.map(s => { const icon = iconName(s.icon);
             return <button key={`${s.category}:${s.text}`} type="button" className="chat-starter" data-testid="chat-starter" data-category={s.category} title={s.text} disabled={disabled}
               onClick={() => pickStarter(s.text)}>{icon ? <Icon name={icon} size={16} /> : <span className="chat-starter-dot" aria-hidden="true" />}<span>{s.text}</span></button>; })}
+          {studyOffered && <button type="button" className="chat-starter chat-starter-study" data-testid="study-entry" title={STUDY_ENTRY} disabled={studyBusy}
+            onClick={startStudy}><Icon name="cap" size={16} /><span>{STUDY_ENTRY}</span></button>}
         </div>}
       </div>}
       {!providedContext && promoted && <section className="promoted-explanation" data-testid="promoted-context">
@@ -327,14 +331,22 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
         <Answer text={stripPartMarkers(displayText, true)} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
-      {c.followUps && !composerBusy(c) && !c.answer && !c.issue && last?.payload.role === 'assistant' && <div className="follow-ups" role="group" aria-label="Suggested questions">
-        {/* On request (owner, build 46: "they need to be upon request… take up too much space"). */}
-        <button type="button" className="link small follow-ups-toggle" aria-expanded={showFollowUps} data-testid="follow-ups-toggle"
-          onClick={() => setShowFollowUps(v => !v)}>{showFollowUps ? 'Hide suggested questions' : `Suggested questions (${c.followUps.length})`}</button>
-        {showFollowUps && <><button type="button" className="follow-up" onClick={()=>{chat.edit(c,'Draw a Mermaid diagram explaining the answer above.');field.current?.focus();}}>Draw a diagram</button>
-          {readVisualAnswers() && <button type="button" className="follow-up" onClick={()=>{chat.edit(c,'Create an interactive HTML visual explanation of the answer above.');field.current?.focus();}}>Create a visual explanation</button>}</>}
-        {showFollowUps && c.followUps.map(question => <button key={question} type="button" className="follow-up" data-testid="follow-up" disabled={disabled}
-          onClick={() => { if (chat.edit(c, question)) field.current?.focus(); }}>{question}</button>)}</div>}
+      {(c.followUps || studyOffered) && !c.study && !composerBusy(c) && !c.answer && !c.issue && last?.payload.role === 'assistant' && (() => {
+        // The model's own picture question (2026-10-22: "Create a diagram explaining the background of X") replaces the
+        // generic Draw a diagram / Create a visual explanation rows; Enter Study Mode is always the last (paper chats).
+        const questions = c.followUps ?? [], generic = questions.length > 0 && !questions.some(isVisualFollowUp);
+        const count = questions.length + (generic ? (readVisualAnswers() ? 2 : 1) : 0) + (studyOffered ? 1 : 0);
+        return <div className="follow-ups" role="group" aria-label="Suggested questions">
+          {/* On request (owner, build 46: "they need to be upon request… take up too much space"). */}
+          <button type="button" className="link small follow-ups-toggle" aria-expanded={showFollowUps} data-testid="follow-ups-toggle"
+            onClick={() => setShowFollowUps(v => !v)}>{showFollowUps ? 'Hide suggested questions' : `Suggested questions (${count})`}</button>
+          {showFollowUps && generic && <><button type="button" className="follow-up" data-testid="follow-up-diagram" onClick={()=>{chat.edit(c,'Draw a Mermaid diagram explaining the answer above.');field.current?.focus();}}>Draw a diagram</button>
+            {readVisualAnswers() && <button type="button" className="follow-up" data-testid="follow-up-visual" onClick={()=>{chat.edit(c,'Create an interactive HTML visual explanation of the answer above.');field.current?.focus();}}>Create a visual explanation</button>}</>}
+          {showFollowUps && questions.map(question => <button key={question} type="button" className="follow-up" data-testid="follow-up" disabled={disabled}
+            onClick={() => { if (chat.edit(c, question)) field.current?.focus(); }}>{question}</button>)}
+          {showFollowUps && studyOffered && <button type="button" className="follow-up follow-up-study" data-testid="study-entry" disabled={studyBusy}
+            onClick={startStudy}><Icon name="cap" size={13} /> {STUDY_ENTRY}</button>}
+        </div>; })()}
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
       {c.issue && <div className="chat-issue" role="alert"><p>{failureText(c.issue)}</p>
         {c.issue === 'local_save' && !retired && <button className="secondary small" onClick={() => void chat.retryDeviceSave(c)}>Retry device save</button>}
@@ -351,8 +363,16 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       {away && <button className="jump-latest secondary small" onClick={() => { follow.current.reset(); setAway(false); showLatest(); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
       <div ref={bottom} />
     </div>
-    {c.study && <StudyPanel map={c.study} busy={composerBusy(c) || !!c.answer} onEnd={() => chat.endStudy(c)}
-      onPassage={paragraph => { if (documentID) onPassage(documentID, citationAnchor(paragraph)); }} />}
+    {/* Study mode's one slim row (replacing the knowledge map): Hint and Explain instead send at once; Stop sends nothing. */}
+    {c.study && <div className="study-bar" role="group" aria-label="Study mode" data-testid="study-bar">
+      <span className="study-label"><Icon name="cap" size={14} /> Study mode</span>
+      <button type="button" className="study-action" disabled={studyBusy} onClick={() => void chat.studyReply(c, STUDY_HINT)} data-testid="study-hint"
+        title="Ask the tutor for a hint (sends at once)">Hint</button>
+      <button type="button" className="study-action" disabled={studyBusy} onClick={() => void chat.studyReply(c, STUDY_EXPLAIN)} data-testid="study-explain"
+        title="Ask the tutor to explain instead (sends at once)">Explain instead</button>
+      <button type="button" className="study-action study-stop" disabled={composerBusy(c) || !!c.answer} onClick={() => chat.endStudy(c)} data-testid="study-stop"
+        title="Leave Study mode; the conversation stays">Stop</button>
+    </div>}
     {/* One full-width pill: the field, then Send (Stop while answering) inside it on the right; nothing beside it
         (owner, build 57: "We can't have the typing window awkwardly to the right side"). */}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>

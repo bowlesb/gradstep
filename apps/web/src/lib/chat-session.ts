@@ -26,7 +26,8 @@ import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
 import type { NotesStore } from './notes-store';
-import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
+import { STUDY_OPENING, type StudyNotes } from './study';
+import { PAPER_EXPLAINER_TURN, paperExplainerKey, type PaperExplainerItem, type PaperExplainerResult, type PaperStreamProgress } from './paper-explainer';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
 import { FIGURE_WALKTHROUGH_FORMAT, figureKey, figureName, figureTurn, type FigureAction, type FigureResult, type FigureSection, type FigureStreamProgress } from './figure-view';
 import type { FigureProgressStage } from './figure-progress';
@@ -34,7 +35,7 @@ import { MAX_KEPT_PER_KIND, boundKept, type KeptEntry } from './kept-explanation
 
 /** One equation or figure this tab explained (its symbols or its walkthrough): the paper's document id, the bundle it was
  * read from, the equation or figure id and its name ("Equation (4)", "Figure 2"). */
-export interface Explanation { kind: 'equation' | 'figure'; documentID: string; manifest: string; targetID: string; label: string; at: number }
+export interface Explanation { kind: 'equation' | 'figure' | 'paper'; documentID: string; manifest: string; targetID: string; label: string; at: number }
 
 interface Entry { id: string; event: PrivateEvent }
 interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null; profile?: ProfileChoice }
@@ -45,8 +46,9 @@ export interface Composer {
   question: Question | null; answer: Entry[] | null; liveID: string | null; liveText: string; progress: Progress | null; credits: number | null;
   /** The newest complete answer's suggested follow-up questions (memory only; cleared by the next question). */
   followUps: string[] | null;
-  /** Study (lib/study.ts): the knowledge map while this chat is a study; null otherwise. Memory only. */
-  study: StudyMap | null;
+  /** Study mode (lib/study.ts): set while this chat is a tutor, with the tutor's hidden notes from its last complete turn
+   * (none before the first); null otherwise. Memory only: never shown, stored or synced. */
+  study: { notes: StudyNotes | null } | null;
   /** A model/effort/length the reader chose here (memory only); null follows the conversation, then the default. */
   profile: ProfileChoice | null;
   /** Identity of the current text edit (a new one per edit, even when the text repeats). */
@@ -89,7 +91,7 @@ export function readVisualAnswers(): boolean { try { return localStorage.getItem
 export function writeVisualAnswers(on: boolean) { try { localStorage.setItem(VISUAL_ANSWERS_KEY, on ? 'true' : 'false'); } catch { /* per-browser convenience */ } }
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 /** Finished explanations kept in memory (C8): least recently used first out. A figure's result carries its image. */
-const EQUATION_RESULTS = 200, FIGURE_RESULTS = 24;
+const EQUATION_RESULTS = 200, FIGURE_RESULTS = 24, PAPER_RESULTS = 24;
 /** A streamed walkthrough's stages in order: the progress bar only moves forward. */
 const STAGES: FigureProgressStage[] = ['preparing', 'reading', 'writing', 'done'];
 function remember<V>(map: Map<string, V>, key: string, value: V, limit: number) {
@@ -898,6 +900,94 @@ export class ChatSession {
       return image ? { data: image.data, width: image.width, height: image.height, structure: sentStructure(bundle, figure!, image) } : null;
     } catch { return null; }
   }
+  // ---------- The paper's AI Explainer (LEARNING_GUIDE.md "Paper AI Explainer") ----------
+
+  private paperResults = new Map<string, PaperExplainerResult>();
+  /** A finished explainer for this paper revision with this model (memory, else kept in this browser). */
+  savedPaperExplainer(manifest: string, choice?: ProfileChoice): PaperExplainerResult | null {
+    const p = choice ?? this.scenarioProfile('paper'), key = paperExplainerKey(manifest, `${p.model}-${p.effort}-${p.length}`);
+    return recall(this.paperResults, key) ?? this.keptResult<PaperExplainerResult>('paper', key) ?? null;
+  }
+  /** One explainer request, sent exactly as this browser's chat sends a question about the paper (the paper chat's
+   * default profile unless one is chosen, its capabilities and consent, the numbered paper on this device) with the action
+   * `paper_explainer` and one turn, so the server reads the chat's cached prefix. The summary and each entry show as they
+   * arrive; the final `paper_explainer` replaces what streamed and is what is kept. No conversation or history is made. */
+  async paperExplainer(documentID: string, update: (result: PaperExplainerResult) => void, signal: AbortSignal, choice?: ProfileChoice): Promise<PaperExplainerResult> {
+    this.allowed();
+    let result: PaperExplainerResult = { phase: 'loading', explainer: null, text: '', issue: null, credits: null,
+      progress: { stage: 'preparing', summary: false, items: 0, ideas: 0, characters: 0, charactersAtLast: 0, announced: null } };
+    let summary: string | null = null, final = false;
+    const background: PaperExplainerItem[] = [], ideas: PaperExplainerItem[] = [];
+    const inOrder = (list: PaperExplainerItem[]) => { let n = 0; while (list[n]) n++; return n; };
+    const progressed = (change: Partial<PaperStreamProgress>) => {
+      const was = result.progress;
+      if (!was) return;
+      const stage = change.stage && STAGES.indexOf(change.stage) > STAGES.indexOf(was.stage) ? change.stage : was.stage;
+      result = { ...result, progress: { ...was, ...change, stage } };
+    };
+    const shown = () => { if (!final) result = { ...result, explainer: { format: 'paper-explainer-v1', summary: summary ?? '', background: background.slice(0, inOrder(background)), ideas: ideas.slice(0, inOrder(ideas)), links: [] } }; };
+    const finish = (issue: string | null) => {
+      const { progress: _, ...rest } = result;
+      result = { ...rest, explainer: final ? result.explainer : null, phase: issue ? 'failed' : 'done', issue }; update(result); return result;
+    };
+    if (this.retiredStorage) return finish('storage_retired');
+    if (!this.deps.readConsent()) return finish('consent_required');
+    const reference = this.reference(documentID), local = reference ? this.sourcePapers.get(reference.membershipID) : this.legacyPapers.get(documentID);
+    const named = reference ?? local?.reference;
+    if (!local || !named) return finish('local_reader_unavailable');
+    update(result);
+    const table = await this.profiles.load();
+    const profile = table ? choice ?? this.scenarioProfile('paper') : STANDARD_PROFILE;
+    let bundle: VerifiedBundle;
+    try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
+    if (signal.aborted || this.signal.aborted) return finish('cancelled');
+    const key = paperExplainerKey(bundle.manifestSHA256, `${profile.model}-${profile.effort}-${profile.length}`);
+    const saved = recall(this.paperResults, key) ?? this.keptResult<PaperExplainerResult>('paper', key);
+    if (saved) { update(saved); return saved; }
+    const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: PAPER_EXPLAINER_TURN }], null, 'paper_explainer',
+      { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
+    try { request.localContext = localChatContext(named, bundle); } catch { return finish('local_reader_unavailable'); }
+    const controller = cancellation([this.signal, signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
+    try {
+      const opened = () => { if (result.phase === 'loading' && result.progress) { progressed({ stage: 'reading' }); update(result); } };
+      for await (const event of this.deps.stream(this.account, request, controller.signal, opened)) {
+        if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
+        else if (event.type === 'paper_explainer') { final = true; result = { ...result, explainer: event.explainer };
+          progressed({ stage: 'done', items: event.explainer.background.length + event.explainer.ideas.length, ideas: event.explainer.ideas.length }); update(result); }
+        else if (event.type === 'paper_progress' && result.progress && !final) {
+          progressed(event.stage === 'reading' ? { stage: 'reading' }
+            : { stage: 'writing', characters: Math.max(result.progress.characters, event.characters ?? 0), ...(event.items ? { announced: event.items } : {}) });
+          update(result);
+        }
+        else if (event.type === 'paper_summary' && result.progress && !final && summary === null) {
+          summary = event.summary; progressed({ stage: 'writing', summary: true, charactersAtLast: result.progress.characters }); shown(); update(result);
+        }
+        else if (event.type === 'paper_item' && result.progress && !final) {
+          const list = event.kind === 'background' ? background : ideas;
+          if (list[event.index]) continue;
+          list[event.index] = event.item;
+          progressed({ stage: 'writing', items: inOrder(background) + inOrder(ideas), ideas: inOrder(ideas), charactersAtLast: result.progress.characters }); shown(); update(result);
+        }
+        else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
+        else if (event.type === 'done') {
+          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason, ...(event.model ? { model: event.model } : {}) };
+          finish((final && result.explainer) || result.text.trim() ? null : 'provider_unavailable'); break;
+        }
+      }
+      if (result.phase === 'loading') finish('transport');
+    } catch (error) {
+      finish(controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled'
+        : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
+    } finally { clearTimeout(deadline); controller.dispose(); }
+    if (result.phase === 'done') {
+      remember(this.paperResults, key, result, PAPER_RESULTS);
+      const listed = { documentID, manifest: bundle.manifestSHA256, targetID: 'paper', label: 'AI Explainer' };
+      this.noteExplanation({ kind: 'paper', ...listed, at: Date.now() });
+      this.keep('paper', key, result, listed);
+    }
+    void this.refreshBalance();
+    return result;
+  }
   private track(task: Promise<void>): Promise<void> { this.tasks.add(task); void task.finally(() => this.tasks.delete(task)).catch(() => {}); return task; }
 
   // ---------- Sending ----------
@@ -941,15 +1031,23 @@ export class ChatSession {
       return { caption: figure.caption, structure: same ? bundleFigureStructure(bundle, figure) : null };
     } catch { return null; }
   }
-  /** Starts (or restarts) a study in this chat: an empty map and the opening turn, sent as the reader's message. */
+  /** Enters Study mode in this chat (LEARNING_GUIDE.md): the opening turn is sent at once as the reader's message, with
+   * the selected passage when there is one. The tutor reads any earlier turns, so entering again resumes. */
   startStudy(c: Composer, selection: string | null = null, anchor?: TextAnchor): Promise<void> {
     this.allowed();
     if (busy(c) || c.answer || !this.canStudy(c.documentID)) return Promise.resolve();
-    c.study = { ...EMPTY_STUDY_MAP };
-    if (!this.edit(c, studyStart(selection))) { c.study = null; return Promise.resolve(); }
+    c.study = { notes: null };
+    if (!this.edit(c, STUDY_OPENING)) { c.study = null; return Promise.resolve(); }
     return this.send(c, selection, 'study', anchor);
   }
-  /** Ends the study: the chat goes on as an ordinary paper chat; the map is dropped (it was never stored). */
+  /** Study mode's Hint and Explain instead: that turn, sent at once as the reader's answer. */
+  studyReply(c: Composer, text: string): Promise<void> {
+    this.allowed();
+    if (!c.study || busy(c) || c.answer) return Promise.resolve();
+    if (!this.edit(c, text)) return Promise.resolve();
+    return this.send(c, null, 'study');
+  }
+  /** Stop: the chat goes on as an ordinary paper chat; the notes are dropped (they were never stored). Nothing is sent. */
   endStudy(c: Composer) { this.allowed(); c.study = null; this.publish(); }
 
   send(c: Composer, selection: string | null = null, action: ChatAction | null = null, anchor?: TextAnchor): Promise<void> {
@@ -1111,7 +1209,7 @@ export class ChatSession {
     // Where the server publishes automatic effort for this model and length, it picks the effort (CHAT.md, 2026-10-16).
     const request = makeRequest(crypto.randomUUID(), c.documentID, branch.messages.map(e => ({ role: e.payload.role!, text: e.payload.text! })), question.selection, question.action,
       { ...(table ? { profile: capturedProfile, autoEffort: asks.effort === 'auto', topicTitle: !this.hasTopicTitle(c.conversationID) } : {}), visualAnswers: readVisualAnswers() });
-    if (question.action === 'study') request.study = c.study ?? { ...EMPTY_STUDY_MAP };
+    if (question.action === 'study' && c.study?.notes) request.studyState = c.study.notes;
     const reference=this.reference(c.documentID);
     let figureManifest:string|null=null, figureBundle:VerifiedBundle|null=null;
     if(reference){
@@ -1188,7 +1286,7 @@ export class ChatSession {
       const snapshot = { ...turn, text: c.liveText, updatedAt: lastCheckpointDate };
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
-    let topicTitle: string | null = null, followUps: string[] | null = null, nextMap: StudyMap | null = null, answeredBy: { model?: string; profile?: string } = {};
+    let topicTitle: string | null = null, followUps: string[] | null = null, nextNotes: StudyNotes | null = null, answeredBy: { model?: string; profile?: string } = {};
     // The streamed text's size, kept as it grows (C2: not the whole text encoded again for every piece).
     let liveBytes = 0;
     let figureParts: FigureParts | null = null, asked: string | null = null, sent = request;
@@ -1212,11 +1310,12 @@ export class ChatSession {
         else if (event.type === 'visual') diagram = { title: event.title, source: event.html, format: 'html-v1' };
         else if (event.type === 'title') { if (request.topicTitle) topicTitle = event.text; }
         else if (event.type === 'followups') followUps = event.questions;
-        else if (event.type === 'study') nextMap = event.map;
+        else if (event.type === 'study_state') nextNotes = event.state;
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
-        else if (event.type === 'equation' || event.type === 'figure' || event.type === 'figure_progress' || event.type === 'figure_summary' || event.type === 'figure_section') {
-          /* the equation and figure views' own events; a chat never asks for them */ }
+        else if (event.type === 'equation' || event.type === 'figure' || event.type === 'figure_progress' || event.type === 'figure_summary' || event.type === 'figure_section'
+          || event.type === 'paper_progress' || event.type === 'paper_summary' || event.type === 'paper_item' || event.type === 'paper_explainer') {
+          /* the equation, figure and paper explainers' own events; a chat never asks for them */ }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; end = { credits: event.credits, charged: event.charged }; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; end = { credits: event.credits, charged: event.charged }; break; }
         this.publish();
@@ -1237,7 +1336,7 @@ export class ChatSession {
       try { figures = await chatFigureImages(asked, null, figureBundle); } catch { figures = []; }
       if (figures.length && !next.signal.aborted && !this.signal.aborted && !this.stopping.has(c.id) && !this.retiredStorage && this.accepting) {
         sent = { ...sent, operationID: crypto.randomUUID(), figures }; figureManifest = figureBundle.manifestSHA256;
-        c.liveText = ''; liveBytes = 0; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null; end = null;
+        c.liveText = ''; liveBytes = 0; diagram = null; figureParts = null; followUps = null; nextNotes = null; asked = null; end = null;
         outcome = { kind: 'failed', code: 'transport' };
         c.progress = { kind: 'looking_at_figure', query: figures[0] ? figureLabel(figures[0].caption) ?? undefined : undefined }; this.publish();
         controller = next; deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
@@ -1266,8 +1365,8 @@ export class ChatSession {
     c.progress = null; c.issue = result.issue; c.phase = 'finishing';
     // Suggestions belong to a complete answer only; an interrupted or failed one offers none.
     c.followUps = result.status === 'complete' ? followUps : null;
-    // The map advances only with a complete tutored answer; a failed or interrupted one keeps the previous map.
-    if (result.status === 'complete' && nextMap && c.study && request.action === 'study') c.study = nextMap;
+    // The tutor's notes advance only with a complete tutored answer; a failed or interrupted one keeps the previous notes.
+    if (result.status === 'complete' && nextNotes && c.study && request.action === 'study') c.study = { notes: nextNotes };
     if (result.status === 'interrupted') {
       // What it cost, said under it (2026-10-16): the server charges nothing for an early end that wasn't the reader's Stop.
       const note = interruptionNote(stopped, end);

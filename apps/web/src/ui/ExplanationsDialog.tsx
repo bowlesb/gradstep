@@ -18,7 +18,9 @@ export function ExplanationsDialog({ chat, kind, paperTitle, onOpen, onClose }: 
 }) {
   const rows = useMemo(() => chat.explanations(kind), [chat, kind]);
   const [missing, setMissing] = useState<string | null>(null);
-  const title = kind === 'equation' ? 'Equation explanations' : 'Figure explanations';
+  const title = kind === 'equation' ? 'Equation explanations' : kind === 'paper' ? 'Paper explanations' : 'Figure explanations';
+  // A paper's explainer (2026-10-22) is named by its paper; the others by their equation or figure, with the paper under it.
+  const noun = kind === 'equation' ? 'equation' : kind === 'paper' ? 'explainer' : 'figure';
   return <Dialog open onClose={onClose} title={title} className="explanations-dialog">
     <SheetTop onClose={onClose} testID="explanations-close"><h2>{title}</h2><InfoTip text={INFO} testID="explanations-info" /></SheetTop>
     {missing && <p className="issue" role="alert">{missing}</p>}
@@ -27,14 +29,16 @@ export function ExplanationsDialog({ chat, kind, paperTitle, onOpen, onClose }: 
       return <li key={`${e.documentID}/${e.targetID}`}>
         <button className="diagram-row explanation-row" data-testid={`explanation-${e.targetID}`} onClick={() => {
           setMissing(null);
-          if (!paper || !onOpen(e)) setMissing(`This paper isn’t in your library here, so its ${kind} can’t be opened.`);
+          if (!paper || !onOpen(e)) setMissing(`This paper isn’t in your library here, so its ${noun} can’t be opened.`);
         }}>
-          <Icon name={kind === 'equation' ? 'function' : 'image'} size={16} />
-          <span className="explanation-row-text"><strong>{e.label}</strong><span className="fine">{paper ?? 'Not in your library'}</span></span>
+          <Icon name={kind === 'equation' ? 'function' : kind === 'paper' ? 'sparkles' : 'image'} size={16} />
+          <span className="explanation-row-text">{kind === 'paper' ? <><strong>{paper ?? 'Not in your library'}</strong><span className="fine">{e.label}</span></>
+            : <><strong>{e.label}</strong><span className="fine">{paper ?? 'Not in your library'}</span></>}</span>
           <span className="fine">{formatDateTime(e.at)}</span>
           <Icon name="chevronRight" size={14} />
         </button></li>;
-    })}</ul> : <div data-testid="explanations-empty"><p><strong>{kind === 'equation' ? 'No equation explanations' : 'No figure explanations'}</strong></p>
-      <p className="muted">{kind === 'equation' ? 'Equations' : 'Figures'} you ask the AI Explainer about are kept in this browser.</p></div>}
+    })}</ul> : <div data-testid="explanations-empty"><p><strong>{kind === 'equation' ? 'No equation explanations' : kind === 'paper' ? 'No paper explanations' : 'No figure explanations'}</strong></p>
+      <p className="muted">{kind === 'equation' ? 'Equations you ask the AI Explainer about are kept in this browser.' : kind === 'paper' ? 'Papers you open the AI Explainer for (Paper ⋯ › AI Explainer) are kept in this browser.'
+        : 'Figures you ask the AI Explainer about are kept in this browser.'}</p></div>}
   </Dialog>;
 }

@@ -50,6 +50,7 @@ const LIBRARY_FILTER_KEY = 'gradstep.library.filter', OLD_LIBRARY_TAG_KEY = 'gra
 import type { ReaderCache, ReaderCommands } from './Reader';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
+import type { PaperExplainerHost } from './PaperExplainer';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { useReadingMode } from './ReadingMode';
 import { SignIn } from './SignIn';
@@ -166,6 +167,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.
   const readerCommands = useRef<ReaderCommands | null>(null);
   const readerActions = useLibraryActions(library, undefined, useMemo(() => [
+    // The paper's AI Explainer (LEARNING_GUIDE.md, 2026-10-22): an arXiv paper this browser reads (its numbered text).
+    { label: 'AI Explainer', testID: 'paper-explainer', applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper),
+      run: () => readerCommands.current?.paperExplainer?.() },
     { label: 'Reader version details', testID: 'reader-version-details',
       applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() },
     // Notes: Paper ⋯ › Draw snippet (the always-available entry; NOTES_AND_SNIPPETS.md "Capture entry points"), after
@@ -696,6 +700,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     run: (input, action, update, signal, choice) => chat.figure(equationDocument, input, action, update, signal, choice),
     image: figureID => chat.keptFigureImage(equationDocument, figureID),
   } : undefined, [chat, equationDocument]);
+  // The paper's AI Explainer's requests, the same way (LEARNING_GUIDE.md "Paper AI Explainer").
+  const paperExplainerHost = useMemo<PaperExplainerHost | undefined>(() => chat && equationDocument ? {
+    context: { chat, documentID: equationDocument, title: item?.metadata?.title ?? "Paper", onPromote:()=>{setChatMode('paper');latest.current.ws.show('right');} },
+    consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
+    saved: (manifest, choice) => chat.savedPaperExplainer(manifest, choice),
+    run: (update, signal, choice) => chat.paperExplainer(equationDocument, update, signal, choice),
+  } : undefined, [chat, equationDocument]);
   // Passages with chats are underlined unless the reader turned that off (Settings › Reading on the apps; B10).
   const [passageMarks, setPassageMarks] = useStored<boolean>(PASSAGE_MARKS_KEY, true, v => typeof v === 'boolean');
   const marks = useMemo(() => !passageMarks ? [] : chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor)
@@ -758,7 +769,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         readSaved={readSaved}
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
-        onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
+        onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost} paperExplainer={paperExplainerHost}
         onEditTags={keyword => readerActions.editTags(item, keyword ? { name: keyword, search: searchPapers, showTagged } : undefined)}
         onAuthorSearch={name => searchPapers('author:' + name)}
         onBackToChat={chatReturn && !ws.right.open ? () => { const back = chatReturn.composer; setChatReturn(null); if (back) chat?.chooseDraft(back); setChatMode('paper'); ws.show('right'); } : undefined}
@@ -1059,6 +1070,7 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
             {/* Owner, build 62: the AI Explainer's answers too (this tab's; the apps keep theirs on the device). */}
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('equation'); }} data-testid="assets-equations"><Icon name="function" size={14} /> Equation explanations</button>
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('figure'); }} data-testid="assets-figures"><Icon name="image" size={14} /> Figure explanations</button>
+            <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('paper'); }} data-testid="assets-papers"><Icon name="sparkles" size={14} /> Paper explanations</button>
           </div>
           <div className="menu-row" role="group" aria-label="Appearance">
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>

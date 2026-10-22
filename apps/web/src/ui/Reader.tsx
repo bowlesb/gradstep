@@ -27,6 +27,7 @@ import { readStored, writeStored } from './prefs';
 import { useWorkspaceControls } from './Shell';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
+import type { PaperExplainerHost } from './PaperExplainer';
 import { LINE_WIDTH_KEY, LineWidthControl, readLineWidth, type ReadingMode } from './ReadingMode';
 import type { ComposerDraft } from './Notes';
 import { SnippetOverlay, type Box } from './SnippetOverlay';
@@ -36,11 +37,14 @@ import { arxivFigure } from '../lib/figure-framing-record';
 
 // The equation view brings the math typesetter: loaded only when an equation is opened (EQUATION_VIEW.md).
 const EquationView = lazy(() => import('./EquationView'));
+// Loaded when first opened: it brings the Markdown and math typesetter of its answer with it.
+const PaperExplainerDialog = lazy(() => import('./PaperExplainer').then(m => ({ default: m.PaperExplainerDialog })));
 
 export type ReaderCache = Map<string, VerifiedBundle>; // owned by one signed-in session, memory only
 export interface ReaderCommands { find: () => void; escape: () => boolean; /** The next (1) or previous (-1) section. */ section?: (delta: number) => void;
   /** The paper's ⋯ › Reader version details (READER_VERSIONS.md). */ versionDetails?: () => void;
-  /** The paper's ⋯ › Draw snippet (NOTES_AND_SNIPPETS.md). */ drawSnippet?: () => void }
+  /** The paper's ⋯ › Draw snippet (NOTES_AND_SNIPPETS.md). */ drawSnippet?: () => void;
+  /** The paper's ⋯ › AI Explainer (LEARNING_GUIDE.md "Paper AI Explainer"). */ paperExplainer?: () => void }
 /** Notes from this paper: whether notes can be written (and hold images) here, and the composer to open. */
 export interface NoteCapture { writable: boolean; images: boolean; add: (draft: ComposerDraft, adjust?: () => void) => void }
 const FONT_KEY = 'gradstep.reader.fontSize';
@@ -85,7 +89,7 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
   marks: { id: string; anchor: TextAnchor; title?: string; lastUsedAt?: number }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
   /** A kept explanation reopened from Your assets: its equation view or figure page, once the paper is ready. */
-  explainer?: { id: string; kind: 'equation' | 'figure'; targetID: string; at: number } | null; onExplainerHandled?: () => void;
+  explainer?: { id: string; kind: 'equation' | 'figure' | 'paper'; targetID: string; at: number } | null; onExplainerHandled?: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => void; onMarkedChat: (id: string) => void;
   /** Prepares an unsent draft; true only once the host accepted/persisted it. Never a paid Send. */
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
@@ -95,6 +99,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   equations?: EquationHost;
   /** The figure view's requests (FIGURE_VIEW.md), the same way. */
   figureView?: FigureHost;
+  /** The paper's AI Explainer's requests (LEARNING_GUIDE.md), the same way. */
+  paperExplainer?: PaperExplainerHost;
   /** After a chat citation closed the chat drawer: reopens it (PaperView's Back to chat). */
   onBackToChat?: () => void;
   /** An explainer's citation now offers Back to its explainer: the host drops an older Back to chat (one Back at a time). */
@@ -115,7 +121,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved: shownSaved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, onExplainerReturn, reading, readSaved, noteCapture }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved: shownSaved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, paperExplainer, onEditTags, onAuthorSearch, onBackToChat, onExplainerReturn, reading, readSaved, noteCapture }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -141,8 +147,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
   // Back to the explainer a citation left (a table's says Table, as the apps). The most recent origin wins: a chat
   // citation's passage replaces it, and setting it drops the host's Back to chat (build 73: both Backs showed).
-  const [explainerReturn,setExplainerReturnState]=useState<{kind:'equation'|'figure'|'table';id:string}|null>(null);
-  const setExplainerReturn=(value:{kind:'equation'|'figure'|'table';id:string}|null)=>{setExplainerReturnState(value);if(value)onExplainerReturn?.();};
+  const [explainerReturn,setExplainerReturnState]=useState<{kind:'equation'|'figure'|'table'|'paper';id:string}|null>(null);
+  const setExplainerReturn=(value:{kind:'equation'|'figure'|'table'|'paper';id:string}|null)=>{setExplainerReturnState(value);if(value)onExplainerReturn?.();};
   const figureReturn=(id:string)=>({kind:bundle&&figureNoun(figureName(bundle,id))==='Table'?'table' as const:'figure' as const,id});
   useEffect(()=>{if(passage)setExplainerReturnState(null);},[passage?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tableDetail, setTableDetail] = useState<ReaderFigureReference | null>(null);
@@ -157,6 +163,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   const [equationTiles, setEquationTiles] = useState(false);
   // ⋯ › Reader version details, and its Update this paper (the copy on screen stays until the new one is ready).
   const [versionOpen, setVersionOpen] = useState(false);
+  // ⋯ › AI Explainer: the paper's explainer (LEARNING_GUIDE.md).
+  const [paperExplaining, setPaperExplaining] = useState(false);
   const [update, setUpdate] = useState<ReaderUpdate | null>(null);
   const updateRequest = useRef<AbortController | null>(null);
   useEffect(() => () => updateRequest.current?.abort(), []);
@@ -261,6 +269,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
       section: delta => sectionStep.current(delta),
       versionDetails: () => setVersionOpen(true),
       drawSnippet: () => drawSnippet.current(),
+      paperExplainer: () => setPaperExplaining(true),
     };
     return () => { commands.current = null; };
   }, [commands, openFind, closeFind, finding, snippet]);
@@ -457,7 +466,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
     appliedExplainer.current = explainer.id;
     onExplainerHandled?.();
     if (Date.now() - explainer.at > 60_000) return;
-    if (explainer.kind === 'equation') {
+    if (explainer.kind === 'paper') setPaperExplaining(true);
+    else if (explainer.kind === 'equation') {
       const target = equationTarget(explainer.targetID);
       if (target) setEquation(target); else setNotice('This equation isn’t in this copy of the paper.');
     } else if (bundle.index.figures.some(f => f.id === explainer.targetID)) setFigure({ id: explainer.targetID, open: true });
@@ -595,7 +605,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
             data-testid="ask" title="Chat ( ] )"><Icon name="chat" /><span>Chat</span></button>
         </div>
       </header>
-      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='equation')setEquation(equationTarget(explainerReturn.id));else setFigure({id:explainerReturn.id,open:true});setExplainerReturn(null);}}>Back to {explainerReturn.kind==='equation'?'Equation':explainerReturn.kind==='table'?'Table':'Figure'} Explainer</button>}
+      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='paper')setPaperExplaining(true);else if(explainerReturn.kind==='equation')setEquation(equationTarget(explainerReturn.id));else setFigure({id:explainerReturn.id,open:true});setExplainerReturn(null);}}>{explainerReturn.kind==='paper'?'Back to AI Explainer':`Back to ${explainerReturn.kind==='equation'?'Equation':explainerReturn.kind==='table'?'Table':'Figure'} Explainer`}</button>}
       {finding && (
         <form className="find-bar" role="search" aria-label="Find in paper" onSubmit={e => e.preventDefault()}>
           <Icon name="search" size={14} />
@@ -708,6 +718,9 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
         onClose={() => setEquation(null)} onCite={marker => { setExplainerReturn({kind:'equation',id:equation.id}); setEquation(null); goToCited(marker); }}
         onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined}
         onAddToNote={noteCapture ? () => { const e = bundle.index.equations.find(x => x.id === equation.id); void addElement(equation.id, e?.block_id, equationLabel(equation.id), () => setEquation(null)); } : undefined} /></Suspense>}
+      {bundle && paperExplaining && paperExplainer && <Suspense fallback={null}><PaperExplainerDialog manifest={bundle.manifestSHA256} title={title} host={paperExplainer}
+        onClose={() => setPaperExplaining(false)}
+        onCite={marker => { setExplainerReturn({ kind: 'paper', id: 'paper' }); setPaperExplaining(false); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }} /></Suspense>}
       {versionOpen && <ReaderVersionDialog bundle={bundle} update={update} onUpdate={updateCopy} onClose={() => setVersionOpen(false)} />}
       {bundle && equationTiles && <EquationTiles bundle={bundle} theme={theme} onClose={() => setEquationTiles(false)}
         onEquation={id => { setEquationTiles(false); showEquation(id); }} />}

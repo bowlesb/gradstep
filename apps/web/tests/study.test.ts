@@ -1,9 +1,9 @@
-// Study (lib/study.ts, docs/architecture/CHAT.md "Study", 2026-10-14): the request, the map, its drawing, and the
-// session's study state across turns.
+// Study mode (lib/study.ts, LEARNING_GUIDE.md, reworked 2026-10-22): the request, the tutor's hidden notes, the visual
+// suggestion pattern, and the session's study state across turns.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fromBytea, sha256, toBytea } from '../src/lib/bytes';
 import { makeRequest, requestBody, SSEParser, type StreamEvent } from '../src/lib/chat';
-import { EMPTY_STUDY_MAP, stateCounts, studyMap, studyMermaid, studyStart, type StudyMap } from '../src/lib/study';
+import { isVisualFollowUp, STUDY_ENTRY, STUDY_HINT, STUDY_NOTES_LIMITS, STUDY_OPENING, studyNotes, type StudyNotes } from '../src/lib/study';
 
 const server = vi.hoisted(() => ({ rows: [] as any[], requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -29,45 +29,42 @@ const { keyRing, generateBundle } = await import('../src/lib/wire');
 const account = '11111111-2222-4333-8444-555555555555', device = 'aaaaaaaa-0000-4000-8000-000000000001', member = '58000000-0000-4000-8000-000000000003';
 const reference = { format: 'source-membership-v1' as const, membershipID: member, source: 'arxiv' as const, sourceID: '2601.01234', revision: 2 };
 
-const sample: StudyMap = { concepts: [{ id: 'scaling', label: 'Scaled dot-product attention', state: 'learning', paragraphs: [2], note: 'Mixes up d_k and d_model' },
-  { id: 'softmax', label: 'Softmax saturation', state: 'unknown', paragraphs: [2] }, { id: 'end', label: 'End of sequence', state: 'known', paragraphs: [] }],
-  links: [{ from: 'softmax', to: 'scaling', kind: 'prerequisite' }, { from: 'scaling', to: 'end', kind: 'deeper' }], focus: 'scaling', journey: ['scaling', 'softmax', 'scaling'], next: 'verify' };
+const notes: StudyNotes = { turn: 1, level: 'core', concepts: [{ name: 'Scaled dot-product attention', status: 'new', asked: [1], paras: [2] }], next: 'check scaling' };
+const later: StudyNotes = { turn: 2, level: 'intro', concepts: [{ name: 'Scaled dot-product attention', status: 'shaky', asked: [1, 2], paras: [2] },
+  { name: 'Softmax saturation', status: 'new', asked: [2], paras: [2] }], next: 'explain softmax; look back at scaling at turn 4' };
+const frames = (text: string) => new SSEParser().consume(new TextEncoder().encode(text));
 
-describe('the study request and map', () => {
-  it('sends the map with a study turn, no selection needed, and asks for no follow-ups', () => {
-    const request = makeRequest('bbbbbbbb-0000-4000-8000-000000000002', null, [{ role: 'user', text: studyStart() }], null, 'study');
-    expect(request.action).toBe('study'); expect(request.selection).toBeNull();
-    const body = requestBody({ ...request, study: sample });
-    expect(body.action).toBe('study'); expect(body.study).toEqual(sample); expect(body.follow_ups).toBeUndefined(); expect(body.topic_title).toBeUndefined();
-    expect(requestBody(request).study).toEqual(EMPTY_STUDY_MAP);
-    // Other actions still need their quote; a quote may start a study on a passage.
-    expect(makeRequest('bbbbbbbb-0000-4000-8000-000000000002', null, [{ role: 'user', text: 'x' }], null, 'relevance').action).toBeNull();
-    expect(studyStart('divide by sqrt(d_k)')).toContain('divide by sqrt(d_k)');
+describe('the study request and notes', () => {
+  it('sends the tutor’s notes back with a study turn (none on the first), never the old map, and asks for no follow-ups', () => {
+    const first = makeRequest('bbbbbbbb-0000-4000-8000-000000000002', null, [{ role: 'user', text: STUDY_OPENING }], null, 'study');
+    expect(first.action).toBe('study'); expect(first.selection).toBeNull();
+    const body = requestBody(first);
+    expect(body.action).toBe('study'); expect(body).not.toHaveProperty('study'); expect(body).not.toHaveProperty('study_state'); expect(body).not.toHaveProperty('follow_ups');
+    expect(requestBody({ ...first, studyState: notes }).study_state).toEqual(notes);
+    // Notes never travel with anything else.
+    const plain = makeRequest('bbbbbbbb-0000-4000-8000-000000000002', null, [{ role: 'user', text: 'q' }], null);
+    expect(requestBody({ ...plain, studyState: notes })).not.toHaveProperty('study_state');
+    // A passage may start the study (it goes as the selection).
+    expect(makeRequest('bbbbbbbb-0000-4000-8000-000000000002', null, [{ role: 'user', text: STUDY_OPENING }], 'divide by √d_k', 'study').selection).toBe('divide by √d_k');
   });
-  it('keeps whole maps only and cleans what it keeps', () => {
-    expect(studyMap(sample)).toEqual(sample);
-    expect(studyMap({ ...sample, concepts: [{ id: 'scaling', label: ' Scaled\u0000 attention ', state: 'known', paragraphs: [2, 2, 0, 1e9] }], links: [], focus: 'ghost', journey: [], next: 'sideways' }))
-      .toEqual({ concepts: [{ id: 'scaling', label: 'Scaled attention', state: 'known', paragraphs: [2] }], links: [], focus: null, journey: [], next: 'calibrate' });
-    for (const broken of [null, [], { concepts: [] }, { ...sample, concepts: [{ ...sample.concepts[0], state: 'mastered' }] },
-      { ...sample, links: [{ from: 'scaling', to: 'ghost', kind: 'related' }] }, { ...sample, journey: ['ghost'] }, { ...sample, links: [{ from: 'scaling', to: 'scaling', kind: 'related' }] },
-      { ...sample, concepts: [...sample.concepts, { id: 'scaling', label: 'dup', state: 'known', paragraphs: [] }] }]) expect(studyMap(broken)).toBeNull();
-    expect(stateCounts(sample)).toEqual({ unknown: 1, learning: 1, known: 1, verified: 0 });
+  it('reads the study_state event leniently and ignores the retired study map event', () => {
+    expect(frames(`event: study_state\ndata: ${JSON.stringify({ state: later })}\n\n`)).toEqual([{ type: 'study_state', state: later }]);
+    expect(frames('event: study_state\ndata: {"state": "turn 2"}\n\n')).toEqual([]);
+    expect(frames(`event: study\ndata: ${JSON.stringify({ map: { concepts: [], links: [] } })}\n\n`)).toEqual([]);
   });
-  it('parses the study event and drops an unusable map', () => {
-    const frames = (text: string) => { const p = new SSEParser(); return p.consume(new TextEncoder().encode(text)); };
-    expect(frames(`event: study\ndata: ${JSON.stringify({ map: sample })}\n\n`)).toEqual([{ type: 'study', map: sample }]);
-    expect(frames('event: study\ndata: {"map":{"concepts":[{"id":"x","label":"x","state":"fluent","paragraphs":[]}],"links":[]}}\n\n')).toEqual([]);
-    expect(frames('event: study\ndata: {"map":"none"}\n\n')).toEqual([]);
+  it('repairs notes as the server does: unknown values fall back, names cleaned, duplicates keep the newest, bounded', () => {
+    const checked = studyNotes({ turn: 0, level: 'expert', next: ' revisit\u0000 <softmax> ', concepts: [
+      { name: ' Softmax ', status: 'mastered', asked: [3, 1, 1, 0], paras: [2, 2] }, { name: '' }, 'junk', { name: 'softmax', status: 'ok', asked: [2], paras: [4] }] })!;
+    expect(checked).toEqual({ turn: 1, level: 'core', next: 'revisit softmax', concepts: [{ name: 'softmax', status: 'ok', asked: [2], paras: [4] }] });
+    expect(studyNotes({ concepts: Array.from({ length: 20 }, (_, i) => ({ name: `C${i}`, status: 'ok' })) })!.concepts).toHaveLength(STUDY_NOTES_LIMITS.concepts);
+    expect(studyNotes(null)).toBeNull(); expect(studyNotes([notes])).toBeNull();
+    expect(studyNotes({ ...notes, next: 'n'.repeat(5_000) })!.next.length).toBe(STUDY_NOTES_LIMITS.next);
   });
-  it('draws the map as a strict Mermaid flowchart with safe ids and quoted, cleaned labels', () => {
-    const source = studyMermaid({ ...sample, concepts: [...sample.concepts.slice(0, 2), { id: 'end', label: 'End "of" [seq] {x} <y>', state: 'known', paragraphs: [] }] });
-    expect(source.split('\n')[0]).toBe('flowchart TD');
-    expect(source).toContain('s_scaling["Scaled dot-product attention"]:::learning');
-    expect(source).toContain('s_end["End of seq x y"]:::known');
-    expect(source).toContain('s_softmax --> s_scaling'); expect(source).toContain('s_scaling -.-> s_end');
-    expect(source).toContain('style s_scaling stroke-width:3px');
-    expect(source).not.toMatch(/^\s*end\b/m);
-    expect(studyMermaid(EMPTY_STUDY_MAP)).toContain('classDef verified');
+  it('tells a picture suggestion from a question, as the server does', () => {
+    for (const q of ['Create a diagram explaining the background of RLHF', 'Draw how attention flows step by step', 'Show the DPO pipeline as a visual', 'Make a flowchart of the training loop'])
+      expect(isVisualFollowUp(q)).toBe(true);
+    for (const q of ['Show how DPO compares to PPO', 'What does Figure 2 show?', 'Show me Figure 3', 'How is the reward model trained?']) expect(isVisualFollowUp(q)).toBe(false);
+    expect(STUDY_ENTRY).toBe('Enter Study Mode – Quiz me and help me learn');
   });
 });
 
@@ -85,29 +82,34 @@ describe('a study in the chat session', () => {
     return { chat, history };
   }
   beforeEach(() => { server.rows = []; server.requests = []; });
-  it('starts with an empty map, sends the map back each turn, advances it on complete answers only, and ends cleanly', async () => {
-    const grown: StudyMap = { ...sample, journey: [...sample.journey, 'end'], focus: 'end' };
+  it('enters with the opening turn, sends the notes back each turn, advances them on complete answers only, and stops without a request', async () => {
     const { chat } = await setup([
-      [{ type: 'delta', text: '**What does attention compute?**' }, { type: 'study', map: sample }, done],
-      [{ type: 'delta', text: 'Partly.' }, { type: 'study', map: grown }, { type: 'error', code: 'provider_unavailable' }],
-      [{ type: 'delta', text: 'Right. **Next?**' }, { type: 'study', map: grown }, done],
+      [{ type: 'delta', text: '**What does attention compute?**' }, { type: 'study_state', state: notes }, done],
+      [{ type: 'delta', text: 'Partly.' }, { type: 'study_state', state: later }, { type: 'error', code: 'provider_unavailable' }],
+      [{ type: 'delta', text: 'Right. **Next?**' }, { type: 'study_state', state: later }, done],
+      [{ type: 'delta', text: 'A hint: think of the scale. **Again?**' }, done],
     ]);
     expect(chat.canStudy(member)).toBe(true); expect(chat.canStudy(null)).toBe(false); expect(chat.canStudy('dddddddd-0000-4000-8000-000000000001')).toBe(false);
     const c = chat.current(member);
     await chat.startStudy(c);
-    expect(server.requests[0].action).toBe('study'); expect(server.requests[0].study).toEqual(EMPTY_STUDY_MAP);
-    expect(server.requests[0].localContext?.format).toBe('reader-local-context-v2'); expect(server.requests[0].turns.at(-1)?.text).toBe(studyStart());
-    expect(c.study).toEqual(sample); expect(c.followUps).toBeNull();
-    expect(chat.branch(c)?.messages.map(e => e.payload.text)).toEqual([studyStart(), '**What does attention compute?**']);
-    // The reader's answer is a study turn carrying the current map; a failed answer leaves the map as it was.
+    expect(server.requests[0].action).toBe('study'); expect(server.requests[0].studyState).toBeUndefined();
+    expect(server.requests[0].localContext?.format).toBe('reader-local-context-v2'); expect(server.requests[0].turns.at(-1)?.text).toBe(STUDY_OPENING);
+    expect(c.study).toEqual({ notes }); expect(c.followUps).toBeNull();
+    expect(chat.branch(c)?.messages.map(e => e.payload.text)).toEqual([STUDY_OPENING, '**What does attention compute?**']);
+    // The reader's answer is a study turn carrying the notes; a failed answer leaves them as they were.
     chat.edit(c, 'A weighted sum of values.'); await chat.send(c);
-    expect(server.requests[1].action).toBe('study'); expect(server.requests[1].study).toEqual(sample);
-    expect(c.issue).toBe('provider_unavailable'); expect(c.study).toEqual(sample);
+    expect(server.requests[1].action).toBe('study'); expect(server.requests[1].studyState).toEqual(notes);
+    expect(c.issue).toBe('provider_unavailable'); expect(c.study).toEqual({ notes });
     await chat.retry(c);
-    expect(server.requests[2].action).toBe('study'); expect(c.study).toEqual(grown); expect(c.issue).toBeNull();
+    expect(server.requests[2].action).toBe('study'); expect(c.study).toEqual({ notes: later }); expect(c.issue).toBeNull();
+    // Hint sends its turn at once, with the latest notes.
+    await chat.studyReply(c, STUDY_HINT);
+    expect(server.requests[3].turns.at(-1)?.text).toBe(STUDY_HINT); expect(server.requests[3].studyState).toEqual(later); expect(c.study).toEqual({ notes: later });
     chat.endStudy(c);
-    expect(c.study).toBeNull();
-    // Nothing of the map reached storage (it is memory only, never written in the clear).
+    expect(c.study).toBeNull(); expect(server.requests).toHaveLength(4);
+    // A reply after Stop is an ordinary question.
+    await chat.studyReply(c, STUDY_HINT); expect(server.requests).toHaveLength(4);
+    // Nothing of the notes reached storage (memory only, never written in the clear).
     expect(JSON.stringify(server.rows)).not.toContain('Softmax');
   });
   it('is only offered for papers numbered on this device', async () => {

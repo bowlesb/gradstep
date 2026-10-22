@@ -1,86 +1,54 @@
-// Study (experimental, 2026-10-14; docs/architecture/CHAT.md "Study"): an adaptive tutor for one paper. Every turn
-// carries the reader's knowledge map (concepts with a state, links, the journey so far); the server's tutor adapts to
-// it and sends the updated map back as a `study` event. The map lives in memory with the open chat: it is never
-// written to this browser in the clear. This module is the browser port of supabase/functions/_shared/chat-study.ts.
-export const STUDY_STATES = ['unknown', 'learning', 'known', 'verified'] as const;
-export const STUDY_LINKS = ['prerequisite', 'deeper', 'related'] as const;
-export const STUDY_NEXT = ['calibrate', 'teach', 'verify', 'deeper', 'tangent', 'revisit'] as const;
-export type StudyState = typeof STUDY_STATES[number];
-export interface StudyConcept { id: string; label: string; state: StudyState; paragraphs: number[]; note?: string }
-export interface StudyLink { from: string; to: string; kind: typeof STUDY_LINKS[number] }
-export interface StudyMap { concepts: StudyConcept[]; links: StudyLink[]; focus: string | null; journey: string[]; next: typeof STUDY_NEXT[number] }
-export const STUDY_MAP_LIMITS = Object.freeze({ concepts: 60, links: 120, label: 80, note: 160, paragraphs: 8, journey: 80, bytes: 16_384 });
-export const EMPTY_STUDY_MAP: StudyMap = Object.freeze({ concepts: [], links: [], focus: null, journey: [], next: 'calibrate' }) as StudyMap;
+// Study mode (reworked 2026-10-22; docs/proposals/LEARNING_GUIDE.md): the chat becomes a tutor that asks one question at
+// a time and backs off to a short explanation when the reader is shaky. The tutor keeps its own light notes on the reader
+// (concepts covered, how sure the reader is, its plan) hidden in its reply; the server removes them and relays them as a
+// `study_state` event, and this browser sends them back with the next turn. They live with the open chat in memory only:
+// never shown, never written to this browser or to history. This module mirrors supabase/functions/_shared/chat-study.ts.
 
-/** The reader's opening turn: the tutor starts with a calibrating question (on the selected passage when there is one). */
-export function studyStart(selection: string | null = null): string {
-  return selection ? `Start studying this paper, beginning with this passage: ${selection}` : 'Start studying this paper.';
-}
+/** The entry offered after the starter questions and as the last suggested question in a paper chat. */
+export const STUDY_ENTRY = 'Enter Study Mode – Quiz me and help me learn';
+/** The reader's opening turn (a selected passage goes with it as the passage). */
+export const STUDY_OPENING = 'Quiz me and help me learn this paper.';
+/** What Hint and Explain instead send, as the reader's turn. */
+export const STUDY_HINT = 'Give me a hint.';
+export const STUDY_EXPLAIN = 'Explain it to me instead.';
 
-const ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
-const clean = (value: unknown, limit: number): string | null => {
+export const STUDY_NOTES_LIMITS = Object.freeze({ concepts: 12, name: 60, asked: 8, paras: 6, next: 200, bytes: 4_096, turn: 500 });
+export const STUDY_LEVELS = ['intro', 'core', 'deep'] as const;
+export const STUDY_STATUSES = ['new', 'shaky', 'ok', 'solid'] as const;
+export interface StudyConceptNote { name: string; status: typeof STUDY_STATUSES[number]; asked: number[]; paras: number[] }
+export interface StudyNotes { turn: number; level: typeof STUDY_LEVELS[number]; concepts: StudyConceptNote[]; next: string }
+
+function line(value: unknown, limit: number): string | null {
   if (typeof value !== 'string') return null;
-  const text = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim();
-  return text && [...text].length <= limit ? text : null;
-};
-/** Validates a map from the server (untrusted). Null when unusable: a map is either whole or absent. */
-export function studyMap(input: unknown): StudyMap | null {
+  const text = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const scalars = [...text];
+  return scalars.length <= limit ? text : scalars.slice(0, limit - 1).join('').trimEnd() + '…';
+}
+const numbers = (value: unknown, max: number, limit: number) => [...new Set((Array.isArray(value) ? value : [])
+  .filter(n => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= max) as number[])].sort((a, b) => a - b).slice(-limit);
+
+/** The tutor's notes from the server (untrusted), repaired as the server repairs them; null when unusable or over 4 KB. */
+export function studyNotes(input: unknown): StudyNotes | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const m = input as Record<string, unknown>;
-  if (!Array.isArray(m.concepts) || !Array.isArray(m.links)) return null;
-  if (m.concepts.length > STUDY_MAP_LIMITS.concepts || m.links.length > STUDY_MAP_LIMITS.links) return null;
-  const concepts: StudyConcept[] = [], ids = new Set<string>();
-  for (const raw of m.concepts) {
-    if (!raw || typeof raw !== 'object') return null;
+  const v = input as Record<string, unknown>;
+  const turn = Number.isSafeInteger(v.turn) && (v.turn as number) >= 1 ? Math.min(v.turn as number, STUDY_NOTES_LIMITS.turn) : 1;
+  const level = (STUDY_LEVELS as readonly unknown[]).includes(v.level) ? v.level as StudyNotes['level'] : 'core';
+  const byName = new Map<string, StudyConceptNote>();
+  for (const raw of Array.isArray(v.concepts) ? v.concepts.slice(0, 64) : []) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
     const c = raw as Record<string, unknown>;
-    const id = typeof c.id === 'string' && ID.test(c.id) ? c.id : null, label = clean(c.label, STUDY_MAP_LIMITS.label);
-    if (!id || !label || ids.has(id) || !STUDY_STATES.includes(c.state as StudyState)) return null;
-    const paragraphs = (Array.isArray(c.paragraphs) ? c.paragraphs : []).filter((n): n is number => Number.isSafeInteger(n) && n >= 1 && n <= 100_000);
-    if (paragraphs.length > STUDY_MAP_LIMITS.paragraphs) return null;
-    const note = c.note === undefined || c.note === null ? undefined : clean(c.note, STUDY_MAP_LIMITS.note) ?? undefined;
-    ids.add(id); concepts.push({ id, label, state: c.state as StudyState, paragraphs: [...new Set(paragraphs)].sort((a, b) => a - b), ...(note ? { note } : {}) });
+    const name = line(c.name, STUDY_NOTES_LIMITS.name);
+    if (!name) continue;
+    const status = (STUDY_STATUSES as readonly unknown[]).includes(c.status) ? c.status as StudyConceptNote['status'] : 'new';
+    byName.delete(name.toLowerCase());
+    byName.set(name.toLowerCase(), { name, status, asked: numbers(c.asked, STUDY_NOTES_LIMITS.turn, STUDY_NOTES_LIMITS.asked), paras: numbers(c.paras, 100_000, STUDY_NOTES_LIMITS.paras) });
   }
-  const links: StudyLink[] = [], seen = new Set<string>();
-  for (const raw of m.links) {
-    if (!raw || typeof raw !== 'object') return null;
-    const l = raw as Record<string, unknown>;
-    if (typeof l.from !== 'string' || typeof l.to !== 'string' || !ids.has(l.from) || !ids.has(l.to) || l.from === l.to || !STUDY_LINKS.includes(l.kind as StudyLink['kind'])) return null;
-    const key = `${l.from}>${l.to}`; if (seen.has(key)) continue;
-    seen.add(key); links.push({ from: l.from, to: l.to, kind: l.kind as StudyLink['kind'] });
-  }
-  const focus = typeof m.focus === 'string' && ids.has(m.focus) ? m.focus : null;
-  if (!Array.isArray(m.journey) || m.journey.length > STUDY_MAP_LIMITS.journey || !m.journey.every((j): j is string => typeof j === 'string' && ids.has(j))) return null;
-  const next = STUDY_NEXT.includes(m.next as StudyMap['next']) ? m.next as StudyMap['next'] : 'calibrate';
-  const map: StudyMap = { concepts, links, focus, journey: m.journey, next };
-  if (new TextEncoder().encode(JSON.stringify(map)).length > STUDY_MAP_LIMITS.bytes) return null;
-  return map;
+  const notes: StudyNotes = { turn, level, concepts: [...byName.values()].slice(-STUDY_NOTES_LIMITS.concepts), next: line(v.next, STUDY_NOTES_LIMITS.next) ?? '' };
+  return new TextEncoder().encode(JSON.stringify(notes)).length <= STUDY_NOTES_LIMITS.bytes ? notes : null;
 }
 
-export const STATE_TEXT: Record<StudyState, string> = { unknown: 'Not yet', learning: 'Learning', known: 'Known', verified: 'Verified' };
-export const NEXT_TEXT: Record<StudyMap['next'], string> = { calibrate: 'Finding your starting point', teach: 'Teaching', verify: 'Checking what you learned',
-  deeper: 'Going deeper', tangent: 'Moving to a related idea', revisit: 'Returning to an earlier gap' };
-export const LINK_TEXT: Record<StudyLink['kind'], string> = { prerequisite: 'builds on', deeper: 'goes deeper into', related: 'relates to' };
-
-/** How many concepts are in each state. */
-export function stateCounts(map: StudyMap): Record<StudyState, number> {
-  const counts: Record<StudyState, number> = { unknown: 0, learning: 0, known: 0, verified: 0 };
-  for (const c of map.concepts) counts[c.state]++;
-  return counts;
-}
-
-// The map as a Mermaid flowchart, drawn by the same sandboxed frame as the agent's diagrams (strict mode, no network).
-// Labels are quoted and stripped of the characters Mermaid reads as syntax; ids are prefixed so none is a keyword.
-const node = (id: string) => `s_${id.replace(/[^a-z0-9_]/g, '_')}`;
-const label = (text: string) => text.replace(/["\\[\]{}()<>|#;`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 48) || 'concept';
-const EDGE: Record<StudyLink['kind'], string> = { prerequisite: '-->', deeper: '-.->', related: '---' };
-export function studyMermaid(map: StudyMap): string {
-  const lines = ['flowchart TD'];
-  for (const c of map.concepts) lines.push(`  ${node(c.id)}["${label(c.label)}"]:::${c.state}`);
-  for (const l of map.links) lines.push(`  ${node(l.from)} ${EDGE[l.kind]} ${node(l.to)}`);
-  lines.push('  classDef unknown fill:#fbe3e1,stroke:#c0392b,color:#1b1b1b',
-    '  classDef learning fill:#fff1cc,stroke:#d68910,color:#1b1b1b',
-    '  classDef known fill:#dbe9fb,stroke:#2e6fd0,color:#1b1b1b',
-    '  classDef verified fill:#dcf3e2,stroke:#1f8f4e,color:#1b1b1b');
-  if (map.focus) lines.push(`  style ${node(map.focus)} stroke-width:3px`);
-  return lines.join('\n');
-}
+/** A suggestion that asks for a picture (a diagram or a visual explanation): the server's `isVisualFollowUp`
+ * (chat-follow-ups.ts). When the model offered one, the generic Draw a diagram / Create a visual explanation rows give way. */
+export const VISUAL_FOLLOW_UP_PATTERN = /^(?:please\s+)?(?:(?:draw|sketch|diagram|visuali[sz]e|illustrate)\b|(?:create|make|show|give me|build)\b.*\b(?:diagram|visual|flow ?chart|chart|mind ?map|concept map|picture|illustration)s?\b)/i;
+export const isVisualFollowUp = (question: string) => VISUAL_FOLLOW_UP_PATTERN.test(question.trim());

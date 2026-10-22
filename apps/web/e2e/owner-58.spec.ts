@@ -28,7 +28,7 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await expect(menu).not.toContainText('Signed in with');
   // Add paper first (owner, build 75: the + as a new row in the menu on the far right), then Your assets (Chats, Diagrams,
   // the AI Explainer's explanations), as in the apps' Settings (account-assets.spec covers them and AI credits).
-  await expect(menu.getByRole('menuitem')).toHaveText(['Add paper…', 'Chats', 'Diagrams', 'Equation explanations', 'Figure explanations', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
+  await expect(menu.getByRole('menuitem')).toHaveText(['Add paper…', 'Chats', 'Diagrams', 'Snippets', 'Equation explanations', 'Figure explanations', 'Paper explanations', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
     'My reports', 'Sign out…', 'Delete account…'].map(t => new RegExp(`^\\s*${t.replace(/[.…&]/g, c => `\\${c}`)}$`)));
   await expect(menu.getByRole('group', { name: 'Admin' })).toHaveCount(0);
   // The sync state (B10, RootView's Account › Sync), with Sync now only while something is waiting.
