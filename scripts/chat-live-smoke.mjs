@@ -43,8 +43,13 @@ const FIGURE = Number(process.argv.find(a => a.startsWith('--figure='))?.slice(9
 /** `--look`: no figure attached, the device says it can answer a figure request (`figure_requests`); when the model asks for
  * one (`figure_request`), the question goes again with that figure, as the apps do (2026-10-15). */
 const LOOK = process.argv.includes('--look');
-/** `--equation`: symbols, then background on DPO's loss; `--equation=symbols` reruns only the structured request. */
+/** `--equation`: symbols, then background on DPO's loss; `--equation=symbols` reruns only the structured request.
+ * `--equation-runs=N` asks for the symbols N times in a row (the first may write the cache); each run prints its stream
+ * timings (EQUATION_VIEW.md "Speed": reading, count, summary, each symbol, the final `equation`, done) and the records go
+ * to .artifacts/equation-speed/live-<stamp>.json. */
 const EQUATION = process.argv.includes('--equation') || process.argv.includes('--equation=symbols');
+const EQUATION_RUNS = Number(process.argv.find(a => a.startsWith('--equation-runs='))?.slice(16) ?? 1);
+const equationRuns = [];
 /** `--figure-view=N`, `--table-view=N`, `--warm`, `--paper=<id>v<rev>`: the figure view (see the header). */
 // A comma-separated list walks through several figures in turn (the first may write the paper to the cache, the rest read it).
 const FIGURE_VIEWS = (process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? '').split(',').map(Number).filter(n => n > 0);
@@ -405,6 +410,9 @@ try {
     log(`chat HTTP ${r.status} ${r.headers.get('content-type')}`);
     if (r.status !== 200) { log(await r.text()); throw new Error('chat request failed'); }
     let answer = '', buffer = '', first = 0; const events = []; let done = null, failure = null, parts = null, visual = null, diagram = null; followUps = [];
+    // The equation explainer's stream (seconds from sending): what the reader sees and when.
+    const eq = { reading: null, count: null, summary: null, symbols: [], final: null, done: null, progress: 0 };
+    const since = () => Number(((Date.now() - started) / 1000).toFixed(2));
     const reader = r.body.getReader(); const decoder = new TextDecoder();
     const dispatch = frame => {
       let name = 'message', data = '';
@@ -420,8 +428,11 @@ try {
       else if (name === 'diagram') { diagram = payload; log(`diagram: “${payload.title}”, ${payload.source.split('\n')[0]}`); }
       else if (name === 'error') { failure = payload; log(`event error ${JSON.stringify(payload)}`); }
       else if (name === 'figure_request') { requested = payload.figure; log(`figure request: ${payload.figure}`); }
-      else if (name === 'equation') log(`equation: “${payload.summary}” ${payload.symbols.length} symbols: ${payload.symbols.map(x => `${x.symbol} (${x.source}${x.paragraph ? ` ¶${x.paragraph}` : ''}): ${x.meaning}`).join(' | ')}`);
-      else if (name === 'done') done = payload;
+      else if (name === 'equation') { eq.final = since(); eq.explanation = payload; log(`equation: “${payload.summary}” ${payload.symbols.length} symbols: ${payload.symbols.map(x => `${x.symbol} (${x.source}${x.paragraph ? ` ¶${x.paragraph}` : ''}): ${x.meaning}`).join(' | ')}`); }
+      else if (name === 'equation_progress') { eq.progress++; if (payload.stage === 'reading') eq.reading ??= since(); if (payload.symbols && eq.count === null) eq.count = [since(), payload.symbols]; }
+      else if (name === 'equation_summary') { eq.summary ??= since(); eq.streamedSummary = payload.summary; }
+      else if (name === 'equation_symbol') { eq.symbols.push(since()); (eq.streamed ??= []).push(payload.symbol); }
+      else if (name === 'done') { done = payload; eq.done = since(); }
       else log(`event ${name} ${JSON.stringify(payload).slice(0, 300)}`);
     };
     for (;;) {
@@ -441,6 +452,13 @@ try {
     if (failure || !done) throw new Error(`Chat did not complete: ${failure?.code ?? 'missing_done'}`);
     if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'ingest'].includes(e)))
       throw new Error('Chat completed without an answer or a usable tool result');
+    if (equationAction === 'equation') {
+      const firstVisible = eq.summary ?? eq.symbols[0] ?? eq.final;
+      log(`equation stream: reading ${eq.reading ?? '-'} s, count ${eq.count ? `${eq.count[1]} at ${eq.count[0]}` : '-'}, summary ${eq.summary ?? '-'}, symbols [${eq.symbols.join(' ')}], final ${eq.final ?? '-'}, done ${eq.done ?? '-'}; first visible ${firstVisible ?? '-'} s; ${eq.progress} progress events; streamed = final: ${eq.streamed ? JSON.stringify(eq.streamed) === JSON.stringify(eq.explanation?.symbols) : 'n/a'}`);
+      equationRuns.push({ operation_id: body.operation_id, profile: done?.profile ?? null, model: done?.model ?? null, credits: done?.credits ?? null,
+        first_visible_s: firstVisible, summary_s: eq.summary, first_symbol_s: eq.symbols[0] ?? null, symbols_s: eq.symbols, final_s: eq.final, done_s: eq.done,
+        reading_s: eq.reading, announced: eq.count?.[1] ?? null, symbols: eq.explanation?.symbols.length ?? 0, usage: done?.usage ?? null, explanation: eq.explanation ?? null });
+    }
     if (equationAction && (failure || done?.stop_reason !== 'end_turn'
       || (equationAction === 'equation' ? !events.includes('equation') : !answer.trim())))
       throw new Error(`${equationAction} did not deliver a complete explanation`);
@@ -482,8 +500,14 @@ try {
     if (!loss) throw new Error('no DPO loss equation in the bundle');
     equationLatex = loss.latex.replace(/\\(begin|end)\{equation\*?\}/g, '').trim();
     log(`equation ${loss.id} ¶${index.blocks.findIndex(b => b.id === loss.block_id) + 1}: ${equationLatex.slice(0, 120)}…`);
-    for (const action of process.argv.includes('--equation=symbols') ? ['equation'] : ['equation', 'equation_background']) {
+    for (const action of process.argv.includes('--equation=symbols') ? Array(EQUATION_RUNS).fill('equation') : ['equation', 'equation_background']) {
       equationAction = action; turns.length = 0; await ask('Equation (7)');
+    }
+    if (equationRuns.length) {
+      mkdirSync(`${ROOT}/.artifacts/equation-speed`, { recursive: true });
+      const file = `${ROOT}/.artifacts/equation-speed/live-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      writeFileSync(file, JSON.stringify({ profile: PROFILE, runs: equationRuns }, null, 1));
+      log(`recorded ${file.slice(ROOT.length + 1)}`);
     }
   } else if (EVAL) {
     for (const item of EVAL_QUESTIONS) { turns.length = 0; log(`=== ${item.key} ===`); await ask(item.question, item.figure ?? 0); results.at(-1).key = item.key; }
