@@ -1,5 +1,19 @@
 # Fast and slow tests
 
+## Your AI usage and collapsible snippet cards — October 22
+
+Fast (in `npm test`): backend `tests/backend/ai-usage.test.ts` (every chat action, provider route and operation kind has a
+reader-facing name; server, browser and Swift names identical; no dollar or private fields); browser `ai-usage.test.ts`
+(writes `tests/fixtures/ai-usage.json` expectations with `UPDATE_USAGE_FIXTURE=1`) and `note-collapse.test.ts`. Core
+`swift test --filter "AIUsageTests|NoteCollapseTests"` (same fixtures). Database: `npm run test:database`, or alone
+`python3 scripts/test-database.py --account-usage-only` (`tests/database/account_usage.sql`). Slow, opt-in: Playwright
+`npx playwright test ai-usage.spec.ts notes.spec.ts --project=desktop --project=phone` (screenshots under
+`.artifacts/ai-usage-20261022/` and `.artifacts/snippets-20261022/`); native, one at a time on an iPhone Simulator,
+`-only-testing:ScienceReaderUITests/AIUsageJourneyTests/<test>` and `NotesJourneyTests/testSnippetCardsCollapseAndRemember`,
+`testSnippetCardsDarkAndLargeText` (`TEST_RUNNER_GS_SCREENSHOT_DIR` for screenshots). Paid, explicit:
+`node scripts/ai-usage-live-check.mjs` (staging, two disposable accounts, one Haiku question ≈ $0.001; reads the row back
+and checks a second account sees nothing; deletes both).
+
 ## Streamed figure walkthrough and progress bar — October 22
 
 Fast: backend `tests/backend/chat.test.ts` (the stream scanner in any chunking, malformed and cut-off parts, the

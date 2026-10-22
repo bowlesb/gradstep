@@ -1320,6 +1320,9 @@ struct SettingsView: View {
                         if let free = model.creditBalance?.free {
                             LabeledContent("Free AI this month") { Text(FreeAIText.settingsValue(free)).accessibilityIdentifier("settings.freeAI") }
                         }
+                        // Owner, 2026-10-22: where credits go — each request with its tokens and cost (AIUsageView.swift).
+                        NavigationLink { AIUsageView(model: model) } label: { Text("Your AI usage") }
+                            .accessibilityIdentifier("settings.aiUsage")
                         Button("Get credits") { model.showStore = true }
                             .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
                     } header: { Text("AI credits") }

@@ -2,11 +2,12 @@
 /* Cards (DESIGN.md "Cards"; owner, 2026-10-21, the Notes list: "each needs a very pleasant border around it, so it
    looks like a bunch of cards"): a raised surface, a hairline edge and, in light mode, a soft shadow. */
 :root { --amber: #b17417; --scrim-capture: rgba(28, 28, 32, .32);
-  --card-bg: #ffffff; --card-edge: #e2e2e7; --card-edge-hover: #d0d0d6; --card-shadow: 0 1px 2px rgba(23, 23, 28, .04), 0 2px 8px rgba(23, 23, 28, .05); }
+  --card-bg: #ffffff; --card-edge: #e2e2e7; --card-edge-hover: #d0d0d6; --card-shadow: 0 1px 2px rgba(23, 23, 28, .04), 0 2px 8px rgba(23, 23, 28, .05);
+  --snippet-frame-bg: #f2f2f7; --snippet-frame-edge: #dcdce2; }
 :root[data-theme="dark"] { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5);
-  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; }
+  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; --snippet-frame-bg: #26262c; --snippet-frame-edge: #3a3a43; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5);
-  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; } }
+  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; --snippet-frame-bg: #26262c; --snippet-frame-edge: #3a3a43; } }
 .icon .icon-amber { stroke: var(--amber); }
 
 /* The list */
@@ -50,12 +51,29 @@
 .note-head h1 { font-size: 19px; margin: 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
 .note-head > .icon-button, .note-head .menu-anchor > .icon-button { width: 36px; height: 36px; min-height: 36px; border: 1px solid var(--line); border-radius: 50%; color: var(--accent); }
 .note-stream { padding: 8px 20px; display: flex; flex-direction: column; }
-.note-day { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 8px 0 4px; }
-.note-entry { position: relative; padding: 0 0 18px 16px; margin: 0 0 18px 3px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-.note-entry::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); position: absolute; left: -4px; top: 9px; }
-.note-entry-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: -4px; }
+.note-day { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 14px 0 6px 4px; }
+.note-day:first-child { margin-top: 4px; }
+/* Each entry is a card (owner, 2026-10-22; DESIGN.md "Cards", as .note-row), 10 px apart; collapsed, one line. */
+.note-entry { position: relative; padding: 2px 6px 12px 4px; margin: 0 0 10px; border-radius: 16px; border: 1px solid var(--card-edge); background: var(--card-bg);
+  box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: 8px; }
+.note-entry.collapsed { padding: 2px 6px 2px 4px; }
+.note-entry-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 0 14px; }
+.note-entry-top { display: flex; align-items: center; gap: 2px; min-height: 44px; }
+.entry-when { flex: 1; min-width: 0; }
+.note-entry .entry-disclosure { flex: none; width: 44px; height: 44px; min-height: 44px; border: 0; border-radius: 12px; color: var(--accent); }
+.entry-disclosure .icon { transition: transform .18s ease; }
+.note-entry.collapsed .entry-disclosure .icon { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .entry-disclosure .icon { transition: none; } }
+.entry-line { flex: 1; min-width: 0; min-height: 44px; padding: 0 4px; border: 0; background: none; text-align: left; color: var(--muted); font: inherit; font-size: 13.5px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
+.entry-line:hover { color: var(--text); background: none; }
+.entry-line .line-compact { display: none; }
+@media (max-width: 640px) { .entry-line .line-wide { display: none; } .entry-line .line-compact { display: inline; } }
+/* The snippet itself, a framed box inside the card: a step from the card's surface, a hairline edge, solid in every mode. */
+.snippet-frame { margin: 0; padding: 8px; border-radius: 10px; background: var(--snippet-frame-bg); border: 1px solid var(--snippet-frame-edge); }
 .note-quote { margin: 0; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; font: 15.5px/1.6 Georgia, "Times New Roman", serif;
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 22em; overflow: auto; }
+.note-quote.snippet-frame { padding: 12px 14px; background: var(--snippet-frame-bg); border-color: var(--snippet-frame-edge); }
 .note-comment { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 14.5px; }
 /* The reader's comment reads as their own words, apart from the snippet (owner, build 78): an accent bar on its edge. */
 .note-entry:not(.kind-text) .note-comment { border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent); padding-left: 10px; }
@@ -133,5 +151,6 @@ button.snippet-image { cursor: zoom-in; }
   .notes-saved, .notes-toast { bottom: 72px; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { :root { --scrim-capture: rgba(0, 0, 0, .6); } }
-@media (prefers-contrast: more) { .note-row { border-color: var(--line-strong); } }
-@media (forced-colors: active) { .note-row { border-color: CanvasText; } .note-row.on { border-width: 2px; } }
+@media (prefers-contrast: more) { .note-row, .note-entry, .snippet-frame { border-color: var(--line-strong); } }
+@media (forced-colors: active) { .note-row, .note-entry, .snippet-frame { border-color: CanvasText; } .note-row.on { border-width: 2px; } }
+

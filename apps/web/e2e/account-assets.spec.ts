@@ -31,7 +31,7 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   const menu = page.getByRole('menu');
   await row(page, 'account-credits', 'AI credits', '1,240');
   await row(page, 'account-held', 'Held for answers in progress', '30');
-  await row(page, 'account-plan', 'Subscription plan', 'Pro');
+  await row(page, 'account-plan', 'Plan', 'Pro');
   // Nothing to buy here: credits and plans are bought in the apps.
   await expect(menu).not.toContainText(/Get credits|Buy|Upgrade/);
   await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/, /Snippets$/, /Equation explanations$/, /Figure explanations$/]);
@@ -82,7 +82,7 @@ test('a reader without a plan sees Free; a failed read is a dash, never a broken
   await page.getByTestId('account-menu').click();
   await row(page, 'account-credits', 'AI credits', '1,000');
   await expect(page.getByTestId('account-held')).toHaveCount(0);
-  await row(page, 'account-plan', 'Subscription plan', 'Free');
+  await row(page, 'account-plan', 'Plan', 'Free');
   await page.getByTestId('account-menu').click(); await expect(page.getByRole('menu')).toHaveCount(0);
   // The plan's read fails: its row says nothing new, the balance is still read, the menu works.
   await request.post(`${API}/__store`, { data: { available: 990, reserved: 0 } });
@@ -90,7 +90,7 @@ test('a reader without a plan sees Free; a failed read is a dash, never a broken
   await page.reload(); await expect(page.getByRole('link', { name: 'Library' })).toBeVisible();
   await page.getByTestId('account-menu').click();
   await row(page, 'account-credits', 'AI credits', '990');
-  await row(page, 'account-plan', 'Subscription plan', '—');
+  await row(page, 'account-plan', 'Plan', '—');
   await expect(page.getByRole('menuitem', { name: 'Privacy & data' })).toBeVisible();
 });
 

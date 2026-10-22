@@ -32,7 +32,7 @@ for (const scheme of ['light', 'dark'] as const) test(`a free reader's plan, its
   await page.getByTestId('account-menu').click();
   const menu = page.getByRole('menu');
   await row(page, 'account-credits', 'AI credits', '32');
-  await row(page, 'account-plan', 'Subscription plan', 'Free');
+  await row(page, 'account-plan', 'Plan', 'Free');
   await row(page, 'account-free-ai', 'Free AI this month', '32 of 50 left');
   await expect(menu).not.toContainText(/Get credits|Buy|Upgrade/);
   await expect(menu.getByTestId('plan-info')).toHaveAccessibleDescription(/^Reading papers is always free\. AI uses credits\. Free: 50 credits a month/);
@@ -55,7 +55,7 @@ test('used up this month; a yearly Plus subscriber has no free AI row', async ({
   await page.getByTestId('account-menu').click();
   await request.post(`${API}/__store`, { data: { available: 600, reserved: 0, plan: 'standard', period_months: 12, free: null } });
   await page.getByTestId('account-menu').click();
-  await row(page, 'account-plan', 'Subscription plan', 'Plus (yearly)');
+  await row(page, 'account-plan', 'Plan', 'Plus (yearly)');
   await expect(page.getByTestId('account-free-ai')).toHaveCount(0);
 });
 

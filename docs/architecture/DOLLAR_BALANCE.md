@@ -14,6 +14,10 @@ implemented or enabled. The October 20 parity release retains existing accountin
 receipt-precision prototype is retained locally at `.artifacts/parity-20261020/pending-dollar-receipts.patch`;
 it was removed from the release source because the deployed receipt RPC does not yet accept its new fields.
 
+Related, built 2026-10-22: **Your AI usage** lists each request's credits and tokens from the existing ledger
+(`v1_ai_usage`, migration 0144; [Operations](OPERATIONS_AND_BILLING.md#your-ai-usage--2026-10-22)). It is the credit-unit
+precursor of the request log above, not dollar settlement; a dollar column waits on this design and OWNER_ACTIONS #12.
+
 ## Financial authority
 
 Retain the existing account-owned funding buckets, append-only financial ledger, allocation order, purchase

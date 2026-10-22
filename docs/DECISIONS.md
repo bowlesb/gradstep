@@ -42,6 +42,25 @@ agent. How it works in plain words: [PRICING_HOW_IT_WORKS](PRICING_HOW_IT_WORKS.
   equations, cheaper models only, pause all AI) with a 7-day dry-run preview, audited and reversible. Recommended
   external backstop: a credit limit on the OpenRouter key itself (OWNER_ACTIONS).
 
+## Your AI usage (owner request 2026-10-22; agent decisions, reversible)
+
+Owner: "a table of my recent AI token spend for all the different activities … rows ordered by time, each row being an
+activity, and the exact cost, so that a user can figure out where their credits are going." Built as Settings › AI
+credits › Your AI usage (and from Get credits; the browser's account menu), on a new read-only RPC `v1_ai_usage`
+(migration 0144) over the existing ledger. Decisions:
+
+- **Credits and tokens, no dollars.** The app presents no credit-to-dollar conversion and dollar settlement is design
+  only, so rows show the credits actually settled (or held while running) and the provider-reported tokens. Whether to
+  add dollars is OWNER_ACTIONS #12. Provider dollar cost stays in Admin › Costs.
+- **One row per metered request**, its extra calls (chat title, suggested questions, study map, searches, podcast
+  script/check/audio) shown as parts of that row, because they are one charge.
+- **Paper titles never reach the server.** The device remembers which conversation kind and library paper each of its
+  own operations was for (ids only, on that device) and names the paper from its library; requests from another device
+  show the activity only. The server's ledger is not extended with paper or mode.
+- Stopped, failed (not charged), in-progress and free (paid by Gradstep) rows are labeled; free work that reached no
+  provider is left out.
+Details: [Operations](architecture/OPERATIONS_AND_BILLING.md#your-ai-usage--2026-10-22).
+
 ## Figure explainer: streamed, at low effort (owner request 2026-10-22; agent decision with evidence, reversible)
 
 Owner: "On the Figure AI explainer, I like the experience, but it's very very slow. Can we make it much much faster?" and

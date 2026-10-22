@@ -331,3 +331,85 @@ test('notes: the list shows each note as a card, apart from the next, in light a
   await rows.filter({ hasText: 'Open questions' }).click();
   await expect(page.getByTestId('note-title')).toHaveText('Open questions');
 });
+
+// Owner, 2026-10-22: "having the ability to collapse individual snippets would be helpful (so you can just see the
+// date/times), also having a bit cleaner separation still between the cards with the actual snippet itself being a
+// slightly more clear 'box' in a card, as you scroll, would be helpful."
+test('notes: each snippet is a card with its crop in a box; it collapses to one line, remembered here; Collapse all / Expand all', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279).');
+  const OUT = '../../.artifacts/snippets-20261022';
+  mkdirSync(OUT, { recursive: true });
+  // After the chevron's turn (0.18 s), with the pointer moved off the cards.
+  const save = async (name: string) => { await page.mouse.move(2, 400); await page.waitForTimeout(300); await page.screenshot({ path: `${OUT}/browser-${test.info().project.name}-${name}.png` }); };
+  await signIn(page);
+  await openPaper(page);
+  for (const comment of ['The early improvement is the interesting part, compare it with the smaller model.', '']) {
+    await drawBox(page);
+    await page.getByTestId('snippet-use').click();
+    const draw = page.getByRole('dialog', { name: 'Save snippet' });
+    await expect(draw.getByTestId('composer-image')).toBeVisible();
+    if (comment) { await draw.getByTestId('composer-new-name').fill('Collapse test'); await draw.getByTestId('composer-comment').fill(comment); }
+    await draw.getByTestId('composer-save').click();
+    await expect(page.getByTestId('open-saved-note')).toBeVisible();
+  }
+  await page.getByTestId('open-saved-note').click();
+  await expect(page.getByTestId('note-title')).toHaveText('Collapse test');
+  const entries = page.getByTestId('note-entry');
+  await expect(entries).toHaveCount(2);
+  await expect(entries.nth(1).getByTestId('snippet-image').locator('img')).toBeVisible();
+
+  // Cards apart from each other; the crop inside a framed box with its own edge and a fill unlike the card's.
+  const look = await entries.evaluateAll(all => all.map(card => {
+    const s = getComputedStyle(card), r = card.getBoundingClientRect(), box = card.querySelector('.snippet-frame');
+    const b = box ? getComputedStyle(box) : null;
+    return { radius: parseFloat(s.borderTopLeftRadius), edge: parseFloat(s.borderTopWidth), bg: s.backgroundColor, y: r.top, bottomY: r.bottom,
+      box: b && { radius: parseFloat(b.borderTopLeftRadius), edge: parseFloat(b.borderTopWidth), bg: b.backgroundColor } };
+  }));
+  for (const card of look) {
+    expect(card.radius).toBeGreaterThanOrEqual(12); expect(card.edge).toBe(1);
+    expect(card.box).not.toBeNull(); expect(card.box!.edge).toBe(1); expect(card.box!.radius).toBeGreaterThanOrEqual(8); expect(card.box!.bg).not.toBe(card.bg);
+  }
+  expect(look[1].y - look[0].bottomY).toBeGreaterThanOrEqual(8);
+  await save('light-expanded');
+
+  // One collapses to its line; the other stays open.
+  const first = entries.first(), toggle = first.getByTestId('entry-disclosure');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toHaveAccessibleName('Collapse snippet');
+  const size = (await toggle.boundingBox())!;
+  expect(Math.min(size.width, size.height)).toBeGreaterThanOrEqual(44);
+  await toggle.click();
+  await expect(first.getByTestId('entry-disclosure')).toHaveAttribute('aria-expanded', 'false');
+  await expect(first.getByTestId('entry-disclosure')).toHaveAccessibleName('Expand snippet');
+  await expect(first.getByTestId('entry-line')).toContainText(' · The early improvement is the interesting part, compare…');
+  await expect(first.getByTestId('entry-line')).toContainText('Direct Preference');
+  await expect(first.getByTestId('snippet-image')).toHaveCount(0);
+  await expect(entries.nth(1).getByTestId('snippet-image')).toBeVisible();
+  expect((await first.boundingBox())!.height).toBeLessThan(64);
+  await save('light-one-collapsed');
+
+  // Remembered in this browser across a reload.
+  await page.reload();
+  await expect(page.getByTestId('note-title')).toHaveText('Collapse test', { timeout: 15_000 });
+  await expect(page.getByTestId('note-entry').first().getByTestId('entry-line')).toBeVisible();
+  await page.getByTestId('note-entry').first().getByTestId('entry-line').click();
+  await expect(page.getByTestId('note-entry').first().getByTestId('snippet-image')).toBeVisible();
+
+  // Collapse all / Expand all in the collection's ⋯, each offered only when it changes something.
+  await page.getByTestId('note-menu').click();
+  await expect(page.getByTestId('expand-all')).toHaveCount(0);
+  await page.getByTestId('collapse-all').click();
+  await expect(page.getByTestId('entry-line')).toHaveCount(2);
+  await save('light-all-collapsed');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await save('dark-all-collapsed');
+  await page.getByTestId('note-menu').click();
+  await expect(page.getByTestId('collapse-all')).toHaveCount(0);
+  await page.getByTestId('expand-all').click();
+  await expect(page.getByTestId('entry-line')).toHaveCount(0);
+  await save('dark-expanded');
+  await page.getByTestId('note-entry').first().getByTestId('entry-disclosure').click();
+  await save('dark-one-collapsed');
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+  expect(await page.getByTestId('entry-disclosure').first().locator('svg').evaluate(n => getComputedStyle(n).transitionDuration)).toBe('0s');
+});

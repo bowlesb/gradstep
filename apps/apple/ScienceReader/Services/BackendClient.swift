@@ -692,6 +692,17 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return try await rpc("v1_credit_balance", params: NoParameters(), accountID: accountID, as: CreditBalance.self)
     }
 
+    /// One page of Your AI usage (`v1_ai_usage`, migration 0144): the account's own requests, newest first (AIUsageService.swift).
+    func aiUsage(days: Int, activity: AIUsageActivity?, before: AIUsageCursor?, accountID: UUID) async throws -> AIUsagePage {
+        struct Parameters: Encodable, Sendable {
+            let p_days: Int; let p_activity: String?; let p_before_created_at: String?; let p_before_id: String?; let p_limit: Int
+        }
+        let body = try ReaderCrypto.encode(Parameters(p_days: days, p_activity: activity?.rawValue, p_before_created_at: before?.createdAt,
+                                                      p_before_id: before?.id.wire, p_limit: AIUsageFormat.pageSize))
+        let data = try await authorized(path: "rest/v1/rpc/v1_ai_usage", body: body, accountID: accountID, maximumResponseBytes: 512 * 1024)
+        return try AIUsagePage.decode(data)
+    }
+
     func uploadReportImage(_ bytes: Data, mediaType: String, accountID: UUID, reportID: UUID, attachmentID: UUID) async throws {
         guard bytes.count <= 5 * 1024 * 1024, ["image/png", "image/jpeg"].contains(mediaType) else { throw ReaderError.invalidEvent }
         let result = try await authorized(path: "functions/v1/support-assets?report_id=\(reportID.wire)&attachment_id=\(attachmentID.wire)", body: bytes,

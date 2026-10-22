@@ -29,6 +29,7 @@ import type { TextAnchor } from '../lib/events';
 import { Brand, Dialog, InfoTip } from './common';
 import { DiagramsDialog } from './DiagramsDialog';
 import { ExplanationsDialog } from './ExplanationsDialog';
+import { UsageDialog } from './UsageDialog';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { PaperSearchView, usePaperSearch } from './PaperSearch';
 import { ListenView, PaperListen, PodcastDock, PodcastWriterDefault, usePodcasts, usePodcastPlayer } from './Podcast';
@@ -217,6 +218,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   // Your assets › Equation explanations / Figure explanations, and the one a row reopens in its paper.
   const [explanationsOpen, setExplanationsOpen] = useState<Explanation['kind'] | null>(null);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [explainer, setExplainer] = useState<{ id: string; documentID: string; kind: Explanation['kind']; targetID: string; at: number } | null>(null);
   const [help, setHelp] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -845,7 +847,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <AccountMenu compact={phone} onAdd={library.state === 'ready' ? () => setAdding(true) : null} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
-            onNotes={() => void navigate('/notes')} onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
+            onNotes={() => void navigate('/notes')} onExplanations={chat ? setExplanationsOpen : null} onUsage={() => setUsageOpen(true)} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -906,6 +908,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           void openPaper(paper);
           return true;
         }} /></RegionBoundary>}
+      {/* Your AI usage (owner, 2026-10-22): titles from this browser's library, matched by the paper's membership or document. */}
+      {usageOpen && <RegionBoundary region="usage" label="Your AI usage" compact onReport={report}><UsageDialog account={account} onClose={() => setUsageOpen(false)}
+        paperTitle={p => { const paper = library.entries.find(e => e.visible && ((p.membership && e.id === p.membership) || (p.document && isReaderPaper(e) && paperIdentity(e) === p.document)));
+          return paper ? paper.metadata?.title ?? 'Untitled paper' : null; }} /></RegionBoundary>}
       {reportOpen && <Suspense fallback={null}><ReportDialog open onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} /></Suspense>}
       {reportsOpen && <Suspense fallback={null}><ReportsDialog open onClose={() => setReportsOpen(false)} account={account} /></Suspense>}
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
@@ -990,11 +996,13 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
   </nav>;
 }
 
-function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onNotes, onDiagrams, onExplanations, passageMarks, onPassageMarks, sync }: {
+function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onNotes, onDiagrams, onExplanations, onUsage, passageMarks, onPassageMarks, sync }: {
   compact?: boolean;
   /** Add paper, the menu's first row (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
   onAdd: (() => void) | null; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onNotes: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
+  /** Your AI usage, under AI credits. */
+  onUsage: () => void;
   passageMarks: boolean; onPassageMarks: (on: boolean) => void;
   sync?: { label: string; detail: string | null; canSync: boolean; run: () => void } | null }) {
   const [open, setOpen] = useState(false);
@@ -1048,11 +1056,13 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
               <span className="menu-fact-value">{creditsLabel(summary.balance)}</span></div>
             {!!summary.balance?.reserved && <div className="menu-fact fine" data-testid="account-held"><span>Held for answers in progress</span>
               <span className="menu-fact-value">{summary.balance.reserved.toLocaleString()}</span></div>}
-            <div className="menu-fact" data-testid="account-plan"><span>Subscription plan <InfoTip text={PLAN_INFO} testID="plan-info" /></span>
+            <div className="menu-fact" data-testid="account-plan"><span>Plan <InfoTip text={PLAN_INFO} testID="plan-info" /></span>
               <span className="menu-fact-value">{planLabel(summary.plan, summary.periodMonths)}</span></div>
             {/* Free AI (migration 0150; docs/PRICING_HOW_IT_WORKS.md): only on the free tier. */}
             {summary.balance?.free && <div className="menu-fact" data-testid="account-free-ai"><span>Free AI this month <InfoTip text={FREE_AI_INFO} testID="free-ai-info" /></span>
               <span className="menu-fact-value">{freeAILabel(summary.balance.free)}</span></div>}
+            {/* Owner, 2026-10-22: where credits go — each request with its tokens and cost. */}
+            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onUsage(); }} data-testid="ai-usage"><Icon name="list" size={14} /> Your AI usage</button>
           </div>
           {/* Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough". */}
           <div className="menu-group" role="group" aria-label="Your assets"><p className="fine menu-heading">Your assets</p>
