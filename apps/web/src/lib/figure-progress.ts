@@ -37,18 +37,25 @@ export function expectedParts(subfigures: number | null | undefined, captionLett
   return captionLetters >= 2 ? captionLetters : null;
 }
 
-export function figureProgress(input: FigureProgressInput): FigureProgressState {
-  const p = FIGURE_PROGRESS;
+/** An explainer's words for its stages (the figure's parts, the equation's symbols). */
+export interface ProgressWords { preparing: string; reading: string; summary: string; item: (next: number, of: number | null) => string }
+export interface ProgressParameters { summaryChars: number; partChars: number; summaryShare: number; partCap: number }
+const FIGURE_WORDS: ProgressWords = { preparing: 'Preparing the figure…', reading: 'Reading the figure…', summary: 'Writing the summary…',
+  item: (next, of) => of ? `Writing part ${next} of ${of}…` : `Writing part ${next}…` };
+
+export function figureProgress(input: FigureProgressInput): FigureProgressState { return explainerProgress(input, FIGURE_WORDS, FIGURE_PROGRESS); }
+
+/** The shared rule (figure walkthrough and equation symbols; equation-progress.ts): `parts` are the items that arrived. */
+export function explainerProgress(input: FigureProgressInput, words: ProgressWords, p: ProgressParameters): FigureProgressState {
   switch (input.stage) {
-    case 'preparing': return { label: 'Preparing the figure…', value: null };
-    case 'reading': return { label: 'Reading the figure…', value: null };
+    case 'preparing': return { label: words.preparing, value: null };
+    case 'reading': return { label: words.reading, value: null };
     case 'done': return { label: 'Done', value: 1 };
     default: break;
   }
   const n = input.expected;
   const known = n != null && n >= 1 && input.parts < n;
-  const label = !input.summary && input.parts === 0 ? 'Writing the summary…'
-    : known ? `Writing part ${input.parts + 1} of ${n}…` : `Writing part ${input.parts + 1}…`;
+  const label = !input.summary && input.parts === 0 ? words.summary : words.item(input.parts + 1, known ? n! : null);
   if (!known) return { label, value: null };
   const current = Math.max(0, input.characters - input.charactersAtLast);
   const value = !input.summary && input.parts === 0

@@ -751,13 +751,14 @@ final class ReaderModel {
         }
     }
     private var scenarioProfiles: [String: String] = ReaderModel.storedScenarioProfiles()
-    /// Saved activity choices. Once (owner 2026-10-22: figures default to Sonnet): a figures choice equal to the old
-    /// recommended default (`gemini-medium-standard`, what a reader got by keeping the recommendation) is forgotten so
-    /// figures follow the new default; the flag keeps a later explicit Gemini choice.
+    /// Saved activity choices. Once (owner, 2026-10-22: "Let's try Gemini instead of Sonnet for Figures then"): a figures
+    /// choice equal to the short-lived Sonnet default (`sonnet-low-standard`, what a reader got by keeping that default) is
+    /// forgotten so figures follow the default again (Gemini Flash); the flag keeps a later explicit Sonnet choice, and any
+    /// other saved choice is never touched. (It replaces the morning's migration, which let go of a saved Gemini choice.)
     static func storedScenarioProfiles(_ defaults: UserDefaults = .standard) -> [String: String] {
         var saved = defaults.dictionary(forKey: scenarioProfilesKey) as? [String: String] ?? [:]
         if !defaults.bool(forKey: figuresDefaultMigrationKey) {
-            if saved[AIUseCase.figures.rawValue] == "gemini-medium-standard" {
+            if saved[AIUseCase.figures.rawValue] == "sonnet-low-standard" {
                 saved[AIUseCase.figures.rawValue] = nil
                 defaults.set(saved, forKey: scenarioProfilesKey)
             }
@@ -765,15 +766,15 @@ final class ReaderModel {
         }
         return saved
     }
-    static let scenarioProfilesKey = "ai.scenarioProfiles", figuresDefaultMigrationKey = "ai.figuresDefaultSonnet.migrated"
+    static let scenarioProfilesKey = "ai.scenarioProfiles", figuresDefaultMigrationKey = "ai.figuresDefaultGemini.migrated"
     /// The figures activity's own default (never the general chat default): the server's `default_figures` when the
-    /// table offers it, else Sonnet at low effort and standard length when offered (or before the table loads), else
-    /// the chat default as before.
+    /// table offers it, else Gemini Flash (standard length; the figure view runs it at low effort) when offered (or before
+    /// the table loads), else the chat default.
     static func figuresDefault(table: ChatProfileTable?, chatDefault: ChatProfileChoice) -> ChatProfileChoice {
         if let figures = table?.figuresDefault { return figures }
-        let sonnet = ChatProfileChoice(model: .sonnet, effort: .low, length: .standard)
-        guard let table else { return sonnet }
-        return table.offers(sonnet) ? sonnet : chatDefault
+        let gemini = ChatProfileChoice(model: .gemini, effort: .medium, length: .standard)
+        guard let table else { return gemini }
+        return table.offers(gemini) ? gemini : chatDefault
     }
     private var scenarioLocals: [String: String] = UserDefaults.standard.dictionary(forKey: "ai.scenarioLocals") as? [String: String] ?? [:]
     var pendingAIChoice: ChatProfileChoice?
@@ -4696,7 +4697,7 @@ final class ReaderModel {
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
                 // The equation and figure views' own events; an ordinary answer never gets them.
-                case .equation, .figure, .figureProgress, .figureSummary, .figureSection: break
+                case .equation, .figure, .figureProgress, .figureSummary, .figureSection, .equationProgress, .equationSummary, .equationSymbol: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits

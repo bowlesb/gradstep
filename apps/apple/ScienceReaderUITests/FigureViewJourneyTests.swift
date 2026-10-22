@@ -382,30 +382,21 @@ final class FigureViewJourneyTests: XCTestCase {
             XCTAssertEqual(left.frame.width / left.frame.height, 684.0 / 504.0, accuracy: 0.04, "left card \(left.frame)")
             XCTAssertEqual(right.frame.width / right.frame.height, (1370 - 478.8) / 521.0, accuracy: 0.05, "right card \(right.frame)")
             XCTAssertEqual(left.label, "Detail of Figure 1: Left plot", "the label keeps its meaning")
-            // Pinching out of the tight card shows what is around the part (the part outlined); a double tap returns.
-            reveal(left)
-            #if !targetEnvironment(macCatalyst)
-            // XCUIElement.pinch is unavailable on the Mac (this test target didn't compile for Catalyst before).
-            let before = left.value as? String
-            left.pinch(withScale: 0.5, velocity: -1)
-            XCTAssertTrue(wait { (left.value as? String) != before }, "pinching out reveals the figure around the part")
-            capture(app, "Framing: pinched out of the left card (\(appearance))")
-            left.doubleTap()
-            XCTAssertTrue(wait { (left.value as? String) == "100%" }, "a double tap returns to the frame")
-            #endif
-            // A tap expands the imprecise part to the whole figure with the part outlined; Show part frames it again.
+            // A tap opens the imprecise part full screen, framed on it with the part outlined; Whole figure shows all of it
+            // (FIGURE_VIEW.md "Full screen on touch": the card itself no longer zooms).
             reveal(right)
             right.tap()
             let full = app.descendants(matching: .any)["figureView.fullscreen.image"]
-            XCTAssertTrue(full.waitForExistence(timeout: 5), "the whole figure, fullscreen")
+            XCTAssertTrue(full.waitForExistence(timeout: 5), "full screen")
+            XCTAssertTrue(wait { (full.value as? String)?.contains("part") == true }, "framed on the part: \(String(describing: full.value))")
+            capture(app, "Framing: full screen on the part (\(appearance))")
+            let whole = app.buttons["figureView.fullscreen.toggle"]
+            XCTAssertTrue(whole.waitForExistence(timeout: 3)); XCTAssertEqual(whole.label, "Whole figure"); whole.tap()
+            XCTAssertTrue(wait { (full.value as? String)?.contains("whole") == true }, "the whole figure")
             sleep(1)
-            capture(app, "Framing: expanded to the whole figure (\(appearance))")
-            let showPart = app.buttons["Show part"]
-            XCTAssertTrue(showPart.waitForExistence(timeout: 3)); showPart.tap()
-            sleep(1)
-            capture(app, "Framing: expanded, the part framed (\(appearance))")
+            capture(app, "Framing: full screen, the whole figure (\(appearance))")
             app.buttons["figureView.fullscreen.close"].tap()
-            XCTAssertTrue(right.waitForExistence(timeout: 5))
+            XCTAssertTrue(wait { !full.exists }); XCTAssertTrue(right.waitForExistence(timeout: 5))
         } else {
             reveal(right)
             app.buttons.matching(identifier: "figureView.fullscreen").element(boundBy: 2).tap()
@@ -413,6 +404,78 @@ final class FigureViewJourneyTests: XCTestCase {
             capture(app, "Framing: fullscreen (\(appearance))")
             app.buttons["figureView.fullscreen.close"].tap()
         }
+    }
+
+    /// Full screen on touch (owner, 2026-10-22: "whenever you try to interact with it, it becomes a full screen thing, with
+    /// the outline fading away … with not really any in-between"; FIGURE_VIEW.md "Full screen on touch"): a card never zooms
+    /// in place. A tap opens the full-screen viewer at once, moving from the card's own place (photographed mid-way with the
+    /// motion slowed), framed on the part with its outline, which then fades while the whole figure is the reader's;
+    /// a double tap toggles the whole figure and the part; X closes back onto the card (photographed mid-way). A pinch and a
+    /// sideways drag on a card open it too; a swipe down closes it.
+    func testTouchingAPartOpensFullScreenFromItsCard() throws { fullScreenOnTouch(appearance: "light") }
+    func testTouchingAPartOpensFullScreenFromItsCardDark() throws { fullScreenOnTouch(appearance: "dark") }
+
+    private func fullScreenOnTouch(appearance: String) {
+        // The motion slowed (8×; `TEST_RUNNER_FIGURE_FULLSCREEN_SLOW=<n>` to photograph it from outside with `simctl io screenshot`).
+        let slow = ProcessInfo.processInfo.environment["FIGURE_FULLSCREEN_SLOW"] ?? "8", span = 4 + 1.6 * (Double(slow) ?? 8)
+        let app = launch(appearance: appearance, extra: ["--figure-fixture-panels", "--figure-fixture-loose", "--figure-fullscreen-slow=\(slow)"])
+        openFigureOne(app)
+        app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        let left = app.descendants(matching: .any)["figureView.section.1.crop"], right = app.descendants(matching: .any)["figureView.section.2.crop"]
+        XCTAssertTrue(left.waitForExistence(timeout: 10)); XCTAssertTrue(waitForWalkthrough(app), "the streamed walkthrough is done")
+        let composer = app.descendants(matching: .any)["contextChat.composer"].firstMatch
+        let inView = { (card: XCUIElement) in card.isHittable && card.frame.minY > 120 && card.frame.maxY < composer.frame.minY - 8 }
+        func reveal(_ card: XCUIElement) {
+            #if targetEnvironment(macCatalyst)
+            let page = app.scrollViews["figureView.walkthrough"]
+            for _ in 0..<8 where !inView(card) { page.scroll(byDeltaX: 0, deltaY: card.frame.maxY >= composer.frame.minY ? -120 : 120) }
+            #else
+            for _ in 0..<8 where !inView(card) { card.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
+            #endif
+        }
+        reveal(left)
+        let card = left.frame
+        XCTAssertEqual(left.value as? String, "100%", "the card shows its part, not zoomable in place")
+        capture(app, "Full screen: the card (\(appearance))")
+        left.tap()
+        let full = app.descendants(matching: .any)["figureView.fullscreen.image"]
+        XCTAssertTrue(full.waitForExistence(timeout: 3), "opens at once")
+        capture(app, "Full screen: opening from the card, mid-way (\(appearance))")
+        XCTAssertTrue(wait(span) { (full.value as? String)?.contains("part, outline shown") == true }, "settled on the part, outlined: \(String(describing: full.value))")
+        XCTAssertGreaterThan(full.frame.width, card.width * 1.2, "the whole screen, not the card")
+        capture(app, "Full screen: settled on the part, outline shown (\(appearance))")
+        XCTAssertTrue(wait(span * 2) { (full.value as? String)?.contains("outline hidden") == true }, "the outline fades: \(String(describing: full.value))")
+        capture(app, "Full screen: the outline faded (\(appearance))")
+        #if !targetEnvironment(macCatalyst)
+        full.doubleTap()
+        XCTAssertTrue(wait(span) { (full.value as? String)?.contains("whole") == true }, "a double tap shows the whole figure")
+        sleep(2)
+        capture(app, "Full screen: double tap, the whole figure (\(appearance))")
+        full.doubleTap()
+        XCTAssertTrue(wait(span) { (full.value as? String)?.contains("part") == true }, "and back to the part")
+        #endif
+        app.buttons["figureView.fullscreen.close"].tap()
+        usleep(900_000)
+        capture(app, "Full screen: closing onto the card, mid-way (\(appearance))")
+        XCTAssertTrue(wait(span) { !full.exists }, "closed")
+        XCTAssertEqual(left.frame.minY, card.minY, accuracy: 2, "the page is where it was")
+        #if !targetEnvironment(macCatalyst)
+        // A pinch on a card opens it too (it never zooms the card); a swipe down closes.
+        reveal(right)
+        right.pinch(withScale: 1.6, velocity: 1)
+        XCTAssertTrue(full.waitForExistence(timeout: 5), "a pinch opens full screen")
+        XCTAssertTrue(wait(span) { (full.value as? String)?.contains("part") == true })
+        full.swipeDown(velocity: .fast)
+        XCTAssertTrue(wait(span) { !full.exists }, "a swipe down closes")
+        // A sideways drag opens it; an up-or-down one scrolls the page.
+        reveal(left)
+        left.swipeLeft(velocity: .slow)
+        XCTAssertTrue(full.waitForExistence(timeout: 5), "a sideways drag opens full screen")
+        app.buttons["figureView.fullscreen.close"].tap()
+        XCTAssertTrue(wait(span) { !full.exists })
+        #endif
     }
 
     /// Structure first (FIGURE_VIEW.md "Structure first"): a real multi-image arXiv figure (2610.22353v1 Figure 3, three

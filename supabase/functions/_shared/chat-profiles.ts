@@ -78,8 +78,10 @@ export const DEFAULT_CHOICE: Readonly<Choice> = Object.freeze({ model: 'sonnet',
 /** What new clients start with (published as `default_auto`): Sonnet, effort chosen by the server, standard length. */
 export const DEFAULT_AUTO_CHOICE: Readonly<RequestedChoice> = Object.freeze({ model: 'sonnet', effort: 'auto', length: 'standard' });
 
-/** The figures-and-tables activity's default (published as `default_figures`, owner 2026-10-22). */
-export const FIGURES_DEFAULT: Readonly<Choice> = Object.freeze({ model: 'sonnet', effort: 'low', length: 'standard' });
+/** The figures-and-tables activity's default (published as `default_figures`). Owner, 2026-10-22, after the pricing
+ * proposal: "Let's try Gemini instead of Sonnet for Figures then" (it was Sonnet · low earlier that day). Gemini's one
+ * published profile is `gemini-medium-standard`; the figure view runs it at low effort (`figureViewEffort`). */
+export const FIGURES_DEFAULT: Readonly<Choice> = Object.freeze({ model: 'gemini', effort: 'medium', length: 'standard' });
 
 export interface ChatProfile extends Choice {
   /** `sonnet-low-standard`: recorded with the quote and returned with the answer. */
@@ -255,8 +257,9 @@ export function publishedProfiles(options: PublishOptions = { deepseek: false })
     default: { ...DEFAULT_CHOICE },
     default_auto: { ...DEFAULT_AUTO_CHOICE },
     ...(recommendGemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
-    // Figures and tables (owner, 2026-10-22: "change the default to Sonnet for that one"): Sonnet at low effort, fast and
-    // a careful reader of images (FIGURE_VIEW.md "Speed"). Clients that know it start that activity there; older ones ignore it.
+    // Figures and tables (owner, 2026-10-22: "Let's try Gemini instead of Sonnet for Figures then"): Gemini Flash, which the
+    // figure view runs at low effort (FIGURE_VIEW.md "Speed"); published only where Gemini is offered. Clients that know it
+    // start that activity there; older ones ignore it.
     ...(models.some(m => m.id === FIGURES_DEFAULT.model) ? { default_figures: { ...FIGURES_DEFAULT } } : {}),
     models: models.map(m => ({ id: m.id, label: m.label, detail: `${m.detail} · OpenRouter → ${m.family === 'deepseek' ? 'DeepInfra' : 'Google Vertex'}`,
       api_model: routedModel(m), provider: 'openrouter' as ChatProvider,

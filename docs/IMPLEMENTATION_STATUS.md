@@ -1,5 +1,53 @@
 # Implementation status
 
+## Full screen on touch; equation explainer streamed; figures default Gemini again — 2026-10-22 UTC (server on staging; apps and browser local, not released)
+
+Owner: "when you try to click into a subfigure and zoom. The transition needs to be improved … whenever you try to interact
+with it, it becomes a full screen thing, with the outline fading away … with not really any in-between … the equations AI
+explainer needs the same progress with the progress bar"; later: "Let's try Gemini instead of Sonnet for Figures then."
+Design: [FIGURE_VIEW.md "Full screen on touch"](architecture/FIGURE_VIEW.md#full-screen-on-touch--2026-10-22-apps-and-browser-local-not-released),
+[EQUATION_VIEW.md "Streamed explanation"](architecture/EQUATION_VIEW.md); decisions:
+[DECISIONS](DECISIONS.md#equation-explainer-streamed-figure-parts-full-screen-on-touch-owner-request-2026-10-22-agent-decisions-with-evidence-reversible),
+[figures default](DECISIONS.md#figures-default-gemini-flash-again-owner-decision-2026-10-22-deployed-to-staging-clients-local).
+
+- **Server (staging; no migration).** Equation symbols stream (`equation_progress`, `equation_summary`, `equation_symbol`;
+  final `equation` unchanged), read by `JsonListStream` (now shared with the figure walkthrough); symbols at low effort for
+  Gemini/auto; `default_figures` = Gemini Flash (run at low). Chat function deployed 04:46 UTC (backup
+  `.artifacts/backups/20261022T044455Z-d8a4cfd1ad90`, deploy suite 19/0); the study-mode agent's 05:12 deploy carried the
+  equation streaming; redeployed 05:58 UTC from that deployed build plus the figures default (backup
+  `…/20261022T055356Z-4a3671a898cc`), so neither change undoes the other. Suite at 05:55: 18 pass, 1 fail —
+  `budget.health`: the staging platform budget is at 80 % ($32.08 of $40 this month; unrelated to this code). Read back:
+  `GET chat` publishes `default_figures` Gemini; live equation runs stream.
+- **Live, before → after** (DPO's loss, staging, disposable accounts): the default (Gemini) showed nothing for 9.3–12.3 s
+  then everything; now the summary at 2.9–5.9 s, first symbol 3.3–6.5 s, everything 6.5–8.9 s, same 2 credits. Sonnet low:
+  summary 3.0–4.2 s, everything 7.7–8.5 s, 4 credits warm / 45 with its cache write. Model alone: EQUATION_VIEW.md "Speed".
+- **Apps (iPhone/iPad/Mac) and browser:** part cards (and the apps' whole-figure card) open full screen on any touch in one
+  motion from the card (matched geometry; outline fades over ~1 s; double tap whole ↔ part; close back onto the card;
+  Reduce Motion cross-fade); streamed equation symbols under the shared progress bar with placeholders; framing record
+  `opened`/`opens`; figures default Gemini with the Sonnet default let go once; new figures ⓘ text.
+- **Evidence.** `npm test` passes (backend 717; browser units incl. new `equation-progress`, `equation-stream`, updated
+  `figure-framing-record`, `figures-default`); `swift test` filters `EquationViewTests|FigureProgressTests|FigureViewTests|
+  FigureFramingTests|ChatProfilesTests` pass; app `FiguresDefaultTests` 3/3 and `FigureViewAppTests` pass (iPhone 17 Pro
+  Simulator, iOS 26.4). Native journeys on that Simulator, one at a time: `testTouchingAPartOpensFullScreenFromItsCard`
+  light and dark (pass; the dark one also failed once at launch on "The paper is ready" while a screenshot loop ran, then
+  passed), `testEquationSymbolsStreamWithAProgressBar` light/dark, `testAnOlderServersEquationSymbolsStillShow`,
+  `testEquationViewDescribesSymbolsAndLeadsToThePaperAndTheChat`, and the existing `testExplainWalksThroughAFigure…`,
+  `testPartsAreFramedByConfidence…` (updated: a tap opens full screen on the part) and `testTheWalkthroughStreams…`.
+  Playwright: `figure-view.spec.ts` desktop + phone 29 pass / 5 skip (real-paper cases need `.artifacts/reader-sweep`;
+  the mid-transition rectangle check is Chromium-only); `equation-view.spec.ts` desktop + phone 18 pass. Mac Catalyst:
+  the app builds for Mac Catalyst (unsigned compile; its journeys were not run).
+- **Screenshots (reviewed).** Native: `.artifacts/figure-fullscreen/native/` — `{light,dark}-opening-start-on-the-card.jpg`,
+  `{light,dark}-opening-mid-transition.jpg`, `{light,dark}-closing-mid-transition.jpg` (Simulator frames with the motion
+  slowed 40×), and `light/`, `dark/` (card, settled with outline, outline faded, whole figure); `.artifacts/equation-progress/native/shots/`
+  (bar and placeholders, mid-stream, done; light/dark; older server). Browser: `.artifacts/figure-fullscreen/web/`
+  (opening start, mid-transition, settled with outline, faded, whole, reduced motion; desktop and phone, light/dark) and
+  `.artifacts/equation-progress/web/`.
+- **Spend:** ≈ $0.87 of the $1 allowed (EQUATION_VIEW.md "Speed").
+- **Not done / open:** TestFlight and the browser deploy (not asked); physical phone (paused); iPad and Mac journeys of the
+  new full-screen viewer not run (Mac builds; it keeps its window-sized sheet and fades instead of moving from the card).
+  A later deploy of the chat function from a branch without commit "Figures default back to Gemini Flash" would put
+  Sonnet back as the published figures default.
+
 ## Your AI usage — 2026-10-22 UTC (server on staging; apps and browser local, not released)
 
 Owner: "a table of my recent AI token spend for all the different activities … each row being an activity, and the exact

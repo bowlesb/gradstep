@@ -117,9 +117,9 @@ import Testing
     #endif
 }
 
-/// The figures activity's default (owner 2026-10-22: "change the default to Sonnet for that one"): the server's
-/// `default_figures`, else Sonnet low standard when offered, never the general chat default; a saved figures choice is
-/// kept, except the old recommended Gemini default, forgotten once.
+/// The figures activity's default (owner, 2026-10-22: "Let's try Gemini instead of Sonnet for Figures then"; Sonnet earlier
+/// that day): the server's `default_figures`, else Gemini Flash when offered, never the general chat default; a saved
+/// figures choice is kept, except the short-lived Sonnet default, forgotten once.
 @MainActor @Suite(.serialized) struct FiguresDefaultTests {
     private let sonnet = ChatProfileChoice(model: .sonnet, effort: .low, length: .standard)
     private let deepseek = ChatProfileChoice(model: .deepseek, effort: .low, length: .standard)
@@ -133,45 +133,46 @@ import Testing
         return UserDefaults(suiteName: name)!
     }
 
-    @Test func theFiguresDefaultIsSonnetNotTheChatDefault() {
+    @Test func theFiguresDefaultIsGeminiNotTheChatDefault() {
         // The server's default_figures when offered.
-        #expect(ReaderModel.figuresDefault(table: table([sonnet, gemini, deepseek], default: gemini, figures: sonnet), chatDefault: deepseek) == sonnet)
-        // A table without default_figures: Sonnet low standard when offered, not the general default (DeepSeek here).
-        #expect(ReaderModel.figuresDefault(table: table([sonnet, deepseek], default: deepseek), chatDefault: deepseek) == sonnet)
-        // Before the table loads: Sonnet.
-        #expect(ReaderModel.figuresDefault(table: nil, chatDefault: deepseek) == sonnet)
-        // A table without Sonnet: today's behaviour (the chat default).
-        #expect(ReaderModel.figuresDefault(table: table([deepseek, gemini], default: gemini), chatDefault: deepseek) == deepseek)
+        #expect(ReaderModel.figuresDefault(table: table([sonnet, gemini, deepseek], default: sonnet, figures: gemini), chatDefault: deepseek) == gemini)
+        // A table without default_figures: Gemini when offered, not the general default (DeepSeek here).
+        #expect(ReaderModel.figuresDefault(table: table([sonnet, gemini, deepseek], default: deepseek), chatDefault: deepseek) == gemini)
+        // Before the table loads: Gemini; a table without Gemini: the chat default.
+        #expect(ReaderModel.figuresDefault(table: nil, chatDefault: deepseek) == gemini)
+        #expect(ReaderModel.figuresDefault(table: table([deepseek, sonnet], default: sonnet), chatDefault: deepseek) == deepseek)
     }
 
-    @Test func aNewReaderGetsSonnetAndOtherActivitiesAreUnchanged() {
+    @Test func aNewReaderGetsTheFiguresDefaultAndOtherActivitiesAreUnchanged() {
         let defaults = UserDefaults.standard, keys = [ReaderModel.scenarioProfilesKey, "chat.defaultProfile"]
         let prior = keys.map { defaults.object(forKey: $0) }
         defer { for (key, value) in zip(keys, prior) { defaults.set(value, forKey: key) } }
         defaults.removeObject(forKey: ReaderModel.scenarioProfilesKey)
         let model = ReaderModel(configuration: nil)
         model.chatDefaultProfile = deepseek
-        #expect(model.profileDefault(for: .figures) == sonnet, "the general default (DeepSeek) is no longer inherited")
+        #expect(model.profileDefault(for: .figures) == gemini, "the general default (DeepSeek) is no longer inherited")
         #expect(model.profileDefault(for: .paper) == deepseek && model.profileDefault(for: .equations) == deepseek, "other activities unchanged")
         model.setProfileDefault(deepseek, for: .figures)
         #expect(model.profileDefault(for: .figures) == deepseek, "an explicit figures choice is kept")
         model.resetAIDefault(for: .figures)
-        #expect(model.profileDefault(for: .figures) == sonnet, "reset: the figures default")
+        #expect(model.profileDefault(for: .figures) == gemini, "reset: the figures default")
     }
 
-    @Test func theOldRecommendedGeminiIsForgottenOnceAndOtherChoicesKept() {
+    @Test func theShortLivedSonnetDefaultIsForgottenOnceAndOtherChoicesKept() {
         let defaults = scratch()
-        defaults.set(["figures": "gemini-medium-standard", "paper": "gemini-medium-standard"], forKey: ReaderModel.scenarioProfilesKey)
+        defaults.set(["figures": "sonnet-low-standard", "paper": "sonnet-low-standard"], forKey: ReaderModel.scenarioProfilesKey)
         let migrated = ReaderModel.storedScenarioProfiles(defaults)
-        #expect(migrated["figures"] == nil && migrated["paper"] == "gemini-medium-standard", "only figures, only that value")
-        #expect(defaults.dictionary(forKey: ReaderModel.scenarioProfilesKey) as? [String: String] == ["paper": "gemini-medium-standard"])
-        // Once: a later explicit Gemini choice for figures sticks.
-        defaults.set(["figures": "gemini-medium-standard"], forKey: ReaderModel.scenarioProfilesKey)
-        #expect(ReaderModel.storedScenarioProfiles(defaults)["figures"] == "gemini-medium-standard")
-        // A saved DeepSeek choice is never touched.
-        let other = scratch()
-        other.set(["figures": deepseek.id], forKey: ReaderModel.scenarioProfilesKey)
-        #expect(ReaderModel.storedScenarioProfiles(other)["figures"] == deepseek.id)
-        #expect(other.bool(forKey: ReaderModel.figuresDefaultMigrationKey))
+        #expect(migrated["figures"] == nil && migrated["paper"] == "sonnet-low-standard", "only figures, only that value")
+        #expect(defaults.dictionary(forKey: ReaderModel.scenarioProfilesKey) as? [String: String] == ["paper": "sonnet-low-standard"])
+        // Once: a later explicit Sonnet choice for figures sticks.
+        defaults.set(["figures": "sonnet-low-standard"], forKey: ReaderModel.scenarioProfilesKey)
+        #expect(ReaderModel.storedScenarioProfiles(defaults)["figures"] == "sonnet-low-standard")
+        // A saved DeepSeek or Gemini choice is never touched.
+        for kept in [deepseek.id, gemini.id] {
+            let other = scratch()
+            other.set(["figures": kept], forKey: ReaderModel.scenarioProfilesKey)
+            #expect(ReaderModel.storedScenarioProfiles(other)["figures"] == kept)
+            #expect(other.bool(forKey: ReaderModel.figuresDefaultMigrationKey))
+        }
     }
 }

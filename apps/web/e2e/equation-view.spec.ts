@@ -290,3 +290,97 @@ test('an author byline offers an author search without an AI request', async ({p
  await search; await expect(page).toHaveURL(/\/$/);
  expect((await(await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(0);
 });
+
+// Owner, 2026-10-22: "the equations AI explainer needs the same progress with the progress bar". The symbols stream
+// (EQUATION_VIEW.md "Streamed explanation"): a progress bar and placeholders at once, the summary as soon as it is
+// written, then each symbol below the last, so nothing shown moves; "Explaining symbol k of N" once the model announced N;
+// the bar fades once done. The fixture streams step by step (equationStream 'step', POST /__figure-step).
+const progressShot=(name:string)=>`../../.artifacts/equation-progress/web/${name}-${test.info().project.name}.png`;
+async function explainEquation(page:import('@playwright/test').Page,request:import('@playwright/test').APIRequestContext,equationStream:string,nth=0){
+ await openFixture(page,request,equations);
+ await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{equationStream}});
+ const display=page.frameLocator('[data-testid=reader-frame]').locator('.reader-display[data-reader-equation]').nth(nth); // a finished explanation is kept: another equation for each case
+ await expect(display).toBeVisible({timeout:20000});await display.click();
+ await page.getByTestId('equation-open').click();
+ const view=page.getByTestId('equation-view');
+ await view.getByTestId('equation-explain').click();await page.getByTestId('explainer-default').click();
+ // The chat's consent is asked once a session.
+ const allow=view.getByRole('button',{name:'Allow and explain'});
+ await expect(allow.or(view.getByRole('progressbar')).or(view.getByTestId('equation-symbols'))).toBeVisible();
+ if(await allow.isVisible()) await allow.click();
+ return view;
+}
+const stepEquation=async(request:import('@playwright/test').APIRequestContext,count=1)=>(await (await request.post(`${fixtureOrigin}/__figure-step`,{data:{count}})).json()) as {waiting:number;left:number};
+const top=(locator:ReturnType<import('@playwright/test').Page['locator']>)=>locator.evaluate(e=>{const v=e.closest('[data-testid=equation-view]')!.getBoundingClientRect(),b=e.getBoundingClientRect();return {y:Math.round(b.top-v.top),height:Math.round(b.height)};});
+
+test('the explanation streams under a progress bar: the summary, then each symbol below it, nothing above moving',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ const view=await explainEquation(page,request,'step');
+ const bar=view.getByRole('progressbar'),status=view.getByTestId('equation-progress-status');
+ // At once: the bar (indeterminate while the model reads), the summary's lines and symbol rows as placeholders.
+ await expect(bar).toHaveAttribute('aria-label','Reading the equation…');await expect(bar).not.toHaveAttribute('aria-valuenow');
+ await expect(status).toHaveAttribute('aria-live','polite');await expect(status).toHaveText('Reading the equation…');
+ await expect(view.getByTestId('equation-skeleton-summary')).toBeVisible();await expect(view.getByTestId('equation-skeleton-symbols').locator('li')).toHaveCount(3);
+ await view.getByTestId('equation-progress').scrollIntoViewIfNeeded();
+ for(const scheme of ['light','dark'] as const){await page.emulateMedia({colorScheme:scheme});await page.screenshot({path:progressShot(`reading-${scheme}`)});}
+ await page.emulateMedia({colorScheme:'light'});
+ // The model announces three symbols: determinate from here, never back.
+ await stepEquation(request,3);
+ await expect(bar).toHaveAttribute('aria-label','Writing the summary…');await expect(bar).toHaveAttribute('aria-valuenow',/^\d+$/);
+ const value=async()=>Number(await bar.getAttribute('aria-valuenow'));
+ let last=await value();
+ await stepEquation(request);
+ await expect(view.getByTestId('equation-summary')).toHaveText('It squares x: the value multiplied by itself.');
+ await expect(view.getByTestId('equation-skeleton-summary')).toHaveCount(0);
+ await expect(bar).toHaveAttribute('aria-label','Explaining symbol 1 of 3…');await expect(status).toHaveText('Explaining symbol 1 of 3…');
+ expect(await value()).toBeGreaterThanOrEqual(last);last=await value();
+ const summary=await top(view.getByTestId('equation-summary'));
+ expect((await top(view.getByTestId('equation-progress'))).y).toBeGreaterThan(summary.y+summary.height-1);
+ await stepEquation(request,3);
+ const rows=view.getByTestId('equation-symbols').locator('li');
+ await expect(rows).toHaveCount(1);await expect(bar).toHaveAttribute('aria-label','Explaining symbol 2 of 3…');
+ expect(await value()).toBeGreaterThanOrEqual(last);last=await value();
+ const row0=await top(rows.first());
+ expect(await top(view.getByTestId('equation-summary'))).toEqual(summary);
+ expect((await top(view.getByTestId('equation-progress'))).y).toBeGreaterThan(row0.y+row0.height-1);
+ await expect(view.getByTestId('equation-skeleton-symbols').locator('li')).toHaveCount(2);
+ for(const scheme of ['light','dark'] as const){await page.emulateMedia({colorScheme:scheme});await page.screenshot({path:progressShot(`symbol-1-of-3-${scheme}`)});}
+ await page.emulateMedia({colorScheme:'light'});
+ await stepEquation(request,3);
+ await expect(rows).toHaveCount(2);await expect(bar).toHaveAttribute('aria-label','Explaining symbol 3 of 3…');
+ expect(await top(rows.first())).toEqual(row0);expect(await top(view.getByTestId('equation-summary'))).toEqual(summary);
+ await stepEquation(request,3);
+ await expect(rows).toHaveCount(3);
+ // Every announced symbol is in and the explanation isn't yet: no made-up value.
+ await expect(bar).toHaveAttribute('aria-label','Explaining symbol 4…');await expect(bar).not.toHaveAttribute('aria-valuenow');
+ expect((await stepEquation(request)).left).toBe(0);
+ await expect(view.getByTestId('equation-progress')).toHaveCount(0);await expect(view.getByTestId('equation-skeleton-symbols')).toHaveCount(0);
+ await expect(status).toHaveText('Done');
+ await expect(view.getByTestId('equation-more')).toBeVisible();
+ expect(await top(rows.first())).toEqual(row0);expect(await top(view.getByTestId('equation-summary'))).toEqual(summary);
+ for(const scheme of ['light','dark'] as const){await page.emulateMedia({colorScheme:scheme});await page.screenshot({path:progressShot(`done-${scheme}`)});}
+ await page.emulateMedia({colorScheme:'light'});
+ expect((await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests.filter((r:{action?:string})=>r.action==='equation')).toHaveLength(1);
+});
+
+test('the equation’s progress bar holds still under Reduce Motion; an older server shows it all at once; a failure drops the streamed symbols; a cut-off one keeps them',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await page.emulateMedia({reducedMotion:'reduce'});
+ let view=await explainEquation(page,request,'step');
+ const bar=view.getByRole('progressbar');
+ await expect(bar).toHaveAttribute('aria-label','Reading the equation…');
+ expect(await bar.locator('.figure-progress-fill').evaluate(e=>[getComputedStyle(e).animationName,getComputedStyle(e).transitionDuration])).toEqual(['none','0s']);
+ await stepEquation(request,30);
+ await expect(view.getByTestId('equation-symbols').locator('li')).toHaveCount(3);
+ await expect(view.getByTestId('equation-progress')).toHaveCount(0,{timeout:250});
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ view=await explainEquation(page,request,'old',1);
+ await expect(view.getByRole('progressbar')).toHaveAttribute('aria-label','Reading the equation…');
+ await expect(view.getByTestId('equation-symbols').locator('li')).toHaveCount(3);await expect(view.getByTestId('equation-progress')).toHaveCount(0);
+ view=await explainEquation(page,request,'error',2);
+ await expect(view.getByRole('alert')).toBeVisible();await expect(view.getByTestId('equation-symbols')).toHaveCount(0);
+ await expect(view.getByRole('button',{name:'Try again'})).toBeVisible();
+ view=await explainEquation(page,request,'cut',2);
+ await expect(view.getByTestId('equation-symbols').locator('li')).toHaveCount(2);
+ await expect(view.getByTestId('equation-note')).toHaveText('Interrupted · not charged');
+});

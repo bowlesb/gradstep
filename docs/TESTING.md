@@ -1,5 +1,24 @@
 # Fast and slow tests
 
+## Full screen on touch; streamed equation explanation — October 22
+
+Fast: backend `tests/backend/chat.test.ts` (the symbols stream in any chunking, count, cut-off and malformed symbols;
+events to the device, final `equation` unchanged; symbols at low effort; `default_figures` Gemini), browser
+`tests/equation-progress.test.ts` (writes `tests/fixtures/equation-progress.json` with `UPDATE_PROGRESS_FIXTURE=1`),
+`equation-stream.test.ts`, `figure-framing-record.test.ts`, `figures-default.test.ts`; Core `swift test --filter
+"EquationViewTests|FigureProgressTests|FigureFramingTests|ChatProfilesTests"`; app `FiguresDefaultTests`,
+`FigureViewAppTests`. Slow, opt-in: Playwright `e2e/figure-view.spec.ts` (full-screen transition, gestures, reduced
+motion; the mid-transition check is Chromium-only) and `e2e/equation-view.spec.ts` (fixture `equationStream`
+fast/slow/step/old/error/cut); native `FigureViewJourneyTests/testTouchingAPartOpensFullScreenFromItsCard` (+`Dark`;
+`TEST_RUNNER_FIGURE_FULLSCREEN_SLOW=<n>` slows the motion, default 8; photograph it from outside with `xcrun simctl io
+<sim> screenshot` in a loop, since XCUITest waits for animations to end before its own screenshots) and
+`WorkflowJourneyTests/testEquationSymbolsStreamWithAProgressBar` (+`Dark`, `testAnOlderServersEquationSymbolsStillShow`;
+`--equation-fixture-step-ms`, `--equation-fixture-old-server`). Paid, explicit: `node scripts/equation-speed.mjs
+--equation=6 --configs=gemini-medium,gemini-low,sonnet-low` (model alone, straight to OpenRouter, durable ledger) and
+`node scripts/chat-live-smoke.mjs --equation=symbols --equation-runs=2 --profile=…` (staging, disposable account; prints
+the stream's timings and the published defaults; without `--profile` it asks with Sonnet, which writes its own cache).
+Screenshots under `.artifacts/figure-fullscreen/` and `.artifacts/equation-progress/`.
+
 ## Your AI usage and collapsible snippet cards — October 22
 
 Fast (in `npm test`): backend `tests/backend/ai-usage.test.ts` (every chat action, provider route and operation kind has a

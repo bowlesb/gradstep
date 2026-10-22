@@ -116,6 +116,12 @@ import Testing
         #expect(kept.count == 1)
         #expect(kept[0].finalView == CropRect(0.1235, 0, 1, 1) && kept[0].zoomed && !kept[0].panned && kept[0].expanded)
         #expect(kept[0].frame == CropRect(0.3521, -0.02, 1.0074, 1.02))
+        #expect(kept[0].opened == nil && kept[0].opens == 0)
+        // Opened full screen (2026-10-22): how the first time, how often; `expanded` with it.
+        recorder.changed("a", opened: .pinch)
+        recorder.changed("a", opened: .tap)
+        #expect(recorder.all[0].opened == .pinch && recorder.all[0].opens == 2 && recorder.all[0].expanded)
+        #expect(FigureFramingRecord.OpenGesture.doubleTap.rawValue == "double_tap", "the browser's raw values")
         for i in 0..<(FigureFramingRecorder.limit + 5) { recorder.shown("k\(i)", record) }
         #expect(recorder.all.count == FigureFramingRecorder.limit)
         recorder.clear()

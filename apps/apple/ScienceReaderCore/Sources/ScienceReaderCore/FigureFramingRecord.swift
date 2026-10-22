@@ -16,6 +16,9 @@ public struct ArxivFigure: Equatable, Sendable {
 
 public struct FigureFramingRecord: Equatable, Sendable {
     public enum Surface: String, Sendable { case walkthrough, chat }
+    /// How the reader opened a card full screen (2026-10-22: any interaction with a card opens the full-screen viewer;
+    /// FIGURE_VIEW.md "Full screen on touch"). The browser's `OpenGesture` has the same raw values.
+    public enum OpenGesture: String, Sendable { case tap, pinch, drag, doubleTap = "double_tap", keyboard, button, accessibility }
     public let figure: ArxivFigure
     public let surface: Surface
     /// The part's place in its set (0-based) and the set's size.
@@ -23,9 +26,12 @@ public struct FigureFramingRecord: Equatable, Sendable {
     public let level: FigureFraming.Level
     /// The AI's box, the completed region and the frame shown at first: fractions of the figure.
     public let box: CropRect, region: CropRect, frame: CropRect
-    /// The view the reader left the card at (the frame when untouched), and what they did.
+    /// The full-screen view the reader last closed at (the frame when never opened), and what they did there: zoomed or
+    /// panned it, and whether they opened it (`expanded`), how the first time (`opened`) and how often (`opens`).
     public internal(set) var finalView: CropRect
     public internal(set) var zoomed = false, panned = false, expanded = false
+    public internal(set) var opened: OpenGesture?
+    public internal(set) var opens = 0
 
     public init(figure: ArxivFigure, surface: Surface, part: Int, parts: Int, level: FigureFraming.Level, box: CropRect, region: CropRect, frame: CropRect) {
         func r(_ c: CropRect) -> CropRect { CropRect(round4(c.x0), round4(c.y0), round4(c.x1), round4(c.y1)) }
@@ -55,14 +61,19 @@ public final class FigureFramingRecorder: @unchecked Sendable {
         while order.count > Self.limit { records[order.removeFirst()] = nil }
     }
 
-    /// The reader zoomed or panned the card (`view`: where it now shows, fractions of the figure), or expanded it.
-    public func changed(_ key: String, view: CropRect? = nil, zoomed: Bool = false, panned: Bool = false, expanded: Bool = false) {
+    /// The reader opened the card full screen (`opened`: how), or zoomed or panned it there (`view`: where it now shows,
+    /// fractions of the figure).
+    public func changed(_ key: String, view: CropRect? = nil, zoomed: Bool = false, panned: Bool = false, expanded: Bool = false, opened: FigureFramingRecord.OpenGesture? = nil) {
         lock.lock(); defer { lock.unlock() }
         guard var record = records[key] else { return }
         if let view { record.finalView = CropRect(round4(view.x0), round4(view.y0), round4(view.x1), round4(view.y1)) }
         if zoomed { record.zoomed = true }
         if panned { record.panned = true }
         if expanded { record.expanded = true }
+        if let opened {
+            record.expanded = true; record.opens += 1
+            if record.opened == nil { record.opened = opened }
+        }
         records[key] = record
     }
 
