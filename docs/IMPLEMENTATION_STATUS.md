@@ -1,6 +1,6 @@
 # Implementation status
 
-## Study mode reworked, the paper's AI Explainer, App Store pricing applied — 2026-10-22 UTC (server and browser released; TestFlight 82 pending the import gate)
+## Study mode reworked, the paper's AI Explainer, App Store pricing applied — 2026-10-22 UTC (server, browser and TestFlight 82 released)
 
 - **Study mode** (owner: "too complex"): "Enter Study Mode – Quiz me and help me learn" is a starter in an empty paper
   chat and always the last suggestion after an answer. Studying is the paper chat with a tutor that asks one question at
@@ -21,6 +21,7 @@
   one-hour cache write of the paper). Gemini Flash low (the default): summary 16.3 s, whole explainer 21.3 s, 2 credits.
   Streamed entries equal the final ones in both.
 - **Browser:** deployed to app.gradstep.ai (Pages `f67bba68`).
+- **TestFlight 82:** iOS and Mac uploaded after import acceptance 15/15 on the uploaded source.
 - **App Store Connect (owner approved, "I approve"):** `asc-pricing-plan.mjs --apply --owner-approved=2026-10-22` made the
   8 API changes; read-back matches (Plus $7.99 + $3.99 first month, Plus yearly $79.99, Pro 2,000 credits, Pro yearly
   $199.99, packs 300/700). Manual steps left: OWNER_ACTIONS 13.
