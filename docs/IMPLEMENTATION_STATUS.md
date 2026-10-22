@@ -1,5 +1,14 @@
 # Implementation status
 
+## TestFlight 81 and browser release — 2026-10-22 UTC
+
+iOS and Mac build 81 uploaded; browser redeployed. Adds since 80: the streamed figure walkthrough (summary and each
+validated part as they arrive; final walkthrough still sent for older builds), the figure progress bar (stages, part k of N
+only when N is known, never backwards), Sonnet 5.5 at low effort as the figures default, low effort for figures on
+Gemini/auto and no thinking on DeepSeek. Live on staging before release: summary 3.6–4.5 s and full walkthrough 10–12 s on
+Sonnet (was 14–24 s with nothing shown on the old Gemini-medium default); details in FIGURE_VIEW.md "Speed". Gates:
+`npm test` passes; import acceptance 15/15 on the uploaded source. Not verified: physical device (paused).
+
 ## Figure explainer: streamed, faster, with a progress bar; figures default Sonnet — 2026-10-22 UTC (server on staging; apps and browser local, not released)
 
 Owner: "very very slow … unusable at this speed. Also it needs a progress bar"; then "change the default to Sonnet for
