@@ -1,5 +1,15 @@
 # Implementation status
 
+## TestFlight 84, browser and admin release — 2026-10-22 UTC
+
+iOS and Mac build 84 uploaded (the Mac archive was retried once after a derived-data permission error); browser and
+admin redeployed. Adds since 83: the Your AI usage credits ring under All (owner's build-82 feedback), a figure part's
+label no longer repeats its type ("Concept · Concept", build-83 feedback). Admin: Continue with Google for operator
+accounts made with Google or Apple (the owner's account is Apple-only with no password); `https://admin.gradstep.ai`
+added to staging Auth's redirect allow list (workflow check updated). Apple web sign-in still lacks a Services ID
+secret. Gates: `npm test` passes; Core `swift test` 437 pass; iPhone 17 `AIUsageJourneyTests` 3/3; import acceptance
+15/15. Not verified: an owner Google sign-in end to end, iPad/Mac journeys, physical device (paused).
+
 ## Credits by activity in Your AI usage — 2026-10-22 UTC (apps and browser local, not released)
 
 Owner, build-82 feedback: "The very top before the list when on All a pie chart summarizing the cost types and their
