@@ -168,7 +168,9 @@ view's walkthrough shares the chat's cached tools; [FIGURE_VIEW.md](FIGURE_VIEW.
 `figure_simpler` and, since TestFlight 62's feedback, `figure_detail`, one part extracted with more context — removed from the clients 2026-10-21 and deprecated on the server, accepted only from builds 63–79: FIGURE_VIEW.md "Extract the subfigure removed"; since 2026-10-22 `figure` and
 `figure_simpler` run at **low effort** when the reader chose Gemini Flash or an automatic effort — the profile and quote
 say `…-low-…`; every other chat request keeps its profile's effort — and the walkthrough streams as `figure_summary` /
-`figure_section` / `figure_progress` events before its unchanged `figure`: FIGURE_VIEW.md "Speed"). The app sends `web_import` on Ingest requests from builds that show web papers. Older
+`figure_section` / `figure_progress` events before its unchanged `figure`; DeepSeek at low writes them without thinking;
+the published table adds `default_figures` = `sonnet-low-standard`, the figures-and-tables activity's default (owner,
+2026-10-22), which updated clients use instead of the general chat default: FIGURE_VIEW.md "Speed"). The app sends `web_import` on Ingest requests from builds that show web papers. Older
 builds get "needs the latest Science Reader version"; a match without an open copy gets "isn't openly available".
 The presence check reads `v3_library_page` (all sources). The paper worker then reads the work from
 `api.openalex.org` itself (metadata and up to three open-access PDF locations, never arXiv-hosted) and converts a

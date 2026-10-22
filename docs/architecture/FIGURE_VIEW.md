@@ -78,7 +78,7 @@ with a box on every panel part, the sub-figure labels the structure note gave an
 texts are a little shorter (700–1,300 characters). Two low runs under a first JSON-reply wording (without the escaping
 line) wrote some `$…$` math; with the deployed wording the three later records hold 52 `\(…\)` and no `$`. Haiku at low drew no boxes on three figures and wrote a
 malformed box that ended its turn on the fourth; Sonnet at low was as fast as Gemini at 2–3× the cost, and its one cold
-run returned no usable part. **Gemini Flash stays the figures default, at low effort.**
+run returned no usable part. On this evidence Gemini at low was the measured pick; the owner then made **Sonnet 5.5 at low the figures default** (below, and [DECISIONS](../DECISIONS.md#figure-explainer-streamed-at-low-effort-owner-request-2026-10-22-agent-decision-with-evidence-reversible)); Gemini readers get low effort.
 
 Through the deployed function on staging (`node scripts/chat-live-smoke.mjs --figure-view=2,1 --figure-walkthrough-only
 --profile=gemini-medium-standard`, as the apps send it; disposable accounts; server stages from the database: the
@@ -91,6 +91,49 @@ quote, the provider attempt's dispatch and finish, the settlement), seconds from
 | DPO 1 | before | – | 13.8 (all at once) | 13.8 | 13.8 | 0.92 → 13.48 | $0.0115 |
 | DPO 1 | after | 0.7 | 4.6 | 6.8 | 9.4 | 0.78 → 9.11 | $0.0081 |
 | PRISM 5 (four parts) | after | 0.9 | 6.7 | 8.8 | 15.6 | 0.97 → 15.35 | $0.0098 |
+
+**By model, live on staging** after the owner's "I tried Sonnet, it was much faster than DeepSeek" (same command with
+`--profile=…`; the second deploy, 02:50 UTC, adds DeepSeek without thinking at low; Sonnet's first run wrote the paper to
+its one-hour cache):
+
+| Profile sent | Figure | First visible (summary) | Parts | Whole | Out tokens | Cost |
+|---|---|---|---|---|---|---|
+| `sonnet-low-standard` (figures default since this change) | DPO 2 (cache write) | 4.5 | 8.4, 11.9 | 12.3 | 1,300 | $0.2374 |
+| | DPO 1 | 3.6 | 6.8, 9.6 | 10.0 | 1,036 | $0.0220 |
+| `gemini-medium-standard` → low | DPO 2 | 7.2 | 11.3, 15.1 | 15.4 | 1,347 | $0.0118 |
+| | DPO 1 | 4.6 | 6.8, 8.8 | 9.4 | 805 | $0.0081 |
+| `deepseek-auto-standard` → low, no thinking | DPO 2 | 3.5 | 9.8, 13.4, 18.3 | 18.8 | 1,796 | $0.0039 |
+| | DPO 1 | 3.9 | 7.6, 11.2, 15.0 | 15.4 | 1,217 | $0.0005 |
+| `deepseek-medium-standard` (thinking) | DPO 2 | 23.3 | 28.5, 32.9, 37.6 | 38.1 | 3,171 | $0.0043 |
+| | DPO 1 | 14.0 | 19.2, 23.4, 27.3 | 28.6 | 2,151 | $0.0008 |
+
+The owner's own walkthroughs on staging before this change (database, durations only): 12 with
+`deepseek-medium-standard`, the model taking 19–97 s each (median ~33 s) with nothing shown until the end, and one with
+`sonnet-low-standard`, 16 s. **DeepSeek on its pinned route is inherently the slowest here**: DeepInfra FP8 writes ~40–65
+tokens a second, and at any thinking effort it thinks first ("low" still spent 1,600–1,850 reasoning tokens: 23 s before
+the first word of a walkthrough). The figure view therefore sends DeepSeek at low without thinking (`reasoning:
+{enabled: false}`, which OpenRouter passes: 0 reasoning tokens; same panels and values read); a reader's explicit medium
+or high keeps thinking and stays slow.
+
+**DeepSeek's route (measured; a proposal, not switched).** Direct to OpenRouter, the server's own requests, DPO Figure 2
+walkthrough / a paper-chat answer ("Why does the DPO objective need a reference model…"), seconds to first text / whole:
+
+| Host (deepseek-v4.1-flash-1017) | Walkthrough, thinking low | Walkthrough, no thinking | Chat answer, low | Chat answer, no thinking | Price $/M in/out |
+|---|---|---|---|---|---|
+| DeepInfra FP8 (pinned today) | 24.5 / 37.5 (1,846 reasoning) | 2.8 / 14.8 | 7.5 / 16.9 | 1.1 / 10.5 | 0.098 / 0.294 |
+| Together | 8.2 / 12.1 (1,603 reasoning) | 1.6 / 7.1 | 1.6 / 4.7 (cache read) | 1.1 / 5.4 | 0.30 / 1.20 |
+| Baseten | – | 2.5 / 5.4 | – | – | 0.30 / 1.20 |
+| inference.net FP8 | – | 2.9 / 11.1 | – | – | 0.08 / 0.50 |
+| Fireworks | – | 2.4 / 12.4 | – | – | 0.30 / 1.20 |
+| DeepSeek (the maker) | refused: not a zero-data-retention endpoint (HTTP 404 under `zdr: true`) | | | | 0.30 / 1.20 |
+
+PRISM Figure 5 without thinking: DeepInfra 2.9 / 19.8 s, Together 1.3 / 8.8 s; both split the middle strip into (b) and
+(c) with their own boxes (Gemini grouped them). Baseten misread one axis range on DPO 2. Each costs well under a cent a
+walkthrough. The DeepInfra pin (2026-10-18) was chosen because the maker's endpoint is not in OpenRouter's ZDR inventory
+(still true) and consent v6 names DeepInfra as the processor; Together is offered under OpenRouter's ZDR filter at about
+three times DeepInfra's price and was 2–3.5× faster in every comparison. **Proposal:** move DeepSeek's pin to Together
+(`together`), which needs a consent text naming Together AI (a new consent version and client release), a reviewed
+tariff card and a check that its revision stays `-1017`; until then DeepSeek stays on DeepInfra.
 
 Gemini's own first-token time varied 3.3–5.7 s on staging against 2–4 s in the direct runs; in every run the streamed parts
 equalled the final walkthrough. Records: `.artifacts/figure-view/2026-10-22T02-02-00-800Z-2305.18290v3.json` (before),

@@ -19,7 +19,21 @@ confidence-framed viewports); what changed is how fast it arrives:
   19–45 s; at low it read the same panels, values and legends with a box on every panel part, summary on screen in
   ~3–4.5 s and the whole walkthrough in 8–11 s, at about two thirds of the cost. Haiku 5.5 at low was fastest but drew no
   boxes on three of four figures and once wrote malformed JSON; Sonnet 5.5 at low matched Gemini's speed at 2–3× the cost
-  (and once returned no usable part). Gemini Flash stays the figures default. Record: FIGURE_VIEW.md "Speed".
+  (and once returned no usable part). Record: FIGURE_VIEW.md "Speed".
+- **Figures default: Claude Sonnet 5.5 at low effort** (owner, 2026-10-22: "I think we should probably change the default
+  to Sonnet for that one", after "I tried Sonnet, it was much faster than DeepSeek"). Published as `default_figures`
+  (`sonnet-low-standard`); new readers, readers with no saved figures choice (the activity no longer inherits the general
+  chat default) and readers whose saved choice was the old recommended `gemini-medium-standard` (migrated once) start
+  there; any other explicit choice stays. Live: summary in 3.6–4.5 s, whole walkthrough 10–12 s. Cost: ~$0.022 a
+  walkthrough when the paper is in Sonnet's cache, but the first Sonnet request on a paper writes it to the cache
+  (~$0.24 on DPO, 49,000 tokens) — a reader whose paper chat uses another model pays that once per paper per hour. The
+  ⓘ text for the activity says speed differs and DeepSeek is slower.
+- **DeepSeek in the figure view at low effort writes without thinking** (its "low" still thought ~1,800 tokens: 24 s
+  before the first word on DeepInfra). Live: 3.5–3.9 s to the summary, 15–19 s whole (was 19–97 s with medium).
+- **DeepSeek route: proposal, not switched.** Together (OpenRouter ZDR) was 2–3.5× faster than the pinned DeepInfra FP8
+  in every measurement at about three times the (still sub-cent) price; the maker's endpoint is still refused under ZDR.
+  Switching needs a consent text naming Together AI (new consent version and client release) and a reviewed tariff
+  card; the owner decides.
 
 ## PDFs without arXiv HTML: keep developing the on-device model; no Mathpix (owner, 2026-10-21)
 
