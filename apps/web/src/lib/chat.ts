@@ -11,6 +11,7 @@ import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat
 import { equationSummary, isEquationAction, MAX_SYMBOLS, parseEquationSymbol, parseEquationSymbols, type EquationSymbol, type EquationSymbols } from './equation';
 import { figureSummary, isFigureAction, MAX_SECTIONS, parseFigureSection, parseFigureWalkthrough, type FigureSection, type FigureWalkthrough } from './figure-view';
 import { provenanceFor, rememberProvenance } from './ai-usage';
+import { WHERE_TO_BUY } from './account-summary';
 
 // v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md); v4
 // (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
@@ -415,7 +416,7 @@ export function failureText(code: string): string {
     case 'question_unsaved': return 'Your question couldn’t be saved, so no answer was requested. Try again.';
     case 'profile_unavailable': return 'The saved answer settings aren’t available right now. No answer was requested. Retry loading the options, or start a new question with the available settings.';
     case 'storage_retired': return 'No answer was requested: Gradstep was updated in another tab. Your question is saved; continue in the updated tab.';
-    case 'insufficient_credits': return 'Not enough credits for this answer. Your question is saved. Credits can be added in Gradstep on iPhone, iPad or Mac.';
+    case 'insufficient_credits': return `Not enough credits for this answer. Your question is saved. ${WHERE_TO_BUY}`;
     case 'platform_budget_exhausted': return 'AI answers are paused right now. Your papers and saved chats still work.';
     case 'rate_limited': return 'Too many requests right now. Try again in a moment.';
     case 'local_reader_unavailable': return 'This paper can’t be read in this browser yet, so no answer was requested. Try again in a moment.';

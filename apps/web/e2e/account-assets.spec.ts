@@ -40,7 +40,10 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
 
   // The explanations sit behind ⓘ beside the words; the rest of the page darkens; Esc hides only the bubble.
   const tip = menu.getByTestId('credits-info');
-  await expect(tip).toHaveAccessibleDescription(/Credits are bought in the Gradstep app on iPhone, iPad or Mac\.$/);
+  await expect(tip).toHaveAccessibleDescription(/Recommendations use 1 credit per request that adds papers\.$/);
+  // Owner, 2026-10-23: where credits come from is said plainly, for readers with and without an Apple device.
+  await expect(menu.getByTestId('add-credits')).toContainText('Not on the web yet');
+  await expect(menu.getByTestId('add-credits-info')).toHaveAccessibleDescription(/^Credits can’t be bought on the web yet\. If you have an iPhone, iPad or Mac, credits added in the Gradstep app work here right away\.$/);
   await tip.focus(); await page.keyboard.press('Enter');
   const bubble = menu.getByText('Credits pay for AI answers');
   await expect(bubble).toBeVisible(); await expect(page.getByTestId('info-scrim')).toBeVisible();

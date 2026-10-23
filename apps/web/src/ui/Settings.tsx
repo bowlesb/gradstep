@@ -4,7 +4,7 @@
 // the right, no footer; explanations behind ⓘ beside a row's words. A row opens a page inside Settings with Back
 // (Keyboard shortcuts), or the existing dialog over it.
 import { type ReactNode, useEffect, useState } from 'react';
-import { type AccountSummary, CREDITS_INFO, FREE_AI_INFO, PLAN_INFO, creditsLabel, freeAILabel, loadAccountSummary, planLabel } from '../lib/account-summary';
+import { type AccountSummary, CREDITS_INFO, FREE_AI_INFO, PLAN_INFO, WHERE_TO_BUY, creditsLabel, freeAILabel, loadAccountSummary, planLabel } from '../lib/account-summary';
 import { operationsDashboard, operatorRoles } from '../lib/backend';
 import type { Explanation } from '../lib/chat-session';
 import { Dialog, InfoTip, SheetTop } from './common';
@@ -115,6 +115,8 @@ export function SettingsDialog({ open, onClose, account, email, theme, setTheme,
       <Section title="AI credits">
         <Fact label="Available" info={CREDITS_INFO} infoTestID="credits-info" value={creditsLabel(summary.balance)} testID="account-credits" />
         {!!summary.balance?.reserved && <Fact label="Held for answers in progress" value={summary.balance.reserved.toLocaleString()} testID="account-held" />}
+        {/* Owner, 2026-10-23: say plainly that the web can't sell yet, for readers without an iPhone, iPad or Mac. */}
+        <Fact label="Add credits" info={WHERE_TO_BUY} infoTestID="add-credits-info" value="Not on the web yet" testID="add-credits" />
         {/* Free AI (migration 0150; docs/PRICING_HOW_IT_WORKS.md): only on the free tier. */}
         {summary.balance?.free && <Fact label="Free AI this month" info={FREE_AI_INFO} infoTestID="free-ai-info" value={freeAILabel(summary.balance.free)} testID="account-free-ai" />}
         {/* Owner, 2026-10-22: where credits go — each request with its tokens and cost. */}

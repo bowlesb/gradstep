@@ -6,7 +6,7 @@ import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLa
 import { TranscriptFollow } from '../lib/chat-follow';
 import { answerActionPrompt, chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileID, profileSummary, modelOption } from '../lib/chat-profiles';
-import type { CreditBalance } from '../lib/account-summary';
+import { WHERE_TO_BUY, type CreditBalance } from '../lib/account-summary';
 import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer, type FigureFacts } from '../lib/chat-session';
 import type { FigureStructure } from '../lib/figure-structure';
 import { chooseStarters, type Starter, type StarterPaper } from '../lib/chat-starters';
@@ -446,7 +446,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           chat.balanceStale && chat.balanceAt ? asOf(chat.balanceAt) : null);
         return <div className="composer-status">
           {hint && <p className="fine draft-hint" data-testid="draft-status">{hint}</p>}
-          {balance && <p className="fine draft-hint composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{balance}</p>}
+          {balance && <p className="fine draft-hint composer-balance" title={WHERE_TO_BUY}>{balance}</p>}
         </div>;
       })()}
     </form>

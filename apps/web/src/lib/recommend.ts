@@ -6,6 +6,7 @@
 import { BackendError, functionStream } from './backend';
 import { distinctiveKeyword, effectiveTags } from './paper';
 import type { ClientEntry, LibraryPaper } from './device-pdf';
+import { WHERE_TO_BUY } from './account-summary';
 
 export type RecommendCount = 1 | 3 | 5;
 export const RECOMMEND_COUNTS: readonly RecommendCount[] = [1, 3, 5];
@@ -141,7 +142,7 @@ export async function* streamRecommend(account: string, body: RecommendBody, sig
 export function errorMessage(code: string): string {
   switch (code) {
     case 'daily_limit': return 'You’ve asked for recommendations 20 times today. Try again tomorrow.';
-    case 'insufficient_credits': return 'You’re out of AI credits. Add credits in Gradstep on iPhone, iPad or Mac.';
+    case 'insufficient_credits': return `You’re out of AI credits. ${WHERE_TO_BUY}`;
     case 'seed_unavailable': return 'This paper’s details aren’t ready yet. Try again in a minute.';
     case 'rate_limited': case 'request_rate_limit': return 'Too many requests. Try again in a minute.';
     case 'unavailable': return 'Recommendations are switched off for now.';

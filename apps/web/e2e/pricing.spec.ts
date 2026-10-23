@@ -74,7 +74,7 @@ for (const scheme of ['light', 'dark'] as const) test(`a chat answer refused whi
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByRole('button', { name: 'Allow and get answer' }).click();
   const issue = page.getByTestId('chat-pane').locator('.chat-issue');
-  await expect(issue).toHaveText(/This month’s free AI has all been used\. It comes back on November 1\. Reading is unaffected, and credits bought in the Gradstep app work right away\./);
+  await expect(issue).toHaveText(/This month’s free AI has all been used\. It comes back on November 1\. Reading is unaffected\. Credits can’t be bought on the web yet\. If you have an iPhone, iPad or Mac, credits added in the Gradstep app work here right away\./);
   await expect(page.getByTestId('chat-user')).toContainText('What does β control?');
   await issue.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-chat-free-used.png` });

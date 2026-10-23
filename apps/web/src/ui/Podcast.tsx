@@ -14,6 +14,7 @@ import { asOf } from '../lib/retry';
 import './Podcast.css';
 import { useMedia } from './prefs';
 import { PodcastRequests, PodcastTrackingError } from '../lib/podcast-requests';
+import { WHERE_TO_BUY } from '../lib/account-summary';
 
 // Auth refresh preserves generation; sign-out, account change and same-account re-login retire every operation.
 function useAccountOwner(account: string) {
@@ -607,7 +608,7 @@ function generationMessage(error: unknown) {
     ? 'This tab is keeping track of too many episode requests. Check Listen before asking for another.'
     : 'This tab couldn’t keep track of the request, so nothing was sent. Check that browser storage is available, then try again.';
   const code = error instanceof BackendError ? error.code : '';
-  if (code === 'insufficient_credits') return 'You don’t have enough credits for this length. Add credits in Gradstep on iPhone, iPad or Mac, or choose a shorter one.';
+  if (code === 'insufficient_credits') return `You don’t have enough credits for this length. Choose a shorter one, or add credits. ${WHERE_TO_BUY}`;
   if (code === 'quote_expired' || code === 'quote_unavailable') return 'That took too long to confirm. Try again.';
   if (code === 'podcast_unavailable' || code === 'podcast_paused') return 'Episodes can’t be made right now. You can keep reading.';
   if (code === 'source_unavailable') return 'Open this paper first so it’s ready on this device, then try again.';

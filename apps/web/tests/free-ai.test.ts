@@ -26,7 +26,7 @@ describe('the balance’s free AI', () => {
     expect([planLabel('standard', 1), planLabel('standard', 12), planLabel('pro', 12), planLabel(null), planLabel(undefined)])
       .toEqual(['Plus', 'Plus (yearly)', 'Pro (yearly)', 'Free', '—']);
     expect([parsePeriod({ plan: 'pro', period_months: 12 }), parsePeriod({ plan: 'pro' }), parsePeriod({ plan: 'pro', period_months: 6 })]).toEqual([12, null, null]);
-    expect(PLAN_INFO).toBe('Reading papers is always free. AI uses credits. Free: 50 credits a month (about 15 answers) with the fast models, while this month’s free AI lasts. Plus: 600 credits a month (about 200 answers), every model. Pro: 2,000 credits a month (about 650 answers), every model. Credit packs: 300 or 700 credits that never expire. Plan credits renew each month and don’t carry over. Plans and packs are bought in the Gradstep app on iPhone, iPad or Mac.');
+    expect(PLAN_INFO).toBe('Reading papers is always free. AI uses credits. Free: 50 credits a month (about 15 answers) with the fast models, while this month’s free AI lasts. Plus: 600 credits a month (about 200 answers), every model. Pro: 2,000 credits a month (about 650 answers), every model. Credit packs: 300 or 700 credits that never expire. Plan credits renew each month and don’t carry over. Plans and packs are bought in the Gradstep app on iPhone, iPad or Mac; they can’t be bought on the web yet.');
   });
 
   it('labels the Free AI row', () => {
@@ -41,12 +41,12 @@ describe('the balance’s free AI', () => {
   });
 
   it('says why free AI can’t pay, in the apps’ words', () => {
-    expect(freeAIMessage('pool', NOV)).toBe('This month’s free AI has all been used. It comes back on November 1. Reading is unaffected, and credits bought in the Gradstep app work right away.');
+    expect(freeAIMessage('pool', NOV)).toBe('This month’s free AI has all been used. It comes back on November 1. Reading is unaffected. Credits can’t be bought on the web yet. If you have an iPhone, iPad or Mac, credits added in the Gradstep app work here right away.');
     for (const reason of ['used', 'account'] as const)
-      expect(freeAIMessage(reason, NOV)).toBe('You’ve used this month’s free AI. It comes back on November 1. Reading is unaffected, and credits bought in the Gradstep app work right away.');
-    expect(freeAIMessage('daily', '2026-10-23T00:00:00Z')).toBe('You’ve used today’s free AI. More tomorrow, or credits bought in the Gradstep app work right away.');
-    expect(freeAIMessage('paused', null)).toBe('Free AI is paused for now. Reading is unaffected, and credits bought in the Gradstep app work right away.');
-    expect(freeAIMessage(null, null, true)).toBe('Free AI covers the fast models (Gemini Flash, DeepSeek and Haiku). Choose one in AI options, or add credits in the Gradstep app for Sonnet and Opus.');
+      expect(freeAIMessage(reason, NOV)).toBe('You’ve used this month’s free AI. It comes back on November 1. Reading is unaffected. Credits can’t be bought on the web yet. If you have an iPhone, iPad or Mac, credits added in the Gradstep app work here right away.');
+    expect(freeAIMessage('daily', '2026-10-23T00:00:00Z')).toBe('You’ve used today’s free AI. More tomorrow. Credits can’t be bought on the web yet. If you have an iPhone, iPad or Mac, credits added in the Gradstep app work here right away.');
+    expect(freeAIMessage('paused', null)).toBe('Free AI is paused for now. Reading is unaffected. Credits can’t be bought on the web yet. If you have an iPhone, iPad or Mac, credits added in the Gradstep app work here right away.');
+    expect(freeAIMessage(null, null, true)).toBe('Free AI covers the fast models (Gemini Flash, DeepSeek and Haiku); choose one in AI options. Sonnet and Opus need credits. Credits can’t be bought on the web yet. If you have an iPhone, iPad or Mac, credits added in the Gradstep app work here right away.');
     expect(freeAIMessage(null, null)).toBeNull();
   });
 

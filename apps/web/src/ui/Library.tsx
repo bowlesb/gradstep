@@ -28,6 +28,7 @@ import { RecommendChoices, type Recommender } from './Recommend';
 import { useLibraryColumns } from './prefs';
 import type { useLibrary } from './useLibrary';
 import { LibraryRows, type LibraryRowsCommands, type LibraryViewport, WINDOW_THRESHOLD } from './LibraryRows';
+import { WHERE_TO_BUY } from '../lib/account-summary';
 
 export type Library = ReturnType<typeof useLibrary>;
 type SortKey = 'title' | 'authors' | 'year' | 'tags' | 'added' | 'opened' | 'progress';
@@ -451,7 +452,7 @@ function RowAction({ row, busy, retry, remove, run }: { row: Row; busy: boolean;
   if (entry.kind !== 'import' || !row.action || busy) return null;
   if (row.action === 'retry') return <button className="pill" onClick={e => { e.stopPropagation(); run(entry.id, retry(entry as Import)); }}>Retry</button>;
   if (row.action === 'remove') return <button className="pill" onClick={e => { e.stopPropagation(); run(entry.id, remove(entry as Import)); }}>Remove</button>;
-  return <span className="pill passive" title="Credits can be added in Gradstep on iPhone, iPad or Mac">Get credits in the app</span>;
+  return <span className="pill passive" title={WHERE_TO_BUY}>Needs credits</span>;
 }
 
 const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure, menuOpen, onMenu, onDevice, isNew, activeTag, chats = 0 }: {
