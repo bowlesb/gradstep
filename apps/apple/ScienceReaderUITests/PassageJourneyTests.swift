@@ -54,7 +54,8 @@ final class PassageJourneyTests: XCTestCase {
 
         // 1. Select → Explain: a chat titled by the action and the passage.
         word().press(forDuration: 1)
-        let explain = app.editMenuItem("Explain in Chat")
+        // The edit menu pages its items: "Explain in Chat" can be past its arrow.
+        let explain = app.revealEditMenuItem("Explain in Chat")
         XCTAssertTrue(explain.waitForExistence(timeout: 5)); explain.tap()
         let title = app.buttons["chat.context"]
         let answer = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).element(boundBy: 1)
