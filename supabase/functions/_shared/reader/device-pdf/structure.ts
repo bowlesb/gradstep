@@ -34,6 +34,37 @@ export function furniture(pages: readonly { glyphs: Glyph[]; height: number }[])
   return out;
 }
 
+const VENUE_NOTICE = /proceedings of the|conference on|annual meeting of the|©\s*\d{4}|copyright\s*(©\s*)?\d{4}|computer vision foundation|open access version|identical to the accepted version|ieee xplore|journal of machine learning research|submitted \d|license: cc|attribution requirements|\bpmlr \d|neural information processing systems|published as a conference paper|association for computational linguistics|transactions on machine learning research/i;
+
+/** The venue's notice on a first page (the proceedings line and copyright at the foot, the open-access watermark at the
+ * head): in the top 12 % or bottom 18 % of the page, a block of stacked lines set smaller than the page's text, from its
+ * first line naming the venue (VENUE_NOTICE) to its end. The PDF prints it; the paper's text (and its arXiv HTML) does
+ * not hold it. */
+export function venueNotice(glyphs: readonly Glyph[], height: number): Glyph[] {
+  const shown = glyphs.filter(visible);
+  const sizes = shown.map(g => g.size).sort((a, b) => a - b), body = sizes[Math.floor(sizes.length / 2)] ?? 10;
+  const band = linesOf(shown).filter(ln => {
+    const y = (Math.min(...ln.map(g => g.top)) + Math.max(...ln.map(g => g.bottom))) / 2;
+    return y < 0.12 * height || y > 0.82 * height;
+  }).map(ln => ({ ln, top: Math.min(...ln.map(g => g.top)), bottom: Math.max(...ln.map(g => g.bottom)), x0: Math.min(...ln.map(g => g.x0)), x1: Math.max(...ln.map(g => g.x1)) }))
+    .sort((a, b) => a.top - b.top || a.x0 - b.x0);
+  // Blocks: lines stacked at line spacing, overlapping in x.
+  const blocks: (typeof band)[] = [];
+  for (const line of band) {
+    const block = blocks.find(b => { const last = b[b.length - 1]; const h = last.bottom - last.top;
+      return line.top - last.bottom <= 0.8 * Math.max(1, h) && line.top >= last.top && Math.min(line.x1, last.x1) - Math.max(line.x0, last.x0) > 0; });
+    if (block) block.push(line); else blocks.push([line]);
+  }
+  const out: Glyph[] = [];
+  for (const block of blocks) {
+    const first = block.findIndex(l => VENUE_NOTICE.test(lineText(l.ln, [])[0]));
+    if (first < 0) continue;
+    const tail = block.slice(first).flatMap(l => l.ln), size = tail.map(g => g.size).sort((a, b) => a - b)[Math.floor(tail.length / 2)];
+    if (size <= 0.95 * body) out.push(...tail);
+  }
+  return out;
+}
+
 const FRONT_MATTER = /\b(edited by|reviewed by|correspondence|received|accepted|published|citation|copyright|open access|keywords|doi|article type|original research|specialty section|this article was submitted|approved by|competing interests?|academic editor|data availability)\b/gi;
 
 /** A first-page region that is the journal's front-matter strip: three or more distinct markers in its text. */

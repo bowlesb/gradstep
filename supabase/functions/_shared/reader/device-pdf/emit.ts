@@ -79,7 +79,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   for (const id of reading.committed) {
     const f = formulas.get(id)!;
     if (f.rendered) continue;
-    const pad = 2.0, b = f.box;
+    const pad = 2.0, b = f.imageBox ?? f.box;
     const rect: [number, number, number, number] = [Math.trunc(Math.max(0, b[0] - pad) * CROP_SCALE), Math.trunc(Math.max(0, b[1] - pad) * CROP_SCALE),
       Math.trunc((b[2] + pad) * CROP_SCALE + 0.999), Math.trunc((b[3] + pad) * CROP_SCALE + 0.999)];
     if (rect[2] <= rect[0] || rect[3] <= rect[1]) continue;
@@ -108,7 +108,11 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     const names = ['reader-equation', f.display ? 'reader-display' : 'reader-inline'];
     let children: Child[];
     const placed = formulaImages.get(f.id);
-    if (f.rendered && f.mathml) children = [f.mathml as OutNode];
+    if (f.rendered && f.mathml) {
+      children = [f.mathml as OutNode];
+      // A display's number (equationNumbers), beside it as the arXiv reader shows one.
+      if (f.display && f.tag) { names.push('reader-tagged'); children.push(el('span', { class: 'reader-tag' }, [f.tag])); }
+    }
     else if (placed) {
       names.push('reader-math-image');
       // Sized and aligned from where the image sits on the page (points = pixels / CROP_SCALE): at the paper's own size
@@ -193,8 +197,10 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
       case 'figure': {
         const image = figureImages.get(lb) ?? null;
         const caption = cleanText(lb.caption);
+        // A caption with its math (captionMath) is marked text; its formulas belong to the figure's block.
+        const captionContent = (owner: () => string): Child[] => lb.captionMarked !== undefined ? content(lb.captionMarked, owner) : caption ? [caption] : [];
         if (!image) {
-          if (caption) { const p = withBlock('p', 'paragraph', () => [caption], { class: 'reader-caption' }); if (p) top.push(p); }
+          if (caption) { const p = withBlock('p', 'paragraph', o => captionContent(o), { class: 'reader-caption' }); if (p) top.push(p); }
           break;
         }
         const traceID = reading.traceFigureBlocks.get(lb);
@@ -203,16 +209,22 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
         const alt = excerpt(normalizeSpace(caption ? caption.split('. ')[0] : lb.table ? 'Table' : 'Figure'), 2000) || 'Figure';
         const id = `b-${prefix}-${issued + 1}`;
         const children: Child[] = [el('img', { src: image.path, width: String(image.width), height: String(image.height), alt })];
-        if (caption) children.push(el('figcaption', {}, [caption]));
+        const mark = equations.length;
+        const captionChildren = caption ? captionContent(() => id) : [];
+        const figcaption = captionChildren.length && hasText(captionChildren) ? el('figcaption', {}, captionChildren) : null;
+        if (!figcaption) equations.length = mark;
+        if (figcaption) children.push(figcaption);
         const node = block('figure', 'figure', children, { 'data-reader-figure': id });
-        figures.push({ id, block_id: id, asset_paths: [image.path], caption: caption ? excerpt(normalizeSpace(caption), LIMITS.textBytes) : '', alt });
+        figures.push({ id, block_id: id, asset_paths: [image.path], caption: figcaption ? excerpt(normalizeSpace(outText(figcaption)), LIMITS.textBytes) : '', alt });
         top.push(node); break;
       }
       case 'cells': {
         const node = withBlock('div', 'table', o => {
-          const rows = lb.rows.map(row => el('tr', {}, row.map(cell => el('td', cell.span > 1 ? { colspan: String(Math.min(cell.span, 999)) } : {}, content(cell.marked, o)))));
+          // The caption first: equations are indexed in document order.
           const caption = cleanText(lb.caption);
-          return [...(caption ? [el('p', { class: 'reader-caption' }, [caption])] : []), el('table', {}, [el('tbody', {}, rows)])];
+          const captionChildren = !caption ? [] : lb.captionMarked !== undefined ? content(lb.captionMarked, o) : [caption];
+          const rows = lb.rows.map(row => el('tr', {}, row.map(cell => el('td', cell.span > 1 ? { colspan: String(Math.min(cell.span, 999)) } : {}, content(cell.marked, o)))));
+          return [...(captionChildren.length ? [el('p', { class: 'reader-caption' }, captionChildren)] : []), el('table', {}, [el('tbody', {}, rows)])];
         }, { class: 'reader-table' });
         if (node) top.push(node); break;
       }

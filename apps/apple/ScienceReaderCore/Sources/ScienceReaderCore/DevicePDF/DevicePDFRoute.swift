@@ -22,7 +22,8 @@ public final class DevicePDFRoute {
         public var record = false
         /// Converter rules beyond the port kit, by their input names (device-pdf/types.ts): `transcribe` (simple inline
         /// formulas from the text layer), `frontMatter` (the title page's title and author lines found by the library's
-        /// metadata), `tidy` (confident recognitions Temml refuses, tidied).
+        /// metadata), `tidy` (confident recognitions Temml refuses, tidied), …; `name=number` sets a numeric option
+        /// (`displayGate=0.9`). The converter ignores names it does not know.
         public var rules: Set<String> = []
         /// The library's authors (the `frontMatter` rule finds the author lines by them).
         public var authors: [String] = []
@@ -33,6 +34,8 @@ public final class DevicePDFRoute {
         public var background = true
         /// Pages whose layout and text are read ahead at once (0: on demand, as the converter asks).
         public var prefetchPages = 2
+        /// A page whose text layer is missing or unreadable is read by on-device text recognition instead (DevicePDFOCR).
+        public var ocrFallback = true
         /// Threads the inline tagger's lines are spread over. 1: concurrent predictions of the flexible-shape tagger gave
         /// different logits under load even on separate instances (2026-10-21), so the default keeps one.
         public var taggerThreads = 1
@@ -99,7 +102,7 @@ public final class DevicePDFRoute {
         }
         // An encrypted document is read by this thread only (the read-ahead opens its own copies of an unlocked PDF).
         let prefetch = options.prefetchPages > 0 && !document.isEncrypted
-            ? DevicePDFPagePrefetch(data: data, count: pageCount, workers: options.prefetchPages, models: models, timings: timings) : nil
+            ? DevicePDFPagePrefetch(data: data, count: pageCount, workers: options.prefetchPages, models: models, timings: timings, ocr: options.ocrFallback) : nil
         let recogniser = options.background && models.recogniserIssue == nil
             ? DevicePDFBackgroundRecogniser(models: models, workers: options.recogniserConcurrency, timings: timings) { done, total in progress(.formulas(done: done, of: total)) }
             : nil
@@ -144,8 +147,9 @@ public final class DevicePDFRoute {
             do { detected = try timed("layout") { try self.models.detect(page: image) } }
             catch { context.exception = JSValue(newErrorFromMessage: "layout: \(error)", in: context); return NSNull() }
             options.observeDetections?(index, detected.detections, detected.scale)
-            let glyphs = timed("text") { DevicePDFTextLayer.glyphs(page: page) }
+            var glyphs = timed("text") { DevicePDFTextLayer.glyphs(page: page) }
             let size = DevicePDFTextLayer.pageSize(page: page)
+            if options.ocrFallback, DevicePDFOCR.unreadable(glyphs) { glyphs = timed("ocr") { DevicePDFOCR.glyphs(layer: glyphs, image: image, size: size) } }
             return pageObject(width: size.width, height: size.height, imageWidth: rgb.width, imageHeight: rgb.height, scale: detected.scale,
                               glyphs: glyphs, detections: detected.detections)
         }
@@ -285,7 +289,7 @@ public final class DevicePDFRoute {
             "pdf": ["sha256": digest, "bytes": data.count, "name": name], "pages": pageCount,
             "models": models.provenance, "tagger": models.taggerVocabulary, "trace": options.trace, "record": options.record,
         ]
-        for rule in options.rules where ["transcribe", "frontMatter", "tidy", "fontMath", "extendSpans", "lineOwners", "headingDupes", "splitReferences"].contains(rule) { input[rule] = true }
+        for (name, value) in Self.converterRules(options.rules) { input[name] = value }
         if !options.authors.isEmpty { input["authors"] = Array(options.authors.prefix(200)) }
         if let title = options.title { input["title"] = title }
         if let sourceID = options.sourceID, let revision = options.revision { input["paper"] = ["source_id": sourceID, "revision": revision] }
@@ -333,5 +337,20 @@ public final class DevicePDFRoute {
         }
         let summary = (value.objectForKeyedSubscript("summary")?.toDictionary()).flatMap { try? JSONSerialization.data(withJSONObject: $0) } ?? Data("{}".utf8)
         return Output(manifest: manifest, manifestSHA256: sha, members: members, summary: summary, trace: trace)
+    }
+}
+
+@available(iOS 18.0, macOS 15.0, *)
+extension DevicePDFRoute {
+    /// The converter's input options for `Options.rules`: a bare name is `true`, `name=number` a number; anything else is
+    /// dropped (names are ASCII letters; the converter ignores those it does not know).
+    public static func converterRules(_ rules: Set<String>) -> [(String, Any)] {
+        rules.sorted().compactMap { rule -> (String, Any)? in
+            let parts = rule.split(separator: "=", maxSplits: 1).map(String.init)
+            guard let name = parts.first, !name.isEmpty, name.count <= 40, name.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+            if parts.count == 1 { return (name, true) }
+            guard let number = Double(parts[1]), number.isFinite else { return nil }
+            return (name, number)
+        }
     }
 }

@@ -14,18 +14,31 @@ export function centreIn(g: Glyph, box: readonly number[]): boolean {
   return box[0] <= cx && cx <= box[2] && box[1] <= cy && cy <= box[3];
 }
 
+let lineBands = false;
+/** The converter's `lineBands` rule for the lines read after this call (one conversion at a time, as `read` runs). */
+export function useLineBands(on: boolean): void { lineBands = on; }
+
 /** Lines in stream order: a glyph joins the current line when its vertical extent overlaps the line's band;
- * a new line starts without overlap, or when x jumps back by more than two glyph sizes below the band. */
+ * a new line starts without overlap, or when x jumps back by more than two glyph sizes below the band. With
+ * `lineBands` a glyph joins when its centre lies within the band widened by a third of its height either way, and only
+ * a glyph two thirds inside the band widens it (a script's or a lowered delimiter's box that reaches the next line no
+ * longer joins the lines: in JMLR's venue PDFs, and some arXiv ones, two lines were read as one, letters interleaved). */
 export function linesOf(glyphs: readonly Glyph[]): Glyph[][] {
   const lines: Glyph[][] = [];
   let cur: Glyph[] = [], top = 0, bottom = 0;
   for (const g of glyphs) {
     if (cur.length) {
-      const overlap = Math.min(g.bottom, bottom) - Math.max(g.top, top) > 0;
+      const shared = Math.min(g.bottom, bottom) - Math.max(g.top, top), band = bottom - top, centre = (g.top + g.bottom) / 2;
+      const overlap = lineBands ? centre >= top - 0.35 * band && centre <= bottom + 0.35 * band : shared > 0;
       const back = g.x0 < cur[cur.length - 1].x0 - 2.0 * Math.max(g.size, 1.0);
       if (!overlap || (back && g.top > bottom - 1.0)) { lines.push(cur); cur = []; }
     }
-    if (!cur.length) { top = g.top; bottom = g.bottom; } else { top = Math.min(top, g.top); bottom = Math.max(bottom, g.bottom); }
+    // With lineBands only a glyph mostly inside the band (two thirds of the shorter) widens it: a script, an accent, a
+    // lowered delimiter or a box reaching the next line joins the line without making it two lines tall.
+    if (!cur.length) { top = g.top; bottom = g.bottom; }
+    else if (!lineBands || Math.min(g.bottom, bottom) - Math.max(g.top, top) >= (2 / 3) * Math.min(g.bottom - g.top, bottom - top)) {
+      top = Math.min(top, g.top); bottom = Math.max(bottom, g.bottom);
+    }
     cur.push(g);
   }
   if (cur.length) lines.push(cur);
@@ -38,8 +51,36 @@ export function argsort<T>(items: readonly T[], key: (item: T) => number): numbe
 }
 export const byX = (gl: readonly Glyph[]): Glyph[] => argsort(gl, g => g.x0).map(i => gl[i]);
 
-/** Words by gaps (a gap over a fifth of the glyph size), each formula span one placeholder. `spans` index `line`
- * as given; returns the text and each span's glyphs in x order (empty spans dropped). */
+let wordGap = 0.2, lineGaps = false;
+/** The word gap (em) for the lines read after this call (one conversion at a time, as `read` runs): 0.2, or with the
+ * converter's `wordGaps` rule a document set tight (letters' boxes overlapping: justified with negative tracking, as
+ * PLOS sets its text) takes it from its own letter spacing, 0.12 em over the median gap between letters, at least 0.08. */
+export function useWordGaps(typicalGap: number | null): void {
+  wordGap = typicalGap !== null && typicalGap <= -0.01 ? Math.max(0.08, typicalGap + 0.12) : 0.2;
+  lineGaps = typicalGap !== null;
+}
+const MATH_FONT = /CMMI|CMSY|CMEX|CMBSY|MSBM|MSAM|Math|Symbol|^t?x(mi|sy|ex)|ntxmi|ntxsy|rsfs|EUFM|EUSM|bbold|dsrom/i;
+const prose = (g: Glyph) => /^[\p{L}\p{N}.,;:!?)\]’”'"-]$/u.test(g.text) && !MATH_FONT.test(g.font.replace(/^[A-Z]{6}\+/, ''));
+/** Between two letters of a text font, a line's word gap from its own letter spacing (0.12 em over its median gap,
+ * at least 0.08, at most the document's): justified lines shrink their spaces below a fifth of an em. */
+function proseWordGap(line: readonly Glyph[], order: readonly number[]): number {
+  if (order.length < 12) return wordGap;
+  const gaps = order.slice(1).map((g, i) => (line[g].x0 - line[order[i]].x1) / Math.max(line[g].size, 1.0)).sort((a, b) => a - b);
+  return Math.min(wordGap, Math.max(0.08, gaps[Math.floor(gaps.length / 2)] + 0.12));
+}
+/** The median gap between neighbouring glyphs of the pages' lines, in em (the document's letter spacing). */
+export function typicalGap(pages: readonly { glyphs: readonly Glyph[] }[]): number {
+  const gaps: number[] = [];
+  for (const page of pages) for (const line of linesOf(page.glyphs.filter(visible))) {
+    const order = argsort(line, g => g.x0);
+    for (let i = 1; i < order.length && gaps.length < 200_000; i++) gaps.push((line[order[i]].x0 - line[order[i - 1]].x1) / Math.max(line[order[i]].size, 1.0));
+  }
+  gaps.sort((a, b) => a - b);
+  return gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+}
+
+/** Words by gaps (a gap over a fifth of the glyph size, or the document's own word gap: useWordGaps), each formula span
+ * one placeholder. `spans` index `line` as given; returns the text and each span's glyphs in x order (empty spans dropped). */
 export function lineText(line: readonly Glyph[], spans: readonly [number, number][]): [string, Glyph[][]] {
   const inSpan = new Map<number, number>();
   spans.forEach(([s, e], k) => { for (let i = s; i < e; i++) inSpan.set(i, k); });
@@ -47,9 +88,11 @@ export function lineText(line: readonly Glyph[], spans: readonly [number, number
   const formulas: Glyph[][] = spans.map(() => []);
   let lastSpan = -1;
   const order = argsort(line, g => g.x0);
+  const proseEm = lineGaps ? proseWordGap(line, order) : wordGap;
   order.forEach((g, i) => {
     const gl = line[g];
-    if (i && gl.x0 - line[order[i - 1]].x1 > 0.2 * Math.max(gl.size, 1.0)) parts.push(' ');
+    const em = i && proseEm < wordGap && /^[\p{L}\p{N}(“‘]$/u.test(gl.text) && prose(gl) && prose(line[order[i - 1]]) ? proseEm : wordGap;
+    if (i && gl.x0 - line[order[i - 1]].x1 > em * Math.max(gl.size, 1.0)) parts.push(' ');
     const k = inSpan.get(g);
     if (k === undefined) { parts.push(gl.text); lastSpan = -1; }
     else {
@@ -58,6 +101,33 @@ export function lineText(line: readonly Glyph[], spans: readonly [number, number
     }
   });
   return [pyStrip(parts.join('').replace(/\s+/g, ' ')), formulas.filter(f => f.length)];
+}
+
+const ACCENTS: Record<string, string> = { '¨': '\u0308', '´': '\u0301', '`': '\u0300', 'ˆ': '\u0302', '˜': '\u0303', '¸': '\u0327', '˘': '\u0306',
+  'ˇ': '\u030C', '¯': '\u0304', '˙': '\u0307', '˚': '\u030A', '˝': '\u030B' };
+/** TeX's text accents as one character (accents rule): a spacing accent glyph set over (a cedilla under) a letter of a text
+ * font next to it in the stream, in the letter's own font, becomes that letter's combining mark ("Na¨ıve" → "Naïve",
+ * "G¨odel" → "Gödel"); the accent glyph is emptied. Math accents (another font's letter) are left to the formula. In place. */
+export function composeAccents(glyphs: Glyph[]): void {
+  for (let i = 0; i < glyphs.length; i++) {
+    const a = glyphs[i], mark = ACCENTS[a.text];
+    if (!mark || MATH_FONT.test(a.font.replace(/^[A-Z]{6}\+/, ''))) continue;
+    let best = -1, overlap = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(glyphs.length - 1, i + 2); j++) {
+      const g = glyphs[j];
+      // TeX sets a text accent from the letter's own font (\"o); a math accent from the roman font over another (\hat{\mathbf{Z}}).
+      if (j === i || !/^\p{L}$/u.test(g.text) || g.font !== a.font) continue;
+      // Text-layer boxes span the font's height whatever the glyph (an accent's box is its letter's), so only a box set
+      // lower than the letter's rules a pairing out; horizontally they must overlap.
+      const o = Math.min(a.x1, g.x1) - Math.max(a.x0, g.x0), h = g.bottom - g.top;
+      const placed = a.text === '¸' || a.top <= g.top + 0.25 * h;
+      if (placed && o > 0.3 * Math.min(a.x1 - a.x0, g.x1 - g.x0) && o > overlap) { best = j; overlap = o; }
+    }
+    if (best < 0) continue;
+    const g = glyphs[best], base = g.text === 'ı' ? 'i' : g.text === 'ȷ' ? 'j' : g.text;
+    glyphs[best] = { ...g, text: (base + mark).normalize('NFC') };
+    glyphs[i] = { ...a, text: '' };
+  }
 }
 
 /** Python's `str.islower()` on the first character. */

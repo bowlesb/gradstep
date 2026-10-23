@@ -121,4 +121,11 @@ final class DevicePDFHostTests: XCTestCase {
         XCTAssertEqual([turned.width, turned.height], [100, 200], "a quarter turn swaps the page's size")
         XCTAssertEqual(try darkCorner(turned), "top-left", "/Rotate 90 turns the page clockwise: its bottom-left comes to the top-left")
     }
+
+    func testConverterRulesAreNamesOrNumericOptions() {
+        let rules = DevicePDFRoute.converterRules(["tidy", "displayGate=0.9", "bad name", "x=y", "captionMath", "=1"])
+        XCTAssertEqual(rules.map(\.0), ["captionMath", "displayGate", "tidy"])
+        XCTAssertEqual(rules.first { $0.0 == "displayGate" }?.1 as? Double, 0.9)
+        XCTAssertEqual(rules.first { $0.0 == "tidy" }?.1 as? Bool, true)
+    }
 }

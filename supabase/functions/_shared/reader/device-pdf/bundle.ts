@@ -9,7 +9,7 @@ import { gate, read, settle, type Reading } from './convert.ts';
 import { emit } from './emit.ts';
 import { pyRound } from './geometry.ts';
 import { DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_PORT_REVISION, DEVICE_PDF_PROVENANCE_FORMAT, DEVICE_PDF_RENDERER_ID,
-  DEVICE_PDF_SOURCE_KIND, GATE, GATE_DISPLAY, type DevicePDFHost, type DevicePDFInput } from './types.ts';
+  DEVICE_PDF_SOURCE_KIND, GATE, type DevicePDFHost, type DevicePDFInput } from './types.ts';
 
 export const TEMML_VERSION = '0.11.11';
 export const DEVICE_PDF_CSS = READER_CSS
@@ -119,7 +119,7 @@ function assemble(input: DevicePDFInput, host: DevicePDFHost, reading: Reading, 
     format: DEVICE_PDF_PROVENANCE_FORMAT,
     source: { kind: DEVICE_PDF_SOURCE_KIND, pdf_sha256: input.pdf.sha256, pdf_bytes: input.pdf.bytes, pages: input.pages, ...(paper ? { paper } : {}) },
     models,
-    gate: { inline: { statistic: 'min token probability', threshold: GATE }, display: { statistic: 'second-lowest token probability', threshold: GATE_DISPLAY } },
+    gate: { inline: { statistic: 'min token probability', threshold: GATE }, display: { statistic: 'second-lowest token probability', threshold: reading.displayGate } },
     adapter: { id: DEVICE_PDF_RENDERER_ID, converter: DEVICE_PDF_CONVERTER_VERSION, revision: DEVICE_PDF_PORT_REVISION, build_sha256: DEVICE_PDF_BUILD_SHA256 },
     // The time it took is not part of the bundle: one PDF read twice by one converter is the same bundle.
     summary: { ...summary, warnings: undefined, seconds: undefined },

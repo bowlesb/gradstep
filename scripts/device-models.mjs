@@ -13,6 +13,9 @@
 //   (texteller-ft-v4) exported by scripts/device-pdf-models/export_texteller.py as one multifunction package with a
 //   batch of 8: `prefill` (pixels into the shared state) and `step`; int8 weights per channel; 20/20 and 80/80 token
 //   agreement with the port kit's export. Built on the desktop in /home/ben/science-reader-device-pdf/exports.
+// - texteller-ft-v4-mf8-int8-l512 (2026-10-23, docs/reviews/DEVICE_PDF_ROUTE_20261023.md): the same export with a
+//   512-token decoder cache (`--max-len 512`; 20/20 on the samples): recognitions the 256-token cache cut off are read
+//   whole, every other one is the same token for token; decoder step +13 % on the Mac's GPU. In the app since then.
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -29,7 +32,7 @@ const LOCK = join(ROOT, 'apps/apple/device-models.lock.json');
 const SOURCES = {
   layout: { dir: 'layout-fcos-v5-coreml', package: 'layout.mlpackage', compiled: 'DeviceLayout.mlmodelc' },
   tagger: { dir: 'inline-tagger-v4-coreml', package: 'tagger.mlpackage', compiled: 'DeviceTagger.mlmodelc' },
-  recogniser: { dir: 'texteller-ft-v4-mf8-int8', package: 'recogniser.mlpackage', compiled: 'DeviceRecogniser.mlmodelc' },
+  recogniser: { dir: 'texteller-ft-v4-mf8-int8-l512', package: 'recogniser.mlpackage', compiled: 'DeviceRecogniser.mlmodelc' },
 };
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 const files = dir => readdirSync(dir, { recursive: true }).map(f => join(dir, String(f))).filter(f => statSync(f).isFile()).sort();
@@ -44,7 +47,7 @@ for (const [role, s] of Object.entries(SOURCES)) {
 }
 const lock = existsSync(LOCK) ? JSON.parse(readFileSync(LOCK, 'utf8')) : null;
 if (process.argv.includes('--update-lock') || !lock) {
-  writeFileSync(LOCK, JSON.stringify({ note: 'Package digests of the device route models (scripts/device-models.mjs). Layout and tagger: converter 0.1.0 port kit, 2026-10-14; recogniser: texteller-ft-v4 as one batched multifunction package, 2026-10-21.',
+  writeFileSync(LOCK, JSON.stringify({ note: 'Package digests of the device route models (scripts/device-models.mjs). Layout and tagger: converter 0.1.0 port kit, 2026-10-14; recogniser: texteller-ft-v4 as one batched multifunction package with a 512-token cache, 2026-10-23.',
     models: Object.fromEntries(Object.entries(SOURCES).map(([role, s]) => [role, { export: s.dir, package: s.package, sha256: digests[role] }])) }, null, 1) + '\n');
   console.log(`lock written: ${LOCK}`);
 } else {
@@ -73,8 +76,8 @@ const config = {
   tagger: { model: model('tagger', 'inline-tagger-v4'), vocabulary: 'tagger-vocab.json' },
   // TexTeller's preprocessing constants (`texteller.py`: IMAGE_MEAN, IMAGE_STD). The encoder and decoder are the
   // package's two functions; the app loads each by name and passes one state between them.
-  recogniser: { encoder: model('recogniser', 'texteller-ft-v4-mf8-int8', { function: 'prefill' }),
-    decoder: model('recogniser', 'texteller-ft-v4-mf8-int8', { function: 'step' }), bos: recogniser.bos,
+  recogniser: { encoder: model('recogniser', SOURCES.recogniser.dir, { function: 'prefill' }),
+    decoder: model('recogniser', SOURCES.recogniser.dir, { function: 'step' }), bos: recogniser.bos,
     eos: recogniser.eos, max_len: recogniser.max_len, image_size: recogniser.image_size, mean: 0.9545467, std: 0.15394445,
     vocabulary: 'recogniser-vocab.json', added_tokens: 'recogniser-added-tokens.json' },
 };

@@ -79,7 +79,15 @@ enum DeviceModelEngine {
     /// fonts (`fontMath`); LaTeXML-style rows tidied for Temml (`tidy`); the title page by the library's metadata
     /// (`frontMatter`); no heading twice (`headingDupes`); reference entries split (`splitReferences`); a line's run read
     /// by one region (`lineOwners`). Off, because they measured worse: `extendSpans`.
-    static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners"]
+    /// On (2026-10-23, also measured on publishers' PDFs: docs/reviews/DEVICE_PDF_ROUTE_20261023.md): captions keep their
+    /// math (`captionMath`); a display's number left out of its crop and shown as its tag (`equationNumbers`); overlapping
+    /// display boxes read as one (`mergeDisplays`); a bibliography without a heading (`bibliography`); the venue's
+    /// first-page notice dropped (`venueNotice`); a display's full stop kept (`displayPunctuation`); unknown fonts read as
+    /// the ones they stand for (`fontAliases`); justified lines' narrow word gaps (`wordGaps`); TeX's text accents
+    /// (`accents`); lines that do not merge through a script's box (`lineBands`). The display gate stays at 0.95.
+    static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners",
+                                     "captionMath", "equationNumbers", "mergeDisplays", "bibliography", "venueNotice", "displayPunctuation",
+                                     "fontAliases", "wordGaps", "accents", "lineBands"]
     /// The models and the converter are in this build and the system can run the stateful recogniser.
     static var available: Bool {
         guard #available(iOS 18.0, *) else { return false }

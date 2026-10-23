@@ -8,6 +8,11 @@
 //   node scripts/device-route-accuracy.mjs run   --variant <name> [--corpus <dir>] [--only id,…] [--tool <binary>] [--skip-done] [-- <tool flags>]
 //   node scripts/device-route-accuracy.mjs score --variant <name> [--corpus <dir>] [--only id,…] [--json out.json]
 //
+// --pdf <file> (run): the PDF in each paper's directory to read (default paper.pdf; the venue corpus also keeps the
+// arXiv revision's own PDF as arxiv.pdf, the control). A venue paper's key is not an arXiv id: its meta.json names the
+// arXiv revision whose HTML is the truth (`arxiv_id`, `revision`) and its `template` (acl, cvf, pmlr, …); scores are
+// then also given per template.
+//
 // The corpus holds <key>/paper.pdf, <key>/source.html and <key>/meta.json; runs land in
 // .artifacts/device-route/accuracy/<variant>/<key>/ (bundle members, conversion.json with the stage timings).
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -102,7 +107,7 @@ function runRoute() {
     if (own.includes('--skip-done') && existsSync(join(out, 'wall.json'))) continue;
     const meta = JSON.parse(readFileSync(join(CORPUS, key, 'meta.json'), 'utf8'));
     const started = Date.now();
-    const run = spawnSync(tool, [join(CORPUS, key, 'paper.pdf'), out, '--models', models, '--compiler', compiler, '--title', meta.title ?? key, ...passthrough.map(a => a.replaceAll('{out}', out).replaceAll('{authors}', (meta.authors ?? []).join(';')))],
+    const run = spawnSync(tool, [join(CORPUS, key, arg('--pdf', 'paper.pdf')), out, '--models', models, '--compiler', compiler, '--title', meta.title ?? key, ...passthrough.map(a => a.replaceAll('{out}', out).replaceAll('{authors}', (meta.authors ?? []).join(';')))],
       { encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, ...(process.env.DEVICE_ROUTE_ENV ? JSON.parse(process.env.DEVICE_ROUTE_ENV) : {}) } });
     const seconds = (Date.now() - started) / 1000;
     writeFileSync(out + '.log', (run.stdout ?? '') + (run.stderr ?? ''));
@@ -210,14 +215,20 @@ export function readBundle(html, { device = false } = {}) {
   const visitBlock = (node) => {
     const tokens = [];
     const visit = n => {
-      if (n.type === 'text') { for (const w of n.data.toLowerCase().match(WORD) ?? []) tokens.push({ w }); return; }
+      if (n.type === 'text') { for (const w of n.data.normalize("NFC").toLowerCase().match(WORD) ?? []) tokens.push({ w }); return; }
       if (n.type !== 'tag') return;
       if (n.attribs['data-reader-equation'] !== undefined) {
         const cls = (n.attribs.class ?? '').split(/\s+/);
         const display = cls.includes('reader-display') || (!cls.includes('reader-inline') && n.parent?.attribs?.['data-reader-kind'] === 'equation');
         const math = n.children.find(c => c.type === 'tag' && c.name === 'math');
         const shown = math ? 'typeset' : cls.includes('reader-math-image') ? 'image' : 'text';
-        tokens.push({ f: true, id: n.attribs.id, display, latex: n.attribs['data-latex'] ?? '', shown, leaves: math ? leafText(math) : null });
+        // The truth's glyphs from its LaTeX through Temml, as the device's are (LaTeXML's own MathML rewrites some symbols:
+        // an argument list's ";" becomes ","), else from its MathML.
+        const latex = n.attribs['data-latex'] ?? '';
+        // (An author's macro Temml does not know comes out as its own name, "\\dist": then the MathML.)
+        const viaTemml = !device && temml && latex ? texLeaves(latex, display) : '';
+        const leaves = viaTemml && !viaTemml.includes('\\') ? viaTemml : math ? leafText(math) : null;
+        tokens.push({ f: true, id: n.attribs.id, display, latex, shown, leaves });
         return;
       }
       if (n.name === 'img' || (n.attribs.class ?? '').includes('reader-tag')) return;
@@ -300,10 +311,19 @@ export function compare(truthBlocks, deviceBlocks) {
     if (best && best.covered >= 0.5) matches.push(best);
   });
   const substantial = tbw.filter((ws, ti) => ws.length >= 6 && truthBlocks[ti].kind !== 'figure').length;
+  // Text within shared content: the words of the truth's blocks that were found and of the device blocks that hold
+  // them, in order. A venue PDF and the arXiv revision can differ by whole sections (a checklist, a supplement, a new
+  // version); this measure leaves those out and keeps what the reading did to the text both have.
+  const tKept = [...new Set(matches.map(m => m.ti))].sort((a, b) => a - b), dKept = [...new Set(matches.map(m => m.di))].sort((a, b) => a - b);
+  const tShared = tKept.flatMap(i => tbw[i]), dShared = dKept.flatMap(i => dbw[i]);
+  text.shared_f1 = round(2 * (lcsPairs(tShared, dShared)?.length ?? 0) / Math.max(1, tShared.length + dShared.length));
+  // Order leaves the bibliography's entries out: LaTeXML may regenerate a bibliography in its own (alphabetical) order
+  // where the PDF prints citation order (REVTeX, 2610.25953v1), so their order in the truth is not the paper's.
+  const ordered = matches.filter(m => truthBlocks[m.ti].kind !== 'list');
   let concordant = 0, pairsN = 0, adjacentOK = 0;
-  for (let i = 0; i < matches.length; i++) {
-    if (i + 1 < matches.length) adjacentOK += matches[i + 1].di >= matches[i].di ? 1 : 0;
-    for (let j = i + 1; j < matches.length; j++) { pairsN++; if (matches[j].di >= matches[i].di) concordant++; }
+  for (let i = 0; i < ordered.length; i++) {
+    if (i + 1 < ordered.length) adjacentOK += ordered[i + 1].di >= ordered[i].di ? 1 : 0;
+    for (let j = i + 1; j < ordered.length; j++) { pairsN++; if (ordered[j].di >= ordered[i].di) concordant++; }
   }
   const order = { truth_blocks: substantial, found: matches.length, block_recall: round(matches.length / Math.max(1, substantial)),
     whole_blocks: round(matches.filter(m => m.ratio >= 0.8).length / Math.max(1, substantial)),
@@ -311,7 +331,7 @@ export function compare(truthBlocks, deviceBlocks) {
     merged: matches.filter(m => m.ratio < 0.8 && m.covered >= 0.8).length, split: matches.filter(m => m.covered < 0.8).length,
     by_kind: matches.reduce((acc, m) => { const k = truthBlocks[m.ti].kind, c = m.ratio >= 0.8 ? 'whole' : m.covered >= 0.8 ? 'merged' : 'split';
       acc[k] ??= { whole: 0, merged: 0, split: 0 }; acc[k][c]++; return acc; }, {}),
-    adjacent_in_order: round(adjacentOK / Math.max(1, matches.length - 1)), pairs_in_order: round(concordant / Math.max(1, pairsN)) };
+    adjacent_in_order: round(adjacentOK / Math.max(1, ordered.length - 1)), pairs_in_order: round(concordant / Math.max(1, pairsN)) };
   // Headings (the desktop's comparison: letters only; run-in paragraph titles and the HTML reader's h5/h6 theorem and proof
   // labels left out of the truth).
   // A \paragraph{…} title is set run-in in the PDF ("Baselines. We compare …") and the HTML reader makes it a heading:
@@ -367,7 +387,7 @@ export function compare(truthBlocks, deviceBlocks) {
     e.glyphs_equal += glyphs ? 1 : 0;
     e.cer_sum += Math.min(1, editDistance(aLeaves, bLeaves) / Math.max(1, aLeaves.length));
     if (b.shown === 'typeset') { e.typeset_aligned = (e.typeset_aligned ?? 0) + 1; e.typeset_glyphs_equal += glyphs ? 1 : 0; }
-    if (!glyphs) misses.push({ display: a.display, shown: b.shown, truth: a.latex.slice(0, 160), device: b.latex.slice(0, 160), truth_glyphs: aLeaves.slice(0, 80), device_glyphs: bLeaves.slice(0, 80) });
+    if (!glyphs) misses.push({ display: a.display, shown: b.shown, truth: a.latex.slice(0, 160), device: b.latex.slice(0, 160), truth_glyphs: aLeaves.slice(0, 400), device_glyphs: bLeaves.slice(0, 400) });
     if (b.id) pairRecords.push([b.id, a.display ? 1 : 0, glyphs ? 1 : 0, b.shown]);
   }
   for (const e of Object.values(eq)) {
@@ -398,7 +418,7 @@ async function score() {
     const dir = join(OUT, key);
     if (!existsSync(join(dir, 'index.html'))) continue;
     const meta = JSON.parse(readFileSync(join(CORPUS, key, 'meta.json'), 'utf8'));
-    const [, sid, rev] = /^(.+?)v(\d+)$/.exec(key);
+    const [, sid, rev] = meta.arxiv_id ? [null, meta.arxiv_id, meta.revision] : /^(.+?)v(\d+)$/.exec(key);
     let truth;
     try { truth = convertArxivHTML(readFileSync(join(CORPUS, key, 'source.html'), 'utf8'), arxivHTMLURL(sid, Number(rev)), stub, { title: meta.title, authors: meta.authors }); }
     catch (e) { console.log(`${key}: the HTML reader refuses this paper (${e.message}); not scored`); continue; }
@@ -406,29 +426,34 @@ async function score() {
     const summary = JSON.parse(readFileSync(join(dir, 'conversion.json'), 'utf8'));
     const wall = existsSync(join(dir, 'wall.json')) ? JSON.parse(readFileSync(join(dir, 'wall.json'), 'utf8')).seconds : null;
     const preview = existsSync(dir + '.preview.json') ? JSON.parse(readFileSync(dir + '.preview.json', 'utf8')).seconds : null;
-    rows.push({ key, pages: summary.pages, wall, preview, host: summary.host_seconds, load: summary.model_load_seconds, ...result });
+    rows.push({ key, template: meta.template ?? null, pages: summary.pages, wall, preview, host: summary.host_seconds, load: summary.model_load_seconds, ...result });
   }
-  const sum = (f) => rows.reduce((n, r) => n + f(r), 0);
-  const mean = f => round(sum(f) / Math.max(1, rows.length));
-  const total = {};
-  for (const kind of ['inline', 'display']) {
-    const g = k => sum(r => r.equations[kind][k] ?? 0);
-    total[kind] = { truth: g('truth'), device: g('device'), aligned: g('aligned'), recall: round(g('aligned') / Math.max(1, g('truth'))),
-      latex_equal: round(g('latex_equal') / Math.max(1, g('aligned'))), glyph_accuracy: round(g('glyphs_equal') / Math.max(1, g('aligned'))),
-      typeset_share: round(g('typeset') / Math.max(1, g('device'))), typeset_precision: round(g('typeset_glyphs_equal') / Math.max(1, g('typeset_aligned'))),
-      images: g('image'), text: g('text') };
-  }
-  const pages = sum(r => r.pages);
-  const stage = k => round(sum(r => r.host?.[k] ?? 0));
-  const aggregate = { variant: VARIANT, papers: rows.length, pages,
-    seconds: { total: stage('total'), per_page: round(stage('total') / Math.max(1, pages)), render: stage('render'), layout: stage('layout'), text: stage('text'),
-      tag: stage('tag'), equations: stage('equations'), images: stage('images'), converter: stage('converter') },
-    text_f1: mean(r => r.text.f1), text_recall: mean(r => r.text.recall), text_precision: mean(r => r.text.precision), bag_recall: mean(r => r.text.bag_recall),
-    block_recall: mean(r => r.order.block_recall), whole_blocks: mean(r => r.order.whole_blocks), adjacent_in_order: mean(r => r.order.adjacent_in_order),
-    pairs_in_order: mean(r => r.order.pairs_in_order), headings_recall: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.truth))),
-    headings_precision: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.device))),
-    equations: total, tables: { truth: sum(r => r.tables.truth), cells: sum(r => r.tables.device_cells), images: sum(r => r.tables.device_images), word_f1: mean(r => r.tables.word_f1) },
-    figures: { truth: sum(r => r.figures.truth), device: sum(r => r.figures.device) } };
+  const aggregateOf = rows => {
+    const sum = (f) => rows.reduce((n, r) => n + f(r), 0);
+    const mean = f => round(sum(f) / Math.max(1, rows.length));
+    const total = {};
+    for (const kind of ['inline', 'display']) {
+      const g = k => sum(r => r.equations[kind][k] ?? 0);
+      total[kind] = { truth: g('truth'), device: g('device'), aligned: g('aligned'), recall: round(g('aligned') / Math.max(1, g('truth'))),
+        latex_equal: round(g('latex_equal') / Math.max(1, g('aligned'))), glyph_accuracy: round(g('glyphs_equal') / Math.max(1, g('aligned'))),
+        typeset_share: round(g('typeset') / Math.max(1, g('device'))), typeset_precision: round(g('typeset_glyphs_equal') / Math.max(1, g('typeset_aligned'))),
+        images: g('image'), text: g('text') };
+    }
+    const pages = sum(r => r.pages);
+    const stage = k => round(sum(r => r.host?.[k] ?? 0));
+    return { variant: VARIANT, papers: rows.length, pages,
+      seconds: { total: stage('total'), per_page: round(stage('total') / Math.max(1, pages)), render: stage('render'), layout: stage('layout'), text: stage('text'),
+        tag: stage('tag'), equations: stage('equations'), images: stage('images'), converter: stage('converter') },
+      text_f1: mean(r => r.text.f1), shared_f1: mean(r => r.text.shared_f1 ?? 0), text_recall: mean(r => r.text.recall), text_precision: mean(r => r.text.precision), bag_recall: mean(r => r.text.bag_recall),
+      block_recall: mean(r => r.order.block_recall), whole_blocks: mean(r => r.order.whole_blocks), adjacent_in_order: mean(r => r.order.adjacent_in_order),
+      pairs_in_order: mean(r => r.order.pairs_in_order), headings_recall: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.truth))),
+      headings_precision: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.device))),
+      equations: total, tables: { truth: sum(r => r.tables.truth), cells: sum(r => r.tables.device_cells), images: sum(r => r.tables.device_images), word_f1: mean(r => r.tables.word_f1) },
+      figures: { truth: sum(r => r.figures.truth), device: sum(r => r.figures.device) } };
+  };
+  const aggregate = aggregateOf(rows);
+  const templates = [...new Set(rows.map(r => r.template).filter(Boolean))].sort();
+  if (templates.length) aggregate.by_template = Object.fromEntries(templates.map(t => [t, aggregateOf(rows.filter(r => r.template === t))]));
   const fmt = v => v === undefined || v === null ? '' : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(3)) : String(v);
   console.log(['paper', 'pages', 's', 's/page', 'text F1', 'bag rec', 'blocks', 'order', 'heads', 'inl rec', 'inl glyph', 'inl typeset', 'inl prec', 'disp rec', 'disp glyph', 'disp typeset', 'disp prec', 'tables', 'figs'].join('\t'));
   for (const r of rows) {

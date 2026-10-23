@@ -17,7 +17,8 @@ first-class path (owner direction, 2026-10-13), the PDF never leaves the device,
 | Host bridge | JavaScriptCore `JSContext` in-process | Runs `device-pdf-reader.js` (esbuild IIFE, global `GradstepDevicePDF`); the host functions below are synchronous Swift closures | The CLI run on the fixtures |
 | CLI (macOS) | `ScienceReaderCore` executable `DevicePDFRoute` | `DevicePDFRoute <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js> [--trace]` writes the bundle and, with `--trace`, the Python-shaped `index.json` the desktop's `bundle_conformance.py` reads | Fixture conformance, timings per stage |
 | App | `ScienceReader` | Settings › Experimental; "Read with the on-device model" on a paper whose PDF is on the device; progress by stage; the result opens in the same reader with a banner (model-read, report a problem, back to the HTML version) | Simulator journey with a fixture PDF |
-| Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`) | The script's digest check; the app hides the experiment when they are absent |
+| Text recognition (Swift, since 2026-10-23) | `DevicePDFOCR.swift` | A page whose text layer is empty (a scan) or unreadable (codes without a Unicode mapping, letters that are no words) gets its glyphs from Vision's on-device text recogniser on the 150 dpi render (each word's characters spread over its box, font `GradstepOCR`); `Options.ocrFallback` (on), the tool's `--no-ocr` | `DevicePDFOCRTests`; scanned copies of arXiv papers scored against their HTML |
+| Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`); since 2026-10-23 with a 512-token cache | The script's digest check; the app hides the experiment when they are absent |
 | Evaluation (Mac) | `scripts/device-route-accuracy.mjs`, `scripts/device-route-replay.mjs` | Fresh arXiv papers (PDF + the exact revision's HTML) scored against the app's own arXiv HTML reading; `--record` runs replayed through the converter in Node to try rule changes in seconds | [Review 2026-10-21](../reviews/DEVICE_PDF_ROUTE_20261021.md) |
 
 ## The contract between the host and the converter
@@ -100,7 +101,7 @@ its confidence, whether it rendered, and its source page and box (docs/EQUATION_
 
 - **Text layer.** The reference reads pdfplumber's characters (boxes from the font's ascent and descent at the
   baseline). PDFKit's character bounds and font names differ in places; conformance measures the effect.
-- **Recogniser length.** The Core ML decoder step has a 256-token cache; the reference decodes up to 1,024 tokens.
+- **Recogniser length.** The Core ML decoder step has a 512-token cache (256 until 2026-10-23); the reference decodes up to 1,024 tokens.
 - **Image resampling.** Core Graphics and vImage instead of PIL and torchvision's antialiased bicubic.
 - **Compute units.** The stateful decoder does not load on the Neural Engine (macOS 26, coremltools 9): the
   recogniser runs on CPU and GPU, the layout on the Neural Engine, the tagger on the CPU. (2026-10-21: a batch-8 int8
@@ -193,3 +194,39 @@ arXiv HTML reading); the tool's `--record` writes the host's answers and `node s
 in this tool as on the phone). Fixture conformance (`scripts/device-route-eval.mjs`) is unchanged with the rules off.
 
 **Browser.** No change: the browser has no on-device model; a PDF added there is viewed as the PDF.
+
+## Non-arXiv layouts — port revisions 6–9, 2026-10-22/23
+
+Owner, 2026-10-22: "if it works it will be a big unlock for non arXiv papers." Measured on a new corpus of 31 venue PDFs
+(ACL, CVF, PMLR, NeurIPS, JMLR, ICLR, SciPost/TACL/Quantum) whose arXiv HTML is the truth, with each paper's arXiv PDF as
+a control, besides the two arXiv corpora: [review 2026-10-23](../reviews/DEVICE_PDF_ROUTE_20261023.md).
+
+Ten more converter rules, on in the app, each kept only when it did not lose on any of the three corpora (the harness's
+`--also` replays measure each one's own contribution with the others on):
+
+| Rule | What it does | Main effect (test / dev / venue) |
+|---|---|---|
+| `equationNumbers` | A display's number ("(12)", "(A.3)") set apart, or flush with the box's right edge, is left out of the recogniser's crop and shown as the equation's tag (`reader-tagged`); the image, when the formula is shown as one, keeps it | with `mergeDisplays`: display glyph-right 0.801 → 0.879 / 0.770 → 0.892 / 0.526 → 0.609 |
+| `mergeDisplays` | Overlapping display boxes (a group and a row of it) read as one display | (with the above) |
+| `lineBands` | A glyph joins a text line by its centre (within the line's band widened by a third of its height) and only widens the band when two thirds inside it, so a script's or a lowered delimiter's box no longer merges two lines | text F1 0.862 → 0.890 / 0.879 → 0.896 / 0.818 → 0.844 |
+| `fontAliases` | A font missing from the tagger's vocabulary is read as the one it stands for (Latin Modern sizes, MathDesign, mathabx, MnSymbol, URW Symbol, PLOS's renamed Computer Modern; PLOS's misnamed ( ) =) | venue inline found 0.767 → 0.796, typeset precision 0.807 → 0.884 |
+| `captionMath` | Captions keep their math as marked text (formulas owned by the figure's block) | inline found +0.018 / +0.028 / +0.010 |
+| `wordGaps` | Word gaps from the line's own letter spacing between text-font letters (justified lines), and the document's when it is set with negative tracking (PLOS) | text F1 +0.005 / +0.003 / +0.006 |
+| `bibliography` | A bibliography without a heading read as references (two numbered entries in a reference box); nested boxes of a numbered list merged; an entry continued across regions; it ends at the first non-entry | whole blocks 0.778 → 0.810 / 0.779 → 0.814 / 0.784 → 0.787 |
+| `displayPunctuation` | The full stop or comma just outside a display's box joins its LaTeX | display glyph-right +0.005 / +0.002 / +0.011 |
+| `accents` | TeX's text accents compose with their letter of the same font ("Naïve") | text F1 +0.001 |
+| `venueNotice` | The first page's proceedings line, copyright and open-access watermark (small type, top or bottom band) dropped | venue text F1 +0.001 |
+| `displayGate=<n>` (option, not set) | The display gate's threshold | 0.9 loses typeset precision on all three corpora; stays 0.95 |
+
+All on: arXiv test text F1 0.857 → 0.890, display glyph-right 0.801 → 0.879 (typeset precision 0.924 → 0.971), inline
+found 0.777 → 0.839; venue text F1 0.795 → 0.844 and shared-content F1 0.872 → 0.899 (the same papers' arXiv PDFs read at
+0.898 before). The rules change the reading only; the host's protocol is unchanged (the host now forwards any rule name,
+and `name=number` options, to the converter).
+
+**The recogniser** (same weights, longer cache): six in ten field display misses were crops and boxes the model never saw
+in training (equation numbers inside, rows cut apart), which the converter now mostly fixes. The app's recogniser is now
+`texteller-ft-v4-mf8-int8-l512`: the batched multifunction export with a 512-token decoder cache (`export_texteller.py
+--max-len 512`), so recognitions the 256-token cache cut off are read whole; every other recognition is unchanged.
+Display glyph-right +0.013 / +0.010 / +0.013, nothing else changes; decoder step 14.1 → 16.0 ms per batch of eight on
+the Mac's GPU, a batch's state about 0.41 → 0.51 GB. The review has the plan for the display boxes and a recogniser
+trained on crops cut the way the app cuts them.

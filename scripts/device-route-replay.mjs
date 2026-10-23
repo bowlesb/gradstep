@@ -5,6 +5,8 @@
 // blank pixels of the asked size; a tagger line or crop the record lacks counts as a miss (printed).
 //
 //   node scripts/device-route-replay.mjs --from <variant with record.json> --to <new variant> [--only id,…] [--set transcribe=true …]
+//     [--also <variant>,…]  more recorded runs of the same papers whose tagger lines and crops are added to the record's
+//                            (a rule that changes crops, replayed with and without it from two real runs)
 //   then: node scripts/device-route-accuracy.mjs score --variant <new variant>
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
@@ -35,6 +37,12 @@ let n = 0;
 for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record.json'))).sort()) {
   if (only.length && !only.includes(key)) continue;
   const record = JSON.parse(readFileSync(join(FROM, key, 'record.json'), 'utf8'));
+  for (const other of (arg('--also', '') ?? '').split(',').filter(Boolean)) {
+    const path = join(ROOT, '.artifacts/device-route/accuracy', other, key, 'record.json');
+    if (!existsSync(path)) continue;
+    const more = JSON.parse(readFileSync(path, 'utf8'));
+    record.tags = [...more.tags, ...record.tags]; record.recognitions = [...more.recognitions, ...record.recognitions]; // the record's own win
+  }
   let distinct = 0;
   const host = replayHost(record, r => {
     const w = Math.max(1, r.rect[2] - r.rect[0]), h = Math.max(1, r.rect[3] - r.rect[1]);
