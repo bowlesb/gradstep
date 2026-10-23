@@ -276,7 +276,7 @@ test('AI chat options sets who writes new episodes; Listen preselects it and ask
   await page.screenshot({ path: `../../.artifacts/web-podcast-workspace/${info.project.name}-podcast-default-dark.png` });
   await page.emulateMedia({ colorScheme: 'light' });
   await settings.getByTestId('activity-guide').press('Escape');
-  await settings.getByRole('button', { name: 'Done', exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   // Make an episode starts with that writer and asks for it.
   await page.getByTestId('back-to-library').click(); await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
   await page.getByTestId('podcast-paper-listen').click();
@@ -307,7 +307,7 @@ test('ask, leave for Listen, come back to the tab: the episode is waiting, marke
   await page.getByTestId('podcast-confirm').click();
   await expect(page.getByTestId('podcast-leave')).toHaveText('You can leave this page. It’ll be in Listen when it’s ready.');
   await page.screenshot({ path: `../../.artifacts/podcast-simple/after/web-${info.project.name}-making.png` });
-  await page.getByTestId('podcast-done').click();
+  await page.getByTestId('podcast-close').click();
   await page.getByRole('link', { name: 'Feed', exact: true }).click(); await page.getByTestId('podcast-listen').filter({ visible: true }).click();
   const own = page.getByTestId('podcast-own');
   await expect(own.getByTestId('podcast-request')).toHaveAttribute('data-status', 'making');
@@ -332,7 +332,7 @@ test('a request that couldn’t be made says so plainly in Listen, and Try again
   const f = await fixture(page); await signIn(page);
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
   await page.getByTestId('podcast-paper-listen').click(); await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
-  await page.getByTestId('podcast-confirm').click(); await page.getByTestId('podcast-done').click();
+  await page.getByTestId('podcast-confirm').click(); await page.getByTestId('podcast-close').click();
   f.mine = 'failed';
   await page.getByRole('link', { name: 'Feed', exact: true }).click(); await page.getByTestId('podcast-listen').filter({ visible: true }).click();
   const own = page.getByTestId('podcast-own');

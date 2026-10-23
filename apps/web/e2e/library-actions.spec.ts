@@ -222,7 +222,7 @@ test('a real tag dialog keeps its row alive while optional windowing scrolls awa
   await expect(page.getByTestId('paper-row')).toHaveCount(399);
   await page.getByRole('button', { name: 'Columns', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Show rows as you scroll', exact: true }).check();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Library columns' }).getByRole('button', { name: 'Close', exact: true }).click();
   await expect.poll(() => page.getByTestId('paper-row').count()).toBeLessThan(80);
   const trigger = page.getByTestId('paper-row').getByRole('button', { name: /^Actions for/ }).first();
   const key = await trigger.evaluate(button => button.closest('tr')!.dataset.rowKey);

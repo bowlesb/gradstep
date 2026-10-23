@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BackendError, createSupportReport, getSupportThread, listSupportReports, reportImage, replyToSupportReport, setSupportReportStatus, uploadSupportImage, type SupportReportWire, type SupportThreadWire } from '../lib/backend';
 import { captureBrowserScreen, captureErrorMessage, disposeScreenshot, prepareScreenshot, type ScreenshotAttachment } from '../lib/support';
-import { formatDate, Dialog } from './common';
+import { formatDate, Dialog, SheetTop } from './common';
 import { faultSummary } from '../lib/faults';
 import { ScreenshotEditor } from './ScreenshotEditor';
 
@@ -128,22 +128,24 @@ export function ReportsDialog({ open, onClose, account }: { open: boolean; onClo
     return () => { live = false; };
   }, [selected, account]);
   const openReport = (id: string) => { setSelected(id); setThread(null); };
+  const back = () => { setSelected(null); setThread(null); };
   return <Dialog open={open} onClose={onClose} title="My reports" wide>
-    {selected && thread ? <ReportThread thread={thread} account={account} onBack={() => { setSelected(null); setThread(null); }} onRefresh={() => { void getSupportThread(selected, account).then(setThread).catch(reason => setError(issueMessage(reason))); }} />
+    <SheetTop onClose={onClose} testID="reports-close">{selected && thread
+      ? <><button className="link" onClick={back}>‹ My reports</button><span className="fine">{thread.report.status.replaceAll('_', ' ')}</span></>
+      : <><h2>My reports</h2><button className="link" onClick={() => void reload()} disabled={loading}>Refresh</button></>}</SheetTop>
+    {selected && thread ? <ReportThread thread={thread} account={account} onRefresh={() => { void getSupportThread(selected, account).then(setThread).catch(reason => setError(issueMessage(reason))); }} />
       : <>
-        <div className="dialog-heading"><h2>My reports</h2><button className="link" onClick={() => void reload()} disabled={loading}>Refresh</button></div>
         {loading && <p className="muted">Loading reports…</p>}
         {!loading && !reports.length && !error && <p className="muted">Your submitted reports and replies will appear here.</p>}
         <div className="support-report-list">{reports.map(report => <button className="support-report-row" key={report.id} onClick={() => openReport(report.id)}>
           <span><strong>{report.title}</strong><small>{report.status.replaceAll('_', ' ')} · {formatDate(Date.parse(report.created_at))}</small></span><span aria-hidden="true">›</span>
         </button>)}</div>
         {error && <p className="issue" role="alert">{error}</p>}
-        <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
       </>}
   </Dialog>;
 }
 
-function ReportThread({ thread, account, onBack, onRefresh }: { thread: SupportThreadWire; account: string; onBack: () => void; onRefresh: () => void }) {
+function ReportThread({ thread, account, onRefresh }: { thread: SupportThreadWire; account: string; onRefresh: () => void }) {
   const [reply, setReply] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [images, setImages] = useState<Record<string, string>>({});
   useEffect(() => {
     // data: URLs: the page's image policy admits 'self' and data: only (vite.config.ts), never blob:.
@@ -163,7 +165,6 @@ function ReportThread({ thread, account, onBack, onRefresh }: { thread: SupportT
     setBusy(true); setError(null); try { await setSupportReportStatus(crypto.randomUUID(), thread.report.id, status, account); onRefresh(); } catch (reason) { setError(issueMessage(reason)); } finally { setBusy(false); }
   };
   return <>
-    <div className="dialog-heading"><button className="link" onClick={onBack}>‹ My reports</button><span className="fine">{thread.report.status.replaceAll('_', ' ')}</span></div>
     <h2 className="support-thread-title">{thread.report.title}</h2><p className="support-thread-note">{thread.report.note}</p>
     {thread.attachments.length > 0 && <section className="support-thread-images"><strong>Shared screenshots</strong>{thread.attachments.map(attachment => images[attachment.id] ? <img key={attachment.id} src={images[attachment.id]} alt="Screenshot shared with support" /> : <span className="fine" key={attachment.id}>Screenshot unavailable</span>)}</section>}
     <section className="support-messages"><strong>Replies</strong>{thread.messages.length ? thread.messages.map(message => <div className={message.is_operator ? 'support-message operator' : 'support-message'} key={message.id}><small>{message.is_operator ? 'Support' : 'You'} · {formatDate(Date.parse(message.created_at))}</small><p>{message.body}</p></div>) : <p className="fine">No reply yet.</p>}</section>

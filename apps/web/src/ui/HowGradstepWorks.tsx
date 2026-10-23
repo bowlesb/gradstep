@@ -1,6 +1,6 @@
 import { config } from '../lib/backend';
 export const WEB_VERSION = '0.1.0';
-import { Dialog } from './common';
+import { Dialog, SheetTop } from './common';
 
 /** The apps' About and Acknowledgements (RootView): what this page is, and the work it is built on. */
 const ACKNOWLEDGEMENTS: [string, string, string][] = [
@@ -14,8 +14,8 @@ const ACKNOWLEDGEMENTS: [string, string, string][] = [
 /** The short, user-facing explanation of data paths, models and spending controls. Keep this separate from legal copy. */
 export function HowGradstepWorks({ open, onClose }: { open: boolean; onClose: () => void }) {
   return <Dialog open={open} onClose={onClose} title="How Gradstep works" className="info-dialog-shell">
+    <SheetTop onClose={onClose} testID="how-gradstep-works-close"><h2>How Gradstep works</h2></SheetTop>
     <div className="info-dialog" data-testid="how-gradstep-works-dialog">
-      <div className="dialog-heading"><h2>How Gradstep works</h2><button className="link" onClick={onClose}>Close</button></div>
       <section className="info-section"><h3>The short version</h3>
         <p>Gradstep keeps your research useful across devices while sending only the material needed for the action you ask for. Local paper storage, encrypted sync and AI processing are separate paths.</p>
       </section>
@@ -53,7 +53,6 @@ export function HowGradstepWorks({ open, onClose }: { open: boolean; onClose: ()
       <section className="info-section" data-testid="acknowledgements"><h3>Acknowledgements</h3>
         <ul className="acknowledgements">{ACKNOWLEDGEMENTS.map(([name, use, license]) => <li key={name}><strong>{name}</strong> — {use} <span className="fine">{license}</span></li>)}</ul>
       </section>
-      <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
     </div>
   </Dialog>;
 }

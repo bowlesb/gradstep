@@ -101,7 +101,7 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   await dialog.getByRole('checkbox', { name: 'Authors', exact: true }).uncheck();
   await dialog.getByRole('checkbox', { name: 'Tags', exact: true }).uncheck();
   for (const name of ['Venue', 'Source', 'Pages']) await dialog.getByRole('checkbox', { name, exact: true }).uncheck();
-  await dialog.getByRole('button', { name: 'Done' }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await page.reload();
   await expect(table.getByRole('columnheader')).toHaveCount(7);
   await expect(table.locator('.col-authors, .col-tags')).toHaveCount(0);
@@ -149,7 +149,7 @@ test('unavailable preference storage keeps column choices usable for this view',
   await page.getByRole('button', { name: 'Columns', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Library columns' });
   for (const name of COLUMNS) await dialog.getByRole('checkbox', { name, exact: true }).check();
-  await dialog.getByRole('button', { name: 'Done' }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('library-table').getByRole('columnheader')).toHaveCount(12);
   await hasNoPageOverflow(page);
 });

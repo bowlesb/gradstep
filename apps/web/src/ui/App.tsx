@@ -26,7 +26,7 @@ import type { ChatSession, Explanation, AIActivity } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
-import { Brand, Dialog, InfoTip } from './common';
+import { Brand, Dialog, InfoTip, SheetTop } from './common';
 import { DiagramsDialog } from './DiagramsDialog';
 import { ExplanationsDialog } from './ExplanationsDialog';
 import { AssetsExportDialog } from './AssetsExportDialog';
@@ -930,12 +930,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       {reportOpen && <Suspense fallback={null}><ReportDialog open onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} /></Suspense>}
       {reportsOpen && <Suspense fallback={null}><ReportsDialog open onClose={() => setReportsOpen(false)} account={account} /></Suspense>}
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
-        <h2>Keyboard shortcuts</h2>
+        <SheetTop onClose={() => setHelp(false)} testID="shortcuts-close"><h2>Keyboard shortcuts</h2></SheetTop>
         <dl className="shortcuts">
           {SHORTCUTS.map(([k, d]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{d}</dd></div>)}
         </dl>
         <p className="fine">On Windows and Linux, use Ctrl for ⌘.</p>
-        <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
       {howGradstepWorks && <Suspense fallback={null}><HowGradstepWorks open onClose={() => setHowGradstepWorks(false)} /></Suspense>}
       {privacy && <Suspense fallback={null}><PrivacyData open onClose={() => setPrivacy(false)} /></Suspense>}

@@ -3,7 +3,7 @@ import { authorLine, firstAuthorLine } from '../lib/authors';
 import { createPortal } from 'react-dom';
 import { type DiscoveryResult, type FeedFeedback, type FeedSort, published, resultTopics } from '../lib/feed';
 import { defaultFeedColumns, FEED_COLUMNS, FEED_COLUMNS_KEY, type FeedColumn, parseFeedColumns } from '../lib/feed-columns';
-import { Dialog } from './common';
+import { Dialog, SheetTop } from './common';
 import { Icon } from './icons';
 import { writeStored } from './prefs';
 
@@ -139,12 +139,13 @@ export function FeedTable({ results, columns: settings, sort, setSort, actions, 
     {key ? <button className="sort" onClick={() => setSort(key, key === sort.key ? !sort.ascending : undefined)}>{label}{sort.key === key ? sort.ascending ? ' ↑' : ' ↓' : ''}</button> : label}</th>;
   return <>
     <Dialog open={settings.choosing} onClose={() => settings.setChoosing(false)} title="Feed columns">
-      <h2>Feed columns</h2><p className="fine">Title stays pinned as you scroll. Add always stays available.</p>
+      <SheetTop onClose={() => settings.setChoosing(false)} testID="feed-columns-close"><h2>Feed columns</h2></SheetTop><p className="fine">Title stays pinned as you scroll. Add always stays available.</p>
       <div className="column-choices"><label className="check"><input type="checkbox" checked disabled />Title<span className="fine">Always shown</span></label>
         {FEED_COLUMNS.map(column => <label className="check feed-column-choice" key={column.key}><input type="checkbox" checked={columns.includes(column.key)}
           onChange={e => setColumns(e.target.checked ? FEED_COLUMNS.filter(c => c.key === column.key || columns.includes(c.key)).map(c => c.key) : columns.filter(c => c !== column.key))} />
           <span>{column.label}<small>{column.detail}</small></span></label>)}
-      </div><div className="row-actions column-actions"><button className="secondary" onClick={settings.reset}>Reset</button><button className="primary" onClick={() => settings.setChoosing(false)}>Done</button></div>
+        <button className="link column-reset" onClick={settings.reset}>Reset</button>
+      </div>
     </Dialog>
     {(edges.left || edges.right) && toolsSlot && createPortal(<div className="column-scroll-controls" role="group" aria-label="Scroll feed columns">
       <button className="icon-button" disabled={!edges.left} aria-label="Scroll feed columns left" onClick={() => { if (scroller.current) scroller.current.scrollLeft -= 240; }}><Icon name="chevronLeft" size={16} /></button>

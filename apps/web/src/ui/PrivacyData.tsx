@@ -1,15 +1,15 @@
 // Account menu › Privacy & data, the browser's copy of the apps' page (owner, builds 57–58: "We need more in here about
 // terms of service and how we use arXiv articles and how we abide by arXiv's terms"; docs/architecture/ARXIV_DEVICE_ONLY.md).
 // Worded as on iPhone, iPad and Mac, except that a PDF here opens from arXiv in a new tab instead of being kept.
-import { Dialog } from './common';
+import { Dialog, SheetTop } from './common';
 import { ARXIV_ACKNOWLEDGEMENT } from './HowGradstepWorks';
 
 export const ARXIV_TERMS = 'https://info.arxiv.org/help/api/tou.html';
 
 export function PrivacyData({ open, onClose }: { open: boolean; onClose: () => void }) {
   return <Dialog open={open} onClose={onClose} title="Privacy & data" className="info-dialog-shell">
+    <SheetTop onClose={onClose} testID="privacy-close"><h2>Privacy &amp; data</h2></SheetTop>
     <div className="info-dialog" data-testid="privacy-dialog">
-      <h2>Privacy &amp; data</h2>
       <section className="info-section"><h3>Your notes and conversations</h3>
         <p>Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.</p>
       </section>
@@ -28,7 +28,6 @@ export function PrivacyData({ open, onClose }: { open: boolean; onClose: () => v
       <section className="info-section"><h3>Reports</h3>
         <p>A report you send, with its screenshot and notes, goes to Gradstep’s support so we can fix the problem, and is kept until you delete your account.</p>
       </section>
-      <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
     </div>
   </Dialog>;
 }

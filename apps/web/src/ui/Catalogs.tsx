@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { type Library, commandError } from './Library';
 import { BackendError } from '../lib/backend';
-import { Dialog } from './common';
+import { Dialog, SheetTop } from './common';
 import type { Catalog } from '../lib/library-catalogs';
 import { catalogCSVRows, csvFileName, libraryCSV } from '../lib/library-csv';
 
@@ -36,8 +36,9 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
     else await catalogs.retire(deleting.id, mode === 'existing' ? target : undefined, mode === 'new' ? name : undefined);
   });
   const others = catalogs?.state.catalogs.filter(c => c.id !== deleting?.id) ?? [];
-  return <Dialog open={open} onClose={() => { if (!busy) { reset(); onClose(); } }} title="Catalogs">
-    <h2>{deleting ? 'Delete catalog' : editing === 'new' ? 'New catalog' : editing ? 'Rename catalog' : 'Catalogs'}</h2>
+  const close = () => { if (!busy) { reset(); onClose(); } };
+  return <Dialog open={open} onClose={close} title="Catalogs">
+    <SheetTop onClose={close} closeDisabled={busy} testID="catalogs-close"><h2>{deleting ? 'Delete catalog' : editing === 'new' ? 'New catalog' : editing ? 'Rename catalog' : 'Catalogs'}</h2></SheetTop>
     {!catalogs?.ready && <p>Unlock your library to manage catalogs.</p>}
     {issue && <p role="alert" className="issue">{issue}</p>}
     <fieldset disabled={busy || !catalogs?.ready} className="catalog-fields">
@@ -71,7 +72,7 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
           </div>
         </li>)}</ul>
         <p className="fine">Your default opens when you start the app. New papers go into the catalog you’re viewing.</p>
-        <div className="row-actions"><button className="secondary" onClick={() => { reset(); onClose(); }}>Close</button><button className="primary" onClick={() => { setEditing('new'); setName(''); }}>New catalog</button></div>
+        <div className="row-actions"><button className="secondary" onClick={() => { setEditing('new'); setName(''); }}>New catalog</button></div>
       </>}
     </fieldset>
     {busy && <p role="status">{progress || 'Saving…'}</p>}

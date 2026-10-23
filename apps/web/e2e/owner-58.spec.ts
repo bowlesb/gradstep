@@ -49,7 +49,7 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await expect(privacy).toContainText('A report you send, with its screenshot and notes, goes to Gradstep’s support so we can fix the problem, and is kept until you delete your account.');
   await expect(privacy).not.toContainText('fetched by our server');
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-privacy.png` });
-  await privacy.getByRole('button', { name: 'Done' }).click();
+  await privacy.getByRole('button', { name: 'Close', exact: true }).click();
 
   // AI chat options: the explanations sit behind ⓘ beside the words; Enter shows one, Esc hides it.
   await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();

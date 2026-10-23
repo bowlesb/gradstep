@@ -49,7 +49,7 @@ export function AssetsExportDialog({ chat, papers, open, onClose }: { chat: Chat
       {phase.skipped.length > 0 && <ul className="fine" data-testid="assets-export-skipped">{phase.skipped.map(s => <li key={s}>{s}</li>)}</ul>}</div>}
     {phase.kind === 'failed' && <p role="alert" data-testid="assets-export-failed">Your assets couldn’t be put together. Try again.</p>}
     <div className="dialog-actions">
-      <button className="secondary" onClick={onClose}>Done</button>
+      <button className="secondary" onClick={onClose}>{phase.kind === 'done' ? 'Done' : 'Cancel'}</button>
       <button className="primary" onClick={() => void run()} disabled={phase.kind === 'preparing'} data-testid="assets-export-run">
         {phase.kind === 'done' ? 'Download again' : phase.kind === 'failed' ? 'Try again' : 'Download .zip'}</button>
     </div>

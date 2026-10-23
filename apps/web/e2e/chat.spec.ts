@@ -199,7 +199,7 @@ for (const mode of ['diagram', 'unsafe_diagram', 'broken_diagram']) test(`opaque
     expect(await frame.locator('body').evaluate(() => { try { localStorage.getItem('x'); return true; } catch { return false; } })).toBe(false);
     await page.screenshot({ path: '../../.artifacts/web-chat/diagram.png' });
   } else await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Couldn’t draw this diagram');
-  await page.getByRole('button', { name: 'Done', exact: true }).click(); await expect(page.getByTestId('chat-assistant')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click(); await expect(page.getByTestId('chat-assistant')).toBeVisible();
 });
 
 test('dark streaming updates at a steady cadence, retry never duplicates a failed question', async ({ page, request }, info) => {
@@ -252,7 +252,7 @@ test('opaque diagram blocks embedded media, source navigation and remote CSS', a
   });
   await expect.poll(() => frame.locator('body').evaluate(() => (window as any).blockedDiagramResource)).toBe(true);
   expect(popups).toEqual([]); expect(network).toEqual([]);
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
 });
 
 test('a diagram at full size starts across the width, then pinches, wheels, drags and double-clicks back, on desktop and phone', async ({ page, request }, info) => {
@@ -319,6 +319,6 @@ test('a diagram at full size starts across the width, then pinches, wheels, drag
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-tall-diagram-pinched-dark.png` });
   await page.emulateMedia({ colorScheme: 'light' });
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('chat-assistant')).toBeVisible();
 });

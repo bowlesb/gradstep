@@ -132,7 +132,7 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(whole.locator('.figure-part-outline')).toHaveCount(2);
  await expect(whole).toContainText('The left half of the figure.');
  await page.screenshot({path:`../../.artifacts/html-browser-figure-parts-${test.info().project.name}.png`});
- await whole.getByRole('button',{name:'Done'}).click();
+ await whole.getByRole('button',{name:'Close',exact:true}).click();
  // A figure question that names no number: the model asks for the figure it means, and the question goes again with it.
  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Break down the most complex figure into its parts');
  await page.getByRole('button',{name:'Send',exact:true}).click();

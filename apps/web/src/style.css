@@ -272,6 +272,8 @@ html.resizing iframe { pointer-events: none; }
 .library-window-choice { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
 .library-window-choice .fine { margin: 0 0 6px; }
 .column-actions { justify-content: space-between; }
+/* Columns' Reset sits at the end of the list (an information dialog has no footer). */
+.column-reset { align-self: flex-start; margin-top: 6px; }
 .library .table-wrap { --library-title-width: clamp(200px, 36cqw, 420px); flex: 1; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 0 0 48px;
   scroll-padding-left: max(var(--library-title-width), calc(100cqw - var(--library-detail-width))); }
 .library .table-wrap:focus-visible { outline-offset: -2px; }
@@ -423,6 +425,8 @@ progress.mini { height: 3px; margin-top: 4px; }
 .sheet-top .icon-button.sheet-close:active:not(:disabled), .sheet-top .icon-button.sheet-back:active:not(:disabled) { background: color-mix(in srgb, var(--text) 16%, transparent); transform: scale(.94); }
 .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
 .info-dialog { max-height: calc(88dvh - 40px); overflow-y: auto; padding-right: 3px; }
+/* Under the top row (title and X), the information text scrolls on its own. */
+.sheet-top + .info-dialog { max-height: calc(88dvh - 112px); }
 .info-section + .info-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .info-section h3 { font-size: var(--fs-body); margin: 0 0 6px; }
 .info-section p { color: var(--text-2); margin: 0 0 8px; }

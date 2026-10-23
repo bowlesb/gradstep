@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChatSession } from '../lib/chat-session';
 import { AnswerDiagram, useChatUpdates } from './ChatPane';
-import { Dialog, formatDateTime } from './common';
+import { Dialog, formatDateTime, SheetTop } from './common';
 import { Icon } from './icons';
 
 /** Your assets › Diagrams (native HistoryView with `diagrams: true`): every diagram, visual and figure breakdown the
@@ -14,11 +14,10 @@ export function DiagramsDialog({ chat, open, onClose }: { chat: ChatSession; ope
   useEffect(() => { if (!open) setSelected(null); }, [open]);
   const current = selected ? diagrams.find(d => d.id === selected) : undefined;
   return <Dialog open={open} onClose={onClose} title="All diagrams" wide className="diagrams-dialog">
-    <div className="dialog-heading">
+    <SheetTop onClose={onClose} testID="diagrams-close">
       {current ? <button className="link back-link" onClick={() => setSelected(null)} data-testid="diagrams-back"><Icon name="chevronLeft" size={14} /> All diagrams</button>
         : <h2>All diagrams</h2>}
-      <button className="link" onClick={onClose}>Done</button>
-    </div>
+    </SheetTop>
     {current ? <div className="diagram-detail" data-testid="diagram-detail">
       <AnswerDiagram diagram={current} image={(manifest, paths) => chat.figureImage(current.documentID ?? null, manifest, paths)} caption={(manifest, blockID, paths) => chat.figureFacts(current.documentID ?? null, manifest, blockID, paths)} />
     </div>

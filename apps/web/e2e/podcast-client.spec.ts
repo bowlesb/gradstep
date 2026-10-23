@@ -74,7 +74,7 @@ test('disabled capability blocks generation; cancellation is explicit, closing k
   await control(page, { generation: false }); await page.getByTestId('podcast-paper-listen').click(); await expect(page.getByTestId('podcast-generation-unavailable')).toBeVisible();
   await expect(page.getByTestId('podcast-confirm')).toHaveCount(0); expect(await count(page, 'quote')).toBe(0); expect(await count(page, 'start')).toBe(0);
   await page.getByRole('button', { name: 'Close Listen' }).click(); await control(page, { generation: true, readyAfter: 100 }); await quote(page); await page.getByTestId('podcast-confirm').click();
-  await expect(page.getByTestId('podcast-making')).toBeVisible(); await page.getByTestId('podcast-done').click(); expect(await count(page, 'cancel')).toBe(0);
+  await expect(page.getByTestId('podcast-making')).toBeVisible(); await page.getByTestId('podcast-close').click(); expect(await count(page, 'cancel')).toBe(0);
   await page.getByTestId('podcast-paper-listen').click(); await page.getByTestId('podcast-cancel').click();
   await expect(page.getByTestId('podcast-failed')).toContainText('Canceled.'); await expect(page.getByTestId('podcast-charges')).toHaveText('Nothing was charged.');
 });
@@ -297,7 +297,7 @@ test('two Start events before React commits still dispatch one paid request', as
 // Owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there for you".
 test('ask, leave, come back: Listen shows it being made, then ready and New', async ({ page }) => {
   await control(page, { readyAfter: 1000 }); await quote(page); await page.getByTestId('podcast-confirm').click();
-  await expect(page.getByTestId('podcast-making')).toBeVisible(); await page.getByTestId('podcast-done').click();
+  await expect(page.getByTestId('podcast-making')).toBeVisible(); await page.getByTestId('podcast-close').click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const own = page.getByTestId('podcast-own');
   await expect(own.getByTestId('podcast-request')).toHaveAttribute('data-status', 'making');
