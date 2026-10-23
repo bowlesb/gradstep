@@ -73,8 +73,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     its own heading, not in the bar. Reading mode, Show library beside paper, Find and the rest are rows of ⋯.
   - *Vertical budget (Wide)*: above content, the status bar and the one row (≤ 56 pt, asserted by
     `IPadShapesJourneyTests`); below, only the chat's message box (its status line sits above it). The paper has no
-    bottom bar: text size and line width float at its corner as on iPhone, with room after the page's end so they
-    never cover its last lines. The find bar, notices and sync status float over content and never move the text.
+    bottom bar and no bottom band: text size and line width float at its corner as on iPhone, with room after the
+    page's end (the page's own CSS, in either slot) so they never cover its last lines. The page draws on the app's
+    background (`systemBackground`; in dark mode the reader's own #0F0F0F would meet the chat's black at the divider).
+    The find bar, notices and sync status float over content and never move the text.
   - *Two slots* (`TwoSlotLayout`, the one reusable container): at most two columns. The left slot holds the "where to
     go" list (300–380 pt), the right slot the thing itself; Discuss is the one exception, with the paper on the left
     (45%). The container owns the widths and the animated hand-offs (respecting Reduce Motion) and keeps the main
@@ -84,8 +86,11 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *The paper's views*: **Read** (the paper alone, its column centred), **Browse** (Papers — the library or search
     results — | Paper), **Navigate** (Contents | Paper; ☰), **Explain** (the figure page, equation view or AI
     Explainer in the paper's slot under its bar, in the iPhone's layout in a 720 pt column, the left slot unchanged; ✕
-    returns to the paper at the same place), **Discuss** (Paper | Chat: Ask, a selection's Explain, Continue in Chat;
-    the chat's bar is All chats · title · ⋯ · ✕, New chat in ⋯; ✕ returns to Read or the list it replaced), and
+    returns to the paper at the same place; Continue in Chat hands the explainer's frame to the chat, whose first
+    message is the explainer's content, while the paper glides into the left slot — one shared frame
+    (`matchedGeometryEffect`, `WideSlotTransition`), no motion with Reduce Motion), **Discuss** (Paper | Chat: Ask, a selection's Explain, Continue in Chat;
+    the chat's bar is All chats · title · ⋯ · ✕, New chat in ⋯; ✕ returns to Read or the list it replaced. In the
+    Wide row All chats is a history mark (a clock), so it never reads as Contents' list beside it), and
     **Chats** (All chats | Chat: the Chat place, like Messages). Snippets is Collections | Collection on the same
     container. Opening a paper from the full-width Library or Feed lands in Browse with that list on the left.
     🔍 opens the Papers list on the left (its field at the top, the Library | ML paper search switch under it); a result
@@ -98,8 +103,8 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Selection actions* stay in the system edit menu next to the selection on every shape (Explain in Chat, Save
     snippet, …); no bar of actions sits over the page.
   - *Not yet*: Settings as Sections | Page (still a sheet); the Mac's own Wide step (its toolbar holds the five places;
-    pane bars, Return to send and density are unchanged); Contents' figure pages in the left slot open without the
-    figure page's Chat and AI Explainer actions.
+    pane bars, Return to send and density are unchanged). Contents' figure pages in the left slot keep Snippet, Chat
+    and AI Explainer; what they choose applies to the paper beside them.
 - **Icons**: the app's own symbols (`GradstepSymbol`; `Assets.xcassets/Symbols`, drawn by `tools/icons`): rounded
   lines like the Nabla mark, each with one amber point — Feed (feed arcs from the point), Library (spines, the
   middle one banded), Paper (page with the reading point), Chat (bubble with · · •), Settings (gear around the

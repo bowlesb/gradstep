@@ -48,8 +48,15 @@ final class IPadShapesJourneyTests: XCTestCase {
         let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
         if let directory = ProcessInfo.processInfo.environment["GS_SCREENSHOT_DIR"], !directory.isEmpty {
             try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-            try? shot.pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+            try? upright(shot.image).pngData()?.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
         }
+    }
+
+    /// A sideways capture carries its orientation as metadata, which a PNG drops; drawing it again bakes it in (upright).
+    private func upright(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat(); format.scale = image.scale
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in image.draw(at: .zero) }
     }
 
     private func composer(_ app: XCUIApplication) -> XCUIElement { app.descendants(matching: .any)["chat.composer"].firstMatch }
@@ -237,6 +244,27 @@ final class IPadShapesJourneyTests: XCTestCase {
         wait("Read keeps the place") { self.inViewport(self.paragraph(app, startingWith: place), app) }
     }
 
+    /// Discuss's paper (the left slot) keeps room after its end: its last lines scroll clear of the floating text size, and
+    /// nothing is drawn under the page (no bottom band on Wide).
+    func testThePapersLastLinesClearTheTextSizeInDiscuss() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        let app = launch()
+        _ = try wideSample(app)
+        let web = app.webViews.firstMatch
+        app.buttons["Paper options"].tap()
+        app.buttons["Ask about this paper"].tap()
+        XCTAssertTrue(composer(app).waitForExistence(timeout: 8))
+        wait("Paper | Chat") { web.frame.maxX <= self.composer(app).frame.minX + 1 }
+        for _ in 0..<14 { web.swipeUp(velocity: .fast) }
+        sleep(2)
+        save("\(device)-view-discuss-end")
+        let control = app.buttons["paper.textSize.smaller"]
+        XCTAssertTrue(control.exists)
+        let texts = web.staticTexts.allElementsBoundByIndex.filter { $0.frame.height > 0 && $0.frame.minY < web.frame.maxY }
+        let lowest = texts.map(\.frame.maxY).max() ?? 0
+        XCTAssertLessThanOrEqual(lowest, control.frame.minY + 1, "The last line (\(lowest)) ends above the text size (\(control.frame.minY))")
+    }
+
     /// Browse: Search opens the Papers list on the left; a result opens on the right and the list stays.
     func testBrowseKeepsTheListAfterOpeningAResult() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
@@ -297,6 +325,17 @@ final class IPadShapesJourneyTests: XCTestCase {
         if !web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 20) { save("\(device)-debug-paper-not-ready"); paperTab.tap() }
         XCTAssertTrue(web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 15), "The paper is ready")
         if app.buttons["library.panel.close"].exists { app.buttons["library.panel.close"].tap() }
+        // A figure page opened from Contents in the left slot keeps its Chat and AI Explainer.
+        app.buttons["paper.contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        app.contentsTab("Figures").tap()
+        let row = app.buttons["contents.figure.0"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+        XCTAssertTrue(app.buttons["figureView.askInChat"].waitForExistence(timeout: 5), "Chat on a figure page from Contents")
+        XCTAssertTrue(app.buttons["figureView.explain"].exists, "AI Explainer on a figure page from Contents")
+        save("\(device)-view-navigate-figure")
+        app.buttons["paper.contents"].tap()
+        wait("Read") { !app.contentsTabs.exists && !app.buttons["figureView.askInChat"].exists }
         let figure = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure")).firstMatch
         for _ in 0..<8 where !(figure.exists && figure.isHittable) { web.swipeUp() }
         if !figure.waitForExistence(timeout: 5) { save("\(device)-debug-no-figure") }

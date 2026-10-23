@@ -506,7 +506,7 @@ struct PaperView: View {
             if subject.action == ChatAction.paperExplainer.rawValue, let context = model.paperExplainerContext(paperID: subject.paperID) {
                 NavigationStack {
                     PaperExplainView(model: model, context: context, requesting: presentation.requesting, finish: { outcome in
-                        model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
+                        finishExplainer(outcome) { model.presentedExplainer = nil }
                     }, close: { model.presentedExplainer = nil })
                 }
                 // The Mac's sheet opens at a reading size (its default is too small for the lists and the diagram).
@@ -519,7 +519,7 @@ struct PaperView: View {
             } else if let context = model.figureContext(paperID: subject.paperID, figureID: subject.itemID) {
                 NavigationStack {
                     FigureExplainView(model: model, context: context, requesting: false, finish: { outcome in
-                        model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
+                        finishExplainer(outcome) { model.presentedExplainer = nil }
                     }, close: { model.presentedExplainer = nil })
                 }
             }
@@ -582,7 +582,18 @@ struct PaperView: View {
     private func figureHost(close: @escaping @MainActor () -> Void) -> FigureViewHost? {
         guard let paperID = model.selectedPaper?.id else { return nil }
         let model = model
-        return FigureViewHost(model: model, paperID: paperID, finish: { outcome in model.pendingFigureOutcome = outcome; close() }, close: close)
+        return FigureViewHost(model: model, paperID: paperID, finish: { outcome in finishExplainer(outcome, close: close) }, close: close)
+    }
+
+    /// An explainer's choice. In Wide it applies as the explainer closes, in one animated transaction: Continue in Chat
+    /// hands the explainer's slot to the chat while the paper glides into the left slot (Discuss).
+    private func finishExplainer(_ outcome: FigureViewOutcome, close: () -> Void) {
+        model.pendingFigureOutcome = outcome
+        guard wideBar else { close(); return }
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.45)) {
+            close()
+            applyFigureOutcome()
+        }
     }
 
     /// Contents, from its button or a double tap on the page. Either can only be reached while Contents isn't showing (it
@@ -697,7 +708,8 @@ struct PaperView: View {
         .padding(.top, notice != nil || back || chatBack || explainerBack || saved ? 6 : 0)
         .padding(.bottom, notice != nil || back || chatBack || explainerBack || saved ? 8 : 0)
         .frame(maxWidth: .infinity)
-        .chromeBand(.bottom)
+        // Wide has no tab bar to fade the page under: no band unless one of these controls is showing.
+        .background { if !wideBar || notice != nil || back || chatBack || explainerBack || saved { ChromeFade(edge: .bottom) } }
         .animation(.easeInOut(duration: 0.2), value: saved)
     }
 
@@ -782,8 +794,10 @@ struct PaperView: View {
     private func readerHooks(_ view: PaperWebView, scope: ReaderDocumentScope) -> PaperWebView {
         var hooked = view
         hooked.findController = find
-        // Wide has no tab bar under the page: room at the end so the floating text size never covers the last lines.
-        hooked.bottomInset = wideBar ? 64 : 0
+        // Wide has no tab bar under the page: room at the end so the floating text size never covers the last lines, and
+        // the page on the app's own background (the chat beside it, the bars), in either slot.
+        hooked.bottomInset = wideBar ? 72 : 0
+        hooked.wideHost = wideBar
         hooked.citationDismissID = citationDismissID
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
         hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
@@ -1072,6 +1086,15 @@ struct PaperWebView: UIViewRepresentable {
     var onDrawSnippet: (() -> Void)? = nil
     /// Room after the end of the page (the Wide shape's floating text size control).
     var bottomInset: CGFloat = 0
+    /// Wide: the page's background is the app's (`systemBackground`), so a paper and a chat side by side match in dark mode.
+    var wideHost = false
+
+    /// The page's host styles (Wide): room after its end, and its dark background on the app's.
+    static func hostCSS(bottomInset: CGFloat, wide: Bool) -> String {
+        var css = bottomInset > 0 ? "html{padding-bottom:\(Int(bottomInset))px}" : ""
+        if wide { css += "@media(prefers-color-scheme:dark){:root{background:#000!important;--sr-bg:#000}}" }
+        return css
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -1170,7 +1193,6 @@ struct PaperWebView: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
         (web as? ReaderWebView)?.hasSelection = hasSelection
-        if web.scrollView.contentInset.bottom != bottomInset { web.scrollView.contentInset.bottom = bottomInset }
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false
             context.coordinator.loadedURL = url
@@ -1191,6 +1213,15 @@ struct PaperWebView: UIViewRepresentable {
             context.coordinator.appliedFontSize = fontSize
             web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'; window.__scienceReaderFit?.();",
                                     arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
+        }
+        let hostCSS = figureID == nil ? Self.hostCSS(bottomInset: bottomInset, wide: wideHost) : ""
+        if context.coordinator.appliedHostCSS != hostCSS {
+            context.coordinator.appliedHostCSS = hostCSS
+            web.callAsyncJavaScript("""
+                let s = document.getElementById('sr-host');
+                if (!s) { s = document.createElement('style'); s.id = 'sr-host'; document.head.append(s); }
+                s.textContent = css;
+                """, arguments: ["css": hostCSS], in: nil, in: .defaultClient, completionHandler: nil)
         }
         if context.coordinator.appliedLineWidth != lineWidth, figureID == nil {
             context.coordinator.appliedLineWidth = lineWidth
@@ -1220,6 +1251,7 @@ struct PaperWebView: UIViewRepresentable {
         var navigation: WKNavigation?
         var appliedFontSize: Double?
         var appliedLineWidth: ReaderLineWidth?
+        var appliedHostCSS: String?
         private var loadingID = UUID()
         private var inFlightJumpID: UUID?
         private var lastJumpID: UUID?
@@ -1467,7 +1499,7 @@ struct PaperWebView: UIViewRepresentable {
         }
 
         func invalidateLoad() {
-            loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil; appliedFontSize = nil; citationActive = false
+            loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil; appliedFontSize = nil; appliedHostCSS = nil; citationActive = false
             passages.reset()
         }
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

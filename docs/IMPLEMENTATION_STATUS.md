@@ -19,19 +19,26 @@ Evidence: `npm test` 731 pass, build passes; Playwright desktop/phone on the tou
 Not yet: the Tall/Wide single-row, two-slot layout on the web (iPad first, in a branch); an empty grey strip above the
 figure page's message box.
 
-## iPad Tall and Wide — 2026-10-22 UTC (in branch, not released)
+## iPad Tall and Wide, second pass — 2026-10-23 UTC (branch `ipad-shapes-2`, not released)
 
-The owner's "One app, two shapes" and "Two slots, a few views" for the iPad, on a worktree branch only: no TestFlight,
-no merge. Tall (upright, any window under 900 × 600 or taller than wide) is the iPhone app; Wide (sideways) has one
-52 pt top row with the places capsule and two slots on one container (Read, Browse, Navigate, Explain, Discuss, Chats;
-Snippets as Collections | Collection). Spec: DESIGN.md "Tall and Wide". Mac: the toolbar's five places only. Not yet:
-Settings as Sections | Page, the Mac's own Wide step, figure pages in Navigate's Contents without their actions, the dark
-page/chrome seam (audit N11). Evidence: Core `swift test` 437 pass (LayoutShapeTests 2/2); `IPadShapesJourneyTests` 7/7
-on iPad Pro 11" and 13" Simulators; the earlier iPad journeys updated for the shapes pass (Reading mode 3/3, Passage
-tablet, Browse/Ask, equation view, split chat ×2, keyboard tabs, podcast dock, Notes wide); iPhone 17 ChatHistoryTable
-6/6, ReaderNavigation 4/4 (1 iPad-only skipped); iPhone `PassageJourneyTests` portrait failed twice at different steps
-(edit menu, then Settings), not re-run on main; Mac Catalyst builds (tests not run). Screenshots:
-`.artifacts/ux-audit-20261022/ipad-shapes/`.
+On top of the merged Tall/Wide work: no bottom band or reserved room on Wide (the page's own CSS gives the room after
+its end, which also removed a light strip the scroll-view inset drew); the page on the app's background in Wide (no dark
+seam with the chat); All chats as a clock in the Wide row; figure pages from Contents in the left slot keep Snippet, Chat
+and AI Explainer; Continue in Chat hands the explainer's frame to the chat while the paper glides left (one shared
+frame; no motion with Reduce Motion). Not yet: Settings as Sections | Page, the Mac's own Wide step. Evidence: Core
+`swift test` 437 pass; `IPadShapesJourneyTests` 8/8 on the iPad Pro 11" Simulator and 8/8 on 13" across runs (Browse
+failed once on 13" waiting for the paper, passed on rerun); iPhone 17: ChatHistoryTable 6/6, the Tall gallery,
+`PassageJourneyTests` portrait passes after the journey closes Settings with Done (it tapped the tab bar under the
+sheet). `ReaderNavigationTests/testReferenceActions…` fails at "the cursor is in the message box" on this Simulator
+identically on 37345457 (before the Tall/Wide merge), on the merge and on this branch: environmental, not this change.
+Screenshots (upright): `.artifacts/ux-audit-20261022/ipad-shapes/`.
+
+## iPad Tall and Wide — 2026-10-22 UTC (merged)
+
+The owner's "One app, two shapes" and "Two slots, a few views" for the iPad. Tall (upright, any window under 900 × 600 or
+taller than wide) is the iPhone app; Wide (sideways) has one 52 pt top row with the places capsule and two slots on one
+container (Read, Browse, Navigate, Explain, Discuss, Chats; Snippets as Collections | Collection). Spec: DESIGN.md "Tall
+and Wide". Mac: the toolbar's five places only.
 
 ## TestFlight 84, browser and admin release — 2026-10-22 UTC
 

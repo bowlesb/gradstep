@@ -1196,7 +1196,8 @@ struct ChatView: View {
     private var wideRow: some View {
         WideBar {
             if !chatsList {
-                Button { composerFocused = false; model.openAllChats(paper: chatsPaperID) } label: { HeaderButtonLabel(image: GradstepSymbol.chats) }
+                // A history mark, so it never reads as Contents' list beside it (audit N5).
+                Button { composerFocused = false; model.openAllChats(paper: chatsPaperID) } label: { HeaderButtonLabel(systemImage: "clock") }
                     .buttonStyle(.plain).accessibilityLabel("Chat history").accessibilityIdentifier("chat.history")
             }
             if placesInBar { wideTitle(lines: 1, centred: false) }

@@ -142,16 +142,19 @@ extension EnvironmentValues {
 struct WideSlots: View {
     @Bindable var model: ReaderModel
     let width: CGFloat
+    /// Shared frames between the slots (the explainer handing its slot to the chat).
+    @Namespace private var slots
 
     var body: some View {
         let slots = model.wideSlots
         let side: TwoSlotLayout<PaperView, AnyView>.Side = slots.right == .chat ? .right : (slots.left == nil ? .none : .left)
-        // Contents' row holds its four tabs and ✕: a little more room than a list.
-        TwoSlotLayout(width: width, other: side, listWidth: slots.left == .contents ? { min(420, max(390, ($0 * 0.33).rounded())) } : nil) {
+        // Contents' row holds its four tabs and ✕, and a figure page's Snippet · Chat · AI Explainer: more room than a list.
+        TwoSlotLayout(width: width, other: side, listWidth: slots.left == .contents ? { min(440, max(420, ($0 * 0.33).rounded())) } : nil) {
             PaperView(model: model)
         } otherView: {
             other(side == .right ? .chat : (slots.left ?? .paper))
         }
+        .environment(\.slotNamespace, self.slots)
     }
 
     private func other(_ kind: WidePane) -> AnyView {
@@ -165,7 +168,9 @@ struct WideSlots: View {
             return AnyView(ChatView(model: model)
                 .environment(\.chatBesidePaper, true)
                 .environment(\.placesInBar, false)
-                .environment(\.discussChat, true))
+                .environment(\.discussChat, true)
+                // Arriving from an explainer: the explainer's frame becomes the chat's.
+                .modifier(SharedSlotFrame(id: WideSlotTransition.explainerToChat, namespace: self.slots)))
         case .paper, .explainer: return AnyView(EmptyView())
         }
     }
@@ -181,5 +186,11 @@ private struct ContentsPane: View {
             if let key = model.readingLocationKey { model.paperJump = PaperJumpRequest(locationKey: key, headingID: id, target: target) }
         }
         .environment(\.slotPane, true)
+        // Its figure pages keep Snippet, Chat and AI Explainer; what they choose applies to the paper beside.
+        .environment(\.figureViewHost, model.selectedPaper.map { paper in
+            FigureViewHost(model: model, paperID: paper.id,
+                           finish: { outcome in model.pendingFigureOutcome = outcome; model.applyPendingFigureOutcome() },
+                           close: {})
+        })
     }
 }
