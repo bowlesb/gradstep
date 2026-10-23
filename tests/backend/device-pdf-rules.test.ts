@@ -208,6 +208,10 @@ test('TeX\'s text accents compose with their letters; a math accent over another
   const naive = [g('N', 0, 100), g('a', 5, 100), g('¨', 10, 99), g('ı', 10, 100), g('v', 15, 100), g('e', 20, 100)];
   composeAccents(naive);
   assert.equal(naive.map(x => x.text).join(''), 'Naïve');
+  // As the text layer gives it: the accent's box is the font's full height, like its letter's (PMLR's "Na¨ıve").
+  const layer = [g('a', 150.5, 138.8), { ...g('¨', 154.3, 138.8), bottom: 148.8 }, { ...g('ı', 155.4, 138.8), x1: 158.2 }, g('v', 158.2, 138.8)];
+  composeAccents(layer);
+  assert.equal(layer.map(x => x.text).join(''), 'aïv');
   const hat = [g('ˆ', 0, 98), g('Z', 0, 100, 'ABCDEF+CMBX10')];
   composeAccents(hat);
   assert.deepEqual(hat.map(x => x.text), ['ˆ', 'Z'], '\\hat{\\mathbf{Z}}: the accent is the roman font\'s');

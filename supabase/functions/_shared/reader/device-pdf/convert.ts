@@ -194,7 +194,14 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     let regions: Region[] = page.detections.map(d => ({ cls: d.cls, score: d.score, box: d.box.map(v => v / page.scale), pt: d.box.map(v => v / page.scale / s) as Box }));
     const dropped = new Set(regions.filter(r => isFurniture(r, glyphs, page.height, known) || (p === 0 && isFrontMatter(r, glyphs))));
     regions = regions.filter(r => !dropped.has(r));
-    if (input.bibliography) regions = mergeOverlapping(regions, 'bibitem');
+    // Reference boxes that share at least a third of the shorter one's height (one nested in another, REVTeX), when the
+    // entries open with labels that split them again; author–year lists keep the layout's boxes (their entries are split
+    // by hanging indents, which a box's edge often helps).
+    if (input.bibliography) {
+      const bib = regions.filter(r => r.cls === 'bibitem');
+      const labelled = bib.length > 1 && linesOf(glyphs.filter(g => bib.some(r => centreIn(g, r.pt)))).filter(l => BIB_LABEL.test(lineText(l, [])[0])).length >= 2;
+      if (labelled) regions = mergeOverlapping(regions, 'bibitem', 1 / 3);
+    }
     // A display boxed twice (the group and a row of it) would be read in pieces: one formula, as it was set.
     if (input.mergeDisplays) regions = mergeOverlapping(regions, 'display');
     const gone = new Set(glyphs.filter(g => [...dropped].some(r => centreIn(g, r.pt))));
@@ -250,7 +257,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       if (cls === 'figure' || cls === 'table') { float(r, p); continue; }
       // A bibliography without a heading ends where its entries do: at a display, or a paragraph that opens without a label.
       if (headless && inReferences && (cls === 'display' || cls === 'listing' || cls === 'abstract' ||
-        (cls === 'paragraph' && !REFERENCE_LABEL.test(lineText(linesFor(r)[0] ?? [], [])[0])))) {
+        (cls === 'paragraph' && !BIB_LABEL.test(lineText(linesFor(r)[0] ?? [], [])[0])))) {
         if (refs.length) flushRefs();
         inReferences = false; headless = false;
       }
@@ -275,7 +282,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       const inside = owned(r);
       if (!inside.length) continue;
       // A bibliography without a heading (REVTeX): the layout's reference entries, two or more opening with a label.
-      if (input.bibliography && !inReferences && cls === 'bibitem' && linesFor(r).filter(l => REFERENCE_LABEL.test(lineText(l, [])[0])).length >= 2) {
+      if (input.bibliography && !inReferences && cls === 'bibitem' && linesFor(r).filter(l => BIB_LABEL.test(lineText(l, [])[0])).length >= 2) {
         flushPara(); inReferences = true; headless = true;
       }
       const texts: string[] = [], parts: Marked[] = [], tagFormulas: Formula[] = [];
@@ -328,7 +335,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
           const entries = referenceEntries(linesFor(r), texts);
           // An entry broken by a column or page (a bibliography without a heading): a region that opens without a
           // label, after labelled entries, continues the last one.
-          if (headless && entries.length && refs.length && !REFERENCE_LABEL.test(entries[0]) && REFERENCE_LABEL.test(refs[refs.length - 1])) {
+          if (headless && entries.length && refs.length && !BIB_LABEL.test(entries[0]) && BIB_LABEL.test(refs[refs.length - 1])) {
             refs[refs.length - 1] = joinLines([refs[refs.length - 1], entries.shift()!]);
           }
           refs.push(...entries);
@@ -497,13 +504,16 @@ export function fontSpans(line: readonly Glyph[], taken: readonly [number, numbe
  * label ("[12]", "12.", "(12)") or begins more than half an em left of the line before (the hanging indent most styles
  * use); otherwise it continues the entry, a word broken at the line's end joined. */
 const REFERENCE_LABEL = /^\s*(\[\s*[\w+.\-]{1,12}\s*\]|\(\d{1,4}\)|\d{1,4}\.)\s/;
+/** A numbered entry's label for the bibliography rule: not a year ("2016. Title…" opens many an author–year line). */
+const BIB_LABEL = /^\s*(\[\s*[\w+.\-]{1,12}\s*\]|\(\d{1,3}\)|\d{1,3}\.)\s/;
 /** Regions of one class that overlap within a column, as one region (their union): the layout often boxes a column of
  * reference entries as overlapping regions, and glyphs shared between them would be read in two pieces out of order.
- * Regions overlap when they share more than half of the narrower one's width and any height. */
-export function mergeOverlapping(regions: readonly Region[], cls: string): Region[] {
+ * Regions overlap when they share more than half of the narrower one's width and more than `minShare` of the shorter one's
+ * height. */
+export function mergeOverlapping(regions: readonly Region[], cls: string, minShare = 0): Region[] {
   const same = regions.filter(r => r.cls === cls).map(r => ({ ...r, box: [...r.box], pt: [...r.pt] as Box }));
   const overlap = (a: Region, b: Region) => Math.min(a.box[2], b.box[2]) - Math.max(a.box[0], b.box[0]) > 0.5 * Math.min(a.box[2] - a.box[0], b.box[2] - b.box[0])
-    && Math.min(a.box[3], b.box[3]) - Math.max(a.box[1], b.box[1]) > 0;
+    && Math.min(a.box[3], b.box[3]) - Math.max(a.box[1], b.box[1]) > minShare * Math.min(a.box[3] - a.box[1], b.box[3] - b.box[1]);
   for (let merged = true; merged;) {
     merged = false;
     for (let i = 0; i < same.length && !merged; i++) for (let j = i + 1; j < same.length && !merged; j++) {

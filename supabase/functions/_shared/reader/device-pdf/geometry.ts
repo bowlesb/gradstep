@@ -117,8 +117,10 @@ export function composeAccents(glyphs: Glyph[]): void {
       const g = glyphs[j];
       // TeX sets a text accent from the letter's own font (\"o); a math accent from the roman font over another (\hat{\mathbf{Z}}).
       if (j === i || !/^\p{L}$/u.test(g.text) || g.font !== a.font) continue;
+      // Text-layer boxes span the font's height whatever the glyph (an accent's box is its letter's), so only a box set
+      // lower than the letter's rules a pairing out; horizontally they must overlap.
       const o = Math.min(a.x1, g.x1) - Math.max(a.x0, g.x0), h = g.bottom - g.top;
-      const placed = a.text === '¸' ? a.top >= g.top + 0.5 * h : a.bottom <= g.top + 0.75 * h;
+      const placed = a.text === '¸' || a.top <= g.top + 0.25 * h;
       if (placed && o > 0.3 * Math.min(a.x1 - a.x0, g.x1 - g.x0) && o > overlap) { best = j; overlap = o; }
     }
     if (best < 0) continue;

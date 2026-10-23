@@ -222,7 +222,11 @@ export function readBundle(html, { device = false } = {}) {
         const display = cls.includes('reader-display') || (!cls.includes('reader-inline') && n.parent?.attribs?.['data-reader-kind'] === 'equation');
         const math = n.children.find(c => c.type === 'tag' && c.name === 'math');
         const shown = math ? 'typeset' : cls.includes('reader-math-image') ? 'image' : 'text';
-        tokens.push({ f: true, id: n.attribs.id, display, latex: n.attribs['data-latex'] ?? '', shown, leaves: math ? leafText(math) : null });
+        // The truth's glyphs from its LaTeX through Temml, as the device's are (LaTeXML's own MathML rewrites some symbols:
+        // an argument list's ";" becomes ","), else from its MathML.
+        const latex = n.attribs['data-latex'] ?? '';
+        const leaves = device ? (math ? leafText(math) : null) : ((temml && latex && texLeaves(latex, display)) || (math ? leafText(math) : null));
+        tokens.push({ f: true, id: n.attribs.id, display, latex, shown, leaves });
         return;
       }
       if (n.name === 'img' || (n.attribs.class ?? '').includes('reader-tag')) return;
