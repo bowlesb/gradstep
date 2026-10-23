@@ -12,7 +12,11 @@ struct ScienceReaderApp: App {
         WindowGroup {
             RootView(model: model)
                 .macPlatformStyle()
-                .onOpenURL { url in if started { model.openPaperLink(url) } else { pendingLink = url } }
+                .onOpenURL { url in
+                    // A Google sign-in return goes to its open sign-in page, never to paper links.
+                    if NativeAuthenticationPresenter.handleOpenedURL(url) { return }
+                    if started { model.openPaperLink(url) } else { pendingLink = url }
+                }
                 .tint(Color.accentColor)
                 // System menus and alerts (UIKit) follow the window's tint (design audit F3).
                 .background(WindowTint())

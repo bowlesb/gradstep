@@ -159,6 +159,38 @@ Evidence: `.artifacts/feedback/followup-20261017/`. At that client-release check
 recreated; the subsequent access repair above completes that operator step. No physical-phone access or paid AI calls.
 Browser `103582dd` is deployed; TestFlight 67 iOS and Mac are VALID / IN_BETA_TESTING (06:57:42 UTC).
 
+## Native Google never exchanged its code (iPad build 86 report, 2026-10-23)
+
+Owner report: Google on the iPad finished with no error, but the sheet stayed on its choices. Apple then worked.
+Hosted evidence, read-only. Auth and gateway logs at 19:43 UTC show two `GET /authorize` requests from the iPad, both
+with `redirect_to=sciencereader://auth/callback` and S256. Both `/callback` requests returned 302 and logged a login
+for the owner's single Auth user. That user has Apple and Google identities with the same verified address, and the
+Google identity was linked through the admin site on 10-22. Both `auth.flow_state` rows have an issued code and the
+app referrer. The 94-byte 302 body matches exactly `sciencereader://auth/callback?code=<uuid>`. No
+`POST /token?grant_type=pkce` follows either one. At 19:43:54, `grant_type=id_token` from `ScienceReader/86` succeeds
+for the same user. Gateway logs from 10-04 to 10-23 contain no native PKCE exchange at all. Every native Google attempt
+(iPhone 10-07, 10-17 and 10-19; Mac 10-08; iPad today) stopped after the callback. In the same period the browser
+exchanged its codes. Staging configuration and identities need no change.
+
+The code never reached the app's exchange. The coordinator turned a closed Google page (`canceledLogin`) into the
+choices with no issue, as for Apple's own Cancel. In the iPad 26.4 Simulator, against a local HTTPS fake of the
+provider, the real `ASWebAuthenticationSession` returns the callback and the app exchanges it, both portrait and
+landscape. The device-only step that loses it (iPadOS/iOS 18.7) is not proven. The return is the app's registered
+scheme, so the system can hand it to the app's URL handler while the session never answers. That handler sent it to
+paper links, which dropped it.
+
+Fix (branch `fix/google-signin-silent`):
+- `ScienceReaderApp.onOpenURL` offers every URL to `NativeAuthenticationPresenter.handleOpenedURL` first. A
+  `sciencereader://auth/callback` URL goes to the one open Google presentation, exactly as if the session had
+  answered, and that session is closed. The coordinator's owner check, full-URI validation and this attempt's PKCE
+  verifier still apply. A return with no open Google page is dropped and never treated as a paper link. Simulator
+  check: a callback delivered by `simctl openurl` while the Google page was open was exchanged.
+- A closed Google page now says "Google sign-in didn't finish, so you're still signed out…". So does leaving an
+  unanswered Google page through "Other sign-in methods". Apple's Cancel stays quiet. A cancellation the sheet did not
+  request, while the attempt is still its own, shows the existing "Sign-in wasn't completed" issue.
+
+Still unverified: a real Google sign-in on a device with a build that includes this change.
+
 ## Current foundation and gaps
 
 [BackendClient](../../apps/apple/ScienceReader/Services/BackendClient.swift) already owns authentication generations, Keychain sessions, Google PKCE and Apple nonces. [OAuthFlow](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OAuthFlow.swift) validates the callback destination, bounds its code and rejects token fragments. Existing [OAuth safety tests](../../apps/apple/ScienceReaderTests/OAuthSafetyTests.swift) cover deterministic exchanges, duplicate callbacks, cancellation before UI delivery and late results after sign-out. These are local protocol tests, not Apple/Google sign-in evidence.
