@@ -20,6 +20,22 @@ final class DevicePDFOCRTests: XCTestCase {
         XCTAssertTrue(DevicePDFOCR.unreadable(codes), "half the characters are codes without a Unicode mapping")
         let math = prose + (0..<20).map { glyph("(cid:\($0))", Double($0) * 5) }
         XCTAssertFalse(DevicePDFOCR.unreadable(math), "a few unmapped math symbols leave the page readable")
+        // Words laid out as a text layer would: letters touching, a space between words, lines 14 pt apart.
+        func page(_ words: [String]) -> [DevicePDFGlyph] {
+            var out: [DevicePDFGlyph] = [], x = 72.0, top = 100.0
+            for word in words {
+                if x > 480 { x = 72; top += 14 }
+                for ch in word { out.append(DevicePDFGlyph(text: String(ch), x0: x, top: top, x1: x + 5, bottom: top + 10, size: 10, font: "ABCDEF+NimbusRomNo9L-Regu", upright: true)); x += 5 }
+                x += 4
+            }
+            return out
+        }
+        let english = page(Array(repeating: ["routing", "tokens", "between", "experts", "balances", "their", "load"], count: 12).flatMap { $0 })
+        XCTAssertFalse(DevicePDFOCR.unreadable(english))
+        let german = page(Array(repeating: ["Die", "Verteilung", "der", "Gewichte", "zwischen", "Experten", "bleibt"], count: 12).flatMap { $0 })
+        XCTAssertFalse(DevicePDFOCR.unreadable(german), "another language is text")
+        let scrambled = page(Array(repeating: ["iJlLfNjPlJKLMN", "bcdjognjjcikwNj", "gLMMcwmcfcjNf", "clmcLKiNlfNm", "jfcfJjfJhjg"], count: 15).flatMap { $0 })
+        XCTAssertTrue(DevicePDFOCR.unreadable(scrambled), "letters a broken font mapping names are not words")
     }
 
     func testRecognisedWordsBecomeGlyphsInPoints() throws {

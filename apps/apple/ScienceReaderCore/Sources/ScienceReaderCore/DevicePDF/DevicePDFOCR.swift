@@ -14,7 +14,8 @@ public enum DevicePDFOCR {
     public static let font = "GradstepOCR"
 
     /// Whether a page's glyphs are no text to read: fewer than 5 visible characters (a scan), or, of 20 or more, three in
-    /// ten codes without a Unicode mapping (`(cid:N)`), private-use or replacement characters.
+    /// ten codes without a Unicode mapping (`(cid:N)`), private-use or replacement characters, or words that are no words
+    /// (a font whose Unicode mapping names the wrong letters: "iJlLfNjPlJKLMN").
     public static func unreadable(_ glyphs: [DevicePDFGlyph]) -> Bool {
         let shown = glyphs.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if shown.count < 5 { return true }
@@ -23,7 +24,26 @@ public enum DevicePDFOCR {
             if g.text.hasPrefix("(cid:") { return true }
             return g.text.unicodeScalars.contains { s in (0xE000...0xF8FF).contains(s.value) || s.value == 0xFFFD || s.value < 0x20 }
         }.count
-        return Double(bad) >= 0.3 * Double(shown.count)
+        return Double(bad) >= 0.3 * Double(shown.count) || gibberish(shown)
+    }
+
+    /// Words (runs of letters at letter spacing on one line) of four letters or more: a quarter or more with a capital
+    /// after a small letter inside them, or two in five with no vowel, is not text in any Latin-script language.
+    static func gibberish(_ glyphs: [DevicePDFGlyph]) -> Bool {
+        var words: [String] = [], current = "", last: DevicePDFGlyph?
+        for g in glyphs {
+            let letter = g.text.count == 1 && g.text.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+            let joined = last.map { l in abs(g.top - l.top) < 0.5 * max(1, g.size) && g.x0 - l.x1 < 0.2 * max(1, g.size) && g.x0 > l.x0 } ?? false
+            if !letter || !joined { if current.count >= 4 { words.append(current) }; current = "" }
+            if letter { current += g.text }
+            last = g
+        }
+        if current.count >= 4 { words.append(current) }
+        guard words.count >= 50 else { return false }
+        let camel = words.filter { w in zip(w, w.dropFirst()).contains { $0.isLowercase && $1.isUppercase } }.count
+        let vowels = Set("aeiouyAEIOUYàáâäèéêëìíîïòóôöùúûüÿ")
+        let voiceless = words.filter { !$0.contains(where: vowels.contains) }.count
+        return Double(camel) >= 0.25 * Double(words.count) || Double(voiceless) >= 0.4 * Double(words.count)
     }
 
     /// The page's text recognised from `image` (the page rendered at any resolution, the page's displayed orientation)

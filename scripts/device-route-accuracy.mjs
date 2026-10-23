@@ -215,7 +215,7 @@ export function readBundle(html, { device = false } = {}) {
   const visitBlock = (node) => {
     const tokens = [];
     const visit = n => {
-      if (n.type === 'text') { for (const w of n.data.toLowerCase().match(WORD) ?? []) tokens.push({ w }); return; }
+      if (n.type === 'text') { for (const w of n.data.normalize("NFC").toLowerCase().match(WORD) ?? []) tokens.push({ w }); return; }
       if (n.type !== 'tag') return;
       if (n.attribs['data-reader-equation'] !== undefined) {
         const cls = (n.attribs.class ?? '').split(/\s+/);
@@ -305,6 +305,12 @@ export function compare(truthBlocks, deviceBlocks) {
     if (best && best.covered >= 0.5) matches.push(best);
   });
   const substantial = tbw.filter((ws, ti) => ws.length >= 6 && truthBlocks[ti].kind !== 'figure').length;
+  // Text within shared content: the words of the truth's blocks that were found and of the device blocks that hold
+  // them, in order. A venue PDF and the arXiv revision can differ by whole sections (a checklist, a supplement, a new
+  // version); this measure leaves those out and keeps what the reading did to the text both have.
+  const tKept = [...new Set(matches.map(m => m.ti))].sort((a, b) => a - b), dKept = [...new Set(matches.map(m => m.di))].sort((a, b) => a - b);
+  const tShared = tKept.flatMap(i => tbw[i]), dShared = dKept.flatMap(i => dbw[i]);
+  text.shared_f1 = round(2 * (lcsPairs(tShared, dShared)?.length ?? 0) / Math.max(1, tShared.length + dShared.length));
   // Order leaves the bibliography's entries out: LaTeXML may regenerate a bibliography in its own (alphabetical) order
   // where the PDF prints citation order (REVTeX, 2610.25953v1), so their order in the truth is not the paper's.
   const ordered = matches.filter(m => truthBlocks[m.ti].kind !== 'list');
@@ -432,7 +438,7 @@ async function score() {
     return { variant: VARIANT, papers: rows.length, pages,
       seconds: { total: stage('total'), per_page: round(stage('total') / Math.max(1, pages)), render: stage('render'), layout: stage('layout'), text: stage('text'),
         tag: stage('tag'), equations: stage('equations'), images: stage('images'), converter: stage('converter') },
-      text_f1: mean(r => r.text.f1), text_recall: mean(r => r.text.recall), text_precision: mean(r => r.text.precision), bag_recall: mean(r => r.text.bag_recall),
+      text_f1: mean(r => r.text.f1), shared_f1: mean(r => r.text.shared_f1 ?? 0), text_recall: mean(r => r.text.recall), text_precision: mean(r => r.text.precision), bag_recall: mean(r => r.text.bag_recall),
       block_recall: mean(r => r.order.block_recall), whole_blocks: mean(r => r.order.whole_blocks), adjacent_in_order: mean(r => r.order.adjacent_in_order),
       pairs_in_order: mean(r => r.order.pairs_in_order), headings_recall: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.truth))),
       headings_precision: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.device))),

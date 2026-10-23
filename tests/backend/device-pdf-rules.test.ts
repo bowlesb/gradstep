@@ -8,7 +8,8 @@ import { validateHTML } from '../../supabase/functions/_shared/reader/html-valid
 import { det, extent, host, input, line, page } from './device-pdf/synthetic.ts';
 import { renderMath, tidyLatex } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
 import { venueNotice } from '../../supabase/functions/_shared/reader/device-pdf/structure.ts';
-import { aliasFont } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
+import { aliasFont, aliasText } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
+import { composeAccents, lineText, linesOf, typicalGap, useLineBands, useWordGaps } from '../../supabase/functions/_shared/reader/device-pdf/geometry.ts';
 import type { Glyph, Region } from '../../supabase/functions/_shared/reader/device-pdf/types.ts';
 
 /** A line of text as glyphs from x = 72 at `top` (points), 6 pt per character. */
@@ -173,4 +174,57 @@ test('fonts the tagger does not know read as the ones they stand for', () => {
   assert.equal(aliasFont('ABCDEF+MathDesign-CH-Regular-OT1-10', vocab), 'CMR10');
   assert.equal(aliasFont('ABCDEF+TeX-matha', vocab), 'CMSY10');
   assert.equal(aliasFont('ABCDEF+GoogleSans-Regular', vocab), 'ABCDEF+GoogleSans-Regular', 'a text font it cannot place is kept');
+});
+
+test('PLOS\'s renamed Computer Modern symbols read as the characters they print', () => {
+  assert.equal(aliasText('ð', 'TeX_CM_Maths_Symbols'), '(');
+  assert.equal(aliasText('¼', 'TeX_CM_Maths_Symbols'), '=');
+  assert.equal(aliasText('ð', 'ABCDEF+CMR10'), 'ð', 'only in that font');
+});
+
+test('word gaps: justified lines and negatively tracked text still split into words', () => {
+  // Letters 5 pt wide touching (gap 0), words 1.6 pt apart: under a fifth of an em (2 pt at 10 pt).
+  const line = (gap: number, word: number): Glyph[] => {
+    const out: Glyph[] = []; let x = 72;
+    for (const w of ['routing', 'tokens', 'between', 'experts']) {
+      for (const ch of w) { out.push({ text: ch, x0: x, x1: x + 5, top: 100, bottom: 110, size: 10, font: 'ABCDEF+MinionPro-Regular', upright: true }); x += 5 + gap; }
+      x += word - gap;
+    }
+    return out;
+  };
+  const tight = line(0, 1.6);
+  useWordGaps(null);
+  assert.equal(lineText(tight, [])[0], 'routingtokensbetweenexperts', 'a fifth of an em is too wide a test for this line');
+  useWordGaps(typicalGap([{ glyphs: tight }]));
+  assert.equal(lineText(tight, [])[0], 'routing tokens between experts');
+  const tracked = line(-0.17, 1.8); // PLOS: letters overlap by 0.017 em, words 0.18 em apart
+  useWordGaps(typicalGap([{ glyphs: tracked }]));
+  assert.equal(lineText(tracked, [])[0], 'routing tokens between experts');
+  useWordGaps(null);
+});
+
+test('TeX\'s text accents compose with their letters; a math accent over another font stays', () => {
+  const g = (text: string, x0: number, top: number, font = 'ABCDEF+CMR10'): Glyph => ({ text, x0, x1: x0 + 5, top, bottom: top + (text === '¨' ? 3 : 10), size: 10, font, upright: true });
+  const naive = [g('N', 0, 100), g('a', 5, 100), g('¨', 10, 99), g('ı', 10, 100), g('v', 15, 100), g('e', 20, 100)];
+  composeAccents(naive);
+  assert.equal(naive.map(x => x.text).join(''), 'Naïve');
+  const hat = [g('ˆ', 0, 98), g('Z', 0, 100, 'ABCDEF+CMBX10')];
+  composeAccents(hat);
+  assert.deepEqual(hat.map(x => x.text), ['ˆ', 'Z'], '\\hat{\\mathbf{Z}}: the accent is the roman font\'s');
+});
+
+test('line bands: a lowered delimiter that reaches the next line does not join the two lines', () => {
+  const at = (text: string, x0: number, top: number, h = 10.9): Glyph => ({ text, x0, x1: x0 + 5, top, bottom: top + h, size: 10, font: 'ABCDEF+CMR10', upright: true });
+  // JMLR's venue PDF: "… function X_ij(·) at a finite level," with the parentheses' boxes 8 pt low, then the next line.
+  const glyphs = [at('X', 0, 134.3), at('i', 6, 138.1, 8), at('p', 10, 142.1), at('q', 16, 142.1), at('a', 25, 134.3), at('t', 30, 134.3),
+    at('u', 0, 147.8), at('s', 6, 147.8), at('e', 12, 147.8)];
+  useLineBands(false);
+  assert.equal(linesOf(glyphs).length, 1, 'the port kit\'s rule reads them as one line');
+  useLineBands(true);
+  assert.deepEqual(linesOf(glyphs).map(l => l.map(x => x.text).join('')), ['Xipqat', 'use']);
+  // A line that opens with the line above's subscript keeps its own superscript ("N = 10^4"), and an accent joins.
+  const scripts = [at('1', 0, 134.8, 7.6), at('N', 6, 131.0, 10), at('=', 12, 130.0, 10.4), at('1', 18, 131.2, 10), at('0', 24, 131.2, 10),
+    at('4', 30, 129.3, 7.6), at('ˆ', 36, 128.5, 3), at('x', 36, 131.2, 10)];
+  assert.equal(linesOf(scripts).length, 1);
+  useLineBands(false);
 });

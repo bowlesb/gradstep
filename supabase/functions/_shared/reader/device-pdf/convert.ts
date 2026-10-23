@@ -2,8 +2,8 @@
 // blocks in the reference's order, the reference's own index (`trace`, for bundle_conformance.py) and the
 // formulas with their crops; `emit.ts` turns the logical blocks into this reader's vocabulary.
 import { check, fail, sha256Hex, utf8 } from '../util.ts';
-import { argsort, assign, byX, canonicalText, centreIn, clipBytes, growLines, joinLines, lineText, linesOf, median, orphanRegions,
-  pyRound, recogniserRect, typicalGap, union, useWordGaps, visible } from './geometry.ts';
+import { argsort, assign, byX, canonicalText, centreIn, clipBytes, composeAccents, growLines, joinLines, lineText, linesOf, median, orphanRegions,
+  pyRound, recogniserRect, typicalGap, union, useLineBands, useWordGaps, visible } from './geometry.ts';
 import { confidence, renderMath, tidyLatex } from './math.ts';
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
@@ -74,12 +74,14 @@ function readPage(raw: PageInput, aliases?: TaggerVocabulary): Page {
 export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const prefix = sha256Hex(utf8(`${input.pdf.sha256}:${DEVICE_PDF_RENDERER_ID}:${DEVICE_PDF_CONVERTER_VERSION}`)).slice(0, 12);
   useWordGaps(null);
+  useLineBands(!!input.lineBands);
   const nPages = input.pages;
   check(Number.isSafeInteger(nPages) && nPages >= 1 && nPages <= 2000, 'device_pdf_pages');
   const cancelled = () => { if (host.cancelled?.()) fail('cancelled'); };
   // The text layer and the layout of every page first: running heads are known only from the whole document.
   const pages: Page[] = [];
   for (let p = 0; p < nPages; p++) { cancelled(); pages.push(readPage(host.page(p), input.fontAliases ? input.tagger : undefined)); host.progress?.('layout', p + 1, nPages); }
+  if (input.accents) for (const page of pages) composeAccents(page.glyphs);
   if (input.wordGaps) useWordGaps(typicalGap(pages));
   const known = furniture(pages.map(page => ({ glyphs: page.glyphs, height: page.height })));
   // Pages the host read by text recognition (its text layer missing or unreadable; DevicePDFOCR.swift).
