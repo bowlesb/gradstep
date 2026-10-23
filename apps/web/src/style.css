@@ -1101,10 +1101,10 @@ button.tag.on:hover { background: var(--accent); color: var(--on-accent); filter
 .composer-model { display:flex; align-items:center; gap:8px; font-size:var(--fs-foot); padding:6px 0; }
 .composer-pill .composer-send { margin-left:auto; }
 .contextual-chat { border-top:1px solid var(--line); padding-top:12px; min-width:0; }
-.contextual-chat .chat-pane { height:auto; min-height:100px; }
+.contextual-chat .chat-pane { height:auto; min-height:100px; background:transparent; }
 .contextual-chat .chat-transcript { min-height:0; max-height:55dvh; }
 .contextual-chat .chat-composer { position:sticky; bottom:0; background:var(--surface); }
-.contextual-chat .chat-transcript:empty { display:none; }
+.contextual-chat .chat-transcript:empty, .contextual-chat .chat-pane-empty .chat-transcript { display:none; }
 .crop-zoom-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:4px; font-size:var(--fs-foot); }
 .crop-zoom-controls button { min-height:32px; white-space:nowrap; }
 .crop-zoom-controls .icon-button { width:32px; height:32px; }
