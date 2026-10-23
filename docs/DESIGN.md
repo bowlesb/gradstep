@@ -85,6 +85,14 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   layer or duration. Components: one Button family (primary, secondary, link) with hover and pressed states, a round
   IconButton, one Menu (32 px rows, accent icons, scrolls within the window), one Segmented, one Chip, one selected look
   (accent words on the accent tint), one Banner for notices in place and one Toast.
+- **Browser search, screen options and Settings** (owner, 2026-10-22): off the Library route, searching papers is a mode
+  of the left panel, like Mail (`ui/SearchRail.tsx`): its own field with ✕, the Library | ML papers switch inside the
+  panel, then a list (title, authors · year). A result opens in the middle; beside the paper the list stays with the open
+  paper highlighted (a drawer closes on opening). Esc clears, a second Esc or ✕ puts the panel back as it was (Contents
+  or closed). On the Library its field filters the table and the switch sits in its title row. Library and Feed have one
+  round "…" at the right of their title rows (`MenuButton` with `SubMenu`s showing the current choice; Library's first
+  row is Add paper…). The account menu holds who, Settings…, Keyboard shortcuts, Report this screen… and Sign out…;
+  Settings is an information dialog with the apps' sections in their order (`ui/Settings.tsx`).
 - **Sheet top row** (owner, build 62, 2026-10-16: "the top horizontal space is poorly used… use Liquid Glass… remove Done,
   use an X"): an information sheet (Contents, a figure or table, the equation view, an explainer) has one glass row at
   the top: its controls on the left (tabs, or the page's actions), a round glass **X** on the right. No centred title
