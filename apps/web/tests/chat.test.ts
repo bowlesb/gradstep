@@ -11,6 +11,7 @@ it('an unavailable cloud model asks for another choice without offering the same
   expect(failureText('model_unavailable')).toContain('Choose another model');
   expect(failureText('model_unavailable')).toContain('isn’t available right now');
   expect(failureText('model_unavailable')).toContain('Your AI credits were not charged');
+  expect(failureText('service_unavailable')).toBe('AI answers are unavailable right now. Try again in a few minutes.');
   expect(retryable('model_unavailable')).toBe(false);
   expect(retryable('provider_unavailable')).toBe(true);
 });

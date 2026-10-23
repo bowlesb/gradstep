@@ -519,6 +519,8 @@ public enum ChatFailureText {
         case "rate_limited": "Too many requests right now. Try again in a moment."
         case "document_unavailable": "This paper isn’t ready for questions yet. Try again after it finishes processing."
         case "provider_unavailable": "The AI service couldn’t finish this answer. Try again."
+        // Ours to fix, for every model alike (the gateway’s key or balance, or our server): a quick retry can’t help.
+        case "service_unavailable": "AI answers are unavailable right now. Try again in a few minutes."
         case "model_unavailable": "This AI model isn’t available right now. Your AI credits were not charged. Choose another model in AI options, or try again later."
         case "refused": "This request can’t be answered. Try rephrasing your question."
         case "invalid_request": "This conversation couldn’t be sent. Try starting a new chat."

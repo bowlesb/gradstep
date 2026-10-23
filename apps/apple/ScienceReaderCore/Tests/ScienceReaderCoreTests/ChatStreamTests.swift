@@ -173,6 +173,7 @@ import Testing
         #expect(ChatFailureText.message(for: "insufficient_credits").hasPrefix("Not enough credits"))
         #expect(ChatFailureText.message(for: "platform_budget_exhausted").hasPrefix("AI answers are paused"))
         #expect(ChatFailureText.message(for: "something_new") == "The answer couldn’t be completed. Try again.")
+        #expect(ChatFailureText.message(for: "service_unavailable") == "AI answers are unavailable right now. Try again in a few minutes.")
         #expect(!ChatFailureText.isRetryable("refused"))
         #expect(ChatFailureText.isRetryable("provider_unavailable"))
         #expect(!ChatFailureText.isRetryable("model_unavailable"))

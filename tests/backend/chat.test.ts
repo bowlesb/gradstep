@@ -692,6 +692,18 @@ test('A13: a provider billing refusal (402) settles without charge and blames th
   assert.equal(settlements[0].params.p_actual_microusd, 0);
 });
 
+test('A13: the gateway refusing our key (401) settles without charge and blames the service, without a quick retry', async () => {
+  const h = harness({ generate: async () => ({ status: 'failed', failure: 'provider_rejected', messageID: null, httpStatus: 401,
+    rejectionReason: 'authentication', model: SONNET, stopReason: null, refusalCategory: null, attempts: [], exact: true }) });
+  await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'service_unavailable', credits: 0, charged: false, reason: 'provider', retry_after: 300 } }]);
+  assert.deepEqual(h.logs.map(l => l.event), ['chat_provider_rejected', 'chat_provider_authentication']);
+  const settlements = h.calls.filter(c => c.name === 'worker_settle_chat');
+  assert.equal(settlements.length, 1);
+  assert.equal(settlements[0].params.p_actual_credits, 0);
+  assert.equal(settlements[0].params.p_actual_microusd, 0);
+});
+
 test('a thrown provider failure is settled as uncertain input, never left reserved', async () => {
   const h = harness({ generate: async () => { throw new Error('boom'); } });
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
