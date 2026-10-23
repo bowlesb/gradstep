@@ -38,11 +38,17 @@ struct PodcastListenView: View {
     @Bindable var model: ReaderModel
     @State private var width: CGFloat = 0
     @Environment(\.tabBarReserve) private var tabBarReserve
+    /// The Wide shape: the places capsule and ⋯ in the one top row; the chips lead the content.
+    @Environment(\.wideBar) private var wideBar
     private var center: PodcastCenter { model.podcasts }
+    private var listShown: Bool {
+        center.catalogState == .loaded && !(center.catalog.isEmpty && center.keptDownloads.isEmpty && center.myEpisodes.isEmpty && center.myRequests.isEmpty)
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if wideBar && !listShown { chips.padding(.horizontal, DesignMetrics.margin).padding(.top, 8) }
                 switch center.catalogState {
                 case .idle, .loading:
                     Spacer(); ProgressView("Finding episodes…").accessibilityIdentifier("podcast.loading"); Spacer()
@@ -84,6 +90,9 @@ struct PodcastListenView: View {
 
     private var list: some View {
         List {
+            if wideBar {
+                chips.listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: 0))
+            }
             if let transfer = center.transfer { PodcastTransferBanner(center: center, transfer: transfer).listRowSeparator(.hidden) }
             // Your episodes (owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there
             // for you"): the ones being made, the ones that couldn't be, then the ready ones, newest first.
@@ -120,37 +129,49 @@ struct PodcastListenView: View {
         .accessibilityIdentifier("podcast.catalog")
     }
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    PodcastListenChip(model: model)
-                    // The Feed's own chips (FeedChipsBar's: For you, the reader's topics, or the categories), none selected
-                    // while Listen is; choosing one leaves Listen for that feed.
-                    ForEach(FeedChips.chips(personal: model.feedPersonal, categories: model.feedCategories, selected: model.currentFeedSelection)) { chip in
-                        ChipButton(title: chip.title, selected: false) {
-                            center.listenSelected = false
-                            model.selectFeed(chip.selection)
-                        }.accessibilityIdentifier(chip.id)
-                    }
+    @ViewBuilder private var header: some View {
+        if wideBar {
+            WideBar { WidePlacesCapsule(model: model) } trailing: { optionsMenu }
+        } else {
+            HStack(spacing: 10) {
+                chips
+                optionsMenu
+            }
+            .readableColumn().padding(.top, 2).padding(.bottom, 8)
+            .chromeBand(.top)
+        }
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                PodcastListenChip(model: model)
+                // The Feed's own chips (FeedChipsBar's: For you, the reader's topics, or the categories), none selected
+                // while Listen is; choosing one leaves Listen for that feed.
+                ForEach(FeedChips.chips(personal: model.feedPersonal, categories: model.feedCategories, selected: model.currentFeedSelection)) { chip in
+                    ChipButton(title: chip.title, selected: false) {
+                        center.listenSelected = false
+                        model.selectFeed(chip.selection)
+                    }.accessibilityIdentifier(chip.id)
                 }
             }
-            .mask(HStack(spacing: 0) {
-                Color.black
-                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 24)
-            })
-            Menu {
-                Section {
-                    // Pull to refresh does the same; the row names what it checks (owner report, build 34: "Refresh episodes what does that mean??").
-                    MenuRow("Check for new episodes", systemImage: "arrow.clockwise") { center.loadCatalog() }
-                }
-                Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
-                SettingsMenuSection(model: model)
-            } label: { HeaderButtonLabel(systemImage: "ellipsis") }
-            .buttonStyle(.plain).accessibilityLabel("Listen options")
         }
-        .readableColumn().padding(.top, 2).padding(.bottom, 8)
-        .chromeBand(.top)
+        .mask(HStack(spacing: 0) {
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 24)
+        })
+    }
+
+    private var optionsMenu: some View {
+        Menu {
+            Section {
+                // Pull to refresh does the same; the row names what it checks (owner report, build 34: "Refresh episodes what does that mean??").
+                MenuRow("Check for new episodes", systemImage: "arrow.clockwise") { center.loadCatalog() }
+            }
+            Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
+            SettingsMenuSection(model: model)
+        } label: { HeaderButtonLabel(systemImage: "ellipsis") }
+        .buttonStyle(.plain).accessibilityLabel("Listen options")
     }
 }
 

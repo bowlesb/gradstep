@@ -11,7 +11,6 @@ enum ReaderTab: String, CaseIterable, Identifiable {
     var id: Self { self }
     var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
 }
-enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat", notes = "Snippets" }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
 /// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says.
 enum SelectionAction: String, CaseIterable {
@@ -146,7 +145,20 @@ final class ReaderModel {
         if tab != oldValue, settingsPresented { settingsPresented = false }
         if tab != oldValue, notes.capturing != nil { notes.capturing = nil }
     } }
-    var wideMode: WideMode = .library
+    /// Wide shape only (docs/DESIGN.md › Tall and Wide, "Two slots"): the list in the left slot beside the paper. Papers
+    /// (Browse: the library or search results) or Contents (Navigate); none is Read.
+    var wideList: WideList = .none
+    /// The library's list beside the paper (Browse; Library ⋯ › Show library beside paper, the Mac's View menu).
+    var libraryBesidePaper: Bool {
+        get { wideList == .papers }
+        set { wideList = newValue ? .papers : (wideList == .papers ? .none : wideList) }
+    }
+    /// Search opened the Papers list: Cancel puts the left slot back as it was (its list, or the paper's chat).
+    @ObservationIgnored var papersPanelFromSearch = false
+    @ObservationIgnored var listBeforeSearch: WideList = .none
+    @ObservationIgnored var discussBeforeSearch = false
+    /// Mac: where Settings was opened from (Settings replaces the window's panes there; Done returns).
+    @ObservationIgnored var placeBeforeSettings: ReaderTab = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
     @ObservationIgnored private var deviceTextIndex = DevicePaperTextIndex()
     @ObservationIgnored private var indexEpoch = UUID()
@@ -1700,7 +1712,7 @@ final class ReaderModel {
                             self.readerBundles === coordinator && self.localPersistence === persistence &&
                             !self.workOwnership.isActivating && !self.librarySearchPending && self.librarySearchIssue == nil &&
                             self.currentLibrarySearchKey == expectedSearch && self.libraryQuery.isEmpty &&
-                            self.tab == destination && self.wideMode == .library && self.offlineCacheIssue == nil &&
+                            self.tab == destination && self.offlineCacheIssue == nil &&
                             self.readerOpenAttempt == nil && self.openingPaperID == nil && self.selectedPaper == nil &&
                             self.papers.count == expectedRows && self.libraryRows.count == expectedRows &&
                             self.librarySearchCandidateRevision == expectedCandidateRevision &&
@@ -1711,7 +1723,7 @@ final class ReaderModel {
                     #if OFFLINE_RESOURCE_MEASUREMENTS
                     await OfflineResourceProbe.shared.samplePresentationCycle(isCurrent: isCurrent) { [weak self] destination in
                         // The ordinary compact-layout tab action assigns the
-                        // same destination; wideMode remains Library here.
+                        // same destination.
                         self?.tab = destination
                     }
                     #endif
@@ -1734,6 +1746,8 @@ final class ReaderModel {
         if ProcessInfo.processInfo.arguments.contains("--draft-fixture") || ChatFixtureTransport.isEnabled {
             do {
                 try await configureDurableDraftFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture"))
+                // The Feed's fixture results too (the Tall and Wide gallery shows every place signed in).
+                if ProcessInfo.processInfo.arguments.contains("--feed-fixture") { installFeedFixture() }
                 // Study (2026-10-14): a numbered paper beside the sample, so the fixture transport can tutor.
                 if ProcessInfo.processInfo.arguments.contains("--study-fixture") { try configureStudyFixture() }
             } catch { show(error) }
@@ -1749,7 +1763,7 @@ final class ReaderModel {
         #endif
         #if DEBUG && FIXTURE_HOST && !OFFLINE_RESOURCE_MEASUREMENTS
         if AuthenticationWorkflowFixture.isEnabled {
-            openSample(); tab = .library; wideMode = .library
+            openSample(); tab = .library
         }
         #endif
         if ProcessInfo.processInfo.arguments.contains("--reader-fixture") { openSample() }
@@ -1917,7 +1931,7 @@ final class ReaderModel {
         let guestDraft = wasGuest && chatComposerID != nil ? chatInput : nil
         let guestPaper = wasGuest && selectedPaper?.isSample == true ? selectedPaper : nil
         let guestGeneral = generalChat
-        let guestTab = tab, guestMode = wideMode
+        let guestTab = tab, guestBrowse = libraryBesidePaper
         // Settings is a sheet since Notes took its tab (2026-10-21): a sign-in begun from it returns there too.
         let guestSettings = settingsPresented
         clearAccountView()
@@ -1925,7 +1939,7 @@ final class ReaderModel {
             if let guestPaper { papers = [guestPaper]; select(guestPaper) }
             generalChat = guestGeneral || guestPaper == nil
             if let guestDraft { chatInput = String(guestDraft.prefix(20_000)) }
-            tab = guestTab; wideMode = guestMode; settingsPresented = guestSettings
+            tab = guestTab; libraryBesidePaper = guestBrowse; settingsPresented = guestSettings
         }
     }
 
@@ -2178,7 +2192,7 @@ final class ReaderModel {
     /// The screen's name and the app's own snapshot for a report (no snapshot over the recovery code or sign-in; any
     /// other secret on screen is covered: `hiddenFromReports`).
     func captureReport(sheet: String?) {
-        reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)" + (sheet.map { " / \($0)" } ?? "")
+        reportScreen = "\(compactLayout ? tab.rawValue : "\(widePlace.rawValue) (wide)")" + (sheet.map { " / \($0)" } ?? "")
         reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
     }
 
@@ -2287,7 +2301,7 @@ final class ReaderModel {
         email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
         notes.reset(); settingsPresented = false
-        showReportsAfterComposer = false; error = nil; sessionEndedIssue = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
+        showReportsAfterComposer = false; error = nil; sessionEndedIssue = nil; tab = .library; syncStatus = "On this device"
         syncIssue = nil
     }
 
@@ -2446,12 +2460,12 @@ final class ReaderModel {
     /// carries into search (build 75: "I somehow got here, I wonder if a search was not escaped").
     func searchPapers(_ query: String) {
         libraryTagFilter = nil; libraryQuery = ""
-        discoveryQuery = query; searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+        discoveryQuery = query; searchExternal = true; tab = .library; runDiscovery()
     }
     /// The Library's papers with this keyword (a keyword's "Show library papers tagged").
     func showLibraryPapers(taggedWith tag: String) {
         searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all; libraryTagFilter = tag
-        tab = .library; wideMode = .library
+        tab = .library
     }
     func runDiscovery() {
         let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2988,7 +3002,6 @@ final class ReaderModel {
                 readerBundles?.cancelOpening()
                 readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil
                 if tab == .paper { tab = .library }
-                if wideMode == .reader || wideMode == .browse { wideMode = .library }
             }
             else { openLocalPaperIfNeeded() }
         }
@@ -3007,8 +3020,13 @@ final class ReaderModel {
             } else { uploads.pickRequest = .init(target: .localPaper(current.id), title: current.title) }
             return
         }
-        selectedPaper = current; chatPaperID = current.id; tab = .paper; returnToChatAvailable = false
-        if wideMode != .browse { wideMode = .reader }
+        // Wide: a paper opened from the full-width Library or Feed lands in Browse, with that list in the left slot.
+        if !compactLayout && !Platform.isMac {
+            if tab == .library { wideList = .papers } else if tab == .feed { wideList = .feed }
+        }
+        selectedPaper = current; chatPaperID = current.id; showPaperPlace(); returnToChatAvailable = false
+        // A result picked from the Papers list: the search's earlier view is no longer the way back.
+        discussBeforeSearch = false; papersPanelFromSearch = false
         generalChat = false
         recordOpened(current)
         openLocalPaperIfNeeded(userInitiated: true)
@@ -3193,7 +3211,6 @@ final class ReaderModel {
     /// The Library, where a paper being set up shows its progress (the Feed's loading sign).
     func showLibrary() {
         tab = .library
-        if wideMode != .browse { wideMode = .library }
     }
     /// The Feed's checkmark opens the paper (owner, build 42: "it should take me to the library entry").
     func openLibraryPaper(sourceID: String) { if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { select(paper) } }
@@ -3523,16 +3540,16 @@ final class ReaderModel {
 
     func askAboutSelectedPaper() {
         guard let selectedPaper else { return }
-        chatPaperID = selectedPaper.id; generalChat = false; tab = .chat; wideMode = .reader; readerChatHidden = false
+        chatPaperID = selectedPaper.id; generalChat = false; tab = .chat; readerChatHidden = false
     }
 
     func openConversation(_ id: UUID) {
         guard let event = privateState.revisions(for: id).first, event.payload.kind == .conversation else { return }
         if let documentID = event.payload.documentID {
-            chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }; generalChat = false; wideMode = .reader
+            chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }; generalChat = false
             readerChatHidden = false
             openLocalPaperIfNeeded(userInitiated: true)
-        } else { generalChat = true; wideMode = .chat }
+        } else { generalChat = true }
         activeConversation = id; tab = .chat
     }
 
@@ -3567,9 +3584,9 @@ final class ReaderModel {
         guard draft.context == "general" || documentID != nil, chatWorkspace.selectDraft(id) != nil else { return }
         if let documentID {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }
-            generalChat = false; wideMode = .reader; readerChatHidden = false
+            generalChat = false; readerChatHidden = false
             openLocalPaperIfNeeded(userInitiated: true)
-        } else { generalChat = true; wideMode = .chat }
+        } else { generalChat = true }
         if let checkpoint = chatWorkspace.checkpoint(for: id), let conversation = checkpoint.conversationID,
            let head = checkpoint.selectedHead {
             branchSelections.select(head, in: conversation)
@@ -3822,7 +3839,7 @@ final class ReaderModel {
         guard let paper = selectedPaper else { return }
         chatPaperID = paper.id; generalChat = false
         if activeConversation != nil { newChat(general: false) }
-        tab = .chat; wideMode = .reader; readerChatHidden = false
+        tab = .chat; readerChatHidden = false
         chatQuoteAction(.ask, quote: text.split(whereSeparator: \.isWhitespace).joined(separator: " "))
     }
 
@@ -3863,7 +3880,7 @@ final class ReaderModel {
         // request into cloud inference (or switch a cloud choice to a local default).
         localAIModelID = carriedLocal
         if carried != chatDefaultProfile { setChatProfile(carried) }
-        tab = .chat; wideMode = .reader; readerChatHidden = false
+        tab = .chat; readerChatHidden = false
         // The quote (and the passage it came from, saved on the new conversation) travels with this exact prompt
         // and composer only.
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote,
@@ -4126,7 +4143,7 @@ final class ReaderModel {
         switch outcome {
         case .paragraph(let paperID, let marker): goToCitedBlock(marker, paperID: paperID)
         case .askInChat(let context): askAboutEquation(context)
-        case .continueChat: tab = .chat; wideMode = .reader; readerChatHidden = false; requestComposerFocus()
+        case .continueChat: tab = .chat; readerChatHidden = false; requestComposerFocus()
         }
     }
 
@@ -4140,7 +4157,7 @@ final class ReaderModel {
         newChat(general: false)
         if carried != chatDefaultProfile { setChatProfile(carried) }
         chatInput = "About \(context.label)" + (context.paragraph.map { " [¶\($0)]" } ?? "") + ": "
-        tab = .chat; wideMode = .reader; readerChatHidden = false
+        tab = .chat; readerChatHidden = false
         let selection = ReaderSelection(manifestSHA256: context.bundle.manifestSHA256,
                                         parts: [.init(kind: "equation", blockID: context.blockID, equationID: context.equationID)])
         let origin = readerDocumentScope.flatMap { scope in
@@ -4198,7 +4215,7 @@ final class ReaderModel {
             image: record.kind == .region ? image : nil, attachment: attachment, noteReturn: (record.noteID, record.entryID),
             imageSent: attachment != nil)
         chatInput = record.comment
-        tab = .chat; wideMode = paper == nil ? .chat : .reader; readerChatHidden = false
+        tab = .chat; readerChatHidden = false
         if !isSignedIn { openSignIn() } else { requestComposerFocus() }
     }
 
@@ -4419,7 +4436,7 @@ final class ReaderModel {
         if carried != chatDefaultProfile { setChatProfile(carried) }
         let marker = part?.paragraphs.first ?? context.paragraph
         chatInput = "About \(context.label)" + (part.map { ", \($0.name)" } ?? "") + (marker.map { " [¶\($0)]" } ?? "") + ": "
-        tab = .chat; wideMode = .reader; readerChatHidden = false
+        tab = .chat; readerChatHidden = false
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: nil, origin: nil, prefix: true) }
         if !isSignedIn { openSignIn() } else { requestComposerFocus() }
     }
@@ -5421,7 +5438,7 @@ final class ReaderModel {
             await prepareOfflineLibrary(accountID: fixtureDevice.accountID, scope: sessionID,
                 activation: activation, deploymentID: OfflineResourceFixture.deployment)
         }
-        tab = .library; wideMode = .library
+        tab = .library
     }
     #endif
 
@@ -5457,7 +5474,7 @@ final class ReaderModel {
         }
         await prepareOfflineLibrary(accountID: fixtureDevice.accountID, scope: sessionID, activation: activation,
                                     deploymentID: variant.deployment)
-        tab = .library; wideMode = .library
+        tab = .library
         // Visual checks without UI automation (docs/VISUAL_CHECK.md): open the fixture paper, and Edit tags over it.
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains("--visual-open-paper"), let paper = papers.first(where: { $0.id == OfflineReaderFixture.document }) {
@@ -5499,7 +5516,7 @@ final class ReaderModel {
         publish(snapshot)
         if let scrollAuditConversation { activeConversation = scrollAuditConversation }
         checkpointAllDrafts()
-        tab = .library; wideMode = .library
+        tab = .library
     }
     #endif
 

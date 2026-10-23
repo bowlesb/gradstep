@@ -150,13 +150,13 @@ final class AuthenticationModelTests: XCTestCase {
         let model = ReaderModel(configuration: nil)
         model.openSample()
         let paper = try XCTUnwrap(model.selectedPaper?.id)
-        let tab = model.tab, mode = model.wideMode
+        let tab = model.tab, browse = model.libraryBesidePaper
         model.openSignIn()
         model.closeSignIn(presentationID: try XCTUnwrap(model.signInPresentationID))
         model.authenticationSheetDismissed()
         XCTAssertEqual(model.selectedPaper?.id, paper)
         XCTAssertEqual(model.tab, tab)
-        XCTAssertEqual(model.wideMode, mode)
+        XCTAssertEqual(model.libraryBesidePaper, browse)
 
         let fresh = ReaderModel(configuration: nil)
         fresh.tab = .settings

@@ -196,6 +196,8 @@ enum FeedFormat {
 struct FeedTable: View {
     @Bindable var model: ReaderModel
     @Binding var issue: String?
+    /// Wide: the topic chips are the table's first row (the one top row has only the places and ⋯).
+    var showsChips = false
     @State private var expanded: Set<String> = []
     @State private var adding: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -225,6 +227,10 @@ struct FeedTable: View {
                        }
                    },
                    top: {
+                       if showsChips {
+                           FeedChipsRow(model: model).listRowSeparator(.hidden)
+                               .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: 0))
+                       }
                        if let issue {
                            StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
                        }

@@ -47,7 +47,7 @@ final class VisualScenarioTests: XCTestCase {
             // the iPad's narrow Browse column.
             "library-table": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { _ in sleep(1) },
             "library-table-browse": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { app in
-                if app.segmentedControls["wide.mode"].buttons["Browse"].exists { app.segmentedControls["wide.mode"].buttons["Browse"].tap() }
+                if app.wideShape { app.showBrowse() }
                 sleep(2)
             },
             "library-metadata-list": Scenario(arguments: Self.metadataFixture) { _ in sleep(1) },
@@ -307,24 +307,9 @@ final class VisualScenarioTests: XCTestCase {
         ]
     }
 
-    /// Tabs on compact layouts; the wide iPad layout's own controls otherwise (paper chat sits beside
-    /// the reader there).
+    /// The places capsule in either shape (Wide: the paper's chat sits beside the paper), the Mac toolbar's places.
     private func go(_ app: XCUIApplication, _ tab: String) {
-        if tab == "settings", app.buttons["tab.notes"].exists { app.show("settings"); return }
-        if app.buttons["tab.\(tab)"].exists { app.buttons["tab.\(tab)"].tap(); return }
-        #if targetEnvironment(macCatalyst)
-        // The Mac's view switch is the window toolbar's "View" group and its Settings item.
-        let title = tab == "settings" ? "Settings" : tab == "chat" ? "Reader" : tab.capitalized
-        for candidate in [app.toolbars.buttons[title], app.toolbars.radioButtons[title], app.buttons[title].firstMatch, app.radioButtons[title].firstMatch]
-        where candidate.waitForExistence(timeout: 2) { candidate.tap(); return }
-        XCTFail("no Mac toolbar control for \(tab)")
-        #else
-        switch tab {
-        case "settings": app.buttons["Settings"].tap()
-        case "chat": app.segmentedControls["wide.mode"].buttons["Reader"].tap()
-        default: app.segmentedControls.buttons[tab.capitalized].tap()
-        }
-        #endif
+        app.show(tab)
     }
 
     /// Scrolls the slow import's status into view (large text pushes it below the fold). VoiceOver reads the step and
@@ -407,7 +392,7 @@ final class VisualScenarioTests: XCTestCase {
 
     private func ask(_ app: XCUIApplication, _ question: String) {
         // The wide iPad layout has no tab bar; its general chat is a segment.
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
+        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
@@ -416,7 +401,7 @@ final class VisualScenarioTests: XCTestCase {
 
     /// Opens All chats from the chat's top bar, after leaving an unsent general draft when one is given.
     private func openHistory(_ app: XCUIApplication, draft: String? = nil) {
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
+        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
         if let draft {
             if app.buttons["chat.context"].exists, app.buttons["chat.context"].value as? String != "General chat" {
                 app.buttons["chat.context"].tap()

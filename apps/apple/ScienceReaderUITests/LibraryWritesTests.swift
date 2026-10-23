@@ -28,7 +28,7 @@ final class LibraryWritesTests: XCTestCase {
         app.launch()
 
         // The signed-in library (v5) has loaded its saved paper. The tab bar on a phone, the mode control on a wide iPad.
-        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 30) || app.segmentedControls["wide.mode"].buttons["Library"].exists)
+        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 30) || app.wideMode("Library").exists)
         app.show("library")
         let saved = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Attention Is All You Need")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 30), "The v5 baseline reached the Library")
@@ -57,7 +57,7 @@ final class LibraryWritesTests: XCTestCase {
         save(app, "library-v5-feed-setting-up")
         if setup.exists {
             setup.tap()
-            XCTAssertTrue(wait(app.buttons["tab.library"], "isSelected == true") || app.segmentedControls["wide.mode"].buttons["Library"].isSelected,
+            XCTAssertTrue(wait(app.buttons["tab.library"], "isSelected == true") || app.wideMode("Library").isSelected,
                           "The loading sign shows the Library")
         } else {
             app.show("library")

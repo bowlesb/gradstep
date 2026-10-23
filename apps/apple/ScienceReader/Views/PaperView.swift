@@ -193,6 +193,11 @@ struct PaperView: View {
     @Environment(\.wideReader) private var wideReader
     /// Inside reading mode: the quiet bar replaces the toolbar and the bottom controls.
     @Environment(\.readingModeActive) private var readingActive
+    /// The Wide shape (WideShape.swift): the paper's share of the one top row replaces the navigation bar.
+    @Environment(\.wideBar) private var wideBar
+    @Environment(\.placesInBar) private var placesInBar
+    /// The Wide row shows unless reading mode or drawing a snippet has the top (its Cancel takes the system bar).
+    private var wideRow: Bool { wideBar && !readingActive && model.notes.capturing != .paper }
 
     private var readingKey: String? {
         guard let paper = model.selectedPaper else { return nil }
@@ -303,8 +308,12 @@ struct PaperView: View {
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
+                    // Wide: the find bar floats over the top of the page and never moves the text (docs/DESIGN.md › Tall and Wide).
+                    .overlay(alignment: .topTrailing) {
+                        if find.isPresented && wideBar { PaperFindBar(find: find, floating: true).frame(maxWidth: 440).padding(12) }
+                    }
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        if find.isPresented { PaperFindBar(find: find) }
+                        if find.isPresented && !wideBar { PaperFindBar(find: find) }
                         if let run = model.deviceModelRun, run.paperID == paper.id { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() } }
                         else if let issue = model.deviceModelIssue { DeviceModelIssueBar(issue: issue) { model.deviceModelIssue = nil } }
                         else if model.isModelReading(paper), !readerFailed {
@@ -398,8 +407,9 @@ struct PaperView: View {
                 }
             }
             .tabBarSpace(fade: false)
+            .safeAreaInset(edge: .top, spacing: 0) { if wideRow { wideBarRow } }
             .navigationTitle("Paper").navigationBarTitleDisplayMode(.inline)
-            .toolbar(readingActive ? .hidden : .automatic, for: .navigationBar)
+            .toolbar(readingActive || wideRow ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
                 // Drawing a snippet: Cancel and what to do take the bar's place; the page itself doesn't move.
                 if model.notes.capturing == .paper { SnippetCaptureToolbar(model: model) } else {
@@ -423,72 +433,7 @@ struct PaperView: View {
                 // Screen options (docs/DESIGN.md): "…" is the rightmost item; view choices first,
                 // then this screen's actions, then "Report this screen".
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        // One row: smaller A, larger A.
-                        ControlGroup {
-                            MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.paperFontSize = max(14, model.paperFontSize - 1) }
-                                .disabled(model.paperFontSize <= 14)
-                            MenuRow("Larger text", systemImage: "textformat.size.larger") { model.paperFontSize = min(26, model.paperFontSize + 1) }
-                                .disabled(model.paperFontSize >= 26)
-                        }
-                        .controlGroupStyle(.compactMenu)
-                        if besideChat {
-                            MenuRow(model.readerChatHidden ? "Show chat" : "Hide chat", systemImage: "sidebar.right") {
-                                model.readerChatHidden.toggle()
-                            }.accessibilityIdentifier("paper.chatColumn")
-                        }
-                        MenuRow("Find in paper", systemImage: "magnifyingglass") { showFind() }.accessibilityIdentifier("paper.find")
-                            .disabled(!canFind)
-                        // Notes: draw a box around anything on the page and add it to a note (NOTES_AND_SNIPPETS.md).
-                        MenuRow("Draw snippet", systemImage: "crop") { beginDrawing() }.accessibilityIdentifier("paper.drawSnippet")
-                            .disabled(!canFind)
-                        if model.selectedPaper?.readerBundle?.index.figures.isEmpty == false {
-                            MenuRow("Figures", systemImage: "photo.on.rectangle") { showFigures = true }
-                                .accessibilityIdentifier("paper.figures").disabled(readerFailed || loadingPaper)
-                        }
-                        // The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md), when this paper's PDF is here.
-                        if let paper = model.selectedPaper, model.deviceModelAvailable, model.hasDeviceModelPDF(paper) {
-                            if model.isModelReading(paper) {
-                                MenuRow("Show the HTML reading", systemImage: "doc.richtext") { model.showHTMLReading() }
-                                    .accessibilityIdentifier("paper.htmlReading")
-                                MenuRow("Read again with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper, again: true) }
-                                    .disabled(model.deviceModelRun != nil)
-                            } else {
-                                MenuRow("Read with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper) }
-                                    .disabled(model.deviceModelRun != nil).accessibilityIdentifier("paper.deviceModel")
-                            }
-                        }
-                        MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
-                        // The paper's AI Explainer (2026-10-22, LEARNING_GUIDE.md): an arXiv paper numbered on this device.
-                        if let paper = model.selectedPaper, model.canExplainPaper(paper) {
-                            MenuRow("AI Explainer", systemImage: "sparkles") { model.openPaperExplainer(paper, requesting: false) }
-                                .accessibilityIdentifier("paper.aiExplainer").disabled(readerFailed || loadingPaper)
-                        }
-                        if let paper = model.selectedPaper {
-                            PodcastListenMenuRow(model: model, paper: paper)
-                            PaperShareMenu(paper: paper)
-                            Button("Find similar papers", systemImage: "doc.text.magnifyingglass") { model.findSimilarPapers(paper) }
-                            RecommendSimilarMenu(model: model, paper: paper)
-                        }
-                        // Its saved chats (owner request 2026-10-07: "a paper's own conversations when you open it").
-                        if let paper = model.selectedPaper, let count = model.paperChatCounts[paper.id], count > 0 {
-                            Button { model.openAllChats(paper: paper.id, thisPaper: true) } label: {
-                                Label { Text("Chats about this paper"); Text(ChatHistoryFormat.count(shown: count, total: count)) }
-                                    icon: { menuIcon(GradstepSymbol.chats) }
-                            }
-                            .accessibilityIdentifier("paper.chats")
-                        }
-                        if let paper = model.selectedPaper, !paper.isSample {
-                            MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
-                        }
-                        // The reader's version for this paper, and Update when a newer one is here (owner, build 62).
-                        if let paper = model.selectedPaper, paper.readerBundle?.manifest.source.kind == "arxiv-html" {
-                            MenuRow("Reader version details", systemImage: "info.circle") { showReaderVersion = true }
-                                .accessibilityIdentifier("paper.readerVersion")
-                        }
-                        MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
-                        SettingsMenuSection(model: model)
-                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
+                    Menu { paperMenuContent } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
                 }
             }
@@ -511,32 +456,6 @@ struct PaperView: View {
                 }
                 .environment(\.figureViewHost, figureHost { showContents = false })
                 .macSheetKeys()
-            }
-            .sheet(item: $model.presentedExplainer, onDismiss: {
-                applyFigureOutcome()
-                if let outcome = equationFollowUp { equationFollowUp = nil; model.applyEquationOutcome(outcome) }
-            }) { presentation in
-                let subject = presentation.subject
-                if subject.action == ChatAction.paperExplainer.rawValue, let context = model.paperExplainerContext(paperID: subject.paperID) {
-                    NavigationStack {
-                        PaperExplainView(model: model, context: context, requesting: presentation.requesting, finish: { outcome in
-                            model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
-                        }, close: { model.presentedExplainer = nil })
-                    }
-                    // The Mac's sheet opens at a reading size (its default is too small for the lists and the diagram).
-                    .frame(minWidth: Platform.isMac ? 680 : nil, minHeight: Platform.isMac ? 640 : nil)
-                    .macSheetKeys()
-                } else if subject.action == "equation" {
-                    EquationView(model: model, request: EquationViewRequest(paperID: subject.paperID, equationID: subject.itemID)) { outcome in
-                        equationFollowUp = outcome; model.presentedExplainer = nil
-                    }
-                } else if let context = model.figureContext(paperID: subject.paperID, figureID: subject.itemID) {
-                    NavigationStack {
-                        FigureExplainView(model: model, context: context, requesting: false, finish: { outcome in
-                            model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
-                        }, close: { model.presentedExplainer = nil })
-                    }
-                }
             }
             .sheet(isPresented: $showReaderVersion) {
                 if let paper = model.selectedPaper { ReaderVersionSheet(model: model, paper: paper).macSheetKeys() }
@@ -577,32 +496,59 @@ struct PaperView: View {
                 .environment(\.figureViewHost, figureHost { figureReference = nil })
                 .macSheetKeys()
             }
-            // The equation view: large, sized and scrolled as the reader likes, each symbol described. A symbol's
-            // paragraph or Ask in chat is applied once the sheet has gone.
-            .sheet(item: $equation, onDismiss: {
-                if let followUp = equationFollowUp { model.applyEquationOutcome(followUp) }
-                equationFollowUp = nil
-            }) { request in
-                EquationView(model: model, request: request) { outcome in equationFollowUp = outcome; equation = nil }
-                    .macSheetKeys()
-            }
-            .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } }), onDismiss: applyFigureOutcome) {
+        }
+        // Explainers outside the NavigationStack: in Wide they take the paper's slot with their own bar (ExplainPane).
+        .explainerPresentation(item: $model.presentedExplainer, wide: wideBar, onDismiss: {
+            applyFigureOutcome()
+            if let outcome = equationFollowUp { equationFollowUp = nil; model.applyEquationOutcome(outcome) }
+        }) { presentation in
+            let subject = presentation.subject
+            if subject.action == ChatAction.paperExplainer.rawValue, let context = model.paperExplainerContext(paperID: subject.paperID) {
                 NavigationStack {
-                    Group {
-                        if let figure, let bundle = model.selectedPaper?.readerBundle, let scope = model.readerDocumentScope {
-                            FigureWebView(bundle: bundle, figureID: figure, baseFontSize: model.paperFontSize, onReady: {
-                                #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
-                                if model.readerDocumentScope == scope, self.figure == figure { OfflineResourceProbe.shared.finish(.figure) }
-                                #endif
-                            })
-                            .figurePageActions(figureID: figure) { self.figure = nil }
-                        }
-                        else { Color.clear.sheetTopRow(close: { self.figure = nil }) }
-                    }
+                    PaperExplainView(model: model, context: context, requesting: presentation.requesting, finish: { outcome in
+                        model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
+                    }, close: { model.presentedExplainer = nil })
                 }
-                .environment(\.figureViewHost, figureHost { figure = nil })
+                // The Mac's sheet opens at a reading size (its default is too small for the lists and the diagram).
+                .frame(minWidth: Platform.isMac ? 680 : nil, minHeight: Platform.isMac ? 640 : nil)
                 .macSheetKeys()
+            } else if subject.action == "equation" {
+                EquationView(model: model, request: EquationViewRequest(paperID: subject.paperID, equationID: subject.itemID)) { outcome in
+                    equationFollowUp = outcome; model.presentedExplainer = nil
+                }
+            } else if let context = model.figureContext(paperID: subject.paperID, figureID: subject.itemID) {
+                NavigationStack {
+                    FigureExplainView(model: model, context: context, requesting: false, finish: { outcome in
+                        model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
+                    }, close: { model.presentedExplainer = nil })
+                }
             }
+        }
+        // The equation view: large, sized and scrolled as the reader likes, each symbol described. A symbol's
+        // paragraph or Ask in chat is applied once the sheet has gone.
+        .explainerPresentation(item: $equation, wide: wideBar, onDismiss: {
+            if let followUp = equationFollowUp { model.applyEquationOutcome(followUp) }
+            equationFollowUp = nil
+        }) { request in
+            EquationView(model: model, request: request) { outcome in equationFollowUp = outcome; equation = nil }
+                .macSheetKeys()
+        }
+        .explainerPresentation(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } }), wide: wideBar, onDismiss: applyFigureOutcome) {
+            NavigationStack {
+                Group {
+                    if let figure, let bundle = model.selectedPaper?.readerBundle, let scope = model.readerDocumentScope {
+                        FigureWebView(bundle: bundle, figureID: figure, baseFontSize: model.paperFontSize, onReady: {
+                            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
+                            if model.readerDocumentScope == scope, self.figure == figure { OfflineResourceProbe.shared.finish(.figure) }
+                            #endif
+                        })
+                        .figurePageActions(figureID: figure) { self.figure = nil }
+                    }
+                    else { Color.clear.sheetTopRow(close: { self.figure = nil }) }
+                }
+            }
+            .environment(\.figureViewHost, figureHost { figure = nil })
+            .macSheetKeys()
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
             selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false
@@ -662,7 +608,7 @@ struct PaperView: View {
         case .paragraph(let paperID, let marker): model.goToCitedBlock(marker, paperID: paperID)
         case .askInChat(let context, let part): model.askAboutFigure(context, part: part)
         case .signIn: model.openSignIn()
-        case .continueChat: model.tab = .chat; model.wideMode = .reader; model.readerChatHidden = false; model.requestComposerFocus()
+        case .continueChat: model.tab = .chat; model.readerChatHidden = false; model.requestComposerFocus()
         }
     }
 
@@ -836,6 +782,8 @@ struct PaperView: View {
     private func readerHooks(_ view: PaperWebView, scope: ReaderDocumentScope) -> PaperWebView {
         var hooked = view
         hooked.findController = find
+        // Wide has no tab bar under the page: room at the end so the floating text size never covers the last lines.
+        hooked.bottomInset = wideBar ? 64 : 0
         hooked.citationDismissID = citationDismissID
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
         hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
@@ -926,6 +874,103 @@ struct PaperView: View {
     }
 
     /// The paper's title, with "Offline sample" as a small second line rather than a separate band.
+    /// Screen options (docs/DESIGN.md): view choices first, then this screen's actions, then Report and Settings.
+    @ViewBuilder private var paperMenuContent: some View {
+        // One row: smaller A, larger A.
+        ControlGroup {
+            MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.paperFontSize = max(14, model.paperFontSize - 1) }
+                .disabled(model.paperFontSize <= 14)
+            MenuRow("Larger text", systemImage: "textformat.size.larger") { model.paperFontSize = min(26, model.paperFontSize + 1) }
+                .disabled(model.paperFontSize >= 26)
+        }
+        .controlGroupStyle(.compactMenu)
+        if besideChat {
+            MenuRow(model.readerChatHidden ? "Show chat" : "Hide chat", systemImage: "sidebar.right") {
+                model.readerChatHidden.toggle()
+            }.accessibilityIdentifier("paper.chatColumn")
+        }
+        if wideBar && model.canEnterReadingMode {
+            MenuRow("Reading mode", systemImage: "book") { model.enterReadingMode() }.accessibilityIdentifier("paper.readingMode")
+        }
+        // Wide: the library's list as the left panel (Search opens it too).
+        if wideBar {
+            Toggle(isOn: Binding(get: { model.libraryBesidePaper }, set: { model.setLibraryBesidePaper($0) })) {
+                Label { Text("Show library beside paper") } icon: { menuIcon("sidebar.left") }
+            }
+            .accessibilityIdentifier("paper.libraryPanel")
+        }
+        MenuRow("Find in paper", systemImage: "magnifyingglass") { showFind() }.accessibilityIdentifier("paper.find")
+            .disabled(!canFind)
+        // Notes: draw a box around anything on the page and add it to a note (NOTES_AND_SNIPPETS.md).
+        MenuRow("Draw snippet", systemImage: "crop") { beginDrawing() }.accessibilityIdentifier("paper.drawSnippet")
+            .disabled(!canFind)
+        if model.selectedPaper?.readerBundle?.index.figures.isEmpty == false {
+            MenuRow("Figures", systemImage: "photo.on.rectangle") { showFigures = true }
+                .accessibilityIdentifier("paper.figures").disabled(readerFailed || loadingPaper)
+        }
+        // The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md), when this paper's PDF is here.
+        if let paper = model.selectedPaper, model.deviceModelAvailable, model.hasDeviceModelPDF(paper) {
+            if model.isModelReading(paper) {
+                MenuRow("Show the HTML reading", systemImage: "doc.richtext") { model.showHTMLReading() }
+                    .accessibilityIdentifier("paper.htmlReading")
+                MenuRow("Read again with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper, again: true) }
+                    .disabled(model.deviceModelRun != nil)
+            } else {
+                MenuRow("Read with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper) }
+                    .disabled(model.deviceModelRun != nil).accessibilityIdentifier("paper.deviceModel")
+            }
+        }
+        MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
+        // The paper's AI Explainer (2026-10-22, LEARNING_GUIDE.md): an arXiv paper numbered on this device.
+        if let paper = model.selectedPaper, model.canExplainPaper(paper) {
+            MenuRow("AI Explainer", systemImage: "sparkles") { model.openPaperExplainer(paper, requesting: false) }
+                .accessibilityIdentifier("paper.aiExplainer").disabled(readerFailed || loadingPaper)
+        }
+        if let paper = model.selectedPaper {
+            PodcastListenMenuRow(model: model, paper: paper)
+            PaperShareMenu(paper: paper)
+            Button("Find similar papers", systemImage: "doc.text.magnifyingglass") { model.findSimilarPapers(paper) }
+            RecommendSimilarMenu(model: model, paper: paper)
+        }
+        // Its saved chats (owner request 2026-10-07: "a paper's own conversations when you open it").
+        if let paper = model.selectedPaper, let count = model.paperChatCounts[paper.id], count > 0 {
+            Button { model.openAllChats(paper: paper.id, thisPaper: true) } label: {
+                Label { Text("Chats about this paper"); Text(ChatHistoryFormat.count(shown: count, total: count)) }
+                    icon: { menuIcon(GradstepSymbol.chats) }
+            }
+            .accessibilityIdentifier("paper.chats")
+        }
+        if let paper = model.selectedPaper, !paper.isSample {
+            MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
+        }
+        // The reader's version for this paper, and Update when a newer one is here (owner, build 62).
+        if let paper = model.selectedPaper, paper.readerBundle?.manifest.source.kind == "arxiv-html" {
+            MenuRow("Reader version details", systemImage: "info.circle") { showReaderVersion = true }
+                .accessibilityIdentifier("paper.readerVersion")
+        }
+        MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
+        SettingsMenuSection(model: model)
+    }
+
+    /// Wide: the paper's share of the one top row. Contents at the left, the places capsule centred over the paper, ⋯ at
+    /// the right; the paper's title is its own heading. Reading mode and Show chat are rows of ⋯ (owner, 2026-10-22).
+    private var wideBarRow: some View {
+        WideBar {
+            // Navigate: Contents in the left slot beside the paper (Discuss: in the chat's place).
+            Button { model.toggleContentsPanel() } label: { HeaderButtonLabel(image: GradstepSymbol.contents) }
+                .buttonStyle(.plain).accessibilityLabel("Table of contents").accessibilityIdentifier("paper.contents")
+                .disabled(model.selectedPaper == nil)
+        } center: {
+            if placesInBar { WidePlacesCapsule(model: model) }
+        } trailing: {
+            Menu { paperMenuContent } label: { HeaderButtonLabel(systemImage: "ellipsis") }
+                .buttonStyle(.plain).accessibilityLabel("Paper options")
+        }
+        // Reading mode's ⇧⌘R with a hardware keyboard (the system bar's button carried it).
+        .background { Button("Reading mode") { model.enterReadingMode() }.modifier(ReadingModeShortcut()).disabled(!model.canEnterReadingMode)
+            .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false) }
+    }
+
     private var titleView: some View {
         VStack(spacing: 0) {
             Text(model.selectedPaper?.title ?? "Paper").font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -1025,6 +1070,8 @@ struct PaperWebView: UIViewRepresentable {
     /// Notes: Add to note on the selected text (what was selected, its quote), and Draw snippet from the context menu.
     var onAddToNote: ((ReaderSelection, String) -> Void)? = nil
     var onDrawSnippet: (() -> Void)? = nil
+    /// Room after the end of the page (the Wide shape's floating text size control).
+    var bottomInset: CGFloat = 0
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -1123,6 +1170,7 @@ struct PaperWebView: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
         (web as? ReaderWebView)?.hasSelection = hasSelection
+        if web.scrollView.contentInset.bottom != bottomInset { web.scrollView.contentInset.bottom = bottomInset }
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false
             context.coordinator.loadedURL = url

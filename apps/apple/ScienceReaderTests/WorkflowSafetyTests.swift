@@ -17,7 +17,7 @@ final class WorkflowSafetyTests: XCTestCase {
         let actions = ChatPaperActions()
         actions.openLibrary(mention, model: model)
         XCTAssertEqual(model.selectedPaper?.sourceID, "2310.12036")
-        XCTAssertEqual(model.tab, .paper); XCTAssertEqual(model.wideMode, .reader)
+        XCTAssertEqual(model.tab, .paper); XCTAssertEqual(model.widePlace, .paper)
         model.select(original); model.openConversation(conversation)
         XCTAssertEqual(model.chatInput, "Keep this original draft")
         XCTAssertEqual(model.chatMessages.map(\.id), messages)
@@ -33,10 +33,10 @@ final class WorkflowSafetyTests: XCTestCase {
         let original = try XCTUnwrap(model.selectedPaper), conversation = model.activeConversation
         let messages = model.chatMessages.map(\.id)
         model.chatInput = "Keep this while the paper converts"
-        model.tab = .chat; model.wideMode = .reader
+        model.compactLayout = false; model.tab = .chat; XCTAssertEqual(model.widePlace, .paper)
         model.searchExternal = true; model.libraryFilter = .archived; model.libraryTagFilter = "Other"; model.libraryQuery = "Hidden"
         ChatPaperActions().openLibrary(ChatPaperMention(identity: .arxiv(try ArxivReference("2310.12036")), title: nil), model: model)
-        XCTAssertEqual(model.tab, .library); XCTAssertEqual(model.wideMode, .library)
+        XCTAssertEqual(model.tab, .library); XCTAssertEqual(model.widePlace, .library)
         XCTAssertFalse(model.searchExternal); XCTAssertEqual(model.libraryFilter, .all); XCTAssertNil(model.libraryTagFilter)
         XCTAssertEqual(model.libraryQuery, "2310.12036")
         XCTAssertEqual(model.selectedPaper?.id, original.id); XCTAssertEqual(model.activeConversation, conversation)
@@ -286,14 +286,15 @@ final class WorkflowSafetyTests: XCTestCase {
     func testAskFromBrowseEntersReaderAndKeepsThePaperConversationDraft() {
         let model = ReaderModel(configuration: nil)
         var selected = paper(title: "Selected paper"); selected.isSample = true
-        model.papers = [selected]; model.wideMode = .browse; model.select(selected)
+        model.papers = [selected]; model.compactLayout = false; model.wideList = .papers; model.tab = .paper; model.select(selected)
         let conversation = UUID()
         model.activeConversation = conversation; model.chatInput = "Follow-up for this paper"
-        XCTAssertEqual(model.wideMode, .browse)
+        // Browse: the library's list beside the paper (iPad Wide's two slots).
+        XCTAssertTrue(model.browsing); XCTAssertEqual(model.tab, .paper)
 
         model.askAboutSelectedPaper()
 
-        XCTAssertEqual(model.wideMode, .reader)
+        XCTAssertEqual(model.widePlace, .paper)
         XCTAssertEqual(model.tab, .chat)
         XCTAssertFalse(model.generalChat)
         XCTAssertEqual(model.chatPaper?.id, selected.id)

@@ -35,7 +35,7 @@ final class ReaderNavigationTests: XCTestCase {
         app.launchArguments = ["--workflow-fixture", "--study-fixture"]
         app.launch()
         // The fixture selects the HTML paper: read on the Paper tab on a phone, in Reader in the wide layout.
-        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
         app.show("paper")
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "The study fixture opens the HTML paper")
@@ -278,15 +278,15 @@ final class ReaderNavigationTests: XCTestCase {
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication(); app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.segmentedControls.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["tab.search"].waitForExistence(timeout: 5), "The Wide row")
         app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].isSelected)
+        XCTAssertTrue(app.wideMode("Reader").isSelected)
         let reader = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); reader.name = "iPad reader and chat"; reader.lifetime = .keepAlways; add(reader)
-        app.segmentedControls["wide.mode"].buttons["Browse"].tap()
-        XCTAssertTrue(app.searchFields["library.search"].exists)
+        app.showBrowse()
+        XCTAssertTrue(app.segmentedControls["library.searchScope"].waitForExistence(timeout: 5), "The library's list beside the paper")
         XCTAssertTrue(app.webViews.firstMatch.exists)
-        app.buttons["Settings"].tap()
+        app.openSettingsFromMenu()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5))

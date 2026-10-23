@@ -195,6 +195,7 @@ struct ReadingModeView: View {
                 if model.readingChatShown {
                     ChatView(model: model)
                         .environment(\.chatBesidePaper, true)
+                        .environment(\.placesInBar, false)
                         .frame(width: chatWidth)
                         .background(Color(uiColor: .systemBackground))
                         .overlay(alignment: .leading) { Divider() }

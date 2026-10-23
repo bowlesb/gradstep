@@ -292,14 +292,14 @@ final class NotesAppTests: XCTestCase {
         // Going somewhere from Settings leaves it.
         model.openSettings(); model.tab = .library
         XCTAssertFalse(model.settingsPresented)
-        // Wide layouts: the Settings destination, and Done returns to the view it came from.
+        // Wide: Settings is a sheet on iPad, as in Tall; the Mac's Settings takes the panes and Done returns to the place.
         model.compactLayout = false
-        model.showWideMode(.notes)
+        model.showPlace(.notes)
         XCTAssertEqual(model.tab, .notes)
         model.openSettings()
-        XCTAssertEqual(model.tab, .settings)
+        if Platform.isMac { XCTAssertEqual(model.tab, .settings) } else { XCTAssertTrue(model.settingsPresented); XCTAssertEqual(model.tab, .notes) }
         model.closeSettings()
-        XCTAssertEqual(model.tab, .notes); XCTAssertEqual(model.wideMode, .notes)
+        XCTAssertEqual(model.tab, .notes); XCTAssertFalse(model.settingsPresented)
     }
     #endif
 }

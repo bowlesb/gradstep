@@ -34,8 +34,11 @@ final class PassageJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15))
-        let phone = app.buttons["tab.chat"].exists
+        // The phone's path (Tall); Wide has the paper beside its chat.
+        let phone = !app.wideShape
         app.buttons[sampleID].tap()
+        // Wide: opened from the Library it is Browse; ✕ closes the list (Read), as the journey began before.
+        if !phone, app.buttons["library.panel.close"].waitForExistence(timeout: 3) { app.buttons["library.panel.close"].tap() }
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         // The sample's first section is on its first screen.
@@ -69,12 +72,9 @@ final class PassageJourneyTests: XCTestCase {
             app.buttons["chat.returnToPaper"].tap()
             waitFor("The paper returns to the passage", passageVisible)
         } else {
-            // The chat is beside the paper; switch it to General chat (no keyboard over the paper) so the tap visibly
-            // brings this conversation back.
-            title.tap()
-            let general = app.buttons["General chat"]
-            XCTAssertTrue(general.waitForExistence(timeout: 5)); general.tap()
-            waitFor("General chat") { title.label == "Conversation: New chat" }
+            // Wide: Discuss. ✕ closes the chat (Read), so the tap on the mark visibly brings this conversation back.
+            app.buttons["chat.close"].tap()
+            waitFor("Read") { !title.exists }
             waitFor("The paper still shows the passage", passageVisible)
         }
         XCTAssertFalse(explain.exists)

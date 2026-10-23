@@ -52,8 +52,21 @@ import WebKit
 
 struct PaperFindBar: View {
     @Bindable var find: PaperFindController
+    /// Wide: a glass card floating over the top of the page instead of a bar that pushes it down.
+    var floating = false
     @FocusState private var focused: Bool
     var body: some View {
+        if floating {
+            content.padding(.top, 8).padding(.bottom, 2)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(uiColor: .separator), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 TextField("Find in paper", text: $find.query).textFieldStyle(.roundedBorder)
@@ -74,7 +87,7 @@ struct PaperFindBar: View {
             }
             .buttonStyle(.plain).disabled(find.matches.isEmpty).frame(minHeight: 36)
         }
-        .padding(.horizontal, 16).padding(.bottom, 6).background(.bar)
+        .padding(.horizontal, 16).padding(.bottom, 6).background(floating ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.bar))
         .task { focused = true }
         .task(id: find.query) { await find.search() }
         .sheet(isPresented: $find.showsMatches) {

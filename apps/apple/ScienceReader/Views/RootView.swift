@@ -9,8 +9,12 @@ struct RootView: View {
     @State private var softwareKeyboardShown = false
     var body: some View {
         GeometryReader { geometry in
-            // The Mac window is always the wide layout (its minimum width fits the panes).
-            let wide = geometry.size.width >= 850 || Platform.isMac
+            // Tall and Wide (docs/DESIGN.md): wider than tall and at least 1000 pt across is Wide (an iPad sideways, the
+            // Mac); everything else is Tall, the iPhone app. Measured on the whole window, keyboard included.
+            let insets = geometry.safeAreaInsets
+            let window = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
+                                height: geometry.size.height + insets.top + insets.bottom)
+            let wide = WindowShape.isWide(window: window)
             Group {
             if wide {
                 wideLayout(width: geometry.size.width).environment(\.figureViewerWindowSize, geometry.size)
@@ -40,13 +44,10 @@ struct RootView: View {
                                 .ignoresSafeArea(.container, edges: .bottom)
                         }
                     }
-                    .onChange(of: model.generalChat) { _, general in
-                        if model.tab == .chat { model.wideMode = general ? .chat : .reader }
-                    }
             }
             }
             .onAppear { model.compactLayout = !wide }
-            .onChange(of: wide) { _, now in model.compactLayout = !now }
+            .onChange(of: wide) { _, now in shapeChanged(toWide: now) }
         }
         // Visual checks pin the appearance (`--appearance=`); nil follows the system.
         .preferredColorScheme(Platform.fixtureAppearance)
@@ -141,16 +142,6 @@ struct RootView: View {
                     // A second tap on Notes goes back to its list, as a system tab bar does.
                     if tab == .notes && model.tab == .notes { model.notes.openNoteID = nil }
                     model.tab = tab
-                    // Keep the selected destination when an iPad
-                    // rotates from tabs into the wider layout.
-                    switch tab {
-                    case .feed: model.wideMode = .feed
-                    case .library: model.wideMode = .library
-                    case .paper: model.wideMode = .reader
-                    case .chat: model.wideMode = model.generalChat ? .chat : .reader
-                    case .notes: model.wideMode = .notes
-                    case .settings: break
-                    }
                 } label: { TabBarItem(tab: tab, selected: model.tab == tab) }
                 .buttonStyle(.plain)
                 .disabled(tab == .paper && model.selectedPaper == nil)
@@ -192,44 +183,57 @@ struct RootView: View {
         }
     }
 
+    /// Turning an iPad (or resizing a window) between Tall and Wide moves only the places capsule and the chat
+    /// (docs/DESIGN.md › Tall and Wide): the paper, its place, the open chat and its draft stay as they were.
+    private func shapeChanged(toWide wide: Bool) {
+        // An open chat stays open (the Chat tab in Tall, the card over the paper in Wide), with its draft; the paper keeps
+        // its place. Nothing else changes.
+        model.compactLayout = !wide
+        // A paper's chat open on the Chat tab shows beside its paper.
+        if wide, model.tab == .chat, !model.generalChat { model.readerChatHidden = false }
+        // iPad Settings is a sheet in both shapes; a Mac-style Settings place never shows in Tall.
+        if !wide, model.tab == .settings { model.tab = model.placeBeforeSettings; model.settingsPresented = true }
+    }
+
     private func wideLayout(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // On the Mac the view switch and Settings are in the window's toolbar (MacWindowConfiguration).
-            // Reading mode (READING_MODE.md) is the paper alone: no view switch, panes or docked player.
+            // Reading mode (READING_MODE.md) is the paper alone: no places, panes or docked player.
             if model.readingMode && model.tab != .settings {
                 ReadingModeView(model: model)
             } else {
-            if !Platform.isMac {
-                HStack {
-                    // The app's mark (∇ and its amber point), not a stock symbol.
-                    Label { Text("Gradstep") } icon: {
-                        Image(GradstepSymbol.mark).symbolRenderingMode(.palette).foregroundStyle(Color.gradstepInk, Color.gradstepAmber)
-                    }.font(.headline)
-                    Spacer()
-                    // No segment is selected while Settings is shown, so tapping any of them, the view Settings was
-                    // opened from included, leaves Settings (audit 2026-10-15: a tap on the highlighted one did nothing).
-                    Picker("View", selection: Binding<WideMode?>(get: { model.tab == .settings ? nil : model.wideMode },
-                                                                 set: { if let mode = $0 { model.showWideMode(mode) } })) {
-                        ForEach(WideMode.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
-                    }.pickerStyle(.segmented).frame(maxWidth: 560).accessibilityIdentifier("wide.mode")
-                    Button { model.tab = .settings } label: { Image(GradstepSymbol.settings).font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44) }
-                        .accessibilityLabel("Settings")
-                }.padding(.horizontal, 18).padding(.vertical, 12)
-                Divider()
-            }
             if model.tab == .settings {
-                // Done returns to the view Settings was opened from.
+                // The Mac: Settings takes the window's panes; Done returns to the place it was opened from.
                 SettingsView(model: model, dismissSettings: { model.closeSettings() })
             } else {
-                switch model.wideMode {
+                // Each pane draws its share of the one top row; the main pane's carries the places capsule. On the Mac the
+                // places are in the window's toolbar (MacWindowConfiguration).
+                switch model.widePlace {
                 case .feed: if model.podcasts.listenSelected { PodcastListenView(model: model) } else { FeedView(model: model) }
                 case .library: LibraryView(model: model)
-                case .reader: ReaderSplit(model: model, width: width)
-                case .browse:
-                    HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
-                case .chat: ChatView(model: model)
+                // Two slots, at most two columns (ReaderSplit.swift › WideSlots).
+                case .paper:
+                    // The Mac keeps the paper beside its chat column (or the library beside the paper) until its own step.
+                    if Platform.isMac {
+                        if model.wideList == .papers {
+                            HStack(spacing: 0) {
+                                LibraryView(model: model).frame(width: TwoSlotLayout<EmptyView, EmptyView>.listWidth(for: width))
+                                    .environment(\.placesInBar, false).environment(\.librarySidebar, true)
+                                Divider()
+                                PaperView(model: model).frame(maxWidth: .infinity)
+                            }
+                        } else { ReaderSplit(model: model, width: width) }
+                    } else { WideSlots(model: model, width: width) }
+                case .chat:
+                    // Chats (iPad Wide): your conversations beside the open one, like Messages.
+                    if Platform.isMac { ChatView(model: model) } else {
+                        TwoSlotLayout(width: width, other: .left) {
+                            ChatView(model: model).environment(\.chatsList, true)
+                        } otherView: {
+                            ChatHistoryView(model: model, embedded: true)
+                        }
+                    }
                 // Notes as list + detail; it never replaces the reader's chat pane.
-                case .notes: NotesView(model: model, wide: true)
+                case .notes, .settings: NotesView(model: model, wide: true, width: width)
                 }
             }
             // The podcast player docks along the bottom, below every pane (none of their controls go under it).
@@ -240,11 +244,12 @@ struct RootView: View {
             }
         }
         .environment(\.wideReader, true)
-        .onChange(of: model.wideMode) { _, mode in model.showWideMode(mode) }
+        .environment(\.wideBar, !Platform.isMac)
+        .environment(\.placesInBar, !Platform.isMac)
         // A narrow window (an iPad split) has no reading mode: it ends rather than hide everything.
         .onDisappear { model.exitReadingMode() }
         #if targetEnvironment(macCatalyst)
-        .background(MacWindowConfiguration(model: model, mode: model.wideMode, settingsShown: model.tab == .settings, reading: model.readingMode))
+        .background(MacWindowConfiguration(model: model, place: model.widePlace, settingsShown: model.tab == .settings, reading: model.readingMode))
         #endif
     }
 }
@@ -256,6 +261,11 @@ struct LibraryView: View {
     @State private var containerWidth: CGFloat = 0
     @State private var searchFocused = false
     @State private var showColumns = false
+    /// The Wide shape (WideShape.swift): the header is this pane's share of the one top row.
+    @Environment(\.wideBar) private var wideBar
+    @Environment(\.placesInBar) private var placesInBar
+    /// Browse's list beside the paper: rows, never the table (audit N8).
+    @Environment(\.librarySidebar) private var sidebar
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -352,7 +362,7 @@ struct LibraryView: View {
     /// The table spans the pane; everything else sits in the readable column. At accessibility text sizes the
     /// table shows the List's rows (DESIGN.md › Tables).
     private var tableShown: Bool {
-        model.libraryLayout == .table && !model.searchExternal && !dynamicTypeSize.isAccessibilitySize
+        model.libraryLayout == .table && !model.searchExternal && !dynamicTypeSize.isAccessibilitySize && !sidebar
     }
 
     private func clearFilters() { model.libraryFilter = .all; model.libraryTagFilter = nil }
@@ -406,7 +416,7 @@ struct LibraryView: View {
 
 
     /// The selected paper is highlighted only where it is shown beside the list (iPad Browse).
-    private var highlightsSelection: Bool { model.wideMode == .browse && Platform.isLargeScreen }
+    private var highlightsSelection: Bool { model.browsing && Platform.isLargeScreen }
 
     /// The catalog beside the search field when there is a choice of catalogs (owner, build 75: "Move the catalog to the
     /// left of the search bar and move the + option as a new row inside the dialogue on the far right").
@@ -414,20 +424,82 @@ struct LibraryView: View {
         !searching && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default")
     }
 
-    private var header: some View {
+    @ViewBuilder private var header: some View {
+        if wideBar { wideHeader } else { phoneHeader }
+    }
+
+    private var searchField: some View {
+        LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search",
+                           focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
+    }
+
+    private func cancelSearch() {
+        // Back to the whole library: no tag filter is left behind (build 75).
+        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
+        searchFocused = false
+    }
+
+    /// Wide: one row. The Library: its search field (as on iPhone), the places capsule, then ⋯ (Cancel while searching).
+    /// The panel beside the paper: the field at its top, like Mail, with the Library / ML paper search switch under it.
+    private var wideHeader: some View {
+        VStack(spacing: 0) {
+            if sidebar { panelRow } else { libraryRow }
+            if sidebar || searching {
+                VStack(spacing: 10) {
+                    Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
+                        .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+                    if model.searchExternal { AdvancedPaperSearch(model: model) }
+                }
+                .modifier(PanelOrColumn(panel: sidebar)).padding(.vertical, 8)
+                .chromeBand(.top, solid: true)
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: searching)
+    }
+
+    private var libraryRow: some View {
+        WideBar {
+            WideSearchField { searchField }.frame(width: 280)
+        } center: {
+            if placesInBar { WidePlacesCapsule(model: model) }
+        } trailing: {
+            if searching { Button("Cancel") { cancelSearch() }.accessibilityIdentifier("library.search.cancel") } else { optionsMenu }
+        }
+    }
+
+    /// The library beside the paper: the field fills the panel's row; ✕ closes the panel, Cancel (or Esc) ends a search and
+    /// puts the panel back as it was before Search opened it.
+    private var panelRow: some View {
+        WideBar {
+            WideSearchField { searchField }
+        } center: {
+            EmptyView()
+        } trailing: {
+            if searching {
+                Button("Cancel") { endPanelSearch() }.accessibilityIdentifier("library.search.cancel")
+                Button("Cancel search") { endPanelSearch() }.keyboardShortcut(.cancelAction)
+                    .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+            } else {
+                Button { model.setLibraryBesidePaper(false) } label: { HeaderButtonLabel(systemImage: "xmark") }
+                    .buttonStyle(.plain).accessibilityLabel("Close library").accessibilityIdentifier("library.panel.close")
+            }
+        }
+    }
+
+    private func endPanelSearch() {
+        cancelSearch()
+        model.endPapersSearch()
+    }
+
+    private var phoneHeader: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 if showsCatalog { catalogMenu }
-                LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search",
-                                   focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
+                searchField
                     .padding(.leading, 10).padding(.trailing, 6).frame(height: DesignMetrics.headerControl)
                     .chromeSurface(Capsule())
                 if searching {
-                    Button("Cancel") {
-                        // Back to the whole library: no tag filter is left behind (build 75).
-                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
-                        searchFocused = false
-                    }.accessibilityIdentifier("library.search.cancel")
+                    Button("Cancel") { cancelSearch() }.accessibilityIdentifier("library.search.cancel")
                 } else {
                     optionsMenu
                 }
@@ -486,6 +558,17 @@ struct LibraryView: View {
                 }.accessibilityIdentifier("library.add")
             }
             Section {
+                // Wide: the catalog choice lives here (the row has no room for it beside the places capsule).
+                if wideBar && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default") {
+                    Menu {
+                        Picker("Catalog", selection: Binding(get: { model.currentCatalog.id }, set: { model.selectCatalog($0) })) {
+                            ForEach(model.libraryCatalogs.catalogs) { Text($0.name).tag($0.id) }
+                        }.pickerStyle(.inline)
+                    } label: {
+                        Label { Text("Catalog"); Text(model.currentCatalog.name) } icon: { menuIcon("folder") }
+                    }
+                    .accessibilityIdentifier("library.catalog")
+                }
                 MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
                 RecommendCatalogMenu(model: model)
             }
@@ -496,6 +579,14 @@ struct LibraryView: View {
                     }.pickerStyle(.inline)
                 } label: {
                     Label { Text("View as"); Text(model.libraryLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
+                }
+                // Wide only: the library's list beside the paper (Browse, a place of its own before 2026-10-22).
+                if !model.compactLayout {
+                    // On the Library itself the list is the screen: the choice opens it beside the paper.
+                    Toggle(isOn: Binding(get: { model.browsing }, set: { model.setLibraryBesidePaper($0) })) {
+                        Label { Text("Show library beside paper") } icon: { menuIcon("sidebar.left") }
+                    }
+                    .accessibilityIdentifier("library.browse")
                 }
                 Menu {
                     Picker("Sort by", selection: sortField) {
@@ -763,14 +854,22 @@ struct FeedView: View {
     @ScaledMetric(relativeTo: .subheadline) private var columnScale: CGFloat = 1
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.tabBarReserve) private var tabBarReserve
+    /// The Wide shape: the places capsule and ⋯ in the one top row; the topic chips lead the content.
+    @Environment(\.wideBar) private var wideBar
+    /// Browse's left slot after opening a paper from the Feed: its rows beside the paper.
+    @Environment(\.librarySidebar) private var sidebar
     private var isFailed: Bool { if case .failed = model.feedState { true } else { false } }
     /// The table spans the pane (its header too); at accessibility text sizes it shows as the list.
     private var tableShown: Bool {
-        model.feedLayout == .table && !dynamicTypeSize.isAccessibilitySize && model.feedState == .loaded && !model.feedResults.isEmpty
+        model.feedLayout == .table && !dynamicTypeSize.isAccessibilitySize && model.feedState == .loaded && !model.feedResults.isEmpty && !sidebar
     }
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // Wide: the topics lead the content (the list and table carry them as their first row).
+                if wideBar && !(model.feedState == .loaded && !model.shownFeedResults.isEmpty) {
+                    FeedChipsRow(model: model).padding(.horizontal, DesignMetrics.margin).padding(.top, 8)
+                }
                 switch model.feedState {
                 case .idle, .loading:
                     Spacer(); ProgressView("Finding new papers…"); Spacer()
@@ -799,7 +898,7 @@ struct FeedView: View {
                             StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }
                                 .padding(.horizontal, DesignMetrics.margin).padding(.top, 6)
                         }
-                        FeedTable(model: model, issue: $issue).refreshable { model.loadFeed() }
+                        FeedTable(model: model, issue: $issue, showsChips: wideBar).refreshable { model.loadFeed() }
                     } else {
                         List {
                             if let issue {
@@ -807,6 +906,10 @@ struct FeedView: View {
                             }
                             if let stale = model.feedStaleNote {
                                 StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }.listRowSeparator(.hidden)
+                            }
+                            if wideBar {
+                                FeedChipsRow(model: model).listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: 0))
                             }
                             FeedColdStartNote(model: model)
                             ForEach(model.shownFeedResults) { result in
@@ -828,7 +931,7 @@ struct FeedView: View {
             .safeAreaInset(edge: .top, spacing: 0) { header }
             .tabBarSpace()
             .overlay(alignment: .bottomTrailing) {
-                if model.feedState == .loaded && !model.feedResults.isEmpty {
+                if model.feedState == .loaded && !model.feedResults.isEmpty && !sidebar {
                     let current = dynamicTypeSize.stepped(by: model.feedTextStep)
                     TextSizeControl(identifier: "feed.textSize",
                                     canShrink: dynamicTypeSize.stepped(by: model.feedTextStep - 1) != current,
@@ -862,63 +965,87 @@ struct FeedView: View {
             footer: TableColumnWording.footer(width))
     }
 
-    private var header: some View {
+    @ViewBuilder private var header: some View {
+        if wideBar && sidebar {
+            WideBar { Text("Feed").font(.headline).accessibilityAddTraits(.isHeader) } trailing: {
+                Button { model.wideList = .none } label: { HeaderButtonLabel(systemImage: "xmark") }
+                    .buttonStyle(.plain).accessibilityLabel("Close feed").accessibilityIdentifier("feed.panel.close")
+            }
+        } else if wideBar {
+            WideBar { WidePlacesCapsule(model: model) } trailing: { optionsMenu }
+        } else { phoneHeader }
+    }
+
+    private var phoneHeader: some View {
         HStack(spacing: 10) {
             if isFailed {
                 PodcastListenChip(model: model)
                 Text("Feed").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        // Listen (podcasts) first, then the Feed's own chips: For you, the reader's topics and
-                        // More topics when For you is offered; else the categories.
-                        PodcastListenChip(model: model)
-                        FeedChipsBar(model: model)
-                    }
-                }
-                // Chips that scroll past the edge fade out instead of sliding under the menu button.
-                .mask(HStack(spacing: 0) {
-                    Color.black
-                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 24)
-                })
+                FeedChipsRow(model: model)
             }
-            Menu {
-                Section {
-                    Menu {
-                        Picker("View as", selection: $model.feedLayout) {
-                            ForEach(FeedLayout.allCases, id: \.self) { Text($0.title).tag($0) }
-                        }.pickerStyle(.inline)
-                    } label: {
-                        Label { Text("View as"); Text(model.feedLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
-                    }
-                }
-                if model.feedLayout == .table {
-                    // The table's order and columns (build 17: "sort by Published, Title, Topic"; "choose which columns").
-                    Section {
-                        Menu {
-                            Picker("Sort by", selection: Binding(get: { model.feedSort.key }, set: { key in
-                                model.feedSort = PaperTableSort(key: key, ascending: key.ascendingFirst)
-                            })) {
-                                ForEach(FeedSortKey.offered(personal: model.currentFeedSelection.isPersonal), id: \.self) { Text($0.label).tag($0) }
-                            }.pickerStyle(.inline)
-                        } label: {
-                            Label { Text("Sort by"); Text(model.feedSort.key.label) } icon: { menuIcon("arrow.up.arrow.down") }
-                        }
-                        MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("feed.columns")
-                    }
-                }
-                Section {
-                    Toggle(isOn: $model.feedHidesLibrary) { Label("Hide papers in your library", systemImage: "checkmark.circle") }
-                        .accessibilityIdentifier("feed.hideLibrary")
-                    MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
-                }
-                Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
-                SettingsMenuSection(model: model)
-            } label: { HeaderButtonLabel(systemImage: "ellipsis") }
-            .buttonStyle(.plain).accessibilityLabel("Feed options")
+            optionsMenu
         }
         .modifier(HeaderWidth(fullWidth: tableShown)).padding(.top, 2).padding(.bottom, 8)
         .chromeBand(.top, solid: tableShown)
+    }
+
+    /// Every Feed option behind one button.
+    private var optionsMenu: some View {
+        Menu {
+            Section {
+                Menu {
+                    Picker("View as", selection: $model.feedLayout) {
+                        ForEach(FeedLayout.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }.pickerStyle(.inline)
+                } label: {
+                    Label { Text("View as"); Text(model.feedLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
+                }
+            }
+            if model.feedLayout == .table {
+                // The table's order and columns (build 17: "sort by Published, Title, Topic"; "choose which columns").
+                Section {
+                    Menu {
+                        Picker("Sort by", selection: Binding(get: { model.feedSort.key }, set: { key in
+                            model.feedSort = PaperTableSort(key: key, ascending: key.ascendingFirst)
+                        })) {
+                            ForEach(FeedSortKey.offered(personal: model.currentFeedSelection.isPersonal), id: \.self) { Text($0.label).tag($0) }
+                        }.pickerStyle(.inline)
+                    } label: {
+                        Label { Text("Sort by"); Text(model.feedSort.key.label) } icon: { menuIcon("arrow.up.arrow.down") }
+                    }
+                    MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("feed.columns")
+                }
+            }
+            Section {
+                Toggle(isOn: $model.feedHidesLibrary) { Label("Hide papers in your library", systemImage: "checkmark.circle") }
+                    .accessibilityIdentifier("feed.hideLibrary")
+                MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
+            }
+            Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
+            SettingsMenuSection(model: model)
+        } label: { HeaderButtonLabel(systemImage: "ellipsis") }
+        .buttonStyle(.plain).accessibilityLabel("Feed options")
+    }
+}
+
+/// Listen and the Feed's topic chips, scrolling sideways and fading out at the edge (instead of sliding under ⋯).
+struct FeedChipsRow: View {
+    @Bindable var model: ReaderModel
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // Listen (podcasts) first, then the Feed's own chips: For you, the reader's topics and
+                // More topics when For you is offered; else the categories.
+                PodcastListenChip(model: model)
+                FeedChipsBar(model: model)
+            }
+        }
+        // Chips that scroll past the edge fade out instead of sliding under the menu button.
+        .mask(HStack(spacing: 0) {
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 24)
+        })
     }
 }
 
@@ -935,6 +1062,10 @@ struct ChatView: View {
     @State private var newChatBounds = CGRect.zero
     @State private var toolbarLayoutWidth: CGFloat = 0
     @State private var renaming: UUID?
+    /// The Wide shape (WideShape.swift): the chat's share of the one top row replaces the navigation bar.
+    @Environment(\.wideBar) private var wideBar
+    /// The Chat place in Wide: the row carries the places capsule, the title moves beside All chats.
+    @Environment(\.placesInBar) private var placesInBar
     var body: some View {
         NavigationStack {
             GeometryReader { available in
@@ -967,6 +1098,7 @@ struct ChatView: View {
             .task(id: model.isSignedIn) { model.refreshChatProfiles() }
             .renameConversationAlert(model: model, conversation: $renaming)
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
+            .navigationBarHiddenInWide(wideBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { composerFocused = false; model.openAllChats(paper: chatsPaperID) } label: { Image(GradstepSymbol.chats) }
@@ -990,6 +1122,7 @@ struct ChatView: View {
     /// Conversation notes (rare), floating over the top of the conversation; the band continues the title bar.
     private func topControls(compact: Bool) -> some View {
         VStack(spacing: 0) {
+            if wideBar { wideRow }
             if model.chatBranches.count > 1 {
                 Picker("Conversation branch", selection: $model.activeBranchID) {
                     ForEach(model.chatBranches, id: \.head) { branch in
@@ -1035,10 +1168,10 @@ struct ChatView: View {
                     Button("Retry") { model.retryDraftSave() }.font(.caption.weight(.semibold))
                 }.padding(.horizontal, 16).accessibilityIdentifier("chat.draftIssue")
             }
+            // Wide: nothing under the message box (docs/DESIGN.md › Tall and Wide); its status sits above it.
+            if wideBar { syncLine }
             composer(compact: compact).readableColumn()
-            // Design audit F8: sync status only when something needs attention.
-            if model.isGenerating { ProgressView("Saving…").font(.caption) }
-            else if let issue = model.syncIssue { Text(issue).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary) }
+            if !wideBar { syncLine }
         }
         // Close above the tab bar (owner feedback, build 14: "space below chat box not well used").
         .padding(.top, 6).padding(.bottom, tabBarReserve > 0 ? 2 : 8)
@@ -1050,6 +1183,66 @@ struct ChatView: View {
             if model.chatIsEmpty { Color.black.opacity(0.001) }
             else { ChromeFade(edge: .bottom, color: .chromeBackground, solid: false) }
         }
+    }
+
+    /// Design audit F8: sync status only when something needs attention.
+    @ViewBuilder private var syncLine: some View {
+        if model.isGenerating { ProgressView("Saving…").font(.caption) }
+        else if let issue = model.syncIssue { Text(issue).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary) }
+    }
+
+    /// Wide: the chat's share of the one top row. Beside the paper: All chats · title ⌄ · New chat · ⋯. The Chat place:
+    /// All chats and the title, the places capsule centred, then New chat · ⋯.
+    private var wideRow: some View {
+        WideBar {
+            if !chatsList {
+                Button { composerFocused = false; model.openAllChats(paper: chatsPaperID) } label: { HeaderButtonLabel(image: GradstepSymbol.chats) }
+                    .buttonStyle(.plain).accessibilityLabel("Chat history").accessibilityIdentifier("chat.history")
+            }
+            if placesInBar { wideTitle(lines: 1, centred: false) }
+        } center: {
+            if placesInBar { WidePlacesCapsule(model: model) } else { wideTitle(lines: besidePaper && !model.generalChat ? 2 : 1, centred: true) }
+        } trailing: {
+            // Discuss: All chats · title · ⋯ · ✕ (New chat is in ⋯). Elsewhere: New chat, then ⋯.
+            if !discussChat {
+                Button { model.newChat(general: model.generalChat); composerFocused = true } label: { HeaderButtonLabel(image: GradstepSymbol.newChat) }
+                    .buttonStyle(.plain).accessibilityLabel("New chat")
+            }
+            Menu { optionsMenuContent } label: { HeaderButtonLabel(systemImage: "ellipsis") }
+                .buttonStyle(.plain).accessibilityLabel("Chat options")
+            if discussChat {
+                Button { composerFocused = false; model.tab = .paper } label: { HeaderButtonLabel(systemImage: "xmark") }
+                    .buttonStyle(.plain).keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Close chat").accessibilityIdentifier("chat.close")
+            }
+        }
+    }
+
+    /// Discuss's chat (WideSlots) and the Chats view's (beside All chats).
+    @Environment(\.discussChat) private var discussChat
+    @Environment(\.chatsList) private var chatsList
+
+    /// The title menu in the Wide row: the whole title (two lines beside the paper, audit N9), "General chat" under it.
+    private func wideTitle(lines: Int, centred: Bool) -> some View {
+        Menu { titleMenuContent } label: {
+            VStack(alignment: centred ? .center : .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(model.chatTitle).font(.system(size: lines > 1 ? 15 : 17, weight: .semibold)).lineLimit(lines)
+                        .multilineTextAlignment(centred ? .center : .leading)
+                    Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                }.foregroundStyle(.primary)
+                if model.generalChat && lines == 1 {
+                    Text("General chat").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.context")
+        .accessibilityLabel("Conversation: \(model.chatTitle)")
+        .accessibilityValue(model.generalChat ? "General chat" : "Paper chat")
+        .accessibilityHint(chatsPaperID == nil ? "Switches between paper chat and general chat"
+                           : "Switches between paper chat and general chat, or opens another chat about this paper")
     }
 
     /// The message box, a view of its own: the only part of the chat screen that reads the draft, so typing re-renders
@@ -1133,16 +1326,7 @@ struct ChatView: View {
     private var titleView: some View {
         VStack(alignment: .leading, spacing: 1) {
             Menu {
-                // An anchored chat (from a passage) can go back to it (Views/PaperPassages.swift).
-                Section { GoToPassageMenuRow(model: model) { composerFocused = false } }
-                if let conversation = model.activeConversation, !model.chatWasDeleted {
-                    Section {
-                        MenuRow("Rename…", systemImage: "pencil") { composerFocused = false; renaming = conversation }
-                            .accessibilityIdentifier("chat.rename")
-                    }
-                }
-                contextPicker
-                paperChatsSection
+                titleMenuContent
             } label: {
                 HStack(spacing: 3) {
                     Text(visibleTitle).font(.system(size: titleFontSize, weight: .semibold)).lineLimit(1)
@@ -1170,38 +1354,64 @@ struct ChatView: View {
         }.frame(width: titleWidth)
     }
 
+    /// The title's menu: Go to passage, Rename, Paper chat / General chat, the paper's other chats.
+    @ViewBuilder private var titleMenuContent: some View {
+        // An anchored chat (from a passage) can go back to it (Views/PaperPassages.swift).
+        Section { GoToPassageMenuRow(model: model) { composerFocused = false } }
+        if let conversation = model.activeConversation, !model.chatWasDeleted {
+            Section {
+                MenuRow("Rename…", systemImage: "pencil") { composerFocused = false; renaming = conversation }
+                    .accessibilityIdentifier("chat.rename")
+            }
+        }
+        contextPicker
+        paperChatsSection
+    }
+
     /// Design audit F2: the same "…" as every screen — text size, diagrams, reporting.
     private var optionsMenu: some View {
-        Menu {
-            ControlGroup {
-                MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.chatFontSize = max(13, model.chatFontSize - 1) }
-                MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
-            }.controlGroupStyle(.compactMenu)
-            // Owner, build 57: "put the chat settings in the top right drop down… Please also put in there Enter Study Mode".
+        Menu { optionsMenuContent } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Chat options")
+    }
+
+    @ViewBuilder private var optionsMenuContent: some View {
+        // Discuss's bar has no New chat button of its own.
+        if discussChat {
             Section {
-                Button { composerFocused = false; model.showAnswerOptions = true } label: {
-                    Label { Text("Answer options…"); Text(ChatProfileText.summary(model.chatProfile, table: model.chatProfileTable)) }
-                        icon: { Image(systemName: "slider.horizontal.3") }
-                }.accessibilityIdentifier("chat.profile")
-                // Study mode (reworked 2026-10-22): a tutor that quizzes you and explains when you need it.
-                if model.chatStudying {
-                    MenuRow("End study mode", systemImage: "graduationcap") { model.endStudy() }.accessibilityIdentifier("chat.study.end")
-                } else if model.canStudyPaper {
-                    Button { composerFocused = false; Task { await model.startStudy() } } label: {
-                        Label { Text("Study mode"); Text("Quiz me and help me learn") } icon: { Image(systemName: "graduationcap") }
-                    }.accessibilityIdentifier("chat.study.start")
-                }
+                MenuRow("New chat", systemImage: GradstepSymbol.newChat) { model.newChat(general: model.generalChat); composerFocused = true }
+                    .accessibilityIdentifier("chat.newChat")
             }
-            Section {
-                GoToPassageMenuRow(model: model) { composerFocused = false }
-                MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
-                MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
+        }
+        ControlGroup {
+            MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.chatFontSize = max(13, model.chatFontSize - 1) }
+            MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
+        }.controlGroupStyle(.compactMenu)
+        // Owner, build 57: "put the chat settings in the top right drop down… Please also put in there Enter Study Mode".
+        Section {
+            Button { composerFocused = false; model.showAnswerOptions = true } label: {
+                Label { Text("Answer options…"); Text(ChatProfileText.summary(model.chatProfile, table: model.chatProfileTable)) }
+                    icon: { Image(systemName: "slider.horizontal.3") }
+            }.accessibilityIdentifier("chat.profile")
+            // Study mode (reworked 2026-10-22): a tutor that quizzes you and explains when you need it.
+            if model.chatStudying {
+                MenuRow("End study mode", systemImage: "graduationcap") { model.endStudy() }.accessibilityIdentifier("chat.study.end")
+            } else if model.canStudyPaper {
+                Button { composerFocused = false; Task { await model.startStudy() } } label: {
+                    Label { Text("Study mode"); Text("Quiz me and help me learn") } icon: { Image(systemName: "graduationcap") }
+                }.accessibilityIdentifier("chat.study.start")
             }
+        }
+        Section {
+            GoToPassageMenuRow(model: model) { composerFocused = false }
+            MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
+            MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
+        }
+        // Beside the paper in Wide, the paper's ⋯ is the screen's menu: Report and Settings are there once (audit N4).
+        if !(wideBar && besidePaper) {
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
                 SettingsMenuSection(model: model) { composerFocused = false }
             }
-        } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Chat options")
+        }
     }
 }
 
@@ -1400,7 +1610,6 @@ struct SettingsView: View {
                     // Owner, 2026-10-21: "Needs to be a Notes section in your assets". Opens Notes (closing Settings).
                     Button {
                         model.closeSettings(); model.notes.openNoteID = nil; model.tab = .notes
-                        if !model.compactLayout { model.wideMode = .notes }
                     } label: {
                         // Owner, build 82: the count without a chevron looked unlike the rows around it.
                         HStack {
@@ -1905,6 +2114,14 @@ struct LibrarySearchField: UIViewRepresentable {
 }
 
 /// Library header width: the readable column, or the full pane over the table.
+/// The library panel's own margins, or the readable column.
+private struct PanelOrColumn: ViewModifier {
+    let panel: Bool
+    func body(content: Content) -> some View {
+        if panel { content.padding(.horizontal, 12) } else { content.readableColumn() }
+    }
+}
+
 private struct HeaderWidth: ViewModifier {
     let fullWidth: Bool
     func body(content: Content) -> some View {

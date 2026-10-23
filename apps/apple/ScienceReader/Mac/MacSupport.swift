@@ -51,13 +51,91 @@ enum Platform {
 }
 
 extension ReaderModel {
-    /// The wide layout's view switch (iPad header picker, Mac toolbar and View menu): the mode, the tab
-    /// that goes with it, and which chat it shows. Leaves Settings when it is showing.
-    func showWideMode(_ mode: WideMode) {
-        wideMode = mode
-        tab = mode == .feed ? .feed : (mode == .chat ? .chat : (mode == .reader ? .paper : mode == .notes ? .notes : .library))
-        if mode == .chat { generalChat = true }
-        if mode == .reader, chatPaperID != nil { generalChat = false }
+    /// The place the Wide shape shows (docs/DESIGN.md › Tall and Wide). A paper's chat sits beside its paper, so the Chat
+    /// tab with a paper's chat is the Paper place there; Chat is the general chat.
+    var widePlace: ReaderTab { tab == .chat && !generalChat ? .paper : tab }
+
+    /// Wide Browse: the library's list beside the paper; the open paper's row is highlighted there.
+    var browsing: Bool { !compactLayout && wideList == .papers && widePlace == .paper && !wideDiscuss }
+
+    /// Opening a paper: the Paper place. In iPad Wide's Discuss the paper is already beside the chat: a citation or a
+    /// passage scrolls it in place and the chat stays (owner, 2026-10-22).
+    func showPaperPlace() { if !discussShown { tab = .paper } }
+
+    /// iPad Wide's Discuss is showing (the paper on the left, its chat on the right).
+    var discussShown: Bool { !compactLayout && !Platform.isMac && wideDiscuss }
+
+    /// Wide: the places capsule's Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"). On the
+    /// Library it is the Library's own field; elsewhere the Papers panel opens beside the paper with its field focused, and
+    /// Cancel puts the panel back as it was.
+    func searchFromPlaces() {
+        if widePlace == .library {
+            MacCommandRequests.shared.librarySearch = UUID()
+            return
+        }
+        // Discuss: the list replaces the paper on the left; the chat comes back with Cancel (Back).
+        discussBeforeSearch = wideDiscuss
+        if wideList != .papers { listBeforeSearch = wideList; papersPanelFromSearch = true; wideList = .papers }
+        if tab != .paper { showPlace(.paper) }
+        MacCommandRequests.shared.librarySearch = UUID()
+    }
+
+    /// Cancel (or Esc) in the Papers list's search: the left slot as it was before Search opened it.
+    func endPapersSearch() {
+        if papersPanelFromSearch { wideList = listBeforeSearch }
+        if discussBeforeSearch, chatPaperID != nil { generalChat = false; tab = .chat }
+        papersPanelFromSearch = false; discussBeforeSearch = false
+    }
+
+    /// Library ⋯ / Paper ⋯ › Show library beside paper: the same Papers list without a query (Browse).
+    func setLibraryBesidePaper(_ shown: Bool) {
+        wideList = shown ? .papers : .none; papersPanelFromSearch = false; discussBeforeSearch = false
+        if shown, widePlace != .paper || wideDiscuss { tab = .paper }
+    }
+
+    /// Wide ☰: Contents in the left slot beside the paper (Navigate), or closed. It takes the chat's place in Discuss.
+    func toggleContentsPanel() {
+        if wideDiscuss { tab = .paper; wideList = .contents; return }
+        wideList = wideList == .contents ? .none : .contents
+    }
+
+    /// A place chosen from the places capsule (iPad), the Mac toolbar or View menu. Tall is the tab as it is. Wide: Chat is
+    /// the general chat (a paper's chat is the Paper screen's right slot), and Paper shows the paper's own chat. Leaves
+    /// Settings when it is showing.
+    func showPlace(_ place: ReaderTab) {
+        if !compactLayout {
+            if place == .chat { generalChat = true }
+            if place == .paper, chatPaperID != nil { generalChat = false }
+        }
+        tab = place
+    }
+
+    /// Discuss: the paper's chat is open (the paper on the left, the chat on the right).
+    var wideDiscuss: Bool { tab == .chat && !generalChat }
+
+    /// The Wide Paper screen's two slots (docs/DESIGN.md › Tall and Wide, "Two slots, a few views"). Read: the paper
+    /// alone. Browse: Papers | Paper. Navigate: Contents | Paper. Discuss: Paper | Chat. Explain is the paper's slot showing
+    /// an explainer (PaperView), the left slot as it was.
+    var wideSlots: (left: WidePane?, right: WidePane) {
+        if wideDiscuss { return (.paper, .chat) }
+        switch wideList {
+        case .papers: return (.papers, .paper)
+        case .feed: return (.feed, .paper)
+        case .contents: return (.contents, .paper)
+        case .none: return (nil, .paper)
+        }
+    }
+
+    /// The open paper's reading key (PaperView's): a jump from the Contents in the left slot goes to this reader copy.
+    var readingLocationKey: String? {
+        guard let paper = selectedPaper else { return nil }
+        return "\(paper.id.uuidString)/\(paper.artifactID?.uuidString ?? "unversioned")/\(paper.readerBundle?.manifestSHA256 ?? "unverified")"
+    }
+
+    /// The Mac's Settings in place of the window's panes (Done returns to where it was opened from).
+    func showSettingsPlace() {
+        if tab != .settings { placeBeforeSettings = widePlace }
+        tab = .settings
     }
 }
 
@@ -457,12 +535,12 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
-/// Configures the Mac window once it exists: size limits, a first-launch size, and a unified toolbar
-/// holding the wide layout's view switch (Feed · Library · Reader · Browse · General Chat) and Settings,
-/// which on iPad sit in the app's own header row.
+/// Configures the Mac window once it exists: size limits, a first-launch size, and a unified toolbar holding the five
+/// places (Feed · Library · Paper · Chat · Snippets), which on iPad are the places capsule. Settings is the last row of
+/// every ⋯ and ⌘, (docs/DESIGN.md › Tall and Wide).
 struct MacWindowConfiguration: UIViewRepresentable {
     let model: ReaderModel
-    let mode: WideMode
+    let place: ReaderTab
     let settingsShown: Bool
     /// Reading mode: the window's toolbar steps aside with the rest of the chrome (READING_MODE.md).
     var reading = false
@@ -478,7 +556,7 @@ struct MacWindowConfiguration: UIViewRepresentable {
     }
 
     func updateUIView(_ view: WindowHookView, context: Context) {
-        context.coordinator.update(mode: mode, settingsShown: settingsShown)
+        context.coordinator.update(place: place, settingsShown: settingsShown)
         context.coordinator.showToolbar(!reading)
     }
 }
@@ -503,7 +581,6 @@ final class WindowHookView: UIView {
     static let minimumSize = CGSize(width: 720, height: 520)
     static let defaultSize = CGSize(width: 1280, height: 820)
     private static let modesID = NSToolbarItem.Identifier("gradstep.modes")
-    private static let settingsID = NSToolbarItem.Identifier("gradstep.settings")
     private static let sizeKey = "mac.window.size"
 
     private let model: ReaderModel
@@ -511,7 +588,6 @@ final class WindowHookView: UIView {
     /// Sizes are remembered only after the launch size is applied (the system's first size isn't the reader's).
     private var restoringSize = true
     private var modes: NSToolbarItemGroup?
-    private var settings: NSToolbarItem?
 
     init(model: ReaderModel) { self.model = model }
 
@@ -547,7 +623,7 @@ final class WindowHookView: UIView {
                                width: size.width, height: size.height)
             scene.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
         }
-        update(mode: model.wideMode, settingsShown: model.tab == .settings)
+        update(place: model.widePlace, settingsShown: model.tab == .settings)
     }
 
     /// Reading mode hides the toolbar (the quiet bar over the paper has its controls); leaving it brings it back.
@@ -561,20 +637,22 @@ final class WindowHookView: UIView {
         UserDefaults.standard.set(NSCoder.string(for: size), forKey: Self.sizeKey)
     }
 
-    func update(mode: WideMode, settingsShown: Bool) {
+    private static let places = ReaderTab.phoneTabs
+
+    func update(place: ReaderTab, settingsShown: Bool) {
         guard modes != nil else { return }
         // Settings is outside the five workspace panes. Catalyst keeps reporting the last selected
         // index for a native select-one group, so use select-any and clear every segment explicitly.
         if settingsShown {
             setModeSelection(nil)
         } else {
-            setModeSelection(WideMode.allCases.firstIndex(of: mode) ?? 1)
+            setModeSelection(Self.places.firstIndex(of: place) ?? 1)
         }
     }
 
     private func setModeSelection(_ index: Int?) {
         guard let modes else { return }
-        for candidate in WideMode.allCases.indices {
+        for candidate in Self.places.indices {
             modes.setSelected(candidate == index, at: candidate)
         }
     }
@@ -582,7 +660,7 @@ final class WindowHookView: UIView {
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.modesID, .flexibleSpace, Self.settingsID]
+        [.flexibleSpace, Self.modesID, .flexibleSpace]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -593,38 +671,24 @@ final class WindowHookView: UIView {
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch identifier {
         case Self.modesID:
-            let titles = WideMode.allCases.map(\.rawValue)
+            let titles = Self.places.map(\.rawValue)
             let group = NSToolbarItemGroup(itemIdentifier: identifier, titles: titles, selectionMode: .selectAny,
                                            labels: titles, target: self, action: #selector(modeChosen(_:)))
             group.controlRepresentation = .expanded
-            group.label = "View"
-            group.toolTip = "Choose a view (⌘1–⌘5)"
+            group.label = "Places"
+            group.toolTip = "Choose a place (⌘1–⌘5)"
             modes = group
-            setModeSelection(WideMode.allCases.firstIndex(of: model.wideMode) ?? 1)
+            setModeSelection(Self.places.firstIndex(of: model.widePlace) ?? 1)
             return group
-        case Self.settingsID:
-            let item = NSToolbarItem(itemIdentifier: identifier)
-            item.image = UIImage(systemName: "gearshape")
-            item.label = "Settings"
-            item.toolTip = "Settings (⌘,)"
-            item.isBordered = true
-            item.target = self
-            item.action = #selector(settingsChosen(_:))
-            settings = item
-            return item
         default: return nil
         }
     }
 
     @objc private func modeChosen(_ sender: NSToolbarItemGroup) {
-        guard WideMode.allCases.indices.contains(sender.selectedIndex) else { return }
+        guard Self.places.indices.contains(sender.selectedIndex) else { return }
         let index = sender.selectedIndex
         setModeSelection(index)
-        model.showWideMode(WideMode.allCases[index])
-    }
-
-    @objc private func settingsChosen(_ sender: NSToolbarItem) {
-        if model.tab == .settings { model.showWideMode(model.wideMode) } else { model.tab = .settings }
+        model.showPlace(Self.places[index])
     }
 }
 #endif

@@ -96,22 +96,25 @@ extension ReaderModel {
         if ProcessInfo.processInfo.arguments.contains("--study-fixture") { try configureStudyFixture() }
         if AddPaperFixture.isEnabled { try configureAddPaperFixture() }
         if RecommendFixture.isEnabled { configureRecommendFixture() }
-        tab = .library; wideMode = .library
+        tab = .library
         // Quick visual checks from the command line (`simctl launch … --start-tab=chat`): open on another tab.
         if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--start-tab=") })?.dropFirst("--start-tab=".count),
            let start = ReaderTab.allCases.first(where: { $0.rawValue.lowercased() == name || String(describing: $0) == name }) {
             tab = start
-            switch start {
-            case .feed: wideMode = .feed
-            case .paper, .chat: wideMode = .reader
-            case .notes: wideMode = .notes
-            case .library, .settings: break
-            }
         }
-        // The wide layouts' view (iPad and Mac): `--wide-mode=feed|library|reader|browse|chat`.
-        if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--wide-mode=") })?.dropFirst("--wide-mode=".count),
-           let mode = WideMode.allCases.first(where: { $0.rawValue.lowercased().contains(name) || String(describing: $0) == name }) {
-            showWideMode(mode)
+        // The Wide shape's place (iPad sideways and Mac), older names kept for scripts:
+        // `--wide-mode=feed|library|paper|reader|browse|chat|snippets`. `browse` is the Library with the paper beside it.
+        if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--wide-mode=") })?.dropFirst("--wide-mode=".count) {
+            switch name {
+            case "feed": tab = .feed
+            case "library": tab = .library
+            case "paper", "reader": tab = .paper; if chatPaperID != nil { generalChat = false }
+            case "browse": wideList = .papers; tab = .paper
+            case "navigate": wideList = .contents; tab = .paper
+            case "chat": generalChat = true; tab = .chat
+            case "notes", "snippets": tab = .notes
+            default: break
+            }
         }
     }
 
