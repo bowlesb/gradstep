@@ -38,13 +38,16 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   const phone = info.project.name === 'phone';
   const originalViewport = page.viewportSize()!;
   const table = page.getByTestId('library-table'), scroll = page.getByRole('region', { name: 'Library table' });
-  const picker = page.getByRole('button', { name: 'Columns', exact: true });
+  // Columns… is a row of the Library's "…" (owner-approved 2026-10-22, audit S10); closing its dialog returns to the "…".
+  const picker = page.getByTestId('library-options');
   const dialog = page.getByRole('dialog', { name: 'Library columns' });
   await expect(table.getByRole('columnheader')).toHaveCount(phone ? 8 : 9);
   await hasNoPageOverflow(page);
   await shot(page, 'defaults-light');
 
   await picker.focus();
+  await page.keyboard.press('Enter');
+  await page.getByTestId('library-columns').focus();
   await page.keyboard.press('Enter');
   await expect(dialog.getByRole('checkbox', { name: /Title/ })).toBeDisabled();
   await expect(dialog.getByRole('checkbox', { name: /Title/ })).toBeChecked();
@@ -58,11 +61,6 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   await expect(dpo.locator('td.col-chats')).toHaveText('0'); await expect(dpo.locator('td.col-source')).toHaveText('2305.18290');
   const pinned = table.locator('tbody .col-title').first();
   const origin = (await pinned.boundingBox())!;
-  await expect(page.getByRole('button', { name: 'Scroll columns right' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Scroll columns right' }).click();
-  expect(await scroll.evaluate(e => e.scrollLeft)).toBeGreaterThan(0);
-  await page.getByRole('button', { name: 'Scroll columns left' }).click();
-  await expect.poll(() => scroll.evaluate(e => e.scrollLeft)).toBe(0);
   await scroll.focus();
   // To the end with the keyboard (more columns since B9: a phone needs more steps than six).
   for (let i = 0; i < 40 && await scroll.evaluate(e => e.scrollLeft + e.clientWidth < e.scrollWidth - 1); i++) await page.keyboard.press('ArrowRight');
@@ -97,7 +95,7 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   await expect(table.getByRole('columnheader')).toHaveCount(12);
   await hasNoPageOverflow(page);
   await page.setViewportSize(originalViewport);
-  await picker.click();
+  await picker.click(); await page.getByTestId('library-columns').click();
   await dialog.getByRole('checkbox', { name: 'Authors', exact: true }).uncheck();
   await dialog.getByRole('checkbox', { name: 'Tags', exact: true }).uncheck();
   for (const name of ['Venue', 'Source', 'Pages']) await dialog.getByRole('checkbox', { name, exact: true }).uncheck();
@@ -107,7 +105,7 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   await expect(table.locator('.col-authors, .col-tags')).toHaveCount(0);
   await expect(table.getByRole('link', { name: /Direct Preference Optimization/ }).locator('..').locator('.author')).toHaveCount(0);
   expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)!), KEY)).toEqual({ version: 3, columns: ['device', 'year', 'added', 'opened', 'chats', 'progress'] });
-  await picker.click();
+  await picker.click(); await page.getByTestId('library-columns').click();
   for (const name of COLUMNS) await dialog.getByRole('checkbox', { name, exact: true }).uncheck();
   await page.keyboard.press('Escape');
   await expect(table.getByRole('columnheader')).toHaveCount(1);
@@ -116,7 +114,7 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   await table.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(table.getByText(/Adding…/).first()).toBeVisible({ timeout: 8_000 }); // two words and a percentage, the apps' "Adding…" (2026-10-15)
   await expect(table.getByRole('link', { name: 'A retried paper' })).toBeVisible({ timeout: 15_000 });
-  await picker.click();
+  await picker.click(); await page.getByTestId('library-columns').click();
   await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
   for (const name of COLUMNS) await expect(dialog.getByRole('checkbox', { name, exact: true })).toBeChecked({ checked: (phone ? PHONE_DEFAULTS : WIDE_DEFAULTS).includes(name) });
   await page.keyboard.press('Escape');
@@ -124,7 +122,7 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   await expect(table.getByRole('columnheader')).toHaveCount(phone ? 8 : 9);
   await page.emulateMedia({ colorScheme: 'dark' });
   await shot(page, 'defaults-dark');
-  await picker.click();
+  await picker.click(); await page.getByTestId('library-columns').click();
   await shot(page, 'picker-dark');
   await page.keyboard.press('Escape');
   await page.getByTestId('search').fill('Direct Preference');
@@ -146,7 +144,7 @@ test('unavailable preference storage keeps column choices usable for this view',
     Storage.prototype.setItem = function (name, value) { if (name === key) throw new DOMException('Full', 'QuotaExceededError'); set.call(this, name, value); };
   }, KEY);
   await signIn(page);
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-columns').click();
   const dialog = page.getByRole('dialog', { name: 'Library columns' });
   for (const name of COLUMNS) await dialog.getByRole('checkbox', { name, exact: true }).check();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();

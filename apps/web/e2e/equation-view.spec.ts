@@ -231,13 +231,16 @@ test('a keyword chip opens Edit tags with its ML paper search and library papers
  if(await rail.isVisible()){await expect(rail).toHaveText('Search ML papers for “HTML”');await rail.click();}
  else await page.getByLabel('Filter by tag').selectOption({label:'Search ML papers for “HTML”'});
  const field=page.getByTestId('search');
- await expect(field).toHaveAttribute('aria-label','ML paper search');await expect(field).toHaveValue('HTML');
- await expect(page.locator('.library-head .view-sub')).toHaveCount(0);
+ await expect(field).toHaveAttribute('data-mode','ml');await expect(field).toHaveValue('HTML');
+ await expect(page.getByTestId('paper-search')).toBeVisible();
  // External from the chip itself: the same search, from the paper.
  await page.getByTestId('search-cancel').click();
  await page.getByTestId('library-table').getByRole('link',{name:'Authored HTML fixture',exact:true}).click();
  await chip.click();await editor.getByRole('button',{name:'Search ML papers for “HTML”',exact:true}).click();
- await expect(field).toHaveAttribute('aria-label','ML paper search');await expect(field).toHaveValue('HTML');
+ // Beside the paper: the left panel's search list in ML papers (2026-10-22); the paper stays open.
+ await expect(page.getByTestId('rail-search')).toHaveValue('HTML');
+ await expect(page.getByTestId('search-rail').getByTestId('search-scope-arxiv')).toHaveAttribute('aria-pressed','true');
+ await expect(page).toHaveURL(/\/paper\//);
 });
 
 test('Contents says when a paper has no tables or equations',async({page,request})=>{

@@ -72,9 +72,14 @@ test('remote account rejection returns to sign-in without erasing encrypted loca
   await page.screenshot({path:`${shots}${info.project.name}-remote-session-ended.png`});
 });
 
+// Settings › Account › Delete account… (as the apps; a Settings window since 2026-10-22, audit S9).
+async function openSettings(page: Page) {
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+}
 async function openDelete(page: Page) {
-  await page.getByTestId('account-menu').click();
-  await expect(page.getByRole('menuitem', { name: 'Delete account…' })).toBeVisible();
+  await openSettings(page);
+  await expect(page.getByRole('button', { name: 'Delete account…' })).toBeVisible();
   await page.getByTestId('delete-account').click();
   const dialog = page.getByRole('dialog', { name: 'Delete account' });
   await expect(dialog).toBeVisible();
@@ -91,8 +96,8 @@ test('typing DELETE enables deletion; the account is deleted, this browser keeps
   expect(before.records.length).toBeGreaterThan(0);
   expect(before.local.length).toBeGreaterThanOrEqual(2);
 
-  await page.getByTestId('account-menu').click();
-  await expect(page.getByRole('menuitem', { name: 'Delete account…' })).toBeVisible();
+  await openSettings(page);
+  await expect(page.getByRole('button', { name: 'Delete account…' })).toBeVisible();
   await page.screenshot({ path: `${shots}${info.project.name}-menu-light.png` });
   await page.keyboard.press('Escape');
   const dialog = await openDelete(page);
@@ -171,7 +176,7 @@ test('a failed deletion is one sentence and Try again; nothing in this browser c
 
   // The server is down for a moment: the keyboard path, Enter in the field.
   await request.post(`${API}/__fault`, { data: { path: 'functions/v1/account-delete', kind: 503, times: 1 } });
-  await page.getByTestId('account-menu').click();
+  await openSettings(page);
   await page.getByTestId('delete-account').focus();
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Delete account' });
@@ -208,6 +213,7 @@ test('a failed deletion is one sentence and Try again; nothing in this browser c
   // Cancel keeps everything; the reader is still signed in.
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();
+  await page.getByTestId('settings-close').click(); // Settings stays under the dialog until closed
   await expect(page.getByRole('link', { name: 'Library' })).toBeVisible();
   expect(await traces(page)).toEqual(before);
 

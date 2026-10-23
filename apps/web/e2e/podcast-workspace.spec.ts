@@ -167,7 +167,7 @@ test('later navigation wins during draft persistence and cannot leave a deferred
   await signIn(page); await listen(page);
   // All chats: the top navigation's Chats on wide screens; on a phone (the apps' five destinations since Notes) the
   // same dialog is in ⋯ › Your assets › Chats.
-  if (await page.getByTestId('phone-chat').count()) { await page.getByTestId('account-menu').click(); await page.getByTestId('assets-chats').click(); }
+  if (await page.getByTestId('phone-chat').count()) { await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); await page.getByTestId('assets-chats').click(); }
   else await page.getByRole('navigation', { name: 'Main' }).getByRole('button').click();
   await page.getByTestId('history-menu').click(); await page.getByRole('menuitem', { name: 'New general chat', exact: true }).click(); // All chats › ≡ (build 57)
   await expect(message(page)).toBeFocused();
@@ -249,7 +249,7 @@ test('Listen offers every length and both writers compactly, prices the chosen o
 test('AI chat options sets who writes new episodes; Listen preselects it and asks for it', async ({ page }, info) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
   const f = await fixture(page, { lengths: true }); await signIn(page);
-  await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); await page.getByTestId('chat-defaults').click();
   const settings = page.getByRole('dialog', { name: 'AI chat options' });
   const activity = settings.getByRole('combobox', { name: 'Activity' });
   await expect(activity.locator('option')).toHaveText(['General chat', 'Paper chat', 'Equation explanations', 'Figures and tables', 'Podcasts']);

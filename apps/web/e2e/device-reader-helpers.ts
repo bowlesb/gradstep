@@ -22,9 +22,18 @@ export function guardLocalContent(page:Page) {
  }};
 }
 
-/** Add paper: the first row of the far-right menu (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
+/** Add paper: the first row of the Library's "…" (owner, build 75: "move the + option as a new row inside the dialogue on
+ * the far right"; 2026-10-22: that is the Library's own "…", audit S10). */
 export async function openAddPaper(page:Page) {
- await page.getByTestId('account-menu').click();await page.getByTestId('add-paper').click();
+ if(!await page.getByTestId('library-options').isVisible())await page.getByTestId('back-to-library').click();
+ await page.getByTestId('library-options').click();await page.getByTestId('add-paper').click();
+}
+
+/** Settings (audit S9): the account menu's Settings… opens the dialog with the apps' sections. */
+export async function openSettings(page:Page) {
+ await page.getByTestId('account-menu').click();await page.getByTestId('open-settings').click();
+ const settings=page.getByRole('dialog',{name:'Settings'});await expect(settings).toBeVisible();
+ return settings;
 }
 
 export async function choosePDF(page:Page,name:string,buffer:Buffer) {

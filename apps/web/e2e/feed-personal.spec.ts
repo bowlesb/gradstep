@@ -21,6 +21,28 @@ async function signIn(page: Page) {
   await page.getByRole('link', { name: 'Feed', exact: true }).click();
 }
 const topicButton = (page: Page, name: string) => page.getByRole('button', { name, exact: true }).filter({ visible: true });
+// The Feed's options are one "…" at the right of its title row (owner-approved 2026-10-22, audit S16).
+async function feedMenu(page: Page, item?: string) {
+  await page.getByTestId('feed-options').click();
+  const menu = page.getByRole('menu', { name: 'Feed options' });
+  await expect(menu).toBeVisible();
+  if (item) await menu.getByTestId(item).click();
+  return menu;
+}
+async function expectSort(page: Page, label: string) {
+  const menu = await feedMenu(page);
+  await expect(menu.getByTestId('feed-sort')).toContainText(label);
+  await page.keyboard.press('Escape');
+}
+async function choose(page: Page, submenu: string, label: string) {
+  const menu = await feedMenu(page, submenu);
+  await menu.getByRole('menuitemradio', { name: label, exact: true }).click();
+}
+async function refreshEnabled(page: Page) {
+  const menu = await feedMenu(page);
+  await expect(menu.getByTestId('feed-refresh')).toBeEnabled();
+  await page.keyboard.press('Escape');
+}
 
 test.beforeEach(async ({ request }, info) => {
   test.skip(info.project.name === 'webkit', 'Safari key persistence remains its own explicit gate.');
@@ -38,20 +60,20 @@ test('For you, precise topics, popularity and optional table columns follow the 
   await expect(topicButton(page, 'For you')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.feed-card').first()).toContainText('Reasoning without shortcuts');
   await expect(page.locator('.feed-card').first()).toContainText('Because you added');
-  await expect(page.getByLabel('Sort feed')).toHaveValue('suggested');
+  await expectSort(page, 'Suggested');
   const topic = page.getByRole('button', { name: /^RL for reasoning(?: 16)?$/ }).filter({ visible: true });
   await topic.click();
   await expect.poll(() => queries.some(q => q.get('feed') === 'topic' && q.get('topic') === 'RL for reasoning')).toBe(true);
-  await page.getByRole('group', { name: 'Feed layout' }).getByRole('button', { name: 'Table', exact: true }).click();
+  await choose(page, 'feed-view-as', 'Table');
   const table = page.getByTestId('feed-table'), rows = page.getByTestId('feed-row');
   await expect(table).toBeVisible();
-  await page.getByLabel('Sort feed').selectOption('popularity');
+  await choose(page, 'feed-sort', 'Popularity');
   await expect(rows.first()).toContainText('Efficient policy search');
   await expect(rows.last()).toContainText('Reasoning without shortcuts');
   await table.getByRole('button', { name: /^Popularity/ }).click();
   await expect(rows.first()).toContainText('Direct Preference Optimization');
   await expect(rows.last()).toContainText('Reasoning without shortcuts'); // unknown remains last when ascending
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await feedMenu(page, 'feed-columns');
   const choices = page.getByRole('dialog', { name: 'Feed columns' });
   await choices.getByRole('checkbox', { name: /^Abstract/ }).check();
   await choices.getByRole('checkbox', { name: /^arXiv ID/ }).check();
@@ -71,15 +93,15 @@ test('For you, precise topics, popularity and optional table columns follow the 
   expect(Math.abs((await titleCell.boundingBox())!.x - left)).toBeLessThan(2);
   await region.evaluate(e => { e.scrollLeft = 0; });
   await page.screenshot({ path: `../../.artifacts/web-feed/columns-${info.project.name}-light.png` });
-  await page.getByTestId('account-menu').click();
-  await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
-  await page.getByTestId('account-menu').click();
+  // Settings › Reading › Appearance (audit S9).
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click();
+  await page.getByTestId('appearance-dark').click(); await page.getByTestId('settings-close').click();
   await page.screenshot({ path: `../../.artifacts/web-feed/columns-${info.project.name}-dark.png` });
   await page.reload();
   await expect(table).toBeVisible();
   await expect(table.getByRole('columnheader', { name: 'Abstract', exact: true })).toBeVisible();
   await expect(table.getByRole('columnheader', { name: 'Authors', exact: true })).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Hide in library', exact: true }).check();
+  await (await feedMenu(page)).getByRole('menuitemcheckbox', { name: 'Hide papers in my library' }).click(); await page.keyboard.press('Escape');
   await expect(rows).toHaveCount(2);
   await expect(table.getByRole('button', { name: 'Direct Preference Optimization', exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -94,18 +116,19 @@ test('leaving a cached feed during refresh keeps Refresh usable on return', asyn
   });
   await signIn(page);
   await expect(page.locator('.feed-card').first()).toContainText('Reasoning without shortcuts');
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await feedMenu(page, 'feed-refresh');
   await expect.poll(() => requests).toBe(2);
-  await expect(page.getByRole('button', { name: 'Refreshing…', exact: true })).toBeDisabled();
+  await expect(page.getByTestId('feed-status')).toContainText('Refreshing…');
+  await feedMenu(page); await expect(page.getByTestId('feed-refresh')).toBeDisabled(); await page.keyboard.press('Escape');
   await page.getByTestId('back-to-library').click();
   await expect(page.getByTestId('library-table')).toBeVisible();
   release!();
   await page.getByRole('link', { name: 'Feed', exact: true }).click();
   await expect(page.locator('.feed-card').first()).toContainText('Reasoning without shortcuts');
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await refreshEnabled(page);
+  await feedMenu(page, 'feed-refresh');
   await expect.poll(() => requests).toBe(3);
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  await refreshEnabled(page);
 });
 
 test('feed feedback waits for server acceptance, supports Undo and never sends chat', async ({ page }) => {
@@ -131,8 +154,8 @@ test('feed feedback waits for server acceptance, supports Undo and never sends c
   await card.getByLabel('Feed choices for Reasoning without shortcuts').click();
   await page.getByRole('menuitem', { name: 'Not interested', exact: true }).click();
   await expect(card).toHaveCount(0);
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  await feedMenu(page, 'feed-refresh');
+  await refreshEnabled(page);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(card).toBeVisible();
   await card.getByLabel('Feed choices for Reasoning without shortcuts').click();
@@ -158,9 +181,9 @@ test('unavailable For you falls back once, and an old category response never tr
   await signIn(page);
   await expect(page.getByTestId('feed-grid').locator('li')).toHaveCount(3);
   await expect(topicButton(page, 'For you')).toHaveCount(0);
-  await expect(page.getByLabel('Sort feed')).toHaveValue('newest');
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  await expectSort(page, 'Newest');
+  await feedMenu(page, 'feed-refresh');
+  await refreshEnabled(page);
   await page.reload();
   await expect(page.getByTestId('feed-grid').locator('li')).toHaveCount(3);
   expect(probes).toBe(1);

@@ -1,5 +1,7 @@
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './icons';
+import './screen-options.css';
 
 export function Brand({ small = false }: { small?: boolean }) {
   return (
@@ -41,9 +43,14 @@ export function MenuButton({ icon, label, testID, className, disabled = false, t
   children: (close: (focus?: boolean) => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // A submenu (SubMenu) shows in the menu's place, with a Back row at its top (the apps' nested menus).
+  const [sub, setSub] = useState<string | null>(null);
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const lastSub = useRef<string | null>(null);
   const box = useRef<HTMLDivElement>(null), button = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
-  const close = useCallback((focus = true) => { setOpen(false); if (focus) button.current?.focus(); }, []);
-  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  const close = useCallback((focus = true) => { setOpen(false); setSub(null); if (focus) button.current?.focus(); }, []);
+  useEffect(() => { if (disabled) { setOpen(false); setSub(null); } }, [disabled]);
+  useEffect(() => { if (!open) setSub(null); }, [open]);
   // Fixed to the viewport under the button, so a pane or a dialog's scrolling never clips it.
   useLayoutEffect(() => {
     const m = menu.current, b = button.current;
@@ -61,18 +68,33 @@ export function MenuButton({ icon, label, testID, className, disabled = false, t
   }, [open, align]);
   useEffect(() => {
     if (!open) return;
-    menu.current?.querySelector<HTMLElement>('[role^=menuitem]:not(:disabled)')?.focus();
     const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) setOpen(false); };
     document.addEventListener('pointerdown', away);
     return () => document.removeEventListener('pointerdown', away);
   }, [open]);
+  // Focus: the first item when the menu opens; a submenu's current choice (or its first choice) when it opens; the row
+  // that opened it on Back.
+  useEffect(() => {
+    if (!open) { lastSub.current = null; return; }
+    const m = menu.current;
+    if (sub && slot) {
+      const items = [...slot.querySelectorAll<HTMLElement>('[role^=menuitem]:not(:disabled)')];
+      (items.find(e => e.getAttribute('aria-checked') === 'true') ?? items[1] ?? items[0])?.focus();
+    } else if (!sub && lastSub.current) {
+      [...(m?.querySelectorAll<HTMLElement>('[data-submenu]') ?? [])].find(e => e.dataset.submenu === lastSub.current)?.focus();
+    } else if (!sub) m?.querySelector<HTMLElement>('[role^=menuitem]:not(:disabled)')?.focus();
+    lastSub.current = sub;
+  }, [open, sub, slot]);
   const keys = (event: KeyboardEvent<HTMLDivElement>) => {
-    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role^=menuitem]:not(:disabled)')];
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role^=menuitem]:not(:disabled)')].filter(e => e.getClientRects().length > 0);
     const index = items.indexOf(document.activeElement as HTMLElement);
+    const focused = document.activeElement as HTMLElement | null;
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault();
       items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
-    } else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
+    } else if (event.key === 'ArrowRight' && focused?.dataset.submenu) { event.preventDefault(); setSub(focused.dataset.submenu); }
+    else if ((event.key === 'ArrowLeft' || event.key === 'Escape') && sub) { event.preventDefault(); event.stopPropagation(); setSub(null); }
+    else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
     else if (event.key === 'Tab') setOpen(false);
   };
   return <div className={`menu-anchor${className ? ` ${className}` : ''}`} ref={box}>
@@ -80,8 +102,35 @@ export function MenuButton({ icon, label, testID, className, disabled = false, t
       data-testid={testID} disabled={disabled} onClick={() => setOpen(o => !o)}
       onKeyDown={event => { if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !open) { event.preventDefault(); setOpen(true); } }}>
       {text ? <><span>{text}</span><Icon name="chevronDown" size={14} /></> : <Icon name={icon} />}</button>
-    {open && <div ref={menu} className="menu popup-menu" role="menu" aria-label={label} onKeyDown={keys}>{children(close)}</div>}
+    {open && <div ref={menu} className="menu popup-menu" role="menu" aria-label={label} onKeyDown={keys}>
+      <SubMenuContext.Provider value={{ active: sub, open: setSub, slot }}>
+        <div className="menu-main" hidden={!!sub}>{children(close)}</div>
+        {sub && <div ref={setSlot} className="menu-main submenu-slot" />}
+      </SubMenuContext.Provider>
+    </div>}
   </div>;
+}
+
+const SubMenuContext = createContext<{ active: string | null; open: (label: string | null) => void; slot: HTMLDivElement | null } | null>(null);
+
+/** A row of a MenuButton's menu that opens a submenu in the menu's place: its words, the current choice in grey and a
+ * chevron (the apps' "Sort by › Added"). ArrowRight or a click opens it; its Back row, ArrowLeft or Esc return. */
+export function SubMenu({ label, value, icon, testID, children }: { label: string; value?: string; icon?: IconName; testID?: string; children: ReactNode }) {
+  const context = useContext(SubMenuContext);
+  const trigger = <button type="button" role="menuitem" aria-haspopup="menu" className="menu-item menu-sub" onClick={() => context?.open(label)} data-submenu={label} data-testid={testID}>
+    {icon && <Icon name={icon} size={14} />}<span className="menu-sub-label">{label}</span>{value && <span className="menu-sub-value">{value}</span>}<Icon name="chevronRight" size={14} /></button>;
+  if (context?.active !== label || !context.slot) return trigger;
+  return <>{trigger}{createPortal(<div className="submenu-page" role="group" aria-label={label} data-testid={testID ? `${testID}-menu` : undefined}>
+    <button type="button" role="menuitem" className="menu-item menu-back" onClick={() => context.open(null)} aria-label={`Back from ${label}`}>
+      <Icon name="chevronLeft" size={14} /><span>{label}</span></button>
+    {children}
+  </div>, context.slot)}</>;
+}
+
+/** A menu row with a check: one of a submenu's choices (radio), or an on/off option (checkbox). */
+export function MenuCheck({ checked, radio = false, onClick, children, testID, disabled = false }: { checked: boolean; radio?: boolean; onClick: () => void; children: ReactNode; testID?: string; disabled?: boolean }) {
+  return <button type="button" role={radio ? 'menuitemradio' : 'menuitemcheckbox'} aria-checked={checked} className="menu-item menu-check" onClick={onClick} data-testid={testID} disabled={disabled}>
+    <span className="menu-check-mark" aria-hidden="true">{checked ? '✓' : ''}</span><span>{children}</span></button>;
 }
 
 /** An information sheet's one top row (owner, build 62; docs/DESIGN.md "Sheet top row"): its controls at the start —

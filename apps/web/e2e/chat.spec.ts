@@ -129,11 +129,11 @@ test('selection tools and passage return keep the verified paper context', async
   await expect(chats.getByRole('button').first()).toContainText(/Why it matters|Explain/);
   await chats.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(chats).toHaveCount(0);
   // Underline passages with chats can be turned off (the apps' Settings › Reading): the passage no longer offers its chats.
-  await page.getByTestId('account-menu').click(); await page.getByTestId('passage-marks').click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); await page.getByTestId('passage-marks').click();
   await expect(page.getByTestId('passage-marks')).toHaveAttribute('aria-checked', 'false'); await page.keyboard.press('Escape');
   await frame.locator('p').filter({ hasText: 'preferences' }).first().click();
   await page.waitForTimeout(300); await expect(chats).toHaveCount(0);
-  await page.getByTestId('account-menu').click(); await page.getByTestId('passage-marks').click(); await page.keyboard.press('Escape');
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); await page.getByTestId('passage-marks').click(); await page.keyboard.press('Escape');
 });
 
 test('selected answer text and formulas: Quote in Chat, Explain, Define, Copy LaTeX and Copy as text (B1)', async ({ page, request, browserName }, info) => {

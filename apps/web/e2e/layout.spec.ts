@@ -1,5 +1,5 @@
 // The large-screen workspace (legacy three-pane layout) and its narrow fallback, under the production CSP.
-import { openAddPaper } from './device-reader-helpers';
+import { openAddPaper, openSettings } from './device-reader-helpers';
 import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
@@ -133,12 +133,18 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await expect(page.getByRole('navigation', { name: 'Contents' }).getByRole('button').first()).toBeVisible();
       expect(Math.round((await box(page, '[data-testid=pane-left]')).width)).toBe(Math.round(before + 80));
 
-      // The library beside the paper (legacy Browse), filtered by the top-bar search.
-      await page.getByTestId('search').fill('attention');
-      await expect(page.getByRole('tab', { name: 'Library' })).toHaveAttribute('aria-selected', 'true');
-      await expect(page.locator('.compact-list li')).toHaveCount(1);
-      await page.getByTestId('search').fill('');
-      await page.getByRole('tab', { name: 'Contents' }).click();
+      // Search beside the paper (owner, 2026-10-22): the left panel's list; the paper keeps its place; Esc twice puts
+      // Contents back (reader audit R1–R3).
+      const centre = await box(page, '.pane-center');
+      await page.getByTestId('search').click();
+      await expect(page.getByTestId('rail-search')).toBeFocused();
+      await page.getByTestId('rail-search').fill('direct');
+      await expect(page.getByTestId('search-result').first()).toContainText('Direct Preference Optimization');
+      expect(await box(page, '.pane-center')).toEqual(centre);
+      if (width === 1440) await shot(page, `search-list-${name}`);
+      await page.getByTestId('rail-search').press('Escape'); await page.getByTestId('rail-search').press('Escape');
+      await expect(page.getByTestId('search-rail')).toHaveCount(0);
+      await expect(page.getByRole('tablist', { name: 'Side panel' }).getByRole('tab', { name: 'Contents' })).toHaveAttribute('aria-selected', 'true');
 
       // Feed: topics in the rail, cards, add in place.
       await page.getByRole('link', { name: 'Feed' }).click();
@@ -175,7 +181,7 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await page.keyboard.press('?');
       await expect(page.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
       await page.keyboard.press('Escape');
-      await page.getByTestId('account-menu').click();
+      await openSettings(page);
       await page.getByTestId('how-gradstep-works').click();
       await expect(page.getByTestId('how-gradstep-works-dialog')).toBeVisible();
       await expect(page.getByText('A credit is a Gradstep usage unit, not cash.')).toBeVisible();

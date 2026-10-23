@@ -127,7 +127,7 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
 
  // From the library: the account menu's lists name each with its paper; a row opens the paper there.
  await page.getByTestId('back-to-library').click();await expect(page.getByTestId('library-table')).toBeVisible();
- await page.getByTestId('account-menu').click();await page.getByTestId('assets-equations').click();
+ await page.getByTestId('account-menu').click();await page.getByTestId('open-settings').click();await page.getByTestId('assets-equations').click();
  let kept=page.getByRole('dialog',{name:'Equation explanations'});
  await expect(kept.getByTestId('explanations-list').getByRole('button')).toHaveCount(1);
  await expect(kept.getByTestId('explanations-list').getByRole('button').first()).toContainText('Equation (1)');
@@ -141,7 +141,7 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
 
  await page.getByTestId('back-to-library').click();await expect(page.getByTestId('library-table')).toBeVisible();
  await page.emulateMedia({colorScheme:'dark'});
- await page.getByTestId('account-menu').click();await page.getByTestId('assets-figures').click();
+ await page.getByTestId('account-menu').click();await page.getByTestId('open-settings').click();await page.getByTestId('assets-figures').click();
  kept=page.getByRole('dialog',{name:'Figure explanations'});
  await expect(kept.getByTestId('explanations-list').getByRole('button')).toHaveCount(1);
  await expect(kept.getByTestId('explanations-list').getByRole('button').first()).toContainText('Figure 1');
@@ -154,13 +154,13 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
 
  // Kept across a reload (B4): encrypted in this browser, as the apps keep them on the device; reopening asks nothing.
  await page.reload(); await expect(page.getByTestId('reader-frame')).toBeVisible({timeout:20000});
- await page.getByTestId('account-menu').click();await page.getByTestId('assets-equations').click();
+ await page.getByTestId('account-menu').click();await page.getByTestId('open-settings').click();await page.getByTestId('assets-equations').click();
  kept=page.getByRole('dialog',{name:'Equation explanations'});
  await expect(kept.getByTestId('explanations-list').getByRole('button')).toHaveCount(1);
  await kept.getByTestId('explanations-list').getByRole('button').first().click();
  await expect(view.getByTestId('equation-summary')).toBeVisible({timeout:20000});await expect(view.getByTestId('equation-explain')).toHaveCount(0);
  await view.getByTestId('equation-close').click();
- await page.getByTestId('account-menu').click();await page.getByTestId('assets-figures').click();
+ await page.getByTestId('account-menu').click();await page.getByTestId('open-settings').click();await page.getByTestId('assets-figures').click();
  kept=page.getByRole('dialog',{name:'Figure explanations'});
  await kept.getByTestId('explanations-list').getByRole('button').first().click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3,{timeout:20000});

@@ -4,13 +4,12 @@ import {useDevicePDFs} from './useDevicePDFs';
 import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
 import { localChatContext, observeArxivSources, prepareArxivReader } from '../lib/arxiv-reader';
 import { sourceMetadataReporter } from '../lib/source-metadata';
-import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
-import { type ComponentProps, type FocusEvent as ReactFocusEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type ReaderPaper, ReaderBundles, isLibraryPaper, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
+import { type ComponentProps, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib/activity';
 import { loadKept, saveKept } from '../lib/kept-explanations';
-import { AuthError, type AuthIssue, type Session, auth, config, functionPost, operationsDashboard, operatorRoles } from '../lib/backend';
+import { AuthError, type AuthIssue, type Session, auth, config, functionPost } from '../lib/backend';
 import type { AnswerPapers } from './AnswerPapers';
-import { type AccountSummary, CREDITS_INFO, FREE_AI_INFO, PLAN_INFO, creditsLabel, freeAILabel, loadAccountSummary, planLabel } from '../lib/account-summary';
 import { type DeviceRecord, type Preparation, eraseDeletedAccount, forgetDevice, readDevice } from '../lib/keys';
 import { TYPED_CONFIRMATION, deletionFailure, forgetAccountStorage, noteAccountDeleted, requestAccountDeletion } from '../lib/account-deletion';
 import type { Item } from '../lib/library';
@@ -33,6 +32,11 @@ import { AssetsExportDialog } from './AssetsExportDialog';
 import { UsageDialog } from './UsageDialog';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { PaperSearchView, usePaperSearch } from './PaperSearch';
+import { ScopeSwitch, SearchRail } from './SearchRail';
+import { RAIL_CLOSED, carriedQuery, enterAction, escapeStep, libraryMatches, railReducer, restoreLeft } from '../lib/search-rail';
+import type { Row } from '../lib/paper';
+import { SettingsDialog, ShortcutList } from './Settings';
+import { CatalogsDialog } from './Catalogs';
 import { ListenView, PaperListen, PodcastDock, PodcastWriterDefault, usePodcasts, usePodcastPlayer } from './Podcast';
 import type { MineRequest } from '../lib/podcast';
 import { Icon, type IconName } from './icons';
@@ -131,9 +135,6 @@ function Unsupported() {
   );
 }
 
-const SHORTCUTS = [['/ or ⌘K', 'Search the library or ML papers'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
-  ['F', 'Reading mode (Esc leaves it)'], ['J K', 'Next or previous section'], ['Space', 'Page down in the paper (Shift: up)'],
-  ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
 const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' };
 
 /** The activity the library views show: live while one is on screen, the last shown otherwise (C1). */
@@ -218,6 +219,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
+  // Settings (owner-approved 2026-10-22, audit S9) and its Library › Catalogs.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [catalogsOpen, setCatalogsOpen] = useState(false);
   // Your assets › Download your assets (owner, build 82).
   const [assetsExportOpen, setAssetsExportOpen] = useState(false);
   const [howGradstepWorks, setHowGradstepWorks] = useState(false);
@@ -320,32 +324,31 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const { theme, resolved, setTheme } = useTheme();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const search = useRef<HTMLInputElement>(null);
-  // Paper search beside the library search (native RootView: the Library / arXiv switch under the field while
-  // searching; PaperSearch.tsx). Each side keeps its own query, as native libraryQuery and discoveryQuery do.
+  // ML paper search (PaperSearch.tsx): in the left panel's search list beside the reading view (SearchRail.tsx), or on the
+  // Library route in place of its table.
   const paperSearch = usePaperSearch(account);
-  // Every way into ML paper search (find similar, an author, a keyword, a public link) starts without a library tag
-  // filter, which would otherwise wait unseen behind the search (owner, build 75: "I wonder if a search was not escaped").
+  // Search beside the reading view (owner, 2026-10-22: "the search bar should probably be on the left … in the same area as
+  // the list of articles would be"; lib/search-rail.ts): a mode of the left panel off the Library route, like Mail.
+  const [rail, dispatchRail] = useReducer(railReducer, RAIL_CLOSED);
+  const [railText, setRailText] = useState('');
+  const railField = useRef<HTMLInputElement>(null);
+  // The Library route's own search: its words filter the table; ML papers takes the table's place (as before, with the
+  // switch in the Library's title row, never a row that pushes the page down).
+  const [libraryML, setLibraryML] = useState(false);
+  // Every way into ML paper search (find similar, an author, a keyword, a public link) answers where the reader is, and
+  // starts without a library tag filter (owner, build 75: "I wonder if a search was not escaped").
   function searchPapers(text: string) {
-    clearTag(); paperSearch.setQuery(text);
-    setSearchExternal(true);navigate('/');paperSearch.run();
+    clearTag(); paperSearch.setQuery(text); paperSearch.run();
+    if (route === 'library') setLibraryML(true); else openRailSearch(true);
   }
   // A keyword's "Show library papers tagged": the library with that tag and nothing else in the way.
   function showTagged(tag: string) {
-    setSearchExternal(false); setSearchFocus(false); search.current?.blur(); paperSearch.setQuery('');
+    setLibraryML(false); search.current?.blur(); paperSearch.clear();
     setView(q => ({ ...q, query: '', filter: 'all', tag })); navigate('/');
   }
   function similar(paper:LibraryPaper) {
     const tags=effectiveTags(paper).slice(0,3); searchPapers(tags.length?tags.join(' '):paper.metadata?.title??'');
   }
-  const [searchExternal, setSearchExternal] = useState(false);
-  const [searchFocus, setSearchFocus] = useState(false);
-  const scope = useRef<HTMLDivElement>(null);
-  const pointerDown = useRef(false);
-  useEffect(() => {
-    const down = () => { pointerDown.current = true; }, up = () => { pointerDown.current = false; };
-    addEventListener('pointerdown', down, true); addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true);
-    return () => { removeEventListener('pointerdown', down, true); removeEventListener('pointerup', up, true); removeEventListener('pointercancel', up, true); };
-  }, []);
   const openReader = useCallback((paper: ReaderPaper, anchor?: TextAnchor) => navigate(`/paper/${paper.id}`, () => {
     setLastPaper(paper.id);
     setPassage(anchor ? { id: crypto.randomUUID(), documentID: paperIdentity(paper), anchor, at: Date.now() } : null);
@@ -413,13 +416,38 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const item = paperID ? library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.id === paperID && e.visible) : undefined;
   useEffect(() => { if (path !== '/' && path !== '/feed' && !match && !notesMatch) navigate('/'); }, [path, match, notesMatch, navigate]);
   useEffect(() => { if (paperID) setLastPaper(paperID); setOrphanPaper(null); setChatMode(paperID ? 'paper' : 'general'); }, [paperID]);
+  useEffect(() => { setLibraryML(false); setSettingsOpen(false); }, [route, paperID]);
 
   const ws = useWorkspace(route);
   // Back to chat goes away once the chat is open again or the paper is left.
   useEffect(() => { if (ws.right.open || route !== 'paper') setChatReturn(null); }, [ws.right.open, route]);
   const reading = useReadingMode(ws, route === 'paper' && !!item);
-  const latest = useRef({ ws, route, paperID, reading });
-  latest.current = { ws, route, paperID, reading };
+  // Opening search: the Library's own field there; elsewhere the left panel's search list, the panel opening if it was
+  // closed (a drawer on narrow windows). What the panel showed comes back when search ends (reader audit R2).
+  const openRailSearch = (ml?: boolean) => {
+    dispatchRail({ type: 'open', route, leftOpen: ws.left.open, ml });
+    if (!ws.left.open) ws.show('left');
+    requestAnimationFrame(() => requestAnimationFrame(() => { railField.current?.focus(); railField.current?.select(); }));
+  };
+  const closeRailSearch = () => {
+    const back = restoreLeft(rail, route, ws.left.inline);
+    dispatchRail({ type: 'close' }); setRailText(''); paperSearch.clear();
+    if (back !== null && back !== ws.left.open) ws.show('left', back);
+  };
+  const enterSearch = () => {
+    if (route === 'library') { search.current?.focus(); search.current?.select(); } else openRailSearch();
+  };
+  // The list stays beside the paper it opened; on another route the panel opens for it, and the Library ends it (its
+  // table is its list). Closing the panel itself ([, its edge) ends search too.
+  const railRoute = useRef(route);
+  useEffect(() => {
+    const moved = railRoute.current !== route; railRoute.current = route;
+    if (!rail.open) return;
+    if (route === 'library') { dispatchRail({ type: 'route', route }); setRailText(''); return; }
+    if (!ws.left.open) { if (moved) ws.show('left'); else dispatchRail({ type: 'close' }); }
+  }, [rail.open, route, ws.left.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const latest = useRef({ ws, route, paperID, reading, enterSearch });
+  latest.current = { ws, route, paperID, reading, enterSearch };
   const libraryShown = route !== 'paper' || (railTab === 'library' && ws.left.open);
   const activity = useActivity(activityStore, libraryShown);
   const model = useLibraryModel(library, activity, view, libraryShown);
@@ -443,7 +471,16 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       case 'reading': if (route === 'paper') reading.toggle(); break;
       case 'next': if (route === 'paper') readerCommands.current?.section?.(1); break;
       case 'previous': if (route === 'paper') readerCommands.current?.section?.(-1); break;
-      case 'search': search.current?.focus(); search.current?.select(); break;
+      case 'search': {
+        const go = () => latest.current.enterSearch();
+        // Reading mode hides the top bar: leave it first, then focus once the bar is back (the paper's frame, which held
+        // the keyboard, may take focus back while it settles).
+        if (reading.on) {
+          reading.exit(); requestAnimationFrame(go);
+          setTimeout(() => { if (document.activeElement !== search.current && document.activeElement !== railField.current) go(); }, 120);
+        } else go();
+        break;
+      }
       case 'find': if (route === 'paper') readerCommands.current?.find(); break;
       case 'left': ws.toggle('left'); break;
       case 'right': ws.toggle('right'); break;
@@ -524,39 +561,71 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     await auth.signOut(owner.generation);
   }
 
-  const searchText = searchExternal ? paperSearch.query : view.query;
-  const searching = searchFocus || !!searchText || searchExternal;
-  // Starting a search ends a tag filter: inside search it would hide matches without showing why (build 75, AOog).
-  useEffect(() => { if (searching) clearTag(); }, [searching, clearTag]);
-  // Focus may move between the field and its switch without ending the search (native searchFocused). When a click
-  // elsewhere takes focus, the switch stays until that click has landed, so nothing moves under the pointer.
-  const inSearch = (node: Node | null) => !!node && (!!search.current?.contains(node) || !!scope.current?.contains(node));
-  const leaveSearch = (event: ReactFocusEvent) => {
-    if (inSearch(event.relatedTarget as Node | null)) return;
-    if (!pointerDown.current) { setSearchFocus(false); return; }
-    const settle = () => {
-      removeEventListener('pointerup', settle, true); removeEventListener('pointercancel', settle, true);
-      setTimeout(() => { if (!inSearch(document.activeElement)) setSearchFocus(false); }, 0);
-    };
-    addEventListener('pointerup', settle, true); addEventListener('pointercancel', settle, true);
+  // The left panel's list: library matches (best first) for its words, or ML papers.
+  const railMatches = useMemo(() => {
+    if (!rail.open || rail.ml || !railText.trim()) return { shown: [] as Row[], total: 0 };
+    const found = libraryMatches(model.all.filter(r => r.readable && isLibraryPaper(r.entry)).map(row => ({ row, title: row.title, authors: row.entry.metadata?.authors ?? [],
+      tags: row.tags, source: row.source, venue: row.entry.metadata?.venue ?? null, added: row.added, archived: row.archived })), railText);
+    return { shown: found.shown.map(m => m.row), total: found.total };
+  }, [rail.open, rail.ml, railText, model.all]);
+  // A result opens in the middle; beside it the list stays (the paper highlighted), over it (a drawer) search ends.
+  const openFromRail = (paper: LibraryPaper) => {
+    const inline = ws.left.inline;
+    dispatchRail({ type: 'opened', inline });
+    if (!inline) { setRailText(''); paperSearch.clear(); ws.show('left', false); }
+    void openPaper(paper);
   };
-  const chooseScope = (external: boolean) => {
-    setSearchExternal(external);
-    if (external) {
-      if (route !== 'library') navigate('/');
-      // Switching with a query that wasn't searched yet searches it (native onChange of searchExternal).
-      if (paperSearch.state.kind === 'idle' && paperSearch.query.trim()) paperSearch.run();
+  const openRailSource = (sourceID: string) => {
+    const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID);
+    if (paper) openFromRail(paper);
+  };
+  const railML = () => {
+    const words = carriedQuery(railText, paperSearch.query);
+    paperSearch.setQuery(words); if (words.trim()) paperSearch.run();
+    dispatchRail({ type: 'ml' }); railField.current?.focus();
+  };
+  const railLibrary = () => { setRailText(carriedQuery(paperSearch.query, railText)); dispatchRail({ type: 'library' }); railField.current?.focus(); };
+  const railKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    const text = rail.ml ? paperSearch.query : railText;
+    if (e.key === 'Enter') {
+      const action = enterAction({ ml: rail.ml, query: text, matches: railMatches.total });
+      if (!action) return;
+      e.preventDefault();
+      if (action === 'run-ml') paperSearch.run();
+      else if (action === 'search-ml') railML();
+      else { const first = railMatches.shown[0]; if (first && isLibraryPaper(first.entry)) openFromRail(first.entry); }
+    } else if (e.key === 'Escape') {
+      // Esc clears the words, then a second Esc ends search; the panel goes back to what it showed.
+      e.preventDefault(); e.stopPropagation();
+      if (escapeStep(text) === 'clear') { if (rail.ml) paperSearch.clear(); else setRailText(''); } else closeRailSearch();
+    } else if (e.key === 'ArrowDown') {
+      const first = document.querySelector<HTMLElement>('.search-rail-body button.search-rail-open');
+      if (first) { e.preventDefault(); first.focus(); }
     }
   };
-  const cancelSearch = () => {
-    setSearchExternal(false); setView(q => ({ ...q, query: '', tag: '' })); paperSearch.setQuery(''); setSearchFocus(false); search.current?.blur();
+  // The Library route's field: its words filter the table live; ML papers takes the table's place.
+  const libraryField = libraryML ? paperSearch.query : view.query;
+  const searching = route === 'library' && (libraryML || !!view.query.trim());
+  const toLibraryML = () => {
+    paperSearch.setQuery(carriedQuery(view.query, paperSearch.query)); if (paperSearch.query.trim() || view.query.trim()) paperSearch.run();
+    setLibraryML(true); setView(q => ({ ...q, query: '' })); search.current?.focus();
   };
-  const query = (text: string) => {
-    setView(q => ({ ...q, query: text }));
-    // Beside a paper, the library search shows its results in the rail; from the Feed it returns to the library.
-    if (route === 'paper' && text.trim()) { setRailTab('library'); if (!ws.left.open) ws.show('left'); }
-    if (route === 'feed' && text.trim()) navigate('/');
+  const toLibraryTable = () => { setView(q => ({ ...q, query: carriedQuery(paperSearch.query, q.query) })); setLibraryML(false); search.current?.focus(); };
+  const cancelLibrarySearch = () => { setLibraryML(false); paperSearch.clear(); setView(q => ({ ...q, query: '', tag: '' })); search.current?.blur(); };
+  const searchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (route !== 'library') return;
+    if (e.key === 'Enter' && libraryML) { e.preventDefault(); paperSearch.run(); }
+    else if (e.key === 'Escape') {
+      // Clearing the Library's words is its Cancel: the tag filter ends with them (build 75, AOog); then ML papers ends.
+      if (libraryField) { e.preventDefault(); if (libraryML) paperSearch.clear(); else setView(q => ({ ...q, query: '', tag: '' })); }
+      else if (libraryML) { e.preventDefault(); cancelLibrarySearch(); }
+      else e.currentTarget.blur();
+    } else if (e.key === 'ArrowDown' && !libraryML) {
+      const first = document.querySelector<HTMLElement>('#main a.title');
+      if (first) { e.preventDefault(); first.focus(); }
+    }
   };
+  const scopeSwitch = <ScopeSwitch ml={libraryML} onLibrary={toLibraryTable} onML={toLibraryML} onCancel={cancelLibrarySearch} />;
   const onContents = () => {
     if (ws.left.open && railTab === 'contents') ws.show('left', false);
     else { setRailTab('contents'); ws.show('left'); }
@@ -587,12 +656,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     open: sourceID => {
       const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID);
       if (paper && (isSourcePaper(paper) || readingSource(paper))) { void openPaper(paper); return; }
-      setSearchExternal(false); setView({ ...INITIAL_QUERY, query: sourceID }); void navigate('/');
+      setLibraryML(false); setView({ ...INITIAL_QUERY, query: sourceID }); void navigate('/');
     },
     addArxiv: (sourceID, revision) => library.addArxiv(sourceID, revision),
     addReference: (doi, operationID) => functionPost('add-reference', { operation_id: operationID, reference: doi, capabilities: ['web_import'] }, { account, maximum: 65_536 }),
   }), [library, openPaper, navigate, setView, account]);
   const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
+    setSettingsOpen(false);
     const showing = anchor && documentID && chat ? chat.current(documentID).id : null;
     if (!documentID) setChatMode('general');
     else {
@@ -727,7 +797,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     await library.addArxiv(episode.source.arxivID, episode.source.version);
   };
 
-  const left = route === 'paper' ? (
+  const left = rail.open && route !== 'library' ? (
+    <SearchRail fieldRef={railField} text={rail.ml ? paperSearch.query : railText} ml={rail.ml}
+      onText={text => { if (rail.ml) paperSearch.setQuery(text); else setRailText(text); }} onKey={railKey} onClose={closeRailSearch}
+      onLibrary={railLibrary} onML={railML} matches={railMatches.shown} total={railMatches.total} currentID={paperID}
+      onOpen={row => { if (isLibraryPaper(row.entry)) openFromRail(row.entry); }}
+      search={paperSearch} library={library} preparing={feedPreparing} onAdded={feedAdd} onOpenSource={openRailSource} currentSource={item?.source_id ?? null} />
+  ) : route === 'paper' ? (
     <>
       <PaneHeader title={<span className="tabs" role="tablist" aria-label="Side panel">
         <button role="tab" aria-selected={railTab === 'contents'} className={railTab === 'contents' ? 'tab on' : 'tab'} onClick={() => setRailTab('contents')}>Contents</button>
@@ -747,7 +823,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   ) : (
     <>
       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
-      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={next => { setSearchExternal(false); setView(next); }} onSearchTag={searchPapers} />}</div>
+      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={setView} onSearchTag={searchPapers} />}</div>
     </>
   );
 
@@ -770,7 +846,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         const context = localChatContext(reference, bundle);
         return { text: { format: 'paper-context-v2', text: context.text }, identity: { source: 'arxiv', source_id: context.source_id, revision: context.revision, manifest_sha256: context.manifest_sha256, title: item.metadata?.title ?? undefined, authors: item.metadata?.authors ?? [] } };
       } : undefined} />} cache={readerCache} account={account} item={item} saved={activityStore.get(item.id)} onActivity={record} theme={resolved}
-        contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
+        contentsSlot={railTab === 'contents' && ws.left.open && !rail.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
         readSaved={readSaved}
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
@@ -795,13 +871,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing} onLibrary={() => navigate('/')}
       onAdded={feedAdd}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }}
-      listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} onTryAgain={tryAgain} /> }} />;
-  } else if (searchExternal) {
-    center = <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={feedAdd} onLibrary={() => setSearchExternal(false)}
-      onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
+      listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} onTryAgain={tryAgain} /> }} onReport={report} />;
+  } else if (libraryML) {
+    // ML papers on the Library route: in the table's place, with the switch in the title row (as before).
+    center = <section className="library library-ml" aria-labelledby="library-ml-title">
+      <div className="view-head library-head"><h1 id="library-ml-title">Library</h1>{scopeSwitch}</div>
+      <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={feedAdd} onLibrary={toLibraryTable}
+        onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />
+    </section>;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared} onSearchTag={searchPapers}
-      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} recommender={recommender} onAdd={() => setAdding(true)} chatCount={chatCount} />;
+      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} recommender={recommender} onAdd={() => setAdding(true)} chatCount={chatCount} onReport={report}
+      searchSwitch={view.query.trim() ? scopeSwitch : undefined} />;
   }
 
   // Paper (phone): the paper last open in this tab, else the one most recently opened on this device.
@@ -838,19 +919,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
               {library.catalogs.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
         <div className="search-field">
           <Icon name="search" size={14} />
-          <input ref={search} type="search" placeholder={searchExternal ? 'Search ML papers' : 'Search library'} aria-label={searchExternal ? 'ML paper search' : 'Search library'}
-            value={searchText} data-testid="search" enterKeyHint={searchExternal ? 'search' : undefined}
-            onChange={e => { if (searchExternal) paperSearch.setQuery(e.target.value); else query(e.target.value); }}
-            onFocus={() => setSearchFocus(true)} onBlur={leaveSearch}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && searchExternal) { e.preventDefault(); if (route !== 'library') navigate('/'); paperSearch.run(); }
-              if (e.key === 'Escape') {
-                if (searchText) { e.preventDefault(); if (searchExternal) paperSearch.setQuery(''); else query(''); }
-                else if (searchExternal) { e.preventDefault(); cancelSearch(); }
-                else e.currentTarget.blur();
-              }
-              if (e.key === 'ArrowDown') { const first = document.querySelector<HTMLElement>('#main a.title, #main a.feed-title, .compact-list a'); if (first) { e.preventDefault(); first.focus(); } }
-            }} />
+          <input ref={search} type="search" placeholder="Search papers" aria-label="Search papers" value={route === 'library' ? libraryField : ''} data-testid="search"
+            data-mode={libraryML ? 'ml' : 'library'} enterKeyHint="search" aria-haspopup={route === 'library' ? undefined : 'true'}
+            onChange={e => {
+              const text = e.target.value;
+              if (route !== 'library') { setRailText(text); if (!rail.open) openRailSearch(); else railField.current?.focus(); return; }
+              if (libraryML) paperSearch.setQuery(text); else setView(q => ({ ...q, query: text, tag: text.trim() ? '' : q.tag }));
+            }}
+            onFocus={() => { if (route !== 'library') { if (rail.open) railField.current?.focus(); else openRailSearch(); } }} onKeyDown={searchKey} />
           <kbd aria-hidden="true">/</kbd>
         </div>
         <div className="topbar-actions">
@@ -858,20 +934,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu compact={phone} onAdd={library.state === 'ready' ? () => setAdding(true) : null} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
-            onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
-            onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
-            onNotes={() => void navigate('/notes')} onExplanations={chat ? setExplanationsOpen : null} onUsage={() => setUsageOpen(true)} onDownloadAssets={chat ? () => setAssetsExportOpen(true) : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
+          <AccountMenu compact={phone} email={session.user.email} onSettings={() => setSettingsOpen(true)} onHelp={() => setHelp(true)} onReport={() => setReportOpen(true)}
+            onSignOut={() => setSigningOut(true)} />
         </div>
       </header>
-      {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
-        <span className="segmented" role="group" aria-label="Search">
-          {([false, true] as const).map(external => <button key={String(external)} className={`segment${searchExternal === external ? ' on' : ''}`} aria-pressed={searchExternal === external}
-            onMouseDown={e => e.preventDefault()} onClick={() => chooseScope(external)} data-testid={external ? 'search-scope-arxiv' : 'search-scope-library'}>
-            {external ? 'ML paper search' : 'Library'}</button>)}
-        </span>
-        <button className="link small-link" onMouseDown={e => e.preventDefault()} onClick={cancelSearch} data-testid="search-cancel">Cancel</button>
-      </div>}
       <StorageNotice />
       {navigationIssue && <div className="storage-notice" role="alert" data-testid="navigation-save-issue">
         <span>Some chat edits couldn’t be saved on this device. They’re still available in All chats. Keep this tab open.</span>
@@ -879,7 +945,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <button className="icon-button" aria-label="Dismiss save notice" onClick={() => setNavigationIssue(false)}><Icon name="close" size={16} /></button>
       </div>}
       {/* Each region fails on its own (RESILIENCE.md fix 2): a malformed answer, feed row or episode never blanks the page. */}
-      <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : route === 'notes' ? 'Snippet collections' : 'Library filters'} rightLabel="Chat"
+      <Workspace controls={ws} leftLabel={rail.open && route !== 'library' ? 'Search papers' : route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : route === 'notes' ? 'Snippet collections' : 'Library filters'} rightLabel="Chat"
         left={<RegionBoundary region="side" label="The side panel" compact resetKey={route} onReport={report}>{left}</RegionBoundary>}
         center={<RegionBoundary region={route === 'paper' ? 'reader' : route === 'feed' ? (listening ? 'listen' : 'feed') : route === 'notes' ? 'notes' : 'library'}
           label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : route === 'notes' ? 'Snippets' : 'The library'}
@@ -918,7 +984,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onOpen={e => {
           const paper = library.entries.find((p): p is ReaderPaper => isReaderPaper(p) && p.visible && paperIdentity(p) === e.documentID);
           if (!paper) return false;
-          setExplanationsOpen(null);
+          setExplanationsOpen(null); setSettingsOpen(false);
           setExplainer({ id: crypto.randomUUID(), documentID: e.documentID, kind: e.kind, targetID: e.targetID, at: Date.now() });
           void openPaper(paper);
           return true;
@@ -927,14 +993,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       {usageOpen && <RegionBoundary region="usage" label="Your AI usage" compact onReport={report}><UsageDialog account={account} onClose={() => setUsageOpen(false)}
         paperTitle={p => { const paper = library.entries.find(e => e.visible && ((p.membership && e.id === p.membership) || (p.document && isReaderPaper(e) && paperIdentity(e) === p.document)));
           return paper ? paper.metadata?.title ?? 'Untitled paper' : null; }} /></RegionBoundary>}
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} account={account} email={session.user.email} theme={theme} setTheme={setTheme}
+        passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} onUsage={() => setUsageOpen(true)} onChatDefaults={chat ? () => setChatDefaults('defaults') : null}
+        onCatalogs={library.catalogs ? () => setCatalogsOpen(true) : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
+        onNotes={() => { setSettingsOpen(false); void navigate('/notes'); }} onExplanations={chat ? setExplanationsOpen : null} onDownloadAssets={chat ? () => setAssetsExportOpen(true) : null}
+        onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)}
+        onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }} onSignOut={() => setSigningOut(true)} />
+      {catalogsOpen && <CatalogsDialog open onClose={() => setCatalogsOpen(false)} library={library} />}
       {reportOpen && <Suspense fallback={null}><ReportDialog open onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} /></Suspense>}
       {reportsOpen && <Suspense fallback={null}><ReportsDialog open onClose={() => setReportsOpen(false)} account={account} /></Suspense>}
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
         <SheetTop onClose={() => setHelp(false)} testID="shortcuts-close"><h2>Keyboard shortcuts</h2></SheetTop>
-        <dl className="shortcuts">
-          {SHORTCUTS.map(([k, d]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{d}</dd></div>)}
-        </dl>
-        <p className="fine">On Windows and Linux, use Ctrl for ⌘.</p>
+        <ShortcutList />
       </Dialog>
       {howGradstepWorks && <Suspense fallback={null}><HowGradstepWorks open onClose={() => setHowGradstepWorks(false)} /></Suspense>}
       {privacy && <Suspense fallback={null}><PrivacyData open onClose={() => setPrivacy(false)} /></Suspense>}
@@ -1010,38 +1080,10 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
   </nav>;
 }
 
-function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onNotes, onDiagrams, onExplanations, onUsage, onDownloadAssets, passageMarks, onPassageMarks, sync }: {
-  compact?: boolean;
-  /** Add paper, the menu's first row (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
-  onAdd: (() => void) | null; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onNotes: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null; onDownloadAssets: (() => void) | null;
-  /** Your AI usage, under AI credits. */
-  onUsage: () => void;
-  passageMarks: boolean; onPassageMarks: (on: boolean) => void;
-  sync?: { label: string; detail: string | null; canSync: boolean; run: () => void } | null }) {
+function AccountMenu({ compact = false, email, onSettings, onHelp, onReport, onSignOut }: {
+  compact?: boolean; email: string | null; onSettings: () => void; onHelp: () => void; onReport: () => void; onSignOut: () => void }) {
   const [open, setOpen] = useState(false);
-  const [roles, setRoles] = useState<string[]>([]);
-  // AI credits and Subscription plan, read again each time the menu opens (native Settings › AI credits); the last values
-  // stay while a read is under way, a dash while none has answered.
-  const [summary, setSummary] = useState<AccountSummary>({ balance: undefined, plan: undefined });
-  useEffect(() => { setSummary({ balance: undefined, plan: undefined }); }, [account]);
-  useEffect(() => {
-    if (!open) return;
-    const abort = new AbortController();
-    loadAccountSummary(account, abort.signal).then(next => {
-      if (abort.signal.aborted) return;
-      setSummary(last => ({ balance: next.balance ?? last.balance, plan: next.plan !== undefined ? next.plan : last.plan,
-        periodMonths: next.plan !== undefined ? next.periodMonths ?? null : last.periodMonths }));
-    }, () => undefined);
-    return () => abort.abort();
-  }, [account, open]);
   const box = useRef<HTMLDivElement>(null);
-  // Operators (owner, support) get a link to the admin site; readers never see it.
-  useEffect(() => {
-    const abort = new AbortController(); setRoles([]);
-    operatorRoles(account, abort.signal).then(setRoles, () => undefined);
-    return () => abort.abort();
-  }, [account]);
   useEffect(() => {
     if (!open) return;
     const away = (event: Event) => { if (!box.current?.contains(event.target as Node)) setOpen(false); };
@@ -1049,66 +1091,21 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', key);
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); };
   }, [open]);
+  const item = (label: string, icon: IconName | null, run: () => void, testID: string) => <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); run(); }} data-testid={testID}>
+    {icon ? <Icon name={icon} size={14} /> : <span className="menu-icon-space" aria-hidden="true" />} {label}</button>;
   return (
     <div className="account" ref={box}>
-      {/* On a phone this is each screen's top-right ⋯, with Settings in it (the apps' Notes navigation). */}
       <button className="icon-button account-button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)} data-testid="account-menu"
-        title={compact ? 'More and Settings' : email ?? 'Account'} aria-label={compact ? 'More and Settings' : undefined}>
-        <Icon name={compact ? 'more' : 'user'} />{!compact && <span className="account-email">{email ?? 'Account'}</span>}
+        title={compact ? 'Account and Settings' : email ?? 'Account'} aria-label={compact ? 'Account and Settings' : undefined}>
+        <Icon name="user" />{!compact && <span className="account-email">{email ?? 'Account'}</span>}
       </button>
       {open && (
-        <div className="menu" role="menu" data-info-bounds>
-          <button role="menuitem" className="menu-item menu-add" disabled={!onAdd} onClick={() => { setOpen(false); onAdd?.(); }} data-testid="add-paper"><Icon name="plus" size={14} /> Add paper…</button>
-          {compact && <p className="fine menu-heading">Settings</p>}
-          <p className="menu-email">{email}</p>
-          <p className="fine">This browser is an approved device.</p>
-          {sync && <div className="menu-fact" data-testid="account-sync" title={sync.detail ?? undefined}><span>Sync</span>
-            <span className="menu-fact-value">{sync.label}{sync.canSync && <button type="button" className="link small" onClick={sync.run} data-testid="sync-now"> Sync now</button>}</span></div>}
-          {/* Owner, build 57: "Credits -> AI credits", "Plan -> Subscription Plan"; the explanations behind ⓘ. Bought in the apps. */}
-          <div className="menu-facts" role="group" aria-label="AI credits">
-            <div className="menu-fact" data-testid="account-credits"><span>AI credits <InfoTip text={CREDITS_INFO} testID="credits-info" /></span>
-              <span className="menu-fact-value">{creditsLabel(summary.balance)}</span></div>
-            {!!summary.balance?.reserved && <div className="menu-fact fine" data-testid="account-held"><span>Held for answers in progress</span>
-              <span className="menu-fact-value">{summary.balance.reserved.toLocaleString()}</span></div>}
-            <div className="menu-fact" data-testid="account-plan"><span>Plan <InfoTip text={PLAN_INFO} testID="plan-info" /></span>
-              <span className="menu-fact-value">{planLabel(summary.plan, summary.periodMonths)}</span></div>
-            {/* Free AI (migration 0150; docs/PRICING_HOW_IT_WORKS.md): only on the free tier. */}
-            {summary.balance?.free && <div className="menu-fact" data-testid="account-free-ai"><span>Free AI this month <InfoTip text={FREE_AI_INFO} testID="free-ai-info" /></span>
-              <span className="menu-fact-value">{freeAILabel(summary.balance.free)}</span></div>}
-            {/* Owner, 2026-10-22: where credits go — each request with its tokens and cost. */}
-            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onUsage(); }} data-testid="ai-usage"><Icon name="list" size={14} /> Your AI usage</button>
-          </div>
-          {/* Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough". */}
-          <div className="menu-group" role="group" aria-label="Your assets"><p className="fine menu-heading">Your assets</p>
-            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onChats(); }} data-testid="assets-chats"><Icon name="chats" size={14} /> Chats</button>
-            <button role="menuitem" className="menu-item" disabled={!onDiagrams} onClick={() => { setOpen(false); onDiagrams?.(); }} data-testid="assets-diagrams"><Icon name="chart" size={14} /> Diagrams</button>
-            {/* Owner, 2026-10-21: "Needs to be a Notes section in your assets". */}
-            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onNotes(); }} data-testid="assets-notes"><Icon name="notes" size={14} /> Snippets</button>
-            {/* Owner, build 62: the AI Explainer's answers too (this tab's; the apps keep theirs on the device). */}
-            <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('equation'); }} data-testid="assets-equations"><Icon name="function" size={14} /> Equation explanations</button>
-            <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('figure'); }} data-testid="assets-figures"><Icon name="image" size={14} /> Figure explanations</button>
-            <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('paper'); }} data-testid="assets-papers"><Icon name="sparkles" size={14} /> Paper explanations</button>
-            {/* Owner, build 82: "Need a download assets button": this browser's own content as a .zip made here. */}
-            <button role="menuitem" className="menu-item" disabled={!onDownloadAssets} onClick={() => { setOpen(false); onDownloadAssets?.(); }} data-testid="assets-download"><Icon name="download" size={14} /> Download your assets</button>
-          </div>
-          <div className="menu-row" role="group" aria-label="Appearance">
-            {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>
-              {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
-          </div>
-          <button role="menuitemcheckbox" aria-checked={passageMarks} className="menu-item menu-check" onClick={() => onPassageMarks(!passageMarks)} data-testid="passage-marks">
-            <span className="menu-check-mark" aria-hidden="true">{passageMarks ? '✓' : ''}</span>Underline passages with chats</button>
-          <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> AI chat options…</button>
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
-          {/* About, with Report and My reports beside it, for everyone (owner, build 58). */}
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onInfo(); }} data-testid="how-gradstep-works"><Icon name="info" size={14} /> How Gradstep works</button>
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onPrivacy(); }} data-testid="privacy-data"><Icon name="lock" size={14} /> Privacy &amp; data</button>
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReport(); }} data-testid="report-issue"><Icon name="bug" size={14} /> Report this screen…</button>
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReports(); }} data-testid="my-reports"><Icon name="bubble" size={14} /> My reports</button>
-          {/* Operator tools in one grey group, only for owner and support. */}
-          {roles.length > 0 && <div className="menu-admin" role="group" aria-label="Admin" data-testid="menu-admin"><p className="fine menu-heading">Admin</p>
-            <a role="menuitem" className="menu-item" href={operationsDashboard(roles)} target="_blank" rel="noreferrer" onClick={() => setOpen(false)} data-testid="operations-dashboard"><Icon name="external" size={14} /> Operations dashboard</a></div>}
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSignOut(); }} data-testid="sign-out">Sign out…</button>
-          <button role="menuitem" className="menu-item danger" onClick={() => { setOpen(false); onDeleteAccount(); }} data-testid="delete-account">Delete account…</button>
+        <div className="menu account-menu" role="menu" aria-label="Account">
+          <p className="menu-email" data-testid="account-email">{email}</p>
+          {item('Settings…', 'gear', onSettings, 'open-settings')}
+          {item('Keyboard shortcuts', 'keyboard', onHelp, 'keyboard-shortcuts')}
+          {item('Report this screen…', 'bug', onReport, 'report-issue')}
+          {item('Sign out…', null, onSignOut, 'sign-out')}
         </div>
       )}
     </div>

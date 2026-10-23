@@ -9,7 +9,7 @@ import {
   catalogSeeds, creditLabel, eligibleSeed, footerText, papersLabel, RECOMMEND_COUNTS, RECOMMEND_CREDITS, RecommendationRun, recommendBody,
   statusText, streamRecommend, type RecommendCount, type RecommendedPaper,
 } from '../lib/recommend';
-import { Dialog, MenuButton } from './common';
+import { Dialog } from './common';
 import { accountBalance, useFreeAIRefusal } from './free-ai';
 import type { useLibrary } from './useLibrary';
 import './recommend.css';
@@ -108,15 +108,6 @@ export function RecommendChoices({ note, onChoose }: { note: string; onChoose: (
   </>;
 }
 
-/** Library › Recommend for this catalog (beside Catalogs). Hidden when the catalog has nothing to recommend from. */
-export function CatalogRecommendButton({ recommender }: { recommender: Recommender | undefined }) {
-  if (!recommender?.catalogAvailable) return null;
-  return <MenuButton icon="more" text="Recommend" label="Recommend for this catalog" testID="recommend-catalog" className="recommend-catalog">
-    {close => <div role="group" aria-label={`Recommend for ${recommender.catalogName}`}>
-      <RecommendChoices note={`For ${recommender.catalogName} · ${recommender.note}`} onChoose={n => { close(false); recommender.catalog(n); }} />
-    </div>}
-  </MenuButton>;
-}
 
 export function RecommendDialog({ recommender }: { recommender: Recommender }) {
   const run = recommender.run;

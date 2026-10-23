@@ -1,6 +1,7 @@
-// Paper search in the browser, native parity (RootView's Library / arXiv switch, DiscoveryList, DiscoveryRow): the switch
-// under the field while searching, the same states and rows, Add with its percent, In library opens the paper, / to
-// search. Off: the server's discover?q= (as native). On (device_search, ARXIV_DEVICE_ONLY.md §5.6): DataCite from this
+// Paper search in the browser, native parity (DiscoveryList, DiscoveryRow): the same states and rows, Add with its percent,
+// In library opens the paper, / to search. On the Library route ML papers take the table's place, with the Library | ML
+// papers switch in the Library's title row (2026-10-22, audit S2: never a row that pushes the page); beside a paper it
+// answers in the left panel's search list (search-rail.spec). Off: the server's discover?q= (as native). On (device_search, ARXIV_DEVICE_ONLY.md §5.6): DataCite from this
 // browser, answered here by a route; nothing reaches the network.
 import {readFileSync} from 'node:fs';
 import {expect,test,type Page} from '@playwright/test';
@@ -32,20 +33,26 @@ test('field criteria are ANDed in the device request and public paper links rout
   await route.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({data:[],meta:{total:0}})});
  });
  await signInReader(page,request);await request.post(`${fixtureOrigin}/__device-search`,{data:{enabled:true}});
- await page.getByTestId('search').click();await page.getByTestId('search-scope-arxiv').click();
+ // The switch in the Library's title row, then Search by fields at the top of ML papers.
+ await page.getByTestId('search').fill('preference zzz');await page.getByTestId('search-scope-arxiv').click();
+ await expect(page.getByTestId('discover-empty')).toBeVisible();
  await page.getByText('Search by fields',{exact:true}).click();
  await page.getByRole('textbox',{name:'title criterion'}).fill('preference optimization');
  await page.getByRole('button',{name:'Add criterion'}).click();
  await page.getByRole('combobox',{name:'Field'}).nth(1).selectOption('author');
  await page.getByRole('textbox',{name:'author criterion'}).fill('Rafailov');
  await page.locator('.advanced-search').getByRole('button',{name:'Search',exact:true}).click();
+ await expect(page.getByTestId('search')).toHaveValue(/title:/);
  await expect(page.getByTestId('discover-empty')).toBeVisible();
- expect(queries).toHaveLength(1);expect(queries[0]).toContain('titles.title:');expect(queries[0]).toContain('creators.name:');expect(queries[0]).toContain(' AND ');
+ // One request for the fields (after the free-text search that opened the panel).
+ const fielded=queries.filter(q=>q.includes('creators.name:'));
+ expect(fielded).toHaveLength(1);expect(fielded[0]).toContain('titles.title:');expect(fielded[0]).toContain(' AND ');expect(queries.at(-1)).toBe(fielded[0]);
  await page.evaluate(()=>sessionStorage.setItem('gradstep.publicLink','https://app.gradstep.ai/p/arxiv/2305.18290v3'));
  await page.reload();await expect(page).toHaveURL(/\/paper\//);
  await page.evaluate(()=>sessionStorage.setItem('gradstep.publicLink','https://app.gradstep.ai/p/arxiv/2610.99999v2'));
- await page.reload();await expect(page.getByTestId('search')).toHaveValue('2610.99999v2');
- await expect(page.getByTestId('paper-search')).toBeVisible();
+ await page.reload();await expect(page.getByTestId('rail-search')).toHaveValue('2610.99999v2');
+ await expect(page.getByTestId('search-rail').getByTestId('paper-search')).toBeVisible();
+ await expect(page).toHaveURL(/\/paper\//); // answered beside the reader, in the left panel's list
  await noOverflow(page);
  await page.screenshot({path:`../../.artifacts/feedback/build70-20261018/search-fields-${test.info().project.name}.png`});
 });
@@ -55,21 +62,24 @@ test('ML paper search beside the library: the switch, states, order, In library 
  const datacite:string[]=[];page.on('request',r=>{if(r.url().startsWith('https://api.datacite.org'))datacite.push(r.url());});
  await serveArxiv(page);
  await signInReader(page,request);
- const field=page.getByTestId('search');
- // "/" focuses the search; the switch appears under the field while searching.
+ const field=page.getByTestId('search'),scope=page.getByTestId('search-scope');
+ // "/" focuses the search; the switch appears in the title row once there are words, and nothing moves (audit S2).
+ const head=(await page.locator('.library-head').boundingBox())!;
  await page.locator('body').press('/');
  await expect(field).toBeFocused();
- await expect(page.getByTestId('search-scope')).toBeVisible();
+ await expect(scope).toHaveCount(0);
+ await field.fill('sparse attention');
+ await expect(scope).toBeVisible();
+ expect((await page.locator('.library-head').boundingBox())!.y).toBe(head.y);
  await expect(page.getByTestId('search-scope-library')).toHaveAttribute('aria-pressed','true');
- await expect(page.getByTestId('search-scope-arxiv')).toHaveText('ML paper search');
+ await expect(page.getByTestId('search-scope-arxiv')).toHaveText('ML papers');
  await page.getByTestId('search-scope-arxiv').click();
- await expect(field).toHaveAttribute('placeholder','Search ML papers');
- await expect(field).toHaveAttribute('aria-label','ML paper search');
+ await expect(page.getByTestId('search-scope-arxiv')).toHaveAttribute('aria-pressed','true');
+ await expect(field).toHaveAttribute('placeholder','Search papers');
+ await expect(field).toHaveAttribute('data-mode','ml');
+ await expect(field).toHaveValue('sparse attention'); // the words carried over (S4)
  await expect(field).toBeFocused();
- await expect(page.getByTestId('discover-idle')).toContainText('Search ML papers by title');
- await expect(page.getByTestId('discover-idle')).not.toContainText('Find papers');
- await expect(page.getByTestId('library-table')).toHaveCount(0);
- await field.fill('sparse attention');await field.press('Enter');
+ await expect(page.getByTestId('library-table')).toHaveCount(0); // ML papers in the table's place, as before
  const cards=page.getByTestId('paper-search').locator('.feed-card');
  await expect(cards).toHaveCount(2);
  expect((await (await request.get(`${fixtureOrigin}/__search-evidence`)).json()).server).toEqual(['sparse attention']);
@@ -80,13 +90,17 @@ test('ML paper search beside the library: the switch, states, order, In library 
  await page.getByTestId('discover-order-newest').click();
  await noOverflow(page);
  await page.screenshot({path:`../../.artifacts/web-paper-search/results-${test.info().project.name}.png`});
- // In library opens the paper; back in the library the search is still there, as in the app.
+ // In library opens the paper and leaves ML paper search (reader audit R1); the Library is as it was.
  const dpo=cards.filter({hasText:'Direct Preference Optimization'});
  await dpo.getByTestId('feed-open').click();
  await expect(page).toHaveURL(/\/paper\//);
  await page.getByTestId('back-to-library').click();
- await expect(cards).toHaveCount(2);
+ await expect(field).toHaveValue('');
+ await expect(field).toHaveAttribute('data-mode','library');
+ await expect(page.getByTestId('paper-row')).toHaveCount(2);
  // Add: the Library's spinner until the paper is prepared here (its percent under it), then In library.
+ await field.fill('sparse attention');await page.getByTestId('search-scope-arxiv').click();
+ await expect(cards).toHaveCount(2);
  const added=cards.filter({hasText:'Scaling sparse attention'});
  await added.getByRole('button',{name:'+ Add to library'}).click();
  await expect(added.getByTestId('feed-preparing').locator('.spinner')).toBeVisible();
@@ -98,11 +112,12 @@ test('ML paper search beside the library: the switch, states, order, In library 
  await expect(page.getByTestId('discover-failed')).toContainText('ML paper search isn’t available right now. Try again in a moment.');
  await field.fill('nothing at all');await page.getByTestId('discover-failed').getByRole('button',{name:'Try again'}).click();
  await expect(page.getByTestId('discover-empty')).toContainText('No papers found');
- // Escape clears the query, then leaves the search for the library (native Cancel).
+ // Escape clears the words, then leaves ML paper search for the library (native Cancel).
  await field.focus();await field.press('Escape');
  await expect(field).toHaveValue('');
+ await expect(page.getByTestId('discover-idle')).toBeVisible(); // never the last failure behind an empty field (S3)
  await field.press('Escape');
- await expect(field).toHaveAttribute('placeholder','Search library');
+ await expect(field).toHaveAttribute('data-mode','library');
  await expect(page.getByTestId('library-table')).toBeVisible();
  await expect(page.getByTestId('search-scope')).toHaveCount(0);
  expect(datacite).toEqual([]);
@@ -121,9 +136,7 @@ test('with device search on, the browser asks DataCite itself and the server is 
  await signInReader(page,request);
  await request.post(`${fixtureOrigin}/__device-search`,{data:{enabled:true}});
  const field=page.getByTestId('search');
- await field.click();
- await page.getByTestId('search-scope-arxiv').click();
- await field.fill('sparse attention');await field.press('Enter');
+ await field.fill('sparse attention');await page.getByTestId('search-scope-arxiv').click();
  const cards=page.getByTestId('paper-search').locator('.feed-card');
  await expect(cards).toHaveCount(2);
  await expect(cards.filter({hasText:'Direct Preference Optimization'}).getByTestId('feed-open')).toHaveText('✓ In library');

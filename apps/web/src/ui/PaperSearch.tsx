@@ -7,7 +7,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browserSearch, DISCOVERY_ORDER_KEY, type DiscoveryOrder, orderDiscovery, searchPapers } from '../lib/device-search';
 import type { DiscoveryResult } from '../lib/feed';
-import { FeedCards } from './FeedResults';
+import { Add, FeedCards } from './FeedResults';
+import { firstAuthorLine } from '../lib/authors';
 import { Icon } from './icons';
 import type { Library } from './Library';
 import { useStored } from './prefs';
@@ -37,12 +38,19 @@ export function usePaperSearch(account: string) {
       () => { if (!controller.signal.aborted) setState({ kind: 'failed', message: UNAVAILABLE }); });
   }, [account, engine]);
   useEffect(() => () => request.current?.abort(), []);
-  return { query, setQuery, state, run, order, setOrder };
+  /** Cancel: no words, no request, the idle hint (audit S3: an earlier failure never waits behind an empty field). */
+  const clear = useCallback(() => { request.current?.abort(); request.current = null; latest.current = ''; setQueryState(''); setState({ kind: 'idle' }); }, []);
+  return { query, setQuery, state, run, clear, order, setOrder };
 }
 export type PaperSearch = ReturnType<typeof usePaperSearch>;
 
-export function PaperSearchView({ search, library, preparing, onAdded, onOpen, onLibrary }: { search: PaperSearch; library: Library;
-  preparing?: Map<string, number | null>; onAdded?: (sourceID: string) => void; onOpen?: (sourceID: string) => void; onLibrary?: () => void }) {
+export function PaperSearchView({ search, library, preparing, onAdded, onOpen, onLibrary, compact = false, current }: { search: PaperSearch; library: Library;
+  preparing?: Map<string, number | null>; onAdded?: (sourceID: string) => void; onOpen?: (sourceID: string) => void; onLibrary?: () => void;
+  /** The left panel's list (search beside the reading view, 2026-10-22): one row per paper, title with authors and year
+   * under it, Add or In library at its end; a row in the library opens its paper. */
+  compact?: boolean;
+  /** The source of the paper open beside the list, highlighted. */
+  current?: string | null }) {
   const [criteria,setCriteria]=useState([{field:'title',value:''}]);
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
@@ -62,7 +70,8 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen, o
   const actions = { expanded, toggle, adding, inLibrary, add, addBlocked: library.state !== 'ready' || library.pending.has('add'),
     feedbackBusy: false, feedbackState: new Map(), preparing, open: onOpen, library: onLibrary };
   let body;
-  switch (search.state.kind) {
+  // An emptied field shows the idle hint, never the last search's results or failure (audit S3).
+  switch (search.query.trim() ? search.state.kind : 'idle') {
     case 'idle':
       body = <div className="empty" data-testid="discover-idle"><Icon name="search" size={28} />
         <p className="muted">Search ML papers by title, author, topic or arXiv ID, then add a paper to your library.</p></div>;
@@ -71,7 +80,7 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen, o
       body = <div className="empty" role="status" data-testid="discover-searching"><div className="spinner" aria-hidden="true" /><p>Searching ML papers…</p></div>;
       break;
     case 'failed':
-      body = <div className="empty" role="alert" data-testid="discover-failed"><p><strong>Couldn’t search</strong></p><p className="muted">{search.state.message}</p>
+      body = <div className="empty" role="alert" data-testid="discover-failed"><p><strong>Couldn’t search</strong></p><p className="muted">{search.state.kind === 'failed' ? search.state.message : ''}</p>
         <button className="secondary" onClick={search.run}>Try again</button></div>;
       break;
     case 'results':
@@ -83,10 +92,21 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen, o
               onClick={() => search.setOrder(order)} data-testid={`discover-order-${order}`}>{order === 'newest' ? 'Newest' : 'Relevance'}</button>)}
           </div>
           {issue && <p className="issue banner" role="alert">{issue}</p>}
-          <FeedCards results={shown} actions={actions} unknownPopularity={false} />
+          {compact ? <ul className="search-rail-list" aria-label="ML papers">
+            {shown.map(paper => {
+              const meta = [firstAuthorLine(paper.authors) || null, paper.year].filter(Boolean).join(' · ');
+              const text = <><span className="search-rail-title">{paper.title}</span>{meta && <span className="search-rail-meta">{meta}</span>}</>;
+              return <li key={paper.source_id} className={`search-rail-row${paper.source_id === current ? ' current' : ''}`} data-testid="search-ml-result">
+                {inLibrary.has(paper.source_id) && onOpen
+                  ? <button type="button" className="search-rail-open" aria-current={paper.source_id === current ? 'page' : undefined} onClick={() => onOpen(paper.source_id)}>{text}</button>
+                  : <div className="search-rail-open static">{text}</div>}
+                <Add paper={paper} actions={actions} short />
+              </li>;
+            })}
+          </ul> : <FeedCards results={shown} actions={actions} unknownPopularity={false} />}
         </>;
   }
-  return <section className="feed paper-search" aria-labelledby="paper-search-title" data-testid="paper-search">
+  return <section className={`feed paper-search${compact ? ' compact' : ''}`} aria-labelledby="paper-search-title" data-testid="paper-search">
     <h1 id="paper-search-title" className="visually-hidden">ML paper search</h1>
     <details className="advanced-search"><summary>Search by fields</summary>
       {criteria.map((c,i)=><div className="search-criterion" key={i}><select aria-label="Field" value={c.field} onChange={e=>setCriteria(rows=>rows.map((r,j)=>j===i?{...r,field:e.target.value}:r))}>{['title','author','abstract','year'].map(f=><option key={f} value={f}>{f[0].toUpperCase()+f.slice(1)}</option>)}</select>

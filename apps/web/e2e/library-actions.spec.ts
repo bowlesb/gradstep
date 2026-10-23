@@ -191,8 +191,11 @@ test('removal clears personal tags and reveals a live mapped import without revi
 test('the compact library shares the same tag editor without navigating the paper', async ({ page }) => {
   await signIn(page); await paper(page).getByRole('link').click();
   await expect(page.getByTestId('contents')).toBeEnabled();
-  await page.getByTestId('search').fill('Direct Preference'); // opens the Browse rail/drawer on both sizes
-  await expect(page.getByRole('tab', { name: 'Library', exact: true })).toHaveAttribute('aria-selected', 'true');
+  // The side panel's Library tab (the top-bar search no longer takes it over, reader audit R2); a drawer on a phone.
+  const sideTabs = page.getByRole('tablist', { name: 'Side panel' });
+  if (!await sideTabs.isVisible()) await page.getByTestId('contents').click();
+  await sideTabs.getByRole('tab', { name: 'Library', exact: true }).click();
+  await expect(sideTabs.getByRole('tab', { name: 'Library', exact: true })).toHaveAttribute('aria-selected', 'true');
   const before = page.url();
   await page.locator('.compact-library').getByRole('button', { name: /^Actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Edit tags…' }).click(); await addTag(page, 'Beside paper');
@@ -220,7 +223,7 @@ test('the reader toolbar exposes the same paper actions and tag editor', async (
 test('a real tag dialog keeps its row alive while optional windowing scrolls away', async ({ page, request }) => {
   await request.post(`${FIXTURE}/__large-library`, { data: { count: 400 } }); await signIn(page);
   await expect(page.getByTestId('paper-row')).toHaveCount(399);
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-columns').click();
   await page.getByRole('checkbox', { name: 'Show rows as you scroll', exact: true }).check();
   await page.getByRole('dialog', { name: 'Library columns' }).getByRole('button', { name: 'Close', exact: true }).click();
   await expect.poll(() => page.getByTestId('paper-row').count()).toBeLessThan(80);

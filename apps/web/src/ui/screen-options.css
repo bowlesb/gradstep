@@ -1,0 +1,28 @@
+/* Screen options (owner-approved 2026-10-22, UX audit S10/S16): one round "…" at the right end of a screen's title row,
+   with submenus that show the current choice (MenuButton, SubMenu and MenuCheck in common.tsx). */
+.menu-main { display: contents; }
+.menu-main[hidden] { display: none; }
+.submenu-page { display: flex; flex-direction: column; gap: 2px; }
+.menu-sub { justify-content: flex-start; }
+.menu-sub .menu-sub-label { flex: 1; }
+.menu-sub .menu-sub-value { color: var(--muted); font-size: 12.5px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-sub > .icon:last-child { color: var(--faint); }
+.menu-back { font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); border-radius: 6px 6px 0 0; margin-bottom: 2px; }
+.menu-back > .icon { color: var(--muted); }
+.popup-menu .menu-divider { border: 0; border-top: 1px solid var(--line); margin: 3px 4px; }
+.popup-menu .recommend-note { margin: 2px 8px 4px; max-width: 260px; }
+.menu-icon-space { width: 14px; flex: none; }
+.account-menu { min-width: 230px; gap: 2px; padding: 6px; }
+.account-menu .menu-email { margin: 6px 8px 6px; color: var(--muted); font-weight: 500; font-size: 12.5px; }
+.screen-options { margin-left: auto; flex: none; align-self: center; }
+.screen-options > .icon-button { width: 34px; height: 34px; min-height: 34px; border-radius: 50%; color: var(--text); border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--text) 4%, transparent); }
+.screen-options > .icon-button:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 9%, transparent); }
+.screen-options > .icon-button.on { color: var(--accent); background: var(--accent-muted); border-color: transparent; }
+.screen-options-menu { min-width: 250px; }
+@media (pointer: coarse) { .screen-options > .icon-button { width: 40px; height: 40px; min-height: 40px; } }
+/* Feed rail: Listen above a hairline, then Topics with its ⓘ (audit S16). */
+.feed-rail-listen { position: relative; padding-bottom: 8px; }
+.feed-rail-listen::after { content: ''; position: absolute; left: 16px; right: 16px; bottom: 0; border-top: 1px solid var(--line); }
+.rail-heading.feed-topics-heading { justify-content: flex-start; gap: 0; }
+.feed-topics-heading .info-tip-button { width: 20px; height: 20px; min-height: 20px; }

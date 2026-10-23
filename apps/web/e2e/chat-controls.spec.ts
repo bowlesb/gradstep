@@ -108,7 +108,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   await page.getByRole('button', { name: 'Rename “Beta, explained”' }).click(); await page.getByTestId('rename-input').fill('Discarded');
   await page.keyboard.press('Escape'); await expect(page.getByTestId('chat-title')).toHaveText('Beta, explained');
 
-  await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); await page.getByTestId('chat-defaults').click();
   const settings = page.getByRole('dialog', { name: 'AI chat options' });
   // Owner, build 59: "Default options for new chats" holds Model, Length and Visual answers; the rest is behind its ⓘ.
   await expect(settings.getByRole('heading', { name: 'Default options for new chats' })).toBeVisible();
@@ -127,6 +127,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   await settings.getByTestId('chat-options-back').click();
   await expect(settings.getByRole('radio', { name: 'Haiku', exact: true })).toHaveAttribute('aria-checked', 'true');
   await settings.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByTestId('settings-close').click(); // AI chat options opened over Settings
   // The open chat keeps its own choice; a new one starts from the default.
   expect(await summary(page)).toBe('Sonnet · Standard');
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
@@ -173,7 +174,7 @@ test('a server without automatic effort: no DeepSeek, and requests keep the stor
   await send(page, 'A harder question');
   await expect(page.getByTestId('answer-by')).toHaveCount(2);
   expect((await evidence(request)).requests[1].profile).toEqual({ model: 'opus', effort: 'low', length: 'standard' });
-  await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); await page.getByTestId('chat-defaults').click();
   const settings = page.getByRole('dialog', { name: 'AI chat options' });
   await settings.getByRole('button', { name: 'About AI chat options' }).click();
   await expect(settings.getByTestId('effort-note')).toHaveText('Answers use low effort.');

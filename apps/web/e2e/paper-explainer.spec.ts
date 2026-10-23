@@ -91,7 +91,7 @@ test('AI Explainer: the paper’s background, key ideas and diagram stream in un
  await expect(promoted.getByRole('button',{name:'Go to paragraph 2'}).first()).toBeVisible();
  await page.screenshot({path:`${SHOTS}/paper-explainer-open-in-chat-${project}-light.png`});
  // Your assets › Paper explanations lists it; a row reopens the paper's explainer.
- await page.getByTestId('account-menu').click();await page.getByTestId('assets-papers').click();
+ await page.getByTestId('account-menu').click();await page.getByTestId('open-settings').click();await page.getByTestId('assets-papers').click();
  const assets=page.getByRole('dialog',{name:'Paper explanations'});
  await expect(assets.getByTestId('explanation-paper')).toContainText(PAPER_TITLE);
  await assets.getByTestId('explanation-paper').click();

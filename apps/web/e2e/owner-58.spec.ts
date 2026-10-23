@@ -18,24 +18,28 @@ async function signIn(page: Page) {
 }
 test.beforeEach(async ({ request }) => { await request.post(`${fixtureOrigin}/__reset`); });
 
-for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & data and the ⓘ in AI chat options (${scheme})`, async ({ page }, info) => {
+for (const scheme of ['light', 'dark'] as const) test(`account menu, Settings, Privacy & data and the ⓘ in AI chat options (${scheme})`, async ({ page }, info) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys; the account menu requires an authenticated browser.');
   await page.emulateMedia({ colorScheme: scheme });
   await signIn(page);
   await page.getByTestId('account-menu').click();
-  const menu = page.getByRole('menu');
-  // Who and the sync state only; About with Report and My reports beside it; no Admin group for a reader.
-  await expect(menu).not.toContainText('Signed in with');
-  // Add paper first (owner, build 75: the + as a new row in the menu on the far right), then Your assets (Chats, Diagrams,
-  // the AI Explainer's explanations), as in the apps' Settings (account-assets.spec covers them and AI credits).
-  await expect(menu.getByRole('menuitem')).toHaveText(['Add paper…', 'Chats', 'Diagrams', 'Snippets', 'Equation explanations', 'Figure explanations', 'Paper explanations', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
-    'My reports', 'Sign out…', 'Delete account…'].map(t => new RegExp(`^\\s*${t.replace(/[.…&]/g, c => `\\${c}`)}$`)));
-  await expect(menu.getByRole('group', { name: 'Admin' })).toHaveCount(0);
-  // The sync state (B10, RootView's Account › Sync), with Sync now only while something is waiting.
-  await expect(menu.getByTestId('account-sync')).toHaveText(/^Sync\s*(Synced|Syncing…|Not synced yet|Sync paused|\d+ changes? waiting to sync)(\s*Sync now)?$/);
+  const menu = page.getByRole('menu', { name: 'Account' });
+  // Since 2026-10-22 (owner-approved, audit S9) the menu holds who, Settings…, Keyboard shortcuts, Report this screen… and
+  // Sign out…; Add paper is the Library "…"'s first row, and everything else is in Settings, in the apps' sections.
+  await expect(menu.getByRole('menuitem')).toHaveText([/^\s*Settings…$/, /^\s*Keyboard shortcuts$/, /^\s*Report this screen…$/, /^\s*Sign out…$/]);
+  await expect(menu.getByTestId('account-email')).toHaveText('returning@example.test');
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-account-menu.png` });
+  await menu.getByTestId('open-settings').click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  // Who and the sync state only; About with Report and My reports beside it; no Admin group for a reader.
+  await expect(settings).not.toContainText('Signed in with');
+  await expect(settings.getByRole('heading', { level: 3 })).toHaveText(['Account', 'AI credits', 'AI options', 'Library', 'Reading', 'Your assets', 'Help and about']);
+  await expect(settings.getByRole('region', { name: 'Admin' })).toHaveCount(0);
+  // The sync state (B10, RootView's Account › Sync), with Sync now only while something is waiting.
+  await expect(settings.getByTestId('account-sync')).toHaveText(/^Sync\s*(Synced|Syncing…|Not synced yet|Sync paused|\d+ changes? waiting to sync)(\s*Sync now)?$/);
+  await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-settings.png` });
 
-  await menu.getByRole('menuitem', { name: 'Privacy & data' }).click();
+  await settings.getByTestId('privacy-data').click();
   const privacy = page.getByRole('dialog', { name: 'Privacy & data' });
   await expect(privacy.getByRole('heading', { level: 3 })).toHaveText(['Your notes and conversations', 'AI answers', 'Papers and arXiv', 'Reports']);
   const arxiv = privacy.getByTestId('privacy-arxiv');
@@ -52,7 +56,7 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await privacy.getByRole('button', { name: 'Close', exact: true }).click();
 
   // AI chat options: the explanations sit behind ⓘ beside the words; Enter shows one, Esc hides it.
-  await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();
+  await settings.getByTestId('chat-defaults').click();
   const options = page.getByRole('dialog', { name: 'AI chat options' });
   const tip = options.getByTestId('visual-answers-info');
   await expect(tip).toHaveAccessibleDescription('Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose.');

@@ -97,14 +97,15 @@ test('a tag filter never survives into search, Cancel or Find similar papers, an
   await expect(rows).toHaveCount(1);
  };
  await choose();
- // Focusing the search ends it: the whole library is searched.
+ // Starting a search ends it: the whole library is searched (focus alone changes nothing, audit S2).
  await page.getByTestId('search').click();
- await expect(page.getByTestId('search-scope')).toBeVisible();
- await expect(rows).toHaveCount(all);
- // Chosen again during a search (a query keeps it going), Cancel ends it together with the search.
+ await expect(page.getByTestId('search-scope')).toHaveCount(0);
  await page.getByTestId('search').fill('Direct');
+ await expect(page.locator('.library-head .view-sub')).not.toContainText('Alignment');
+ await expect(rows).toHaveCount(1);
+ // Chosen again during a search (a query keeps it going), Esc (Cancel) ends it together with the search.
  await choose();
- await page.getByTestId('search-cancel').click();
+ await page.getByTestId('search').press('Escape');
  await expect(page.getByTestId('search')).toHaveValue('');
  await expect(page.getByTestId('search-scope')).toHaveCount(0);
  await expect(rows).toHaveCount(all);
@@ -112,7 +113,7 @@ test('a tag filter never survives into search, Cancel or Find similar papers, an
  await choose();
  await rows.filter({hasText:'Direct Preference Optimization'}).getByRole('button',{name:/^Actions for/}).click();
  await page.getByRole('menuitem',{name:'Find similar papers'}).click();
- await expect(page.getByTestId('search')).toHaveAttribute('aria-label','ML paper search');
+ await expect(page.getByTestId('search')).toHaveAttribute('data-mode','ml');
  await page.getByTestId('search-cancel').click();
  await expect(rows).toHaveCount(all);
  await choose();

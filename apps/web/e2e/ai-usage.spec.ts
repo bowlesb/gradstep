@@ -17,8 +17,8 @@ async function signInToPaper(page: Page) {
   await expect(page.frameLocator('[data-testid=reader-frame]').locator('h1').first()).toBeVisible();
 }
 async function openUsage(page: Page) {
-  await page.getByTestId('account-menu').click();
-  await page.getByRole('menu').getByTestId('ai-usage').click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); // Settings › AI credits
+  await page.getByRole('dialog', { name: 'Settings' }).getByTestId('ai-usage').click();
   const dialog = page.getByRole('dialog', { name: 'Your AI usage' });
   await expect(dialog).toBeVisible();
   return dialog;

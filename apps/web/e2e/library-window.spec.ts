@@ -12,7 +12,7 @@ async function signIn(page: Page) {
   await expect(page.getByTestId('paper-row')).toHaveCount(3999); // complete native Find is the default
 }
 async function windowed(page: Page, allColumns = false) {
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-columns').click();
   const chooser = page.getByRole('dialog', { name: 'Library columns' });
   if (allColumns) for (const name of ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress']) await chooser.getByRole('checkbox', { name, exact: true }).check();
   await chooser.getByRole('checkbox', { name: 'Show rows as you scroll', exact: true }).check();
@@ -74,7 +74,7 @@ test('opt-in keyboard traversal reaches unmounted rows and reader return keeps i
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: test.info().outputPath('windowed-dark.png') });
   await page.keyboard.press('Home'); await expect(rows.getByRole('link').first()).toBeFocused(); await expect(rows.getByRole('link').first()).toBeInViewport();
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-columns').click();
   await page.screenshot({ path: test.info().outputPath('windowing-choice-dark.png') });
   await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
@@ -115,7 +115,7 @@ test('stable key and inset survive width, columns, large text and reader-return 
   await signIn(page); await windowed(page, true); await deep(page);
   let saved = await anchor(page); const original = page.viewportSize()!;
   await page.setViewportSize({ width: original.width < 700 ? 850 : 390, height: original.height }); await sameAnchor(page, saved);
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-columns').click();
   const chooser = page.getByRole('dialog', { name: 'Library columns' });
   await chooser.getByRole('checkbox', { name: 'Authors', exact: true }).uncheck(); await chooser.getByRole('checkbox', { name: 'Tags', exact: true }).uncheck();
   await chooser.getByRole('button', { name: 'Close', exact: true }).click(); await sameAnchor(page, saved);
@@ -130,7 +130,7 @@ test('stable key and inset survive width, columns, large text and reader-return 
 
 test('live tag reorder keeps the same row and a removed focused row gets a keyboard landing place', async ({ page, request }) => {
   await signIn(page);
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-columns').click();
   await page.getByRole('dialog', { name: 'Library columns' }).getByRole('checkbox', { name: 'Tags', exact: true }).check();
   await page.getByRole('dialog', { name: 'Library columns' }).getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Tags', exact: true }).click();

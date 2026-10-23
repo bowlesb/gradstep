@@ -12,7 +12,8 @@ async function signIn(page: Page) {
   await page.getByTestId('use-recovery-code').click(); await page.getByTestId('recovery-code').fill(RECOVERY_CODE); await page.getByTestId('recover').click();
   await expect(page.getByTestId('library-table')).toBeVisible();
 }
-async function open(page: Page) { await page.getByRole('button', { name: 'Catalogs', exact: true }).click(); await expect(dialog(page)).toBeVisible(); }
+// Catalogs… is a row of the Library's "…" (owner-approved 2026-10-22, audit S10).
+async function open(page: Page) { await page.getByTestId('library-options').click(); await page.getByTestId('library-catalogs').click(); await expect(dialog(page)).toBeVisible(); }
 test.beforeEach(async ({ page, request }) => {
   test.skip(!await durableKeys(page), 'Safari durable-key acceptance is separate.'); await request.post(`${FIXTURE}/__reset`);
 });
@@ -105,8 +106,8 @@ test('a catalog exports every paper as a CSV file named after it', async ({ page
 });
 
 // Build 75 (AHI8): "Move the catalog to the left of the search bar and move the + option as a new row inside the dialogue
-// on the far right".
-test('the catalog sits left of the search; Add paper is the first row of the far-right menu', async ({ page }, info) => {
+// on the far right" — the Library's own "…" since 2026-10-22 (audit S10).
+test('the catalog sits left of the search; Add paper is the first row of the Library\u2019s "…"', async ({ page }, info) => {
   await signIn(page);
   const select = page.getByLabel('Current catalog'), field = page.getByTestId('search');
   await expect(select).toHaveCount(0); // only Default: nothing to choose
@@ -120,7 +121,7 @@ test('the catalog sits left of the search; Add paper is the first row of the far
   expect(Math.abs(s.y + s.height / 2 - (f.y + f.height / 2))).toBeLessThan(4);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
   await expect(page.getByRole('banner').getByRole('button', { name: 'Add paper' })).toHaveCount(0);
-  await page.getByTestId('account-menu').click();
+  await page.getByTestId('library-options').click();
   await expect(page.getByRole('menu').getByRole('menuitem').first()).toHaveText('Add paper…');
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -130,7 +131,7 @@ test('the catalog sits left of the search; Add paper is the first row of the far
   await page.getByTestId('add-paper').click();
   await expect(page.getByRole('dialog', { name: 'Add paper', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  // Hidden while searching, back after Cancel.
-  await field.click(); await expect(select).toHaveCount(0);
-  await page.getByTestId('search-cancel').click(); await expect(select).toBeVisible();
+  // Hidden while searching, back after Esc (the search panel's Cancel).
+  await field.fill('zzz'); await expect(select).toHaveCount(0);
+  await field.press('Escape'); await expect(select).toBeVisible();
 });
