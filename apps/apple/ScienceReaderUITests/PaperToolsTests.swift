@@ -339,7 +339,7 @@ final class PaperToolsTests: XCTestCase {
         app.launchArguments = ["--workflow-fixture", "--study-fixture"]
         app.launch()
         // The study fixture selects the arXiv HTML paper (compiled by this app's compiler).
-        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
         app.show("paper")
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
@@ -446,14 +446,16 @@ final class PaperToolsTests: XCTestCase {
     // MARK: - iPad: full-width paper, resizable chat (gap 5)
 
     func testTabletReaderHidesAndResizesTheChatColumn() throws {
-        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad layout")
+        // Since 2026-10-22 the iPad's Wide shape has two slots (Read, Discuss, …; IPadShapesJourneyTests) and no permanent
+        // chat column; the resizable column is the Mac's (ReaderSplit), whose UI tests need a person at the Mac.
+        throw XCTSkip("Superseded on iPad by IPadShapesJourneyTests (two slots)")
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = openSample()
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape")
         let web = app.webViews.firstMatch, composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].isSelected)
+        XCTAssertTrue(app.wideMode("Reader").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.wideMode("Reader").isSelected, "Paper is the place; its chat beside it")
         XCTAssertTrue(composer.waitForExistence(timeout: 5), "Chat beside the paper by default")
         let paperWidth = web.frame.width
         assertChatTitleFits(app)
@@ -474,12 +476,12 @@ final class PaperToolsTests: XCTestCase {
         assertChatTitleFits(app)
         capture(app, "iPad landscape: chat widened")
 
-        // Hide: full-width paper; the paper's bar offers the chat back.
+        // Hide: full-width paper; the paper's ⋯ offers the chat back (owner, 2026-10-22: Show chat is a row of ⋯).
         app.buttons["Paper options"].tap()
         app.buttons["paper.chatColumn"].tap()
         XCTAssertTrue(composer.waitForNonExistence(timeout: 5))
         XCTAssertTrue(wait { abs(web.frame.width - app.frame.width) < 2 }, "Full-width paper")
-        XCTAssertTrue(app.buttons["paper.showChat"].exists)
+        XCTAssertTrue(chatOffered(app), "Paper ⋯ › Show chat")
         capture(app, "iPad landscape: full-width paper")
         // ⌘F with a hardware keyboard finds in the paper.
         app.typeKey("f", modifierFlags: .command)
@@ -495,18 +497,19 @@ final class PaperToolsTests: XCTestCase {
         // Browse and the persisted split width; the hidden full-width paper above remains valid in both layouts.
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape again")
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Browse"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["tab.search"].waitForExistence(timeout: 5), "The Wide row")
 
-        // Browse keeps the library beside the paper and has no chat column to hide.
-        app.segmentedControls["wide.mode"].buttons["Browse"].tap()
-        XCTAssertTrue(app.searchFields["library.search"].waitForExistence(timeout: 5))
+        // Library ⋯ › Show library beside paper: the library's list as the paper's left panel.
+        app.showBrowse()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5), "The library's rows beside the paper")
+        XCTAssertTrue(app.webViews.firstMatch.exists)
         app.buttons["Paper options"].tap()
         XCTAssertTrue(app.buttons["paper.find"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["paper.chatColumn"].exists)
         app.buttons["paper.find"].tap() // closes the menu
         app.buttons["paper.find.close"].tap()
-        app.segmentedControls["wide.mode"].buttons["Reader"].tap()
-        XCTAssertTrue(app.buttons["paper.showChat"].waitForExistence(timeout: 5))
+        app.buttons["library.panel.close"].tap()
+        XCTAssertTrue(wait { app.buttons["Paper options"].isHittable })
+        XCTAssertTrue(chatOffered(app), "The chat stays hidden on Paper")
 
         // The choice is kept on this device.
         app.terminate()
@@ -514,11 +517,21 @@ final class PaperToolsTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
         app.buttons[sampleID].tap()
-        XCTAssertTrue(app.buttons["paper.showChat"].waitForExistence(timeout: 8), "Still hidden after relaunch")
-        app.buttons["paper.showChat"].tap()
+        XCTAssertTrue(app.buttons["Paper options"].waitForExistence(timeout: 8))
+        XCTAssertTrue(chatOffered(app, choose: true), "Still hidden after relaunch")
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         XCTAssertTrue(wait { abs(web.frame.width - (paperWidth - 160)) < 12 }, "The chosen split width survives relaunch")
         assertChatTitleFits(app)
         capture(app, "iPad landscape: chat shown again at its chosen width")
+    }
+
+    /// Paper ⋯ offers Show chat while the chat is hidden (closing the menu again, or choosing it).
+    private func chatOffered(_ app: XCUIApplication, choose: Bool = false) -> Bool {
+        app.buttons["Paper options"].tap()
+        let row = app.buttons["paper.chatColumn"]
+        guard row.waitForExistence(timeout: 3) else { return false }
+        let offered = row.label == "Show chat"
+        if choose { row.tap() } else { app.buttons["paper.find"].tap(); if app.buttons["paper.find.close"].waitForExistence(timeout: 3) { app.buttons["paper.find.close"].tap() } }
+        return offered
     }
 }

@@ -23,8 +23,12 @@ struct PaperContentsSheet: View {
     var baseFontSize: Double = 17
     /// Report this screen, as the last row of each list (the tabs fill the top row on a phone; there is no ⋯ there).
     var report: (() -> Void)? = nil
+    /// In a Wide slot (Navigate): ✕ closes the slot rather than a sheet.
+    var onClose: (() -> Void)? = nil
     let go: (PaperJumpRequest.Target, String) -> Void
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) private var dismissSheet
+    @Environment(\.slotPane) private var slotPane
+    private func dismiss() { if let onClose { onClose() } else { dismissSheet() } }
     @State private var tab: Tab = .contents
     @State private var path = NavigationPath()
     @State private var equations: [Equation]? = nil
@@ -43,7 +47,7 @@ struct PaperContentsSheet: View {
             // button… Liquid… tabs"; "the title Equations is duplicative").
             VStack(spacing: 0) {
                 #if !targetEnvironment(macCatalyst)
-                if !doubleTapDiscovered {
+                if !doubleTapDiscovered && !slotPane {
                     Text("Double tap anywhere while reading the article for this menu")
                         .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .padding(.horizontal, 16).padding(.top, 8)

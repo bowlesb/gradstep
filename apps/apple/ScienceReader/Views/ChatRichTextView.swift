@@ -667,7 +667,7 @@ struct ChatPaperContext {
             model.select(paper)
         } else {
             model.searchExternal = false; model.libraryFilter = .all; model.libraryTagFilter = nil
-            model.libraryQuery = source; model.tab = .library; model.wideMode = .library
+            model.libraryQuery = source; model.tab = .library
         }
     }
 

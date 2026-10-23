@@ -35,37 +35,63 @@ extension XCUIApplication {
     var paperSelectionMenuShown: Bool { editMenuItem("Explain in Chat").exists }
 }
 
-/// The app's places in either layout (audit 2026-10-15: journeys tapped the iPhone tab bar, which the wide layout of a
-/// 13-inch iPad and the Mac doesn't have). Narrow layouts (iPhone, an 11-inch iPad in portrait) use the tab bar; the
-/// wide one uses its mode control, where the paper's chat sits beside the paper in Reader.
+/// The app's places in either shape (docs/DESIGN.md › Tall and Wide, 2026-10-22). The iPhone and iPad share the places
+/// capsule and its `tab.*` buttons: at the bottom in Tall, in the one top row in Wide (iPad sideways), where Chat is the
+/// general chat and a paper's chat sits beside its paper. The Mac's places are the window toolbar's group, which
+/// accessibility reports as check boxes.
 extension XCUIApplication {
+    /// The Wide shape on iPad (the capsule's Search is only in the top row), or the Mac.
+    var wideShape: Bool {
+        #if targetEnvironment(macCatalyst)
+        return true
+        #else
+        return buttons["tab.search"].exists
+        #endif
+    }
+
     func show(_ place: String) {
-        // Phone width (owner, 2026-10-20): Notes took Settings' tab; Settings is the last section of every ⋯ menu.
-        if place == "settings", buttons["tab.notes"].waitForExistence(timeout: 2) {
+        // Settings is the last section of every ⋯ menu (owner, 2026-10-20), in both shapes and on the Mac.
+        if place == "settings" {
             openSettingsFromMenu()
             return
         }
-        let tab = buttons["tab.\(place)"]
-        if tab.waitForExistence(timeout: 2) { tab.tap(); return }
-        // The wide layout's mode control by its identifier: the Library's search switch also has a "Library" segment.
-        // On the Mac it is the window toolbar's segmented control, which accessibility reports as check boxes.
         #if targetEnvironment(macCatalyst)
-        let modes = toolbars.checkBoxes
-        #else
-        let modes = segmentedControls["wide.mode"].buttons
-        #endif
+        let places = toolbars.checkBoxes
         switch place {
-        case "feed": modes["Feed"].tap()
-        case "library": modes["Library"].tap()
-        case "paper": modes["Reader"].tap()
+        case "feed": places["Feed"].tap()
+        case "library": places["Library"].tap()
+        case "paper": places["Paper"].tap()
         case "chat":
             // The paper's chat when a paper is open (beside it), else the general chat.
-            modes["Reader"].tap()
-            if !descendants(matching: .any)["chat.composer"].waitForExistence(timeout: 2) { modes["General Chat"].tap() }
-        case "notes": modes["Snippets"].tap()
-        case "settings": (buttons["Settings"].exists ? buttons["Settings"] : buttons["settings.open"]).tap()
+            places["Paper"].tap()
+            if !descendants(matching: .any)["chat.composer"].waitForExistence(timeout: 2) { places["Chat"].tap() }
+        case "notes": places["Snippets"].tap()
         default: XCTFail("No place named \(place)")
         }
+        #else
+        let tab = buttons["tab.\(place)"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 3), "The places capsule has \(place)")
+        if place == "chat", wideShape {
+            // Wide: the paper's chat is beside its paper; Chat is the general chat.
+            let paper = buttons["tab.paper"]
+            if paper.isEnabled {
+                paper.tap()
+                if descendants(matching: .any)["chat.composer"].waitForExistence(timeout: 2) { return }
+            }
+        }
+        tab.tap()
+        #endif
+    }
+
+    /// Wide: the Library with the paper beside it (Library ⋯ › Show paper beside library, formerly Browse).
+    func showBrowse(file: StaticString = #filePath, line: UInt = #line) {
+        show("library")
+        let options = buttons["Library options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 5), file: file, line: line)
+        options.tap()
+        let toggle = descendants(matching: .any)["library.browse"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 3), "Library ⋯ offers the paper beside the library", file: file, line: line)
+        toggle.tap()
     }
 
     /// The ⋯ menu of whichever screen shows (by its accessibility label).
@@ -103,16 +129,15 @@ extension XCUIApplication {
 }
 
 extension XCUIApplication {
-    /// Back to the paper from its chat: the chat's Return to paper on a phone; in the wide layout the paper is beside
-    /// the chat, so leave for another view and come back to Reader (the reader restores its place either way).
+    /// Back to the paper from its chat: the chat's Return to paper in Tall; in Wide the paper is beside the chat, so leave
+    /// for another place and come back to Paper (the reader restores its place either way).
     func returnToPaper() {
         let back = buttons["chat.returnToPaper"]
         if back.waitForExistence(timeout: 2) { back.tap(); return }
         #if targetEnvironment(macCatalyst)
-        toolbars.checkBoxes["Library"].tap(); toolbars.checkBoxes["Reader"].tap()
+        toolbars.checkBoxes["Library"].tap(); toolbars.checkBoxes["Paper"].tap()
         #else
-        segmentedControls["wide.mode"].buttons["Library"].tap()
-        segmentedControls["wide.mode"].buttons["Reader"].tap()
+        buttons["tab.library"].tap(); buttons["tab.paper"].tap()
         #endif
     }
 }
@@ -127,13 +152,20 @@ extension XCUIDevice {
 }
 
 extension XCUIApplication {
-    /// One of the wide layout's modes ("Feed", "Library", "Reader", "Browse", "General Chat"): the iPad's segmented
-    /// control, or the Mac window toolbar's, which accessibility reports as check boxes.
+    /// A place by its title, older names included ("Reader" is Paper, "General Chat" is Chat): the places capsule's button
+    /// on iPhone and iPad, the Mac window toolbar's check box.
     func wideMode(_ title: String) -> XCUIElement {
+        let place: String
+        switch title {
+        case "Reader", "Paper": place = "Paper"
+        case "General Chat", "Chat": place = "Chat"
+        default: place = title
+        }
         #if targetEnvironment(macCatalyst)
-        return toolbars.checkBoxes[title]
+        return toolbars.checkBoxes[place]
         #else
-        return segmentedControls["wide.mode"].buttons[title]
+        let id = ["Feed": "feed", "Library": "library", "Paper": "paper", "Chat": "chat", "Snippets": "notes"][place] ?? place.lowercased()
+        return buttons["tab.\(id)"]
         #endif
     }
 }

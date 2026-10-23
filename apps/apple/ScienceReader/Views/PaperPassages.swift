@@ -127,8 +127,7 @@ extension ReaderModel {
         if activeConversation != conversationID { openConversation(conversationID) }
         referenceNotice = nil
         passageRequest = PaperPassageRequest(documentID: documentID, conversationID: conversationID, anchor: anchor)
-        tab = .paper
-        if wideMode != .browse { wideMode = .reader }
+        showPaperPlace()
     }
 
     /// The pending Go to passage for this paper (a request not applied within a minute is dropped, so opening the
@@ -156,11 +155,11 @@ extension ReaderModel {
         // The anchor is transient: the block is named by its number and resolved when the paper is shown.
         let anchor = TextAnchor(manifestSHA256: paper.readerBundle?.manifestSHA256 ?? String(repeating: "0", count: 64), quote: "", elementID: "¶\(marker)")
         passageRequest = PaperPassageRequest(documentID: paper.id, conversationID: activeConversation ?? UUID(), anchor: anchor)
-        returnToChatAvailable = tab == .chat
+        // In Discuss the chat stays beside the paper: no Back to chat.
+        returnToChatAvailable = tab == .chat && !discussShown
         // From a chat, Back goes to that chat, not to an explainer left earlier (one Back at a time, build 73).
         if returnToChatAvailable { explainerReturn = nil }
-        tab = .paper
-        if wideMode != .browse { wideMode = .reader }
+        showPaperPlace()
     }
 
     func finishPassage(_ id: UUID, found: Bool) {

@@ -1090,7 +1090,6 @@ extension ReaderModel {
         referenceNotice = nil
         passageRequest = PaperPassageRequest(documentID: paper.id, conversationID: UUID(),
                                              anchor: TextAnchor(artifactID: paper.artifactID ?? UUID(), quote: quote), origin: .podcastEvidence)
-        tab = .paper
-        if wideMode != .browse { wideMode = .reader }
+        showPaperPlace()
     }
 }

@@ -47,13 +47,16 @@ private struct SheetTopRowModifier: ViewModifier {
     let openChat: ExplainAction?
     let noun: String
     let close: (() -> Void)?
-    /// The X is the Mac's way to close a sheet; a touch screen swipes it down.
-    private var showsClose: Bool { close != nil && Platform.isMac }
+    /// The X is the Mac's way to close a sheet, and Wide's in the paper's slot (ExplainPane); a touch-screen sheet swipes down.
+    @Environment(\.coverPresentation) private var cover
+    private var showsClose: Bool { close != nil && (Platform.isMac || cover) }
 
     func body(content: Content) -> some View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .accessibilityAction(.escape) { close?() }
+            // In Wide's paper slot (ExplainPane) the page's own bar shows, as it does in a sheet.
+            .navigationBarShownInCover(cover)
             .toolbar {
                 // One item, not a group: iOS 26 moves bar buttons that don't fit into an overflow menu (both words
                 // and the X went there in a half-height sheet); one view is laid out in the space it has.
@@ -183,8 +186,19 @@ struct SheetTopRow<Leading: View>: View {
     var back: (() -> Void)? = nil
     let close: () -> Void
     @ViewBuilder var leading: Leading
+    /// In a Wide slot (Navigate's Contents) the row is the slot's share of the one top row: 52 pt, a hairline under it.
+    @Environment(\.slotPane) private var slotPane
 
     var body: some View {
+        if slotPane {
+            row.padding(.horizontal, 12).frame(height: WideMetrics.barHeight)
+                .overlay(alignment: .bottom) { Rectangle().fill(Color(uiColor: .separator)).frame(height: 1 / UIScreen.main.scale) }
+        } else {
+            row.padding(.horizontal, DesignMetrics.margin).padding(.top, 14).padding(.bottom, 8)
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 10) {
             if let back {
                 Button(action: back) { HeaderButtonLabel(systemImage: "chevron.backward") }
@@ -194,7 +208,6 @@ struct SheetTopRow<Leading: View>: View {
             Button(action: close) { HeaderButtonLabel(systemImage: "xmark") }
                 .buttonStyle(.plain).accessibilityLabel("Close").accessibilityIdentifier("sheet.close")
         }
-        .padding(.horizontal, DesignMetrics.margin).padding(.top, 14).padding(.bottom, 8)
     }
 }
 

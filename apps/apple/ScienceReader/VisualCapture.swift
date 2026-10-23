@@ -23,7 +23,7 @@ import UIKit
     static func stage(_ model: ReaderModel) async {
         if let question = argument("--visual-ask="), !question.isEmpty {
             // General chat, as the UI test's `ask`; the fixture transport answers.
-            model.showWideMode(.chat)
+            model.generalChat = true; model.tab = .chat
             model.chatInput = question
             for _ in 0..<20 {
                 await model.sendMessage()

@@ -192,8 +192,7 @@ extension ReaderModel {
             request.origin = .note
             passageRequest = request
         }
-        tab = .paper
-        if wideMode != .browse { wideMode = .reader }
+        showPaperPlace()
         return true
     }
 
@@ -201,14 +200,15 @@ extension ReaderModel {
     func openSettings(afterMenu: Bool = false) {
         let present = { [weak self] in
             guard let self else { return }
-            if self.compactLayout { self.settingsPresented = true } else { self.tab = .settings }
+            // iPad in either shape: a sheet over the screen, as on iPhone. The Mac: Settings takes the window's panes.
+            if self.compactLayout || !Platform.isMac { self.settingsPresented = true } else { self.showSettingsPlace() }
         }
         if afterMenu { Task { try? await Task.sleep(for: .milliseconds(250)); present() } } else { present() }
     }
 
     func closeSettings() {
         if settingsPresented { settingsPresented = false }
-        if tab == .settings { showWideMode(wideMode) }
+        if tab == .settings { tab = placeBeforeSettings }
     }
 
     /// A note entry's ⋯ › Chat: a region's full image first (decrypted on this device), then its chat; without the image
@@ -228,6 +228,5 @@ extension ReaderModel {
         notes.notice = nil
         notes.openNoteID = id; notes.focusEntryID = entry
         tab = .notes
-        if !compactLayout { wideMode = .notes }
     }
 }

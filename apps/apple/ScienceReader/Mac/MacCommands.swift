@@ -52,7 +52,7 @@ struct GradstepCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { model.tab = .settings }.keyboardShortcut(",")
+            Button("Settings…") { model.openSettings() }.keyboardShortcut(",")
         }
 
         // File
@@ -60,7 +60,7 @@ struct GradstepCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("Add Paper…") { addPaper() }.keyboardShortcut("n")
             Button("New Chat") { newChat() }.keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(!model.generalChat && !model.canUsePaperChat && model.wideMode != .chat)
+                .disabled(!model.generalChat && !model.canUsePaperChat && model.widePlace != .chat)
         }
 
         // Edit
@@ -84,20 +84,22 @@ struct GradstepCommands: Commands {
         // View
         CommandGroup(before: .toolbar) {
             Section {
-                ForEach(Array(WideMode.allCases.enumerated()), id: \.offset) { index, mode in
-                    Toggle(mode.rawValue, isOn: Binding(get: { model.wideMode == mode && model.tab != .settings },
-                                                        set: { _ in model.showWideMode(mode) }))
+                // The five places, as the window toolbar and the iPad's places capsule (docs/DESIGN.md › Tall and Wide).
+                ForEach(Array(ReaderTab.phoneTabs.enumerated()), id: \.offset) { index, place in
+                    Toggle(place.rawValue, isOn: Binding(get: { model.widePlace == place && model.tab != .settings },
+                                                         set: { _ in model.showPlace(place) }))
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
                 }
-                Button(model.wideMode == .browse ? "Hide Library Beside Paper" : "Show Library Beside Paper") {
-                    model.showWideMode(model.wideMode == .browse ? .reader : .browse)
+                // The library's list beside the paper (Library ⋯ › Show library beside paper).
+                Button(model.libraryBesidePaper ? "Hide Library Beside Paper" : "Show Library Beside Paper") {
+                    model.setLibraryBesidePaper(!model.libraryBesidePaper)
                 }.keyboardShortcut("s", modifiers: [.command, .control])
                 // In reading mode the chat slides over the paper instead (READING_MODE.md).
                 Button(model.readingMode ? (model.readingChatShown ? "Hide Chat" : "Show Chat Over Paper")
                        : model.readerChatHidden ? "Show Chat Beside Paper" : "Hide Chat Beside Paper") {
                     if model.readingMode { model.readingChatShown.toggle() } else { model.readerChatHidden.toggle() }
                 }.keyboardShortcut("h", modifiers: [.command, .control])
-                    .disabled(!model.readingMode && (model.wideMode != .reader || model.tab == .settings))
+                    .disabled(!model.readingMode && (model.widePlace != .paper || model.tab == .settings))
             }
             // Reading mode and the paper's line width (READING_MODE.md). ⇧⌘R as Safari's Reader; the system's Enter Full
             // Screen (⌃⌘F) stays as it is.
@@ -158,9 +160,9 @@ struct GradstepCommands: Commands {
                     .keyboardShortcut("-", modifiers: [.command, .option])
             }
             Section {
-                Button(model.wideMode == .feed ? (model.podcasts.listenSelected ? "Check for New Episodes" : "Refresh Feed") : "Refresh Library") { refresh() }
+                Button(model.widePlace == .feed ? (model.podcasts.listenSelected ? "Check for New Episodes" : "Refresh Feed") : "Refresh Library") { refresh() }
                     .keyboardShortcut("r")
-                    .disabled(model.wideMode == .feed ? model.librarySignInRequired : (!model.isSignedIn || model.libraryRefreshing))
+                    .disabled(model.widePlace == .feed ? model.librarySignInRequired : (!model.isSignedIn || model.libraryRefreshing))
                 Button("All Chats") { model.showAllChats = true }.keyboardShortcut("y", modifiers: [.command, .shift])
                 Button("All Diagrams") { model.showDiagrams = true }
             }
@@ -230,31 +232,32 @@ struct GradstepCommands: Commands {
 
     /// Both Reader and Browse show the paper; option-command-F always targets the library.
     private var findsInPaper: Bool {
-        model.selectedPaper?.readerBundle != nil && (model.wideMode == .reader || model.wideMode == .browse) && model.tab != .settings
+        model.selectedPaper?.readerBundle != nil && (model.widePlace == .paper || model.browsing) && model.tab != .settings
     }
 
     // The same rules as the Library's + button and the Chat's compose button.
     private func addPaper() {
-        if model.wideMode != .library && model.wideMode != .browse { model.showWideMode(.library) }
-        if model.tab == .settings { model.showWideMode(model.wideMode) }
+        if model.tab == .settings { model.closeSettings() }
+        if model.widePlace != .library { model.showPlace(.library) }
         if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
     }
 
     private func newChat() {
-        if model.tab == .settings { model.showWideMode(model.wideMode) }
-        if model.wideMode != .reader && model.wideMode != .chat { model.showWideMode(model.generalChat ? .chat : .reader) }
+        if model.tab == .settings { model.closeSettings() }
+        if model.widePlace != .paper && model.widePlace != .chat { model.showPlace(model.generalChat ? .chat : .paper) }
         model.newChat(general: model.generalChat)
     }
 
     private func search(arXiv: Bool) {
-        if model.tab == .settings || (model.wideMode != .library && model.wideMode != .browse) { model.showWideMode(.library) }
+        if model.tab == .settings { model.closeSettings() }
+        if model.widePlace != .library { model.showPlace(.library) }
         model.searchExternal = arXiv
         MacCommandRequests.shared.librarySearch = UUID()
     }
 
     private func refresh() {
         // On Listen, the episodes (as its "…" menu's Check for new episodes); the hidden feed is not what is shown.
-        if model.wideMode == .feed { if model.podcasts.listenSelected { model.podcasts.loadCatalog() } else { model.loadFeed() } }
+        if model.widePlace == .feed { if model.podcasts.listenSelected { model.podcasts.loadCatalog() } else { model.loadFeed() } }
         else { Task { await model.refreshLibrary() } }
     }
 }

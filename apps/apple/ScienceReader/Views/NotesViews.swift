@@ -10,11 +10,15 @@ struct NotesView: View {
     @Bindable var model: ReaderModel
     /// iPad and Mac: list and detail side by side.
     var wide = false
+    /// The window's width (the two slots' widths).
+    var width: CGFloat = 0
     @State private var renaming: NotesState.Note?
     @State private var deleting: NotesState.Note?
     @State private var creating = false
     @State private var name = ""
     @State private var issue: String?
+    /// The Wide shape (WideShape.swift): one top row over the list and the collection.
+    @Environment(\.wideBar) private var wideBar
 
     var body: some View {
         Group {
@@ -64,29 +68,77 @@ struct NotesView: View {
 
     // MARK: iPad and Mac: list and detail
 
-    private var wideBody: some View {
+    @ViewBuilder private var wideBody: some View {
+        if wideBar {
+            // Collections | Collection on the shared two-slot container; each slot's share of the one top row.
+            TwoSlotLayout(width: width, other: .left) {
+                VStack(spacing: 0) {
+                    collectionRow
+                    NavigationStack { detail }
+                }
+            } otherView: {
+                VStack(spacing: 0) {
+                    listRow
+                    NavigationStack { NotesList(model: model, selection: model.notes.openNoteID) }
+                }
+            }
+        } else { splitBody }
+    }
+
+    /// The list's share of the row: its search field (where the iPhone's sits), then New collection.
+    private var listRow: some View {
+        WideBar {
+            WideSearchField { NotesSearchField(text: Bindable(model.notes).search) }
+        } center: {
+            EmptyView()
+        } trailing: {
+            Button { name = ""; creating = true } label: { HeaderButtonLabel(systemImage: "plus") }
+                .buttonStyle(.plain).accessibilityLabel("New collection").accessibilityIdentifier("notes.new")
+        }
+    }
+
+    /// The collection's share: the places capsule, then one ⋯ for the list and the open collection (audit N14).
+    private var collectionRow: some View {
+        WideBar {
+            WidePlacesCapsule(model: model)
+        } trailing: {
+            NotesScreenMenu(model: model, note: model.notes.openNoteID.flatMap { model.notes.state.note($0) }, glass: true)
+        }
+    }
+
+    @ViewBuilder private var detail: some View {
+        if let id = model.notes.openNoteID, model.notes.state.note(id) != nil {
+            NoteDetailView(model: model, noteID: id, showsBack: false).id(id)
+        } else {
+            ContentUnavailableView {
+                Label { Text(model.notes.state.notes.isEmpty ? "Your ideas, collected" : "Choose a collection") } icon: { Image(GradstepSymbol.notes) }
+            } description: {
+                Text(model.notes.state.notes.isEmpty ? "Capture a snippet while reading with Paper ⋯ › Draw snippet." : "Its snippets show here.")
+            }
+        }
+    }
+
+    /// The Mac: list and detail with their own bars (its places are in the window toolbar).
+    private var splitBody: some View {
         HStack(spacing: 0) {
             NavigationStack { NotesList(model: model, selection: model.notes.openNoteID) }
                 .frame(width: 340)
             Divider()
-            NavigationStack {
-                if let id = model.notes.openNoteID, model.notes.state.note(id) != nil {
-                    NoteDetailView(model: model, noteID: id, showsBack: false).id(id)
-                } else {
-                    ContentUnavailableView {
-                        Label { Text(model.notes.state.notes.isEmpty ? "Your ideas, collected" : "Choose a collection") } icon: { Image(GradstepSymbol.notes) }
-                    } description: {
-                        Text(model.notes.state.notes.isEmpty ? "Capture a snippet while reading with Paper ⋯ › Draw snippet." : "Its snippets show here.")
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
+            NavigationStack { detail }
+                .frame(maxWidth: .infinity)
         }
     }
 
     // MARK: Locked and signed out
 
     private func unavailable(locked: Bool) -> some View {
+        VStack(spacing: 0) {
+            if wideBar { collectionRow }
+            unavailableStack(locked: locked)
+        }
+    }
+
+    private func unavailableStack(locked: Bool) -> some View {
         NavigationStack {
             ContentUnavailableView {
                 Label { Text(locked ? "Unlock snippets" : "Snippets") } icon: { Image(GradstepSymbol.notes) }
@@ -98,6 +150,7 @@ struct NotesView: View {
                     .buttonStyle(.borderedProminent).accessibilityIdentifier(locked ? "notes.unlock" : "notes.signIn")
             }
             .navigationTitle("Snippets").navigationBarTitleDisplayMode(.inline)
+            .navigationBarHiddenInWide(wideBar)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: nil) } }
             .tabBarSpace()
         }
@@ -137,6 +190,8 @@ extension EnvironmentValues {
 struct NotesScreenMenu: View {
     @Bindable var model: ReaderModel
     let note: NotesState.Note?
+    /// The Wide row's round glass button (a system bar draws its own).
+    var glass = false
     @Environment(\.noteActions) private var actions
 
     var body: some View {
@@ -165,7 +220,10 @@ struct NotesScreenMenu: View {
             }
             MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
             SettingsMenuSection(model: model)
-        } label: { Image(systemName: "ellipsis") }
+        } label: {
+            if glass { HeaderButtonLabel(systemImage: "ellipsis") } else { Image(systemName: "ellipsis") }
+        }
+            .modifier(PlainButtonIf(plain: glass))
             .accessibilityLabel(note == nil ? "Snippets options" : "Collection options")
             .accessibilityIdentifier(note == nil ? "notes.options" : "note.options")
     }
@@ -183,6 +241,7 @@ struct NotesList: View {
     /// The note shown beside the list (iPad and Mac), highlighted.
     let selection: UUID?
     @Environment(\.noteActions) private var actions
+    @Environment(\.wideBar) private var wideBar
 
     var body: some View {
         let notes = model.notes.shownNotes
@@ -232,8 +291,9 @@ struct NotesList: View {
                 }
             }
         }
-        .searchable(text: Bindable(model.notes).search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search snippets")
+        .modifier(NotesSearchable(enabled: !wideBar, text: Bindable(model.notes).search))
         .navigationTitle("Snippets").navigationBarTitleDisplayMode(.inline)
+        .navigationBarHiddenInWide(wideBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { actions.newNote() } label: { Image(systemName: "plus") }
@@ -305,6 +365,7 @@ struct NoteDetailView: View {
     @State private var deletingEntry: NotesState.Entry?
     @State private var issue: String?
     @Environment(\.noteActions) private var actions
+    @Environment(\.wideBar) private var wideBar
 
     var body: some View {
         if let note = model.notes.state.note(noteID) {
@@ -319,6 +380,11 @@ struct NoteDetailView: View {
         ScrollViewReader { reader in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    // Wide: no bar of its own; the collection's name heads its stream.
+                    if wideBar {
+                        Text(note.title).font(.title2.weight(.bold)).padding(.bottom, 14).padding(.leading, 4)
+                            .accessibilityAddTraits(.isHeader).accessibilityIdentifier("note.title")
+                    }
                     if note.hasConflict { conflictBanner(note).padding(.bottom, 16) }
                     if note.futureEntryCount > 0 {
                         StatusBanner(tone: .info, systemImage: "arrow.down.app", message: "Update Gradstep to see \(note.futureEntryCount) more \(note.futureEntryCount == 1 ? "snippet" : "snippets") in this collection.")
@@ -350,6 +416,7 @@ struct NoteDetailView: View {
         }
         .navigationTitle(note.title).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(!showsBack)
+        .navigationBarHiddenInWide(wideBar)
         .toolbar {
             // Owner, build 78: "Let’s stick with the comment option for now only": no separate writing between snippets.
             ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: note) }
@@ -389,7 +456,7 @@ struct NoteDetailView: View {
             Text("Collect a snippet while reading with Paper ⋯ › Draw snippet, or select text and choose Save snippet.")
         } actions: {
             if model.selectedPaper != nil {
-                Button { model.tab = .paper; if !model.compactLayout { model.wideMode = .reader } } label: { ProminentLabel(title: "Open Paper") }
+                Button { model.showPaperPlace() } label: { ProminentLabel(title: "Open Paper") }
                     .buttonStyle(.borderedProminent).accessibilityIdentifier("note.empty.openPaper")
             }
         }
@@ -886,5 +953,36 @@ struct NoteVersionsSheet: View {
             .navigationTitle("2 versions").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
+    }
+}
+
+/// The Snippets list's search drawer (Tall); Wide searches from the places capsule instead.
+private struct NotesSearchable: ViewModifier {
+    let enabled: Bool
+    @Binding var text: String
+    func body(content: Content) -> some View {
+        if enabled { content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search snippets") }
+        else { content }
+    }
+}
+
+/// The Wide row's snippets search field.
+struct NotesSearchField: View {
+    @Binding var text: String
+    @FocusState private var focused: Bool
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField("Search snippets", text: $text).focused($focused).submitLabel(.search)
+                .accessibilityIdentifier("notes.search")
+        }
+    }
+}
+
+/// The app's round glass buttons are plain buttons; a system bar draws its own.
+struct PlainButtonIf: ViewModifier {
+    let plain: Bool
+    func body(content: Content) -> some View {
+        if plain { content.buttonStyle(.plain) } else { content }
     }
 }

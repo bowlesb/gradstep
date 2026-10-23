@@ -250,7 +250,7 @@ final class WorkflowJourneyTests: XCTestCase {
     func testDeletedObservedReplyRetainsEarlierMessagesUntilSiblingIsChosen() throws {
         let app = launch(additionalArguments: ["--branch-fixture"])
         // The fixture's current chat is the general one: the Chat tab, or the wide layout's General Chat.
-        if app.buttons["tab.chat"].waitForExistence(timeout: 2) { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
+        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         XCTAssertEqual(chatContext(app), "General chat")
@@ -578,7 +578,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture", "-appearance", "dark"]
         app.launch()
-        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
         app.show("paper")
         let number = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
         XCTAssertTrue(number.waitForExistence(timeout: 15), "The paper's numbered equation")
@@ -606,7 +606,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
                                "-appearance", appearance, "--equation-fixture-step-ms=4000"] + (oldServer ? ["--equation-fixture-old-server"] : [])
         app.launch()
-        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 20) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 20) || app.wideMode("Reader").exists)
         app.show("paper")
         let number = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
         XCTAssertTrue(number.waitForExistence(timeout: 15))
@@ -644,7 +644,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture"]
         app.launch()
         // The fixture selects the paper: the Paper tab on a phone, Reader in the wide layout.
-        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
         app.show("paper")
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "The fixture opens the numbered HTML paper")
@@ -812,7 +812,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons["Done"].tap()
         // The tab bar sits behind the software keyboard, as with system tab bars.
         if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
-        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 5) || app.segmentedControls["wide.mode"].exists)
+        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 5) || app.wideShape)
         app.show("library")
         app.buttons["Library options"].tap()
         app.buttons["All diagrams"].tap()
@@ -911,7 +911,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"] + extraArguments
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
+        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
@@ -1053,11 +1053,11 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Answer paper has an explicit Library action")
         target.tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10), "The saved paper opens inside the reader")
-        if app.buttons["tab.library"].exists { app.show("library") } else { app.segmentedControls["wide.mode"].buttons["Library"].tap() }
+        if app.buttons["tab.library"].exists { app.show("library") } else { app.wideMode("Library").tap() }
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5)); app.buttons[sampleID].tap()
         // Back to the general conversation the draft is in: the Chat tab, or the wide layout's General Chat (Reader
         // shows the paper's own chat beside it).
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
+        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
         XCTAssertEqual(composer.value as? String, "Keep my follow-up draft")
         XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5), "The original answer remains in its conversation")
         capture(app, "Original conversation and draft after Library action")
@@ -1077,7 +1077,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let progress = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label CONTAINS[c] %@", "importProgress", "Adding")).firstMatch
         XCTAssertTrue(progress.waitForExistence(timeout: 5), "A queued paper opens its current progress")
         capture(app, "Answer Library action shows pending import")
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
+        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
         XCTAssertEqual(composer.value as? String, "Keep this while it imports")
         XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5))
     }
@@ -1170,7 +1170,7 @@ final class WorkflowJourneyTests: XCTestCase {
         defer { XCUIDevice.shared.orientation = .portrait }
         app.show("chat")
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.wideMode("Reader").waitForExistence(timeout: 5))
         exerciseLatestReplyWhileComposing(app)
     }
 
@@ -1264,7 +1264,7 @@ final class WorkflowJourneyTests: XCTestCase {
         defer { XCUIDevice.shared.orientation = .portrait }
         app.show("chat")
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.wideMode("Reader").waitForExistence(timeout: 5))
         try exerciseScrollbackWhileComposing(app)
     }
 
@@ -1487,12 +1487,12 @@ final class WorkflowJourneyTests: XCTestCase {
             XCTFail("The iPad interface remained in \(app.frame) after the device orientation changed")
             return
         }
-        let browse = app.segmentedControls["wide.mode"].buttons["Browse"]
-        XCTAssertTrue(browse.waitForExistence(timeout: 5), "Wait for the landscape layout to finish before selecting Browse")
-        browse.tap()
+        XCTAssertTrue(app.buttons["tab.search"].waitForExistence(timeout: 5), "Wait for the Wide row before choosing Browse")
+        app.showBrowse()
         app.buttons["Paper options"].tap()
         app.buttons["Ask about this paper"].tap()
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].isSelected)
+        // The paper with its chat: the library's list gives way (two columns at most).
+        XCTAssertTrue(app.wideMode("Reader").isSelected)
         // The paper is open beside its conversation, so the chat shows no separate link back to it.
         XCTAssertTrue(app.buttons["chat.context"].waitForExistence(timeout: 5))
         XCTAssertEqual(chatContext(app), "Paper chat")

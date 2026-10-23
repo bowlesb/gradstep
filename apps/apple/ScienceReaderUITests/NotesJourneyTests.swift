@@ -336,13 +336,21 @@ final class NotesJourneyTests: XCTestCase {
         capture("Note menu with Settings last")
     }
 
-    /// iPad (wide) and Mac: Notes is a destination beside Feed, Library, Reader, Browse and General Chat, with the list and
-    /// the open note side by side; capture works from the reader with its chat column; Escape cancels drawing.
+    /// Wide (iPad sideways, the Mac): Snippets is a place in the capsule, with the list and the open collection side by
+    /// side; capture works from the reader with its chat column; Escape cancels drawing.
     func testNotesInTheWideLayout() throws {
+        #if !targetEnvironment(macCatalyst)
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide: an iPad sideways or the Mac")
+        defer { XCUIDevice.shared.orientation = .portrait }
+        #endif
         // `TEST_RUNNER_NOTES_APPEARANCE=dark|light` for the visual review's other theme.
         let app = launch(appearance: ProcessInfo.processInfo.environment["NOTES_APPEARANCE"])
+        #if !targetEnvironment(macCatalyst)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        _ = app.buttons["tab.search"].waitForExistence(timeout: 5)
+        #endif
         let notesMode = app.wideMode("Snippets")
-        try XCTSkipUnless(notesMode.waitForExistence(timeout: 5), "The wide layout (a 13-inch iPad, the Mac)")
+        try XCTSkipUnless(notesMode.waitForExistence(timeout: 5) && app.wideShape, "The Wide shape")
         notesMode.tap()
         XCTAssertTrue(app.staticTexts["Your ideas, collected"].waitForExistence(timeout: 10))
         app.buttons["notes.new"].firstMatch.tap()
@@ -413,7 +421,7 @@ final class NotesJourneyTests: XCTestCase {
         for appearance in ["light", "dark"] {
             let app = launch(appearance: appearance)
             let wideMode = app.wideMode("Snippets")
-            let wide = !app.buttons["tab.notes"].exists
+            let wide = app.wideShape
             if wide { XCTAssertTrue(wideMode.waitForExistence(timeout: 5)); wideMode.tap() } else { app.buttons["tab.notes"].tap() }
             for title in ["Preference learning", "Reading group: alignment", "Open questions"] {
                 app.buttons["notes.new"].firstMatch.tap()

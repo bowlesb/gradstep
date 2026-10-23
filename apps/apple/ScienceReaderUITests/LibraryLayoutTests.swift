@@ -145,8 +145,8 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
         cell(sample, in: app).tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].isSelected)
-        app.segmentedControls["wide.mode"].buttons["Library"].tap()
+        XCTAssertTrue(app.wideMode("Reader").isSelected)
+        app.wideMode("Library").tap()
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
 
         // Portrait (11": 834 pt) keeps the table, without the Tags column.
@@ -369,7 +369,7 @@ final class LibraryLayoutTests: XCTestCase {
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]
         app.launch()
         if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") }
-        else { app.segmentedControls["wide.mode"].buttons["Feed"].tap() }
+        else { app.wideMode("Feed").tap() }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
         app.buttons["Feed options"].tap()
         let viewAs = app.buttons["View as"].firstMatch

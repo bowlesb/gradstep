@@ -90,9 +90,13 @@ struct ChatHistoryView: View {
     @State private var width: CGFloat = 0
     @State private var scroll = TableScrollState()
     @State private var showColumns = false
+    /// iPad Wide's Chats view: the list in the left slot beside the open chat (no Close; its row is the slot's share of
+    /// the one top row).
+    private let embedded: Bool
 
-    init(model: ReaderModel, paperID: UUID? = nil, startsOnPaper: Bool = false) {
+    init(model: ReaderModel, paperID: UUID? = nil, startsOnPaper: Bool = false, embedded: Bool = false) {
         self.model = model
+        self.embedded = embedded
         _paperID = State(initialValue: paperID)
         // Owner, build 57: "put All to the left and make that the default"; a paper's own "Chats about this paper" opens on those.
         _filter = State(initialValue: startsOnPaper && paperID != nil ? .thisPaper : .all)
@@ -119,7 +123,9 @@ struct ChatHistoryView: View {
             .navigationTitle("All chats").toolbar(.hidden, for: .navigationBar)
             // Owner, build 57: "the search bar at the top with the three lines at the right of the search bar… done can be
             // an option remove it. All chats message can also go. simplify".
-            .safeAreaInset(edge: .top, spacing: 0) { topRow(searchable: !summaries.isEmpty) }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if embedded { slotRow(searchable: !summaries.isEmpty) } else { topRow(searchable: !summaries.isEmpty) }
+            }
             .renameConversationAlert(model: model, conversation: $renaming)
             .sheet(isPresented: $showColumns) { columnsSheet }
             .alert("Delete this conversation?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
@@ -136,6 +142,41 @@ struct ChatHistoryView: View {
     }
 
     // MARK: Top
+
+    /// The Chats view's left slot: the search field and the list's options on the one top row.
+    private func slotRow(searchable: Bool) -> some View {
+        WideBar {
+            if searchable { WideSearchField { searchField } } else { Text("All chats").font(.headline).accessibilityAddTraits(.isHeader) }
+        } center: {
+            EmptyView()
+        } trailing: {
+            if tableShown && searchable {
+                Menu {
+                    Menu {
+                        Picker("Sort by", selection: Binding(get: { sort.field }, set: { field in
+                            sort = ChatHistorySort(field: field, ascending: field.ascendingFirst)
+                        })) {
+                            ForEach(ChatHistoryField.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }.pickerStyle(.inline)
+                    } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
+                    MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("chat.history.columns")
+                } label: { HeaderButtonLabel(systemImage: "ellipsis") }
+                .buttonStyle(.plain).accessibilityLabel("All chats options").accessibilityIdentifier("chat.history.options")
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search chats", text: $search).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .submitLabel(.search).accessibilityIdentifier("chat.history.search")
+            if !search.isEmpty {
+                Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                    .buttonStyle(.plain).accessibilityLabel("Clear search")
+            }
+        }
+    }
 
     /// The search field and, at its right, ≡ with the options: Sort by, Columns, Close.
     private func topRow(searchable: Bool) -> some View {

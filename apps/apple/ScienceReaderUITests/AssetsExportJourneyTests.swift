@@ -33,7 +33,7 @@ final class AssetsExportJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15))
 
         // A collection to find in the zip.
-        let wide = !app.buttons["tab.notes"].exists
+        let wide = app.wideShape
         if wide { let mode = app.wideMode("Snippets"); XCTAssertTrue(mode.waitForExistence(timeout: 5)); mode.tap() } else { app.buttons["tab.notes"].tap() }
         app.buttons["notes.new"].firstMatch.tap()
         let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch

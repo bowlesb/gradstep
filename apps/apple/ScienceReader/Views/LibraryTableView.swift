@@ -184,7 +184,7 @@ struct LibraryPaperTable<Top: View>: View {
 
     /// The open paper is highlighted only where it is shown beside the table (iPad Browse).
     private func isSelected(_ entry: LibraryListEntry) -> Bool {
-        guard model.wideMode == .browse, Platform.isLargeScreen, case .paper(let paper) = entry else { return false }
+        guard model.browsing, Platform.isLargeScreen, case .paper(let paper) = entry else { return false }
         return model.selectedPaper?.id == paper.id
     }
 

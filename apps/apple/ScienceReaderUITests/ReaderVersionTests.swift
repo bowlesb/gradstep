@@ -11,7 +11,7 @@ final class ReaderVersionTests: XCTestCase {
         // The study fixture selects the arXiv HTML paper, compiled by this app's compiler.
         app.launchArguments = ["--workflow-fixture", "--study-fixture"]
         app.launch()
-        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
         app.show("paper")
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 15))
         XCTAssertFalse(app.descendants(matching: .any)["paper.fallbackNotice"].exists, "no banner over the paper")

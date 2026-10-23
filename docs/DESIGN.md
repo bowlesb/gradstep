@@ -46,12 +46,60 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     under the tab bar. The page's viewport never changes size as controls come and go: reading positions and
     heading and citation jumps are measured in it (running the page under the tab bar, or shrinking it for the
     selection bar, moved the reading position near a paper's end).
-  - *Panes* (iPad and Mac Reader): the paper and its chat column are split by a hairline with a grabber; drag it to
-    resize (applied when the drag ends; double-tap for the default width), or Paper "…" › Hide chat for a full-width
-    paper, with a chat button in the paper's bar to bring it back. Both are kept per device (`Views/ReaderSplit.swift`).
+  - *Panes* (Mac Reader, until the Mac's own step): the paper and its chat column are split by a hairline with a
+    grabber; drag it to resize (applied when the drag ends; double-tap for the default width), or Paper "…" › Hide chat
+    for a full-width paper. Both are kept per device (`Views/ReaderSplit.swift`). The iPad uses the two slots below.
   - *Surfaces* (`chromeSurface`): Liquid Glass on iOS 26, a material with a hairline and soft shadow before it.
     With Reduce Transparency every surface is solid (secondary system background with a separator hairline) and
     every band is the plain background.
+- **Tall and Wide** (owner, 2026-10-22, "One app, two shapes"; `LayoutShape` in ScienceReaderCore, `Views/WideShape.swift`,
+  `Views/ReaderSplit.swift`). The window's size alone decides the layout, never the device, idiom or size class:
+  - *The rule*: a window at least as wide as it is tall, at least 900 pt across and at least 600 pt tall is **Wide**
+    (iPad sideways 1194/1376, iPad mini sideways 1133, a foldable phone unfolded ~920×880). Every other window is
+    **Tall** (iPhone in either orientation, iPad upright 834/1032, Split View halves, narrow windows). One constant,
+    `LayoutShape.of(size:)`, unit-tested with those sizes. The Mac stays Wide until its own step.
+  - *Tall* is the iPhone app exactly: the places capsule at the bottom, one screen at a time, the iPhone's bars and
+    budget. Nothing in Tall changed.
+  - *Wide places*: the same capsule (Feed · Library · Paper · Chat · Snippets, then 🔍), same glass, symbols and
+    selection, in the **one top row**. Its items keep their `tab.*` identifiers. It sits centred over the screen's
+    main pane (the right slot when a list is on the left, the paper in Discuss). Symbols alone when the pane is too
+    narrow for the names. No brand row, no gear, no segmented switch: Settings is the last row of every ⋯ (a sheet on
+    iPad in both shapes).
+  - *One top row* (`WideBar`, 52 pt: 44 pt controls with 4 pt above and below), sharing the page's background with a
+    hairline under it. Each pane draws its share; every share has the same height, so the shares line up on one
+    centre line with one continuous hairline. Each share keeps the allowance: at most one where-to-go button on the
+    left (☰ Contents over the paper, All chats over a chat), the capsule or the chat's title in the centre, at most one
+    create button where creating is the screen's job (New chat, New collection), then ⋯ last. The paper's title is
+    its own heading, not in the bar. Reading mode, Show library beside paper, Find and the rest are rows of ⋯.
+  - *Vertical budget (Wide)*: above content, the status bar and the one row (≤ 56 pt, asserted by
+    `IPadShapesJourneyTests`); below, only the chat's message box (its status line sits above it). The paper has no
+    bottom bar: text size and line width float at its corner as on iPhone, with room after the page's end so they
+    never cover its last lines. The find bar, notices and sync status float over content and never move the text.
+  - *Two slots* (`TwoSlotLayout`, the one reusable container): at most two columns. The left slot holds the "where to
+    go" list (300–380 pt), the right slot the thing itself; Discuss is the one exception, with the paper on the left
+    (45%). The container owns the widths and the animated hand-offs (respecting Reduce Motion) and keeps the main
+    view's identity, so a paper keeps its load and place whichever side the other slot is on. It knows nothing about
+    papers. A screen that needs the whole width (the Library and Feed tables) is not in it. In Tall it shows the main
+    view alone; the iPhone's tabs, pushes and Back reach the rest.
+  - *The paper's views*: **Read** (the paper alone, its column centred), **Browse** (Papers — the library or search
+    results — | Paper), **Navigate** (Contents | Paper; ☰), **Explain** (the figure page, equation view or AI
+    Explainer in the paper's slot under its bar, in the iPhone's layout in a 720 pt column, the left slot unchanged; ✕
+    returns to the paper at the same place), **Discuss** (Paper | Chat: Ask, a selection's Explain, Continue in Chat;
+    the chat's bar is All chats · title · ⋯ · ✕, New chat in ⋯; ✕ returns to Read or the list it replaced), and
+    **Chats** (All chats | Chat: the Chat place, like Messages). Snippets is Collections | Collection on the same
+    container. Opening a paper from the full-width Library or Feed lands in Browse with that list on the left.
+    🔍 opens the Papers list on the left (its field at the top, the Library | ML paper search switch under it); a result
+    opens on the right and the list stays; Cancel puts the left slot back as it was (in Discuss, the chat). Nothing
+    adds a third column.
+  - *Turning or resizing* (rotation, Stage Manager, fold/unfold) keeps the current view's content: the paper and its
+    place, the open chat and its unsent draft. Only the capsule moves (bottom ↔ top) and the room around the reading
+    column changes. Tall's Chat about a paper becomes Discuss; Discuss turned upright is the Chat tab with Back to the
+    paper; Browse and Navigate upright are the Paper tab.
+  - *Selection actions* stay in the system edit menu next to the selection on every shape (Explain in Chat, Save
+    snippet, …); no bar of actions sits over the page.
+  - *Not yet*: Settings as Sections | Page (still a sheet); the Mac's own Wide step (its toolbar holds the five places;
+    pane bars, Return to send and density are unchanged); Contents' figure pages in the left slot open without the
+    figure page's Chat and AI Explainer actions.
 - **Icons**: the app's own symbols (`GradstepSymbol`; `Assets.xcassets/Symbols`, drawn by `tools/icons`): rounded
   lines like the Nabla mark, each with one amber point — Feed (feed arcs from the point), Library (spines, the
   middle one banded), Paper (page with the reading point), Chat (bubble with · · •), Settings (gear around the

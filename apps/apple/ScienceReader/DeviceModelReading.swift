@@ -218,9 +218,7 @@ extension ReaderModel {
         if paper.isLocalPDF, selectedPaper?.id != paper.id {
             // From a PDF the reader added (its own PDF view): the reading happens, and opens, in the reader.
             localPaperPresentation = nil
-            selectedPaper = paper; chatPaperID = paper.id; tab = .paper
-            // The wide layout (iPad, Mac) shows the reader too, as opening any paper does (`select`).
-            if wideMode != .browse { wideMode = .reader }
+            selectedPaper = paper; chatPaperID = paper.id; showPaperPlace()
             generalChat = false
         }
         let started = DeviceModelRun(paperID: paper.id, started: Date()), runID = started.id

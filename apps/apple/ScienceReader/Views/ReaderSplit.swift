@@ -16,7 +16,20 @@ extension EnvironmentValues {
         get { self[ChatBesidePaperKey.self] }
         set { self[ChatBesidePaperKey.self] = newValue }
     }
+    /// The chat in Discuss's right slot (iPad Wide): its bar is All chats · title · ⋯ · ✕; ✕ returns to the paper.
+    var discussChat: Bool {
+        get { self[DiscussChatKey.self] }
+        set { self[DiscussChatKey.self] = newValue }
+    }
+    /// The chat in the Chats view, beside All chats (iPad Wide's Chat place): no All chats button, the list is there.
+    var chatsList: Bool {
+        get { self[ChatsListKey.self] }
+        set { self[ChatsListKey.self] = newValue }
+    }
 }
+
+private struct DiscussChatKey: EnvironmentKey { static let defaultValue = false }
+private struct ChatsListKey: EnvironmentKey { static let defaultValue = false }
 
 /// The wide Reader (iPad, Mac): the paper beside its chat, matching the browser workspace and the legacy
 /// large-screen behavior (docs/LEGACY_GAP_AUDIT.md #5). The chat column
@@ -53,6 +66,8 @@ struct ReaderSplit: View {
                 divider
                 ChatView(model: model).frame(width: chatWidth)
                     .environment(\.chatBesidePaper, true)
+                    // The places capsule is in the paper's share of the top row.
+                    .environment(\.placesInBar, false)
                     .transition(.move(edge: .trailing))
             }
         }
@@ -99,5 +114,71 @@ struct ReaderSplit: View {
                 .accessibilityIdentifier("reader.chatDivider")
             }
             .zIndex(1)
+    }
+}
+
+/// What a slot of the Wide Paper screen holds (owner, 2026-10-22, "Two slots, a few views").
+enum WidePane: Equatable { case papers, feed, contents, paper, explainer, chat }
+
+/// The list in the left slot beside the paper (ReaderModel.wideList).
+enum WideList: String { case none, papers, feed, contents }
+
+private struct SlotPaneKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// A page drawn in a Wide slot instead of a sheet (Contents): its top row is the slot's share of the one row.
+    var slotPane: Bool {
+        get { self[SlotPaneKey.self] }
+        set { self[SlotPaneKey.self] = newValue }
+    }
+}
+
+/// The iPad's Wide Paper screen: two slots at most, each in the iPhone's look, moved between by doing things rather than
+/// choosing a layout. The paper keeps one identity in every view (its place and its load survive Read ↔ Discuss).
+/// - Read: the paper alone, its reading column centred.
+/// - Browse: Papers (the library or search results) | Paper. Navigate: Contents | Paper.
+/// - Discuss: Paper (about 45%) | Chat. ✕ on the chat returns to Read (or the list it replaced).
+/// - Explain: the paper's slot shows the explainer (PaperView › explainerPresentation); the left slot is unchanged.
+struct WideSlots: View {
+    @Bindable var model: ReaderModel
+    let width: CGFloat
+
+    var body: some View {
+        let slots = model.wideSlots
+        let side: TwoSlotLayout<PaperView, AnyView>.Side = slots.right == .chat ? .right : (slots.left == nil ? .none : .left)
+        TwoSlotLayout(width: width, other: side) {
+            PaperView(model: model)
+        } otherView: {
+            other(side == .right ? .chat : (slots.left ?? .paper))
+        }
+    }
+
+    private func other(_ kind: WidePane) -> AnyView {
+        switch kind {
+        case .papers:
+            return AnyView(LibraryView(model: model).environment(\.placesInBar, false).environment(\.librarySidebar, true))
+        case .feed:
+            return AnyView(FeedView(model: model).environment(\.placesInBar, false).environment(\.librarySidebar, true))
+        case .contents: return AnyView(ContentsPane(model: model))
+        case .chat:
+            return AnyView(ChatView(model: model)
+                .environment(\.chatBesidePaper, true)
+                .environment(\.placesInBar, false)
+                .environment(\.discussChat, true))
+        case .paper, .explainer: return AnyView(EmptyView())
+        }
+    }
+}
+
+/// Navigate's left slot: the paper's Contents, Figures, Tables and Equations as on iPhone; a row moves the paper beside it.
+private struct ContentsPane: View {
+    @Bindable var model: ReaderModel
+    var body: some View {
+        PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize,
+                           report: { ReportPresenter.present(model, sheet: "Contents") },
+                           onClose: { model.wideList = .none }) { target, id in
+            if let key = model.readingLocationKey { model.paperJump = PaperJumpRequest(locationKey: key, headingID: id, target: target) }
+        }
+        .environment(\.slotPane, true)
     }
 }

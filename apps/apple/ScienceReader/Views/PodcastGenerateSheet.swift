@@ -243,7 +243,6 @@ struct PodcastGenerateSheet: View {
                 center.generation = nil
                 center.listenSelected = true
                 model.tab = .feed
-                model.wideMode = .feed
                 dismiss()
             } label: {
                 Label("Browse episodes", systemImage: "headphones").frame(maxWidth: .infinity)
