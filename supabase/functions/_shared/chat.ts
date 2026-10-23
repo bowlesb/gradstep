@@ -1185,6 +1185,14 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     emit({ event: 'error', data: { code: 'service_unavailable', credits: reportedCredits, ...billing, retry_after: PROVIDER_BILLING_RETRY_SECONDS } });
     return;
   }
+  // A13 likewise: the gateway refusing our key (401: expired, revoked or missing; 2026-10-23 the staging chat key
+  // expired and every answer read "Try again") is the operator's to fix, for every model alike, and a quick retry
+  // cannot help. Settlement above is unchanged (the attempt was rejected before any work: nothing charged).
+  if (ending === 'provider' && outcome.httpStatus === 401) {
+    deps.log({ event: 'chat_provider_authentication', operation_id: request.operationID, provider: profile.provider });
+    emit({ event: 'error', data: { code: 'service_unavailable', credits: reportedCredits, ...billing, retry_after: PROVIDER_BILLING_RETRY_SECONDS } });
+    return;
+  }
   const code: ChatErrorCode = ending === 'server' ? 'service_unavailable' : 'provider_unavailable';
   const retryAfter = ending === 'provider' && outcome.retryAfterMs != null ? Math.min(3600, Math.max(1, Math.ceil(outcome.retryAfterMs / 1000))) : RETRY_AFTER_SECONDS[code]!;
   emit({ event: 'error', data: { code, credits: reportedCredits, ...billing, retry_after: retryAfter } });

@@ -1,6 +1,20 @@
 # Implementation status
 
 
+## Figure AI Explainer "couldn't finish": the staging OpenRouter key expired — 2026-10-23 UTC (branch only; not deployed or released)
+
+Owner, build 85/86 on iPad, 2026-10-23: "I did the AI Explainer on iPad for a figure, it says the AI Service couldn't
+finish this answer". Staging, read-only: three figure walkthroughs (Gemini Flash, low) at 19:47–19:50 UTC, each rejected
+by OpenRouter in under 0.4 s with HTTP 401 (`chat_provider_rejected`, reason `authentication`; nothing charged, no
+provider cost). OpenRouter's key endpoint answers the configured `OPENROUTER_CHAT_API_KEY` (same digest in
+`.env.providers` and the staging secret) with "API key expired"; the last success was 14:44 UTC. Not a code or request
+change: every cloud model route on staging (chat, figure, equation, paper explainer, Study, tags, podcasts, the browser)
+fails the same way until the owner creates a new key without an expiry (or a later one), puts it in `.env.providers`,
+and sets it on staging and the pipeline worker. Hardening on branch `fix/openrouter-key-auth-blame`: a 401 from the
+gateway is answered like A13's 402 (`service_unavailable`, `retry_after: 300`, log `chat_provider_authentication`),
+and the apps and browser word `service_unavailable` as "AI answers are unavailable right now. Try again in a few
+minutes." instead of the generic "couldn't be completed". Evidence: `npm test`; Core `swift test --filter ChatStream`.
+
 ## Browser: where credits come from, said plainly — 2026-10-23 UTC (app.gradstep.ai deployed)
 
 Owner, 2026-10-23, after asking what happens to someone using the web without an iPhone: "add messages where needed to

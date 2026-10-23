@@ -425,6 +425,8 @@ export function failureText(code: string): string {
     case 'reader_unprepared': return 'This paper couldn’t be prepared in this browser. No answer was requested; try again.';
     case 'document_unavailable': return 'This paper isn’t ready for questions yet. Try again after it finishes processing.';
     case 'provider_unavailable': return 'The AI service couldn’t finish this answer. Try again.';
+    // Ours to fix, for every model alike (the gateway’s key or balance, or our server): a quick retry can’t help.
+    case 'service_unavailable': return 'AI answers are unavailable right now. Try again in a few minutes.';
     case 'model_unavailable': return 'This AI model isn’t available right now. Your AI credits were not charged. Choose another model in AI options, or try again later.';
     case 'refused': return 'This request can’t be answered. Try rephrasing your question.';
     case 'invalid_request': return 'This conversation couldn’t be sent. Try starting a new chat.';

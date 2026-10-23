@@ -395,6 +395,9 @@ drain the balance chat needs, and a 402 told readers to "choose another AI model
   pipeline worker's secret list (`scripts/pipeline_readiness.py`), then redeploy the worker.
 - **Billing blame.** A 402 from the gateway is answered `service_unavailable` with `retry_after: 300` (and a
   `chat_provider_billing` log line and the existing Health › Attention count), never `model_unavailable`.
+  A 401 (our key expired, revoked or missing; 2026-10-23 the staging key expired) is answered the same way, with a
+  `chat_provider_authentication` log line; it is not counted in Health › Attention (the health hours count it as
+  `rejected`, which never moves a breaker).
 
 ## Fix 1 and early endings as built — 2026-10-16
 
