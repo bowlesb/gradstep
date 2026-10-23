@@ -72,6 +72,19 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   equation pages, which have no X on a touch screen (below); task sheets have Cancel on the left and the confirming action
   on the right; short sheets open at medium height. Catalogs' "…" ends with **Report this screen**. Contents, whose tabs
   fill its top row on a phone, ends each list with a quiet Report this screen row.
+  *Browser* (owner-approved rule, 2026-10-22): information dialogs (Usage, Explanations, Diagrams, Privacy & data, How
+  Gradstep works, Keyboard shortcuts, Catalogs, My reports, Columns, AI chat options, Snippet, Listen) open with
+  `SheetTop` (`ui/common.tsx`): title or controls on the left, one round ✕ on the right, no Done or Close button
+  (Columns' Reset is a link at the end of its list). Task dialogs (Add paper, Report, Sign out, Delete account, New
+  collection, Save snippet, Download your assets, Open source, Cloud AI answers) have the title on the left and no ✕;
+  Cancel then the verb sit bottom right (a desktop adaptation of the native top-bar placement).
+- **Browser tokens** (2026-10-22): `apps/web/src/tokens.css` maps these rules for the web — colour roles written once
+  for light and dark, six type steps (24/18/15/14/13/12/11), 4/8/12/16/24 spacing with a 16 px gutter, control heights
+  28/32/34/40, radii 4/6/8/12/16/capsule, three elevations, named layers and three motion durations (instant with
+  Reduce Motion). Other stylesheets use the names; `tests/style-tokens.test.ts` fails on a new raw font size, radius,
+  layer or duration. Components: one Button family (primary, secondary, link) with hover and pressed states, a round
+  IconButton, one Menu (32 px rows, accent icons, scrolls within the window), one Segmented, one Chip, one selected look
+  (accent words on the accent tint), one Banner for notices in place and one Toast.
 - **Sheet top row** (owner, build 62, 2026-10-16: "the top horizontal space is poorly used… use Liquid Glass… remove Done,
   use an X"): an information sheet (Contents, a figure or table, the equation view, an explainer) has one glass row at
   the top: its controls on the left (tabs, or the page's actions), a round glass **X** on the right. No centred title

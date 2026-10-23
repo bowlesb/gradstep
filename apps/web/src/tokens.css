@@ -1,0 +1,135 @@
+/* Gradstep browser design tokens (docs/DESIGN.md; the native DesignSystem.swift mapped to a pointer-first web app).
+   Imported first (main.tsx). This is the only file where raw font sizes, radii, z-index values and motion durations are
+   written: everything else uses these names (tests/style-tokens.test.ts holds the line).
+
+   Colours are written once: each role carries its light and dark value through light-dark(), and `color-scheme` picks
+   one (the system by default, or the appearance chosen in the account menu, which sets data-theme on <html>). */
+:root {
+  color-scheme: light dark;
+
+  /* ---------- Colour roles ---------- */
+  --bg: light-dark(#f4f4f5, #0b0b0d);
+  --surface: light-dark(#ffffff, #141417);
+  --surface-2: light-dark(#fafafa, #111114);          /* grouped secondary: rails, the chat pane, cards in lists */
+  --surface-3: light-dark(#f2f2f7, #26262c);          /* an inset box inside a card (the snippet frame) */
+  --surface-raised: light-dark(#ffffff, #1a1a1f);     /* a card that sits on the page (DESIGN.md "Cards") */
+  --text: light-dark(#18181b, #e7e7ea);
+  --text-2: light-dark(#5f5f6b, #a1a1ab);             /* secondary words */
+  --text-3: light-dark(#93939e, #6f6f7a);             /* tertiary words, placeholders */
+  --line: light-dark(#e7e7ea, #25252b);               /* hairline */
+  --line-strong: light-dark(#d4d4d8, #34343c);        /* control edges */
+  --line-card: light-dark(#e2e2e7, #2c2c33);
+  --line-card-strong: light-dark(#d0d0d6, #3a3a43);
+  --fill-quiet: light-dark(#f4f4f6, #1b1b20);         /* hover, an unselected chip, a segmented track */
+  --fill-press: light-dark(#ebebef, #24242a);         /* pressed */
+  --accent: light-dark(#4f52cf, #a5a7ff);
+  --on-accent: light-dark(#ffffff, #111133);
+  --accent-tint: light-dark(rgba(99, 102, 241, .10), rgba(129, 140, 248, .16));   /* the one selected look */
+  --accent-tint-solid: light-dark(#eef0ff, #24244a);  /* the same tint, opaque (sticky cells, over scrolling content) */
+  --problem: light-dark(#b45309, #f5a524);
+  --problem-tint: light-dark(rgba(180, 83, 9, .08), rgba(245, 165, 36, .1));
+  --danger: light-dark(#c0262d, #ff7b7b);
+  --on-danger: light-dark(#ffffff, #2a0a0a);
+  --amber: light-dark(#b17417, #f5bd63);
+  --figure-white: #ffffff;                            /* a figure's own page, in both appearances */
+  --figure-outline: #4f52cf;                          /* the light accent: outlines drawn on a figure's white */
+  --concept-background: #7a86a8;
+  --concept-paper: #c98a12;
+  --scrim: rgba(0, 0, 0, .4);                         /* under a modal dialog, an open drawer and the ⓘ bubble */
+  --scrim-light: rgba(0, 0, 0, .12);                  /* under a small non-modal surface */
+  --scrim-capture: light-dark(rgba(28, 28, 32, .32), rgba(0, 0, 0, .5));
+  /* Charts only (docs/DESIGN.md "Credits by activity"). */
+  --viz-1: light-dark(#2a78d6, #3987e5);
+  --viz-2: light-dark(#eb6834, #d95926);
+  --viz-3: light-dark(#1baf7a, #199e70);
+  --viz-4: light-dark(#eda100, #c98500);
+  --viz-other: light-dark(#8c8a85, #6b6a66);
+
+  /* ---------- Type: six steps, the native text styles ---------- */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --fs-display: 24px;   /* the sign-in card's title */
+  --fs-title: 18px;     /* title3: a screen's title, a sheet's title */
+  --fs-headline: 15px;  /* headline: a sheet's top row, a section */
+  --fs-body: 14px;      /* body */
+  --fs-sub: 13px;       /* subheadline: controls, rows, menus */
+  --fs-foot: 12px;      /* footnote: details, table headers */
+  --fs-caption: 11px;   /* caption: badges, counts */
+  --fs-quote: 15.5px;   /* a snippet's quoted words (serif) */
+  --fs-code: 28px;      /* the approval code */
+  --lh-tight: 1.25;
+  --lh-snug: 1.35;
+  --lh-body: 1.45;
+  --lh-read: 1.6;
+
+  /* ---------- Space: 4/8/12/16/24 ---------- */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 8px;
+  --s-4: 12px;
+  --s-5: 16px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --gutter: 16px;        /* a screen's side margin */
+
+  /* ---------- Control heights ---------- */
+  --h-sm: 28px;          /* in a row or a pane header */
+  --h-md: 32px;          /* toolbars, menus, chips */
+  --h-lg: 40px;          /* dialog actions, forms */
+  --h-header: 34px;      /* a sheet's round header control (the Mac value) */
+  --h-touch: 44px;       /* a touch target */
+
+  /* ---------- Radii ---------- */
+  --r-xs: 4px;           /* tags, keys, small marks */
+  --r-sm: 6px;           /* menu rows, segment thumbs */
+  --r-md: 8px;           /* buttons, fields */
+  --r-lg: 12px;          /* menus, popovers, banners, figure frames */
+  --r-xl: 16px;          /* cards, dialogs */
+  --r-pill: 999px;
+  --r-circle: 50%;
+
+  /* ---------- Elevation ---------- */
+  --elev-1: 0 1px 2px light-dark(rgba(23, 23, 28, .04), transparent), 0 2px 8px light-dark(rgba(23, 23, 28, .05), transparent);   /* a card */
+  --elev-2: 0 12px 40px light-dark(rgba(0, 0, 0, .14), rgba(0, 0, 0, .5));        /* menus, popovers, toasts, drawers */
+  --elev-3: 0 24px 64px light-dark(rgba(0, 0, 0, .18), rgba(0, 0, 0, .6));        /* dialogs */
+  --ring: 0 0 0 3px var(--accent-tint);                                            /* a focused field */
+
+  /* ---------- Layers ---------- */
+  --z-raised: 1;          /* a sticky header cell, a sticky tab bar */
+  --z-sticky: 2;
+  --z-sticky-over: 3;     /* the sticky corner of a table; a sheet's top row */
+  --z-splitter: 5;
+  --z-stage-float: 10;    /* over the paper: the edge handle, the selection bar, a toast */
+  --z-stage-capture: 12;  /* Draw snippet */
+  --z-stage-hotzone: 14;  /* reading mode */
+  --z-stage-bar: 15;
+  --z-stage-progress: 16;
+  --z-drawer-scrim: 15;
+  --z-drawer: 20;
+  --z-chrome: 25;         /* the phone tabs, the player */
+  --z-topbar: 30;
+  --z-toast: 35;
+  --z-menu: 40;
+  --z-popover-scrim: 49;
+  --z-popover: 50;        /* the ⓘ bubble, the skip link */
+  --z-menu-popup: 60;     /* menus fixed to the window */
+
+  /* ---------- Motion ---------- */
+  --dur-1: 120ms;         /* hover, press, selection */
+  --dur-2: 200ms;         /* menus, popovers, drawers, bars (native 0.2 s) */
+  --dur-3: 280ms;         /* dialogs, large panels */
+  --dur-slow: 350ms;      /* a progress bar's fill */
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+/* Reduce Motion: every tokenised transition and animation becomes instant. Rules that must still show something briefly
+   (DESIGN.md) say so where they are. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-1: 0s; --dur-2: 0s; --dur-3: 0s; --dur-slow: 0s; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root { --scrim-capture: rgba(0, 0, 0, .6); }
+}

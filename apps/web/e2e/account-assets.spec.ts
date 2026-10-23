@@ -58,7 +58,7 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   await menu.getByRole('menuitem', { name: 'Diagrams' }).click();
   const diagrams = page.getByRole('dialog', { name: 'All diagrams' });
   await expect(diagrams.getByTestId('diagrams-empty')).toHaveText('No diagrams yet');
-  await diagrams.getByRole('button', { name: 'Done' }).click(); await expect(diagrams).toBeHidden();
+  await diagrams.getByRole('button', { name: 'Close', exact: true }).click(); await expect(diagrams).toBeHidden();
   // Equation and Figure explanations (owner, build 62): none yet, in the apps' words (KeptExplanationsView); since B4 they
   // are kept in this browser, and the ⓘ says so.
   for (const [item, title] of [['assets-equations', 'Equation explanations'], ['assets-figures', 'Figure explanations']] as const) {
@@ -118,5 +118,5 @@ test('Diagrams lists what the chats drew, newest first, and opens one as in its 
   await expect(detail.getByRole('button', { name: 'Full size' })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-diagram-detail.png` });
   await diagrams.getByTestId('diagrams-back').click(); await expect(rows).toHaveCount(1);
-  await diagrams.getByRole('button', { name: 'Done' }).click(); await expect(diagrams).toBeHidden();
+  await diagrams.getByRole('button', { name: 'Close', exact: true }).click(); await expect(diagrams).toBeHidden();
 });

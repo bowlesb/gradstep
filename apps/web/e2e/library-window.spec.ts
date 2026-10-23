@@ -16,7 +16,7 @@ async function windowed(page: Page, allColumns = false) {
   const chooser = page.getByRole('dialog', { name: 'Library columns' });
   if (allColumns) for (const name of ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress']) await chooser.getByRole('checkbox', { name, exact: true }).check();
   await chooser.getByRole('checkbox', { name: 'Show rows as you scroll', exact: true }).check();
-  await chooser.getByRole('button', { name: 'Done', exact: true }).click();
+  await chooser.getByRole('button', { name: 'Close', exact: true }).click();
   await expect.poll(() => page.getByTestId('paper-row').count()).toBeLessThan(80);
 }
 const table = (page: Page) => page.getByRole('region', { name: 'Library table' });
@@ -118,7 +118,7 @@ test('stable key and inset survive width, columns, large text and reader-return 
   await page.getByRole('button', { name: 'Columns', exact: true }).click();
   const chooser = page.getByRole('dialog', { name: 'Library columns' });
   await chooser.getByRole('checkbox', { name: 'Authors', exact: true }).uncheck(); await chooser.getByRole('checkbox', { name: 'Tags', exact: true }).uncheck();
-  await chooser.getByRole('button', { name: 'Done', exact: true }).click(); await sameAnchor(page, saved);
+  await chooser.getByRole('button', { name: 'Close', exact: true }).click(); await sameAnchor(page, saved);
   await page.addStyleTag({ content: '.papers td, .papers .title, .papers th .sort { font-size: 20px !important; }' }); await sameAnchor(page, saved);
   saved = await anchor(page); const title = page.locator(`[data-row-key="${saved.key}"] a.title`), href = await title.getAttribute('href');
   // Focus without Playwright's click auto-scroll: the partially visible anchor is deliberately kept.
@@ -132,7 +132,7 @@ test('live tag reorder keeps the same row and a removed focused row gets a keybo
   await signIn(page);
   await page.getByRole('button', { name: 'Columns', exact: true }).click();
   await page.getByRole('dialog', { name: 'Library columns' }).getByRole('checkbox', { name: 'Tags', exact: true }).check();
-  await page.getByRole('dialog', { name: 'Library columns' }).getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Library columns' }).getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Tags', exact: true }).click();
   const key = 'item:aaaaaaaa-0000-4000-8000-000000000001', row = page.locator(`[data-row-key="${key}"]`);
   await row.locator('a.title').focus();

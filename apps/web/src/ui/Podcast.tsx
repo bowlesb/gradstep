@@ -9,7 +9,7 @@ import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type
   type Mine, type MineRequest, mineCheckDelay, MINE_CHECK_LIMIT_MS, expectedWait, plainProviders } from '../lib/podcast';
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
 import { Icon } from './PodcastIcons';
-import { Dialog, MenuButton } from './common';
+import { Dialog, MenuButton, SheetTop } from './common';
 import { asOf } from '../lib/retry';
 import './Podcast.css';
 import { useMedia } from './prefs';
@@ -856,7 +856,7 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
     <button className="secondary small podcast-paper-listen" onClick={() => void load()} data-testid="podcast-paper-listen"><Icon name="headphones" size={14} /> Listen</button>
     <Dialog open={shown} onClose={close} title="Listen to this paper">
       <div className="podcast-generation">
-        <div className="dialog-head"><h2>Listen</h2><button className="icon-button" aria-label="Close Listen" onClick={close}><Icon name="close" /></button></div>
+        <SheetTop onClose={close} closeLabel="Close Listen" testID="podcast-close"><h2>Listen</h2></SheetTop>
         <strong>{title}</strong>
         {busy === 'paper' && !paper && <p role="status"><span className="spinner small" /> Opening…</p>}
         {issue && !sourceTooLarge && <p className="issue" role="alert">{issue}</p>}
@@ -879,7 +879,6 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
           <strong>Making your episode</strong>
           <p data-testid="podcast-leave">You can leave this page. It’ll be in Listen when it’s ready.</p>
           <p className="fine" data-testid="podcast-wait">{expectedWait(lengths.find(l => l.profile === (job.profile ?? chosenLength?.profile))?.targetSeconds ?? quote?.targetSeconds ?? 300)}</p>
-          <button className="primary" onClick={close} data-testid="podcast-done">Done</button>
           {job.cancelRequested ? <p className="fine">Canceling.</p>
             : <button className="link danger" disabled={!!busy} onClick={() => void updateJob(true)} data-testid="podcast-cancel">Cancel this episode</button>}
         </div>}

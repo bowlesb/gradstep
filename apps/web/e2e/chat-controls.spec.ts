@@ -126,7 +126,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-ai-chat-options.png` });
   await settings.getByTestId('chat-options-back').click();
   await expect(settings.getByRole('radio', { name: 'Haiku', exact: true })).toHaveAttribute('aria-checked', 'true');
-  await settings.getByRole('button', { name: 'Done', exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   // The open chat keeps its own choice; a new one starts from the default.
   expect(await summary(page)).toBe('Sonnet · Standard');
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
@@ -142,7 +142,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   await expect(settings.getByRole('heading', { name: 'About AI chat options' })).toBeVisible();
   await settings.getByTestId('chat-options-back').click();
   await expect(settings.getByRole('radio', { name: 'Brief', exact: true })).toHaveAttribute('aria-checked', 'true');
-  await settings.getByRole('button', { name: 'Done', exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   // A selection action answers with what the pane showed.
   const frame = page.frameLocator('[data-testid=reader-frame]');
   await frame.locator('p').filter({ hasText: 'preferences' }).first().evaluate(node => { const r = document.createRange(); r.selectNodeContents(node); const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event('selectionchange')); });

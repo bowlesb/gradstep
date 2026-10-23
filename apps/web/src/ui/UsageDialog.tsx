@@ -124,7 +124,7 @@ export function UsageDialog({ account, paperTitle, onClose }: {
     </div>}
     {slices.length > 0 && totals && <UsageRing slices={slices} total={totals.credits} onChoose={setActivity} />}
     {state === 'failed' && !rows.length ? <div className="usage-empty" data-testid="usage-error"><p className="issue" role="alert">Couldn’t load your AI usage.</p>
-      <button className="button" onClick={() => load(null)}>Try again</button></div>
+      <button className="secondary small" onClick={() => load(null)}>Try again</button></div>
       : state === 'loading' && !rows.length ? <div className="usage-empty" role="status" aria-label="Loading your AI usage"><div className="spinner" /></div>
       : !rows.length ? <div className="usage-empty" data-testid="usage-empty"><p><strong>No AI usage {days === 365 ? 'in the last 12 months' : `in the last ${days} days`}</strong></p>
         <p className="muted">Answers, explainers, podcasts and searches you ask for appear here with what they cost.</p></div>

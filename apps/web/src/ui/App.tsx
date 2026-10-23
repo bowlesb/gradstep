@@ -26,7 +26,7 @@ import type { ChatSession, Explanation, AIActivity } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
-import { Brand, Dialog, InfoTip } from './common';
+import { Brand, Dialog, InfoTip, SheetTop } from './common';
 import { DiagramsDialog } from './DiagramsDialog';
 import { ExplanationsDialog } from './ExplanationsDialog';
 import { AssetsExportDialog } from './AssetsExportDialog';
@@ -899,7 +899,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onAdjust={composer.adjust ? () => { const adjust = composer.adjust!; setComposer(null); adjust(); } : undefined} onClose={() => setComposer(null)}
         onSaved={(id, title) => { const text = composer.draft.kind === 'text'; setComposer(null); if (text || route === 'notes') void navigate(`/notes/${id}`); else setSavedNote({ noteID: id, title, offline: typeof navigator !== 'undefined' && navigator.onLine === false }); }} /></RegionBoundary>}
       {notes && newNote && <NewNoteDialog store={notes} onClose={() => setNewNote(false)} onCreated={id => { setNewNote(false); void navigate(`/notes/${id}`); }} />}
-      {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
+      {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button className="link" onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
       <RegionBoundary region="recommend" label="Recommended papers" compact resetKey={recommender.run} onReport={report}>
         <RecommendDialog recommender={recommender} />
       </RegionBoundary>
@@ -930,12 +930,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       {reportOpen && <Suspense fallback={null}><ReportDialog open onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} /></Suspense>}
       {reportsOpen && <Suspense fallback={null}><ReportsDialog open onClose={() => setReportsOpen(false)} account={account} /></Suspense>}
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
-        <h2>Keyboard shortcuts</h2>
+        <SheetTop onClose={() => setHelp(false)} testID="shortcuts-close"><h2>Keyboard shortcuts</h2></SheetTop>
         <dl className="shortcuts">
           {SHORTCUTS.map(([k, d]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{d}</dd></div>)}
         </dl>
         <p className="fine">On Windows and Linux, use Ctrl for ⌘.</p>
-        <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
       {howGradstepWorks && <Suspense fallback={null}><HowGradstepWorks open onClose={() => setHowGradstepWorks(false)} /></Suspense>}
       {privacy && <Suspense fallback={null}><PrivacyData open onClose={() => setPrivacy(false)} /></Suspense>}
@@ -1058,7 +1057,7 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
         <Icon name={compact ? 'more' : 'user'} />{!compact && <span className="account-email">{email ?? 'Account'}</span>}
       </button>
       {open && (
-        <div className="menu" role="menu">
+        <div className="menu" role="menu" data-info-bounds>
           <button role="menuitem" className="menu-item menu-add" disabled={!onAdd} onClick={() => { setOpen(false); onAdd?.(); }} data-testid="add-paper"><Icon name="plus" size={14} /> Add paper…</button>
           {compact && <p className="fine menu-heading">Settings</p>}
           <p className="menu-email">{email}</p>

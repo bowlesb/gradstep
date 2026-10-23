@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Dialog } from './common';
+import { Dialog, SheetTop } from './common';
 import { CopyButton } from './CopyButton';
 import { decodeStoredFigureParts, type StoredFigureParts } from '../lib/chat-figures';
 import type { Rect } from '../lib/figure-crops';
@@ -23,7 +23,7 @@ export function Visual({ title, html }: { title: string; html: string }) {
   return <div className="chat-visual" data-testid="chat-visual">
     <iframe title={title} className="visual-frame" sandbox="" srcDoc={doc} />
     <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Full size</button></div>
-    <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
+    <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><SheetTop onClose={() => setOpen(false)}><h2>{title}</h2></SheetTop>
       <iframe title={title} className="visual-frame visual-frame-large" sandbox="" srcDoc={doc} />
     </Dialog></div>;
 }
@@ -36,7 +36,7 @@ export function Diagram({ title, source, format, figureImage = null, figureCapti
   return <div className="chat-diagram">
     <div className="diagram-inline"><DiagramFrame source={source} compact /></div>
     <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Full size</button></div>
-    <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
+    <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><SheetTop onClose={() => setOpen(false)}><h2>{title}</h2></SheetTop>
       <DiagramFrame source={source} fit="width" /><details><summary>Diagram source</summary><div className="diagram-source-tools"><CopyButton text={source} label="Copy Mermaid" /></div><pre>{source}</pre></details>
     </Dialog></div>;
 }
@@ -235,7 +235,7 @@ export function FigurePartInline({ number, part, url, size, shown }: { number: n
 
 /** The whole figure with its parts outlined and numbered, and every part with its note (the full view). */
 function WholeFigureDialog({ title, stored, url, size, open, onClose, crops }: { title: string; stored: StoredFigureParts; url: string | null; size: { w: number; h: number } | null; open: boolean; onClose: () => void; crops?: FramedPart[] }) {
-  return <Dialog open={open} onClose={onClose} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={onClose}>Done</button></div>
+  return <Dialog open={open} onClose={onClose} title={title} wide><SheetTop onClose={onClose}><h2>{title}</h2></SheetTop>
     {url && size && <OutlinedFigure stored={stored} url={url} size={size} title={title} width={`min(100%, ${Math.max(360, size.w)}px)`} crops={crops} />}
     <ol className="figure-parts-notes">{stored.parts.map((p, i) => <li key={i}>{url && size && crops?.[i] && <Crop url={url} size={size} shown={crops[i]} width={220} />}<div><strong>{p.label}</strong><p>{p.note}</p></div></li>)}</ol>
   </Dialog>;

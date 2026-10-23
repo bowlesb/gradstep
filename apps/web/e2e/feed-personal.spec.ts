@@ -56,7 +56,7 @@ test('For you, precise topics, popularity and optional table columns follow the 
   await choices.getByRole('checkbox', { name: /^Abstract/ }).check();
   await choices.getByRole('checkbox', { name: /^arXiv ID/ }).check();
   await choices.getByRole('checkbox', { name: /^Authors/ }).uncheck();
-  await choices.getByRole('button', { name: 'Done', exact: true }).click();
+  await choices.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(table.getByRole('columnheader', { name: 'Abstract', exact: true })).toBeVisible();
   const row = rows.filter({ hasText: 'Reasoning without shortcuts' });
   await row.getByRole('button', { name: 'Reasoning without shortcuts', exact: true }).click();

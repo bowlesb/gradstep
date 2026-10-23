@@ -6,7 +6,7 @@
 import { type ReactNode, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { EFFORTS, effortOption, hasAutoEffort, LENGTHS, lengthOption, listedModels, MODEL_STRENGTHS, modelOption, modelProvider, offersModelLength,
   profileSummary, sameChoice, typicalEstimate, withChoice, type Estimate, type LengthChoice, type ModelChoice, type ProfileChoice, type ProfileTable } from '../lib/chat-profiles';
-import { Dialog, InfoTip } from './common';
+import { Dialog, InfoTip, SheetTop } from './common';
 import { Icon } from './icons';
 
 type Group = 'model' | 'length';
@@ -124,24 +124,23 @@ export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, 
 }) {
   const models = listedModels(table), auto = hasAutoEffort(table);
   if (view === 'defaults') return <Dialog open={open} onClose={onClose} title="AI chat options" className="chat-options">
-    <div className="chat-options-heading">
+    <SheetTop onClose={onClose} testID="chat-options-close">
       <h2>Default options for new chats</h2>
       <button type="button" className="info-tip-button" aria-label="About AI chat options" title="About AI chat options" onClick={() => onView('about')}
         data-testid="chat-options-about"><Icon name="info" size={14} /></button>
-    </div>
+    </SheetTop>
     <p className="fine">New chats in this browser start with these. Each chat can change them from its ⋯ menu › Answer options.</p>
     {scenarioControl}
     {picker ?? <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />}
     {onVisualAnswers && <label className="check-row"><input type="checkbox" checked={visualAnswers ?? true} onChange={e => onVisualAnswers(e.target.checked)} data-testid="visual-answers" />
       <span className="with-info">Visual answers <InfoTip text="Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose." testID="visual-answers-info" /></span></label>}
     {!table && !picker && <p className="fine">Answer options couldn’t be loaded. <RetryOptions onRetry={onRetry} /></p>}
-    <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
   </Dialog>;
   return <Dialog open={open} onClose={onClose} title="AI chat options" wide className="chat-options">
-    <div className="chat-options-heading">
-      <button type="button" className="link" onClick={() => onView('defaults')} data-testid="chat-options-back"><Icon name="chevronLeft" size={14} /> Default options</button>
+    <SheetTop onClose={onClose} testID="chat-options-close">
+      <button type="button" className="link back-link" onClick={() => onView('defaults')} data-testid="chat-options-back"><Icon name="chevronLeft" size={14} /> Default options</button>
       <h2>About AI chat options</h2>
-    </div>
+    </SheetTop>
     <p className="fine"><span data-testid="effort-note">{auto ? 'Effort is chosen automatically for each question: harder questions and longer answers get more thinking.'
       : `Answers use ${effortOption(table, EFFORTS.includes(choice.effort) ? choice.effort : 'low').label.toLowerCase()} effort.`}</span>
       {' '}Change a chat’s model and length from its ⋯ menu › Answer options; new chats start with your default options.</p>
@@ -163,7 +162,6 @@ export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, 
         })}</tr>)}</tbody>
       </table></div>
     </section>}
-    <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
   </Dialog>;
 }
 

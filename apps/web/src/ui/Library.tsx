@@ -20,7 +20,7 @@ import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
-import { Dialog, MenuButton, dateLines, formatDate, formatDateTime } from './common';
+import { Dialog, MenuButton, SheetTop, dateLines, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { CatalogRecommendButton, type Recommender } from './Recommend';
@@ -360,7 +360,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
       </div>
       <CatalogsDialog open={showCatalogs} onClose={() => setShowCatalogs(false)} library={library} />
       <Dialog open={choosingColumns} onClose={() => setChoosingColumns(false)} title="Library columns">
-        <h2>Library columns</h2>
+        <SheetTop onClose={() => setChoosingColumns(false)} testID="library-columns-close"><h2>Library columns</h2></SheetTop>
         <p className="fine">Title stays pinned as you scroll.</p>
         <div className="column-choices">
           <label className="check"><input type="checkbox" checked disabled />Title <span className="fine">Always shown</span></label>
@@ -374,8 +374,8 @@ export function LibraryView({ library, model, activity, view, setView, showChips
             <p className="fine">Keep off for browser-menu Find and full screen-reader browsing. Keyboard Find, Tab and selecting text load every row.</p>
             {selectedText && <p className="fine">Clear the text selection to show rows as you scroll.</p>}
           </div>}
+          <button className="link column-reset" onClick={reset}>Reset</button>
         </div>
-        <div className="row-actions column-actions"><button className="secondary" onClick={reset}>Reset</button><button className="primary" onClick={() => setChoosingColumns(false)}>Done</button></div>
       </Dialog>
       {showChips && (counts.total > 0 || counts.archived > 0) && <FilterChips model={model} view={view} setView={setView} onSearchTag={onSearchTag} />}
       {notice && <p className="issue banner" role="alert">{notice.text}</p>}

@@ -182,7 +182,7 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       // The apps' About: this version, and the work it is built on (B10).
       await expect(page.getByTestId('about-version')).toContainText(/Version \d+\.\d+\.\d+ \(web /);
       await expect(page.getByTestId('acknowledgements').locator('li strong')).toHaveText(['Mermaid', 'htmlparser2, Temml', 'markdown-it', 'arXiv', 'DataCite']);
-      await page.getByRole('button', { name: 'Done' }).click();
+      await page.getByRole('dialog', { name: 'How Gradstep works' }).getByRole('button', { name: 'Close', exact: true }).click();
       expect(problems).toEqual([]);
     });
   }

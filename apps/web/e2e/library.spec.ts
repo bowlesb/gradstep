@@ -32,7 +32,7 @@ test('a full library stays searchable while an import progresses', async ({ page
   const columns = page.getByRole('dialog', { name: 'Library columns' });
   await columns.getByRole('checkbox', { name: 'Show rows as you scroll', exact: true }).check();
   for (const name of ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress']) await columns.getByRole('checkbox', { name, exact: true }).check();
-  await columns.getByRole('button', { name: 'Done' }).click();
+  await columns.getByRole('button', { name: 'Close', exact: true }).click();
   const progress = page.getByTestId('import-progress').locator('progress');
   const initialProgress = Number(await progress.getAttribute('value'));
   await page.getByTestId('search').focus();

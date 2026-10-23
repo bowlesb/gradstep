@@ -1,13 +1,6 @@
 /* Notes and snippets (docs/architecture/NOTES_AND_SNIPPETS.md; prototype docs/prototypes/notes-snippets.html). */
 /* Cards (DESIGN.md "Cards"; owner, 2026-10-21, the Notes list: "each needs a very pleasant border around it, so it
    looks like a bunch of cards"): a raised surface, a hairline edge and, in light mode, a soft shadow. */
-:root { --amber: #b17417; --scrim-capture: rgba(28, 28, 32, .32);
-  --card-bg: #ffffff; --card-edge: #e2e2e7; --card-edge-hover: #d0d0d6; --card-shadow: 0 1px 2px rgba(23, 23, 28, .04), 0 2px 8px rgba(23, 23, 28, .05);
-  --snippet-frame-bg: #f2f2f7; --snippet-frame-edge: #dcdce2; }
-:root[data-theme="dark"] { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5);
-  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; --snippet-frame-bg: #26262c; --snippet-frame-edge: #3a3a43; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --amber: #f5bd63; --scrim-capture: rgba(0, 0, 0, .5);
-  --card-bg: #1a1a1f; --card-edge: #2c2c33; --card-edge-hover: #3a3a43; --card-shadow: none; --snippet-frame-bg: #26262c; --snippet-frame-edge: #3a3a43; } }
 .icon .icon-amber { stroke: var(--amber); }
 
 /* The list */
@@ -15,98 +8,99 @@
 .notes-list:not(.rail) { max-width: 760px; width: 100%; margin: 0 auto; padding-bottom: 24px; }
 .notes-head { align-items: center; }
 .notes-head .view-sub { flex: 1; }
-.notes-head .notes-new { margin-left: auto; border: 1px solid var(--line); border-radius: 50%; width: 36px; height: 36px; color: var(--accent); }
-.notes-search { flex-direction: row; align-items: center; gap: 8px; margin: 4px 20px 10px; padding: 0 12px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line);
-  color: var(--faint); font-weight: 400; }
+/* A screen's round header control (the sheet close X's look, the symbol in accent). */
+.notes-head .notes-new, .note-head > .icon-button, .note-head .menu-anchor > .icon-button { width: var(--h-header); height: var(--h-header); min-height: var(--h-header); border-radius: var(--r-circle); color: var(--accent);
+  background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent); }
+.notes-head .notes-new { margin-left: auto; }
+.notes-head .notes-new:hover:not(:disabled), .note-head > .icon-button:hover:not(:disabled), .note-head .menu-anchor > .icon-button:hover:not(:disabled) { color: var(--accent); background: color-mix(in srgb, var(--text) 10%, transparent); }
+.notes-search { flex-direction: row; align-items: center; gap: 8px; margin: 4px var(--gutter) 10px; padding: 0 12px; border-radius: var(--r-pill); background: var(--bg); border: 1px solid var(--line);
+  color: var(--text-3); font-weight: 400; }
 .notes-list.rail .notes-search { margin: 10px 10px 6px; }
-.notes-search input[type=search] { border: 0; background: transparent; min-height: 38px; padding: 0; outline: none; color: var(--text); font-size: 14px; }
-.notes-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
-.notes-rows { list-style: none; margin: 0; padding: 2px 20px 4px; display: flex; flex-direction: column; gap: 10px; }
+.notes-search input[type=search] { border: 0; background: transparent; min-height: 38px; padding: 0; outline: none; color: var(--text); font-size: var(--fs-body); }
+.notes-search:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+.notes-rows { list-style: none; margin: 0; padding: 2px var(--gutter) 4px; display: flex; flex-direction: column; gap: 10px; }
 .notes-list.rail .notes-rows { padding: 2px 10px 4px; }
 /* Each note is a card, 10 px apart (the apps' `contentCard`). */
 .note-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; min-height: 44px;
-  border-radius: 16px; border: 1px solid var(--card-edge); background: var(--card-bg); box-shadow: var(--card-shadow); }
-.note-row:hover { background: var(--card-bg); border-color: var(--card-edge-hover); }
-.note-row.on { background: var(--accent-muted); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-.note-mark { flex: none; width: 36px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
+  border-radius: var(--r-xl); border: 1px solid var(--line-card); background: var(--surface-raised); box-shadow: var(--elev-1); }
+.note-row:hover { background: var(--surface-raised); border-color: var(--line-card-strong); }
+.note-row.on { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.note-mark { flex: none; width: 36px; height: 40px; border-radius: var(--r-lg); display: grid; place-items: center; color: var(--accent); background: var(--accent-tint); }
 .note-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .note-row-title { font-weight: 600; overflow-wrap: anywhere; }
-.note-row-preview { color: var(--muted); font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.note-row-meta { color: var(--faint); font-size: 12px; }
+.note-row-preview { color: var(--text-2); font-size: var(--fs-sub); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.note-row-meta { color: var(--text-3); font-size: var(--fs-foot); }
 .notes-empty { padding: 40px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.notes-empty h2 { margin: 0; font-size: 1.1rem; }
+.notes-empty h2 { margin: 0; font-size: var(--fs-title); }
 .notes-empty p { max-width: 44ch; margin: 0; }
-.notes-skipped { padding: 10px 20px; }
+.notes-skipped { padding: 10px var(--gutter); }
 .notes-rail-actions { padding: 10px; }
 .notes-rail-actions button { display: inline-flex; align-items: center; gap: 6px; }
-.notes-issue, .notes-banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 20px 10px; padding: 10px 12px; border-radius: 10px; background: var(--problem-soft); font-size: 13px; }
-.notes-banner { background: var(--accent-soft); }
+.notes-issue, .notes-banner { margin: 6px var(--gutter) 10px; }
 .notes-issue span { flex: 1; min-width: 12ch; }
-.notes-choose { color: var(--muted); }
+.notes-choose { color: var(--text-2); }
 
 /* A note */
 .note-detail { max-width: 760px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; padding-bottom: 40px; }
-.note-head { display: flex; align-items: center; gap: 6px; padding: 14px 16px 10px 20px; }
+.note-head { display: flex; align-items: center; gap: 6px; padding: 14px var(--gutter) 10px; }
 .note-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.note-head h1 { font-size: 19px; margin: 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
-.note-head > .icon-button, .note-head .menu-anchor > .icon-button { width: 36px; height: 36px; min-height: 36px; border: 1px solid var(--line); border-radius: 50%; color: var(--accent); }
-.note-stream { padding: 8px 20px; display: flex; flex-direction: column; }
-.note-day { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 14px 0 6px 4px; }
+.note-head h1 { font-size: var(--fs-title); margin: 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.note-stream { padding: 8px var(--gutter); display: flex; flex-direction: column; }
+.note-day { font-size: var(--fs-foot); font-weight: 600; color: var(--text-2); margin: 14px 0 6px 4px; }
 .note-day:first-child { margin-top: 4px; }
 /* Each entry is a card (owner, 2026-10-22; DESIGN.md "Cards", as .note-row), 10 px apart; collapsed, one line. */
-.note-entry { position: relative; padding: 2px 6px 12px 4px; margin: 0 0 10px; border-radius: 16px; border: 1px solid var(--card-edge); background: var(--card-bg);
-  box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: 8px; }
+.note-entry { position: relative; padding: 2px 6px 12px 4px; margin: 0 0 10px; border-radius: var(--r-xl); border: 1px solid var(--line-card); background: var(--surface-raised);
+  box-shadow: var(--elev-1); display: flex; flex-direction: column; gap: 8px; }
 .note-entry.collapsed { padding: 2px 6px 2px 4px; }
 .note-entry-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 0 14px; }
 .note-entry-top { display: flex; align-items: center; gap: 2px; min-height: 44px; }
 .entry-when { flex: 1; min-width: 0; }
-.note-entry .entry-disclosure { flex: none; width: 44px; height: 44px; min-height: 44px; border: 0; border-radius: 12px; color: var(--accent); }
-.entry-disclosure .icon { transition: transform .18s ease; }
+.note-entry .entry-disclosure { flex: none; width: 44px; height: 44px; min-height: 44px; border: 0; border-radius: var(--r-lg); color: var(--accent); }
+.entry-disclosure .icon { transition: transform var(--dur-2) var(--ease-in-out); }
 .note-entry.collapsed .entry-disclosure .icon { transform: rotate(-90deg); }
-@media (prefers-reduced-motion: reduce) { .entry-disclosure .icon { transition: none; } }
-.entry-line { flex: 1; min-width: 0; min-height: 44px; padding: 0 4px; border: 0; background: none; text-align: left; color: var(--muted); font: inherit; font-size: 13.5px;
+.entry-line { flex: 1; min-width: 0; min-height: 44px; padding: 0 4px; border: 0; background: none; text-align: left; color: var(--text-2); font: inherit; font-size: var(--fs-sub);
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
 .entry-line:hover { color: var(--text); background: none; }
 .entry-line .line-compact { display: none; }
 @media (max-width: 640px) { .entry-line .line-wide { display: none; } .entry-line .line-compact { display: inline; } }
 /* The snippet itself, a framed box inside the card: a step from the card's surface, a hairline edge, solid in every mode. */
-.snippet-frame { margin: 0; padding: 8px; border-radius: 10px; background: var(--snippet-frame-bg); border: 1px solid var(--snippet-frame-edge); }
-.note-quote { margin: 0; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; font: 15.5px/1.6 Georgia, "Times New Roman", serif;
+.snippet-frame { margin: 0; padding: 8px; border-radius: var(--r-lg); background: var(--surface-3); border: 1px solid var(--line-card-strong); }
+.note-quote { margin: 0; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-lg); font: var(--fs-quote)/var(--lh-read) var(--font-serif);
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 22em; overflow: auto; }
-.note-quote.snippet-frame { padding: 12px 14px; background: var(--snippet-frame-bg); border-color: var(--snippet-frame-edge); }
-.note-comment { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 14.5px; }
+.note-quote.snippet-frame { padding: 12px 14px; background: var(--surface-3); border-color: var(--line-card-strong); }
+.note-comment { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: var(--fs-body); }
 /* The reader's comment reads as their own words, apart from the snippet (owner, build 78): an accent bar on its edge. */
 .note-entry:not(.kind-text) .note-comment { border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent); padding-left: 10px; }
-.note-source { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 6px 0; min-height: 32px; border: 0; color: var(--muted); font-size: 12px; }
+.note-source { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 6px 0; min-height: 32px; border: 0; color: var(--text-2); font-size: var(--fs-foot); }
 .note-source strong { color: var(--accent); font-weight: 500; overflow-wrap: anywhere; }
 .note-source:hover strong { text-decoration: underline; }
 .entry-state { color: var(--problem); }
 .versions-link { align-self: flex-start; color: var(--problem); }
 .add-text-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
-.snippet-image { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); min-height: 0; text-align: center; }
+.snippet-image { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; background: var(--surface); min-height: 0; text-align: center; }
 .snippet-image img { display: block; max-width: 100%; height: auto; max-height: 340px; margin: 0 auto; object-fit: contain; }
 button.snippet-image { cursor: zoom-in; }
-.snippet-loading, .snippet-missing { width: 100%; max-height: 220px; min-height: 64px; border-radius: 10px; border: 1px dashed var(--line-strong); background: var(--surface-2); }
-.snippet-missing { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 13px; padding: 10px; }
+.snippet-loading, .snippet-missing { width: 100%; max-height: 220px; min-height: 64px; border-radius: var(--r-lg); border: 1px dashed var(--line-strong); background: var(--surface-2); }
+.snippet-missing { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; color: var(--text-2); font-size: var(--fs-sub); padding: 10px; }
 
 /* Composer, versions and the full-size view */
 .composer-image img { max-height: 280px; }
-.note-composer textarea, .note-dialog textarea, .dialog textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); padding: 10px 12px; font: inherit;
+.note-composer textarea, .note-dialog textarea, .dialog textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); padding: 10px 12px; font: inherit;
   color: inherit; resize: vertical; min-height: 88px; font-weight: 400; }
 .composer-quote { max-height: 12em; }
 .composer-source { overflow-wrap: anywhere; }
 .note-composer .dialog-heading, .snippet-zoom .dialog-heading { margin-bottom: 0; }
 .note-versions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.note-versions li { padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.note-versions li { padding: 12px; border: 1px solid var(--line); border-radius: var(--r-lg); }
 .note-versions p { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note-versions .row-actions { align-items: center; justify-content: space-between; }
 .snippet-zoom .dialog-body { max-height: 88dvh; overflow-y: auto; box-sizing: border-box; }
-.snippet-zoom .zoom-stage { max-height: min(62dvh, 900px); overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.snippet-zoom .zoom-stage { max-height: min(62dvh, 900px); overflow: auto; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); }
 .snippet-zoom .zoom-stage img { display: block; height: auto; margin: 0 auto; }
 .zoom-control { flex-direction: row; align-items: center; gap: 12px; font-weight: 500; }
 .zoom-control input[type=range] { border: 0; background: none; flex: 1; min-height: 28px; padding: 0; }
-.notes-saved, .notes-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 35; display: flex; align-items: center; gap: 10px;
-  max-width: min(560px, calc(100vw - 24px)); background: var(--text); color: var(--surface); padding: 6px 6px 6px 14px; border-radius: 12px; box-shadow: var(--pop); font-size: 13.5px; }
+.notes-saved, .notes-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: var(--z-toast); display: flex; align-items: center; gap: 10px;
+  max-width: min(560px, calc(100vw - 24px)); background: var(--text); color: var(--surface); padding: 6px 6px 6px 14px; border-radius: var(--r-lg); box-shadow: var(--elev-2); font-size: var(--fs-sub); }
 .notes-saved { width: max-content; }
 .notes-saved span { flex: 1; min-width: 12ch; overflow-wrap: anywhere; }
 .notes-saved .link { color: var(--surface); font-weight: 600; text-decoration: underline; min-height: 32px; padding: 6px 4px; }
@@ -114,34 +108,35 @@ button.snippet-image { cursor: zoom-in; }
 .notes-toast { padding: 10px 14px; }
 
 /* Draw snippet over the paper frame: the frame stays put; outside the box is dimmed. */
-.snippet-capture { position: absolute; inset: 0; z-index: 12; }
+.snippet-capture { position: absolute; inset: 0; z-index: var(--z-stage-capture); }
 .snippet-stage { position: absolute; inset: 0; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; background: var(--scrim-capture); }
 .snippet-stage.has-box { background: transparent; }
 .snippet-box { position: absolute; border: 2px solid var(--accent); box-shadow: 0 0 0 100vmax var(--scrim-capture); cursor: move; box-sizing: border-box; }
-.snippet-handle { position: absolute; width: 44px; height: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; border-radius: 50%; }
-.snippet-handle::after { content: ''; position: absolute; left: 15px; top: 15px; width: 12px; height: 12px; border-radius: 3px; border: 2px solid var(--accent); background: var(--surface); box-sizing: border-box; }
+.snippet-handle { position: absolute; width: 44px; height: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; border-radius: var(--r-circle); }
+.snippet-handle::after { content: ''; position: absolute; left: 15px; top: 15px; width: 12px; height: 12px; border-radius: var(--r-xs); border: 2px solid var(--accent); background: var(--surface); box-sizing: border-box; }
 .snippet-handle.nw { left: -22px; top: -22px; cursor: nwse-resize; }
 .snippet-handle.ne { right: -22px; top: -22px; cursor: nesw-resize; }
 .snippet-handle.sw { left: -22px; bottom: -22px; cursor: nesw-resize; }
 .snippet-handle.se { right: -22px; bottom: -22px; cursor: nwse-resize; }
 .snippet-handle:hover { background: transparent; }
 .snippet-handle:focus-visible { outline: none; }
-.snippet-handle:focus-visible::after { outline: 2px solid var(--focus); outline-offset: 2px; }
+.snippet-handle:focus-visible::after { outline: 2px solid var(--accent); outline-offset: 2px; }
 .snippet-bar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
-  width: max-content; max-width: calc(100% - 20px); padding: 8px 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--pop); z-index: 2; }
-.snippet-title { display: flex; flex-direction: column; min-width: 0; font-size: 13.5px; line-height: 1.3; }
-.snippet-edges summary { cursor: pointer; font-size: 13px; color: var(--accent); min-height: 32px; display: flex; align-items: center; }
+  width: max-content; max-width: calc(100% - 20px); padding: 8px 10px; border-radius: var(--r-xl); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--elev-2); z-index: var(--z-sticky); }
+.snippet-title { display: flex; flex-direction: column; min-width: 0; font-size: var(--fs-sub); line-height: 1.3; }
+.snippet-edges summary { cursor: pointer; font-size: var(--fs-sub); color: var(--accent); min-height: 32px; display: flex; align-items: center; }
 .snippet-edge-grid { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 6px 12px; padding-top: 6px; }
-.snippet-edge-grid label { font-size: 12px; font-weight: 500; gap: 2px; }
+.snippet-edge-grid label { font-size: var(--fs-foot); font-weight: 500; gap: 2px; }
 .snippet-edge-grid input[type=range] { border: 0; background: none; min-height: 24px; padding: 0; }
 .snippet-bar .primary { display: inline-flex; align-items: center; gap: 6px; }
 
 /* Phone widths: the apps' five destinations, Settings in the top-right ⋯. */
 .phone-tabs { flex: none; display: flex; justify-content: space-around; gap: 2px; padding: 4px 6px max(4px, env(safe-area-inset-bottom)); background: var(--surface);
-  border-top: 1px solid var(--line); z-index: 25; }
+  border-top: 1px solid var(--line); z-index: var(--z-chrome); }
 .phone-tab { flex: 1; min-width: 0; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 2px; border: 0;
-  border-radius: 12px; color: var(--muted); font-size: 11px; text-decoration: none; background: none; }
-.phone-tab.on { color: var(--accent); background: var(--accent-muted); font-weight: 600; }
+  border-radius: var(--r-lg); color: var(--text-2); font-size: var(--fs-caption); text-decoration: none; background: none; }
+.phone-tab:active { background: var(--fill-press); }
+.phone-tab.on { color: var(--accent); background: var(--accent-tint); font-weight: 600; }
 .phone-tab:disabled { opacity: .4; }
 .app.reading .phone-tabs { display: none; }
 @media (max-width: 640px) {
@@ -150,7 +145,6 @@ button.snippet-image { cursor: zoom-in; }
   .snippet-bar { top: 6px; gap: 6px; padding: 6px 8px; } .snippet-title .fine { display: none; }
   .notes-saved, .notes-toast { bottom: 72px; }
 }
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { :root { --scrim-capture: rgba(0, 0, 0, .6); } }
 @media (prefers-contrast: more) { .note-row, .note-entry, .snippet-frame { border-color: var(--line-strong); } }
 @media (forced-colors: active) { .note-row, .note-entry, .snippet-frame { border-color: CanvasText; } .note-row.on { border-width: 2px; } }
 

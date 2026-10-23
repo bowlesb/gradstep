@@ -8,7 +8,7 @@ import type { PreparedSnippetImage } from '../lib/note-images';
 import { NOTES_LIMITS, type EntryAnchor, type EntryKind, type EntrySource, type EntryView, type MediaDescriptor, type NoteView, cleanNoteTitle } from '../lib/notes';
 import { type NotesStore, UPLOAD_ISSUE_TEXT, entryOperation, imageIssue, noteWriteFailure } from '../lib/notes-store';
 import { COMPACT_TITLE_LIMIT, collapsedEntries, collapsedLine, rememberCollapsed } from '../lib/note-collapse';
-import { Dialog, MenuButton } from './common';
+import { Dialog, MenuButton, SheetTop } from './common';
 import { Icon } from './icons';
 import './notes.css';
 
@@ -82,9 +82,8 @@ export function ZoomView({ store, media, label, detail, onClose, onChat }: { sto
   const [url, setURL] = useState<string | null>(null), [failed, setFailed] = useState(false), [zoom, setZoom] = useState(1);
   useEffect(() => { let live = true; store.image(media).then(u => { if (live) setURL(u); }, () => { if (live) setFailed(true); }); return () => { live = false; }; }, [store, media]);
   return <Dialog open onClose={onClose} title="Snippet" wide className="snippet-zoom">
-    <div className="dialog-heading"><h2>Snippet</h2>
-      {onChat && <button type="button" className="secondary small zoom-chat" onClick={() => { onClose(); onChat(); }} data-testid="zoom-chat"><Icon name="chat" size={14} /> Chat</button>}
-      <button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></div>
+    <SheetTop onClose={onClose} testID="zoom-close" trailing={onChat && <button type="button" className="sheet-action zoom-chat" onClick={() => { onClose(); onChat(); }} data-testid="zoom-chat"><Icon name="chat" size={14} /> Chat</button>}>
+      <h2>Snippet</h2></SheetTop>
     <div className="zoom-stage" tabIndex={0} aria-label={label} data-testid="zoom-stage">
       {failed ? <p className="issue" role="alert">This image couldn’t be shown. It may not have downloaded yet.</p>
         : url ? <img src={url} alt={label} style={{ width: `${zoom * 100}%`, maxWidth: zoom === 1 ? '100%' : 'none' }} /> : <div className="snippet-loading" role="status" aria-label="Loading image" />}
@@ -344,7 +343,7 @@ export function NoteComposer({ store, draft, onClose, onSaved, onAdjust }: {
   const cancel = () => { if (busy) return; if (comment.trim() && !leaving) setLeaving(true); else onClose(); };
   const heading = writing ? 'Add text' : 'Save snippet';
   return <Dialog open onClose={cancel} title={heading} className="note-composer">
-    <div className="dialog-heading"><h2>{heading}</h2><button className="icon-button" aria-label="Cancel" onClick={cancel} disabled={busy}><Icon name="close" /></button></div>
+    <h2>{heading}</h2>
     {draft.image && <div><PreparedImage image={draft.image.full} label="The snippet you drew" />
       <p className="fine">{draft.image.full.width} × {draft.image.full.height} · {draft.image.full.type === 'image/png' ? 'PNG' : 'JPEG'} · saved exactly as shown{onAdjust ? ' · ' : ''}
         {onAdjust && <button className="link small-link" onClick={onAdjust} disabled={busy} data-testid="adjust-crop">Adjust crop</button>}</p></div>}
