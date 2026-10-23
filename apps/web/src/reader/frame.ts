@@ -106,6 +106,10 @@ export type FrameMessage =
   | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'tag'; name: string } | { type: 'contentsGesture' } | { type: 'invalid' }
   | { type: 'find'; count: number; index: number; matches: { index: number; text: string }[] }
   | { type: 'key'; key: FrameKey }
+  /** The selection's box and the text column's edges in the frame (frame-shim.js), or null when nothing is selected. */
+  | { type: 'selectionRect'; rect: [number, number, number, number] | null; column: [number, number] }
+  /** A right-click on a selection, at the pointer in the frame (frame-shim.js). */
+  | { type: 'selectionMenu'; x: number; y: number }
   /** A link out of the paper the reader clicked (frame-shim.js): opened in a new tab, never in the frame. */
   | { type: 'link'; url: string }
   /** Notes: a region or element made into a PNG inside the frame (frame-shim.js). `box` is in the frame's CSS px. */
@@ -169,6 +173,13 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
         }) : [] } : null;
     }
     case 'key': return FRAME_KEYS.includes(v.key as FrameKey) ? { type: 'key', key: v.key as FrameKey } : null;
+    case 'selectionRect': {
+      const numbers = (x: unknown, n: number) => Array.isArray(x) && x.length === n && x.every(e => finite(e) && Math.abs(e as number) < 1e6);
+      if (!numbers(v.column, 2) || (v.rect !== null && !numbers(v.rect, 4))) return null;
+      return { type: 'selectionRect', rect: v.rect as [number, number, number, number] | null, column: v.column as [number, number] };
+    }
+    case 'selectionMenu': return finite(v.x) && finite(v.y) && Math.abs(v.x as number) < 1e6 && Math.abs(v.y as number) < 1e6
+      ? { type: 'selectionMenu', x: v.x as number, y: v.y as number } : null;
     case 'link': { const url = typeof v.url === 'string' ? outboundLink(v.url) : null; return url ? { type: 'link', url } : null; }
     case 'captureProbe': return typeof v.nonce === 'string' && isUUID(v.nonce) && typeof v.ok === 'boolean' ? { type: 'captureProbe', nonce: v.nonce.toLowerCase(), ok: v.ok } : null;
     case 'capture': {

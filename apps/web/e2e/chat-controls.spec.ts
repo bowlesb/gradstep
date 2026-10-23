@@ -147,7 +147,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   // A selection action answers with what the pane showed.
   const frame = page.frameLocator('[data-testid=reader-frame]');
   await frame.locator('p').filter({ hasText: 'preferences' }).first().evaluate(node => { const r = document.createRange(); r.selectNodeContents(node); const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event('selectionchange')); });
-  await page.getByRole('button', { name: 'Why it matters', exact: true }).click();
+  await page.getByTestId('selection-more').click(); await page.getByRole('menuitem', { name: 'Why it matters', exact: true }).click();
   await expect(page.getByTestId('answer-by')).toHaveText('Haiku · Brief');
   const requests = (await evidence(request)).requests;
   expect(requests.at(-1).profile).toEqual({ model: 'haiku', effort: 'auto', length: 'brief' }); expect(requests.at(-1).action).toBe('relevance');

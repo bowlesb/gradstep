@@ -176,10 +176,11 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const announced = progress?.label ?? (streamed.current && symbols?.phase === 'done' ? 'Done' : '');
   const note = symbols?.phase === 'done' && symbols.charged === false && (rows.length || symbols.text) ? interruptionNote(false, { charged: false }) : null;
 
-  return <Dialog open onClose={onClose} title={title} className="equation-dialog">
+  return <Dialog open onClose={onClose} title={title} className="equation-dialog cover">
     <div className="equation-view" data-testid="equation-view">
       {/* Owner, build 62: the actions in the top row with the X; no Done, no action bar under the equation. */}
-      <SheetTop onClose={onClose} testID="equation-close" trailing={context && <button type="button" className="icon-button" aria-label="Open in Chat" onClick={()=>{promoteContextual(context,[symbols?.symbols?.summary??symbols?.text,...(symbols?.symbols?.symbols.map(s=>`${s.symbol}: ${s.meaning}`)??[]),background?.text].filter(Boolean).join('\n'));onClose();}}><Icon name="chat"/></button>}>
+      {/* Open in Chat once there is something to carry: an explanation, or this equation's own conversation or draft (UX audit R18). */}
+      <SheetTop onClose={onClose} testID="equation-close" trailing={context && (symbols || background || context.composer.draft.trim() || context.composer.conversationID) && <button type="button" className="icon-button" aria-label="Open in Chat" onClick={()=>{promoteContextual(context,[symbols?.symbols?.summary??symbols?.text,...(symbols?.symbols?.symbols.map(s=>`${s.symbol}: ${s.meaning}`)??[]),background?.text].filter(Boolean).join('\n'));onClose();}}><Icon name="chat"/></button>}>
 
         {/* Owner, build 78: Snippet, Chat, AI Explainer in words. Chat goes to the conversation below. */}
         {onAddToNote && <button className="sheet-action" onClick={onAddToNote} data-testid="equation-add-to-note" title="Save this equation as a snippet">Snippet</button>}

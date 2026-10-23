@@ -80,7 +80,8 @@ test('a figure is explained only on request, part by part with its crop; a part 
  const [explainBox,askBox,closeBox,figureBox]=[(await explain.boundingBox())!,(await ask.boundingBox())!,(await close.boundingBox())!,(await viewer.locator('iframe.figure-frame').boundingBox())!];
  const middle=(b:{y:number;height:number})=>b.y+b.height/2;
  expect(Math.abs(middle(explainBox)-middle(askBox))).toBeLessThan(2);expect(Math.abs(middle(closeBox)-middle(askBox))).toBeLessThan(3);
- expect(askBox.x).toBeLessThan(explainBox.x);expect(explainBox.x).toBeLessThan(closeBox.x);expect(askBox.y+askBox.height).toBeLessThanOrEqual(figureBox.y);
+ // The page covers the paper with the iPhone's sheet row (owner, 2026-10-22): ✕ first, then the words.
+ expect(closeBox.x).toBeLessThan(askBox.x);expect(askBox.x).toBeLessThan(explainBox.x);expect(askBox.y+askBox.height).toBeLessThanOrEqual(figureBox.y);
  await expect(viewer.getByRole('button',{name:'Done'})).toHaveCount(0);
  await expect(viewer.getByTestId('figure-walkthrough')).toHaveCount(0);
  await page.waitForTimeout(500);expect(await chats()).toHaveLength(0);

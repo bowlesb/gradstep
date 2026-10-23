@@ -10,19 +10,18 @@ import { focusSearch } from '../src/ui/ReadingMode';
 import { paperExplainerTap } from '../src/ui/PaperExplainer';
 import { composerBalance, creditsUsed, starterSeedFor } from '../src/ui/ChatPane';
 import { paneWanted } from '../src/ui/prefs';
+import { placeCapsule } from '../src/ui/SelectionActions';
+import { readFrameMessage } from '../src/reader/frame';
 
 describe('/ and ⌘K in reading mode (R5)', () => {
-  it('leaves reading mode first and focuses the field once it is shown again', () => {
+  it('leaves reading mode first, committed at once, then focuses the field', () => {
     const calls: string[] = [];
-    let later: (() => void) | null = null;
-    focusSearch({ on: true, exit: () => calls.push('exit') }, () => calls.push('focus'), run => { later = run; });
-    expect(calls).toEqual(['exit']);
-    later!();
-    expect(calls).toEqual(['exit', 'focus']);
+    focusSearch({ on: true, exit: () => calls.push('exit') }, () => calls.push('focus'), run => { calls.push('commit'); run(); });
+    expect(calls).toEqual(['commit', 'exit', 'focus']);
   });
   it('focuses at once outside reading mode', () => {
     const calls: string[] = [];
-    focusSearch({ on: false, exit: () => calls.push('exit') }, () => calls.push('focus'), () => { throw new Error('not deferred'); });
+    focusSearch({ on: false, exit: () => calls.push('exit') }, () => calls.push('focus'), () => { throw new Error('no commit needed'); });
     focusSearch(null, () => calls.push('focus'));
     expect(calls).toEqual(['focus', 'focus']);
   });
@@ -54,14 +53,17 @@ describe('Credits under the message box and on answers (R22)', () => {
 });
 
 describe('Starter questions across the chat pane closing and opening (R24)', () => {
-  it('keeps one seed per chat, and a fresh one for another chat', () => {
-    const seeds = new Map<string, number>();
+  it('keeps the seed for a chat, and for the empty chat that silently replaces it; New chat gets a fresh one', () => {
+    const seeds = new Map<string, { composerID: string; seed: number }>(), alive = new Set(['a']);
     let next = 10;
-    const fresh = () => next++;
-    expect(starterSeedFor('a', seeds, fresh)).toBe(10);
-    expect(starterSeedFor('a', seeds, fresh)).toBe(10);
-    expect(starterSeedFor('b', seeds, fresh)).toBe(11);
-    expect(starterSeedFor('a', seeds, fresh)).toBe(10);
+    const fresh = () => next++, has = (id: string) => alive.has(id);
+    expect(starterSeedFor('paper', 'a', has, seeds, fresh)).toBe(10);
+    expect(starterSeedFor('paper', 'a', has, seeds, fresh)).toBe(10); // the pane closed and opened again
+    alive.delete('a'); alive.add('b');
+    expect(starterSeedFor('paper', 'b', has, seeds, fresh)).toBe(10); // the empty chat was retired and replaced
+    alive.add('c');
+    expect(starterSeedFor('paper', 'c', has, seeds, fresh)).toBe(11); // New chat beside the last one
+    expect(starterSeedFor('general', 'g', has, seeds, fresh)).toBe(12);
   });
 });
 
@@ -75,6 +77,31 @@ describe('A paper’s contents panel at tablet widths (R26)', () => {
     expect(paneWanted(layout(), 'paper', 'left', 1280)).toBe(true);
     expect(paneWanted(layout(), 'paper', 'right', 834)).toBe(true);
     expect(paneWanted(layout(), 'library', 'left', 834)).toBe(true);
+  });
+});
+
+describe('Selection actions beside the selection (R15, owner 2026-10-22)', () => {
+  const stage = { w: 800, h: 600 }, size = { w: 220, h: 40 }, column: [number, number] = [100, 700];
+  it('sits just above the selection, centred on it', () => {
+    expect(placeCapsule({ x: 300, y: 300, w: 200, h: 40 }, column, stage, size)).toEqual({ left: 290, top: 252 });
+  });
+  it('goes below the selection near the top of the view', () => {
+    expect(placeCapsule({ x: 300, y: 20, w: 200, h: 40 }, column, stage, size)).toEqual({ left: 290, top: 68 });
+  });
+  it('stays inside the paper column', () => {
+    expect(placeCapsule({ x: 90, y: 300, w: 20, h: 20 }, column, stage, size)!.left).toBe(100);
+    expect(placeCapsule({ x: 690, y: 300, w: 20, h: 20 }, column, stage, size)!.left).toBe(480);
+  });
+  it('hides while the selection is scrolled out of view', () => {
+    expect(placeCapsule({ x: 300, y: -80, w: 200, h: 40 }, column, stage, size)).toBeNull();
+    expect(placeCapsule({ x: 300, y: 640, w: 200, h: 40 }, column, stage, size)).toBeNull();
+  });
+  it('reads the frame’s selection geometry and right-clicks, bounded', () => {
+    expect(readFrameMessage({ type: 'selectionRect', rect: [1, 2, 3, 4], column: [0, 700] })).toEqual({ type: 'selectionRect', rect: [1, 2, 3, 4], column: [0, 700] });
+    expect(readFrameMessage({ type: 'selectionRect', rect: null, column: [0, 700] })).toEqual({ type: 'selectionRect', rect: null, column: [0, 700] });
+    expect(readFrameMessage({ type: 'selectionRect', rect: [1, 2, 'x', 4], column: [0, 700] })).toBeNull();
+    expect(readFrameMessage({ type: 'selectionMenu', x: 10, y: 20 })).toEqual({ type: 'selectionMenu', x: 10, y: 20 });
+    expect(readFrameMessage({ type: 'selectionMenu', x: Infinity, y: 20 })).toBeNull();
   });
 });
 

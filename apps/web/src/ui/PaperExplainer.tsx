@@ -169,16 +169,18 @@ export function PaperExplainerDialog({ manifest, title, host, onClose, onCite }:
     if (control && control.tagName !== 'BUTTON' && Number.isInteger(marker) && marker >= 1) { e.preventDefault(); cite(marker); }
   };
 
-  return <Dialog open onClose={onClose} title="AI Explainer" wide className="figure-dialog paper-explainer-dialog">
+  return <Dialog open onClose={onClose} title="AI Explainer" wide className="figure-dialog paper-explainer-dialog cover">
     {/* The top row: AI Explainer (the figure explainer's peer capsule) until there is a result; then Open in Chat, which
         has something to carry only once an explanation exists (UX audit R18, R20). */}
     <SheetTop onClose={onClose} testID="paper-explainer-close" trailing={context && result && <button type="button" className="icon-button" aria-label="Open in Chat" data-testid="paper-explainer-open-chat"
       onClick={() => { promoteContextual(context, explanation, undefined, result?.phase === 'done' && explainer ? explainer : undefined); onClose(); }}><Icon name="chat" /></button>}>
       {!result && !asking ? <button type="button" className="sheet-action" onClick={start} disabled={choosing} data-testid="paper-explainer-start"
         title="The background this paper assumes, its key ideas and a diagram of how they fit together. Uses credits.">AI Explainer</button>
-        : <h2 className="explainer-heading">AI Explainer</h2>}
+        : null}
     </SheetTop>
     <div className="paper-explainer" data-testid="paper-explainer">
+      {/* The page's own heading, as the iPhone's PaperExplainView: "AI Explainer", then the paper. */}
+      <h2 className="paper-explainer-heading">AI Explainer</h2>
       <p className="paper-explainer-title" data-testid="paper-explainer-title">{title}</p>
       <p className="visually-hidden" aria-live="polite" data-testid="paper-progress-status">{announced}</p>
       {!result && !asking && <div className="paper-explainer-intro">

@@ -96,7 +96,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
   };
 
   return (
-    <Dialog open onClose={() => { if (!discussing) back(); }} title="Figures" wide className="figure-dialog">
+    <Dialog open onClose={() => { if (!discussing) back(); }} title="Figures" wide className="figure-dialog cover">
       <div className="figure-viewer">
         {/* Open in Chat only once there is something to carry: an explainer's result, or this figure's own conversation or
             draft (DESIGN.md: "A pushed explainer keeps its Open in Chat symbol"; UX audit R18: before that it sat beside
@@ -123,7 +123,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
           <div className="figure-frame-wrap">
             <iframe key={current.id} ref={frame} className={`figure-frame${explaining ? ' compact' : ''}`} title={current.alt || names[index!]} sandbox="allow-scripts" srcDoc={doc}
               style={contentHeight ? { height: contentHeight + 2 } : undefined} />
-            <button type="button" className="icon-button figure-fullscreen" onClick={()=>setFullscreen(true)} aria-label="Open fullscreen" title="Open fullscreen" data-testid="figure-fullscreen"><Icon name="expand" size={15} /></button>
+            <button type="button" className="icon-button figure-fullscreen" onClick={()=>setFullscreen(true)} aria-label="Open fullscreen" title="Open fullscreen" data-testid="figure-open-fullscreen"><Icon name="expand" size={15} /></button>
           </div>
           {fullscreen && <Dialog open onClose={()=>setFullscreen(false)} title={names[index!]} wide className="fullscreen-figure"><SheetTop onClose={()=>setFullscreen(false)}><h2>{names[index!]}</h2></SheetTop><iframe className="figure-frame" title={names[index!]} sandbox="allow-scripts" srcDoc={doc}/></Dialog>}
           <div className="figure-nav">

@@ -110,7 +110,7 @@ test('selection tools and passage return keep the verified paper context', async
   test.skip(info.project.name !== 'desktop'); await login(page);
   const frame = page.frameLocator('[data-testid=reader-frame]');
   await frame.locator('p').filter({ hasText: 'preferences' }).first().evaluate(node => { const r = document.createRange(); r.selectNodeContents(node); const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event('selectionchange')); });
-  await expect(page.getByRole('toolbar', { name: 'Selected passage' })).toBeVisible(); await page.getByRole('button', { name: 'Why it matters', exact: true }).click();
+  await expect(page.getByRole('toolbar', { name: 'Selected passage' })).toBeVisible(); await page.getByTestId('selection-more').click(); await page.getByRole('menuitem', { name: 'Why it matters', exact: true }).click();
   await page.getByRole('button', { name: 'Allow and get answer' }).click(); await expect(page.getByTestId('chat-assistant')).toBeVisible();
   const e = await evidence(request); expect(e.requests[0].action).toBe('relevance'); expect(e.requests[0].selection.quote.length).toBeGreaterThan(10);
   await page.frameLocator('[data-testid=reader-frame]').locator('body').evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); // Back is offered only when there's somewhere to return to
@@ -134,6 +134,65 @@ test('selection tools and passage return keep the verified paper context', async
   await frame.locator('p').filter({ hasText: 'preferences' }).first().click();
   await page.waitForTimeout(300); await expect(chats).toHaveCount(0);
   await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); await page.getByTestId('passage-marks').click(); await page.keyboard.press('Escape');
+});
+
+// Owner, 2026-10-22: "What I noticed didn't work well on web was those 5 options sitting in the middle of the paper at the
+// bottom." A compact capsule beside the selection (Explain · Save snippet · ⋯), the same actions on right-click, Esc
+// closes it; below 600 px it docks at the paper's bottom as one line, as on iPhone.
+test('a selection’s actions sit beside it, follow it, and are on right-click too; a phone docks them', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop' && info.project.name !== 'phone'); await login(page);
+  if (info.project.name === 'phone' && await page.locator('.pane-right.overlay').count()) await page.keyboard.press('Escape');
+  const frame = page.frameLocator('[data-testid=reader-frame]');
+  const paragraph = frame.locator('p').filter({ hasText: 'preferences' }).first();
+  // A few words in the middle of the paper's view (a whole long paragraph could fill the view, leaving no room beside it).
+  const select = () => paragraph.evaluate(node => { node.scrollIntoView({ block: 'center' }); const text = document.createTreeWalker(node, NodeFilter.SHOW_TEXT).nextNode()!; const r = document.createRange(); r.setStart(text, 0); r.setEnd(text, Math.min(30, text.textContent!.length)); const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event('selectionchange')); });
+  await select();
+  const bar = page.getByRole('toolbar', { name: 'Selected passage' });
+  await expect(bar).toBeVisible();
+  await expect(bar.getByRole('button')).toHaveText(['Explain', 'Save snippet', '']);
+  await expect(bar.getByTestId('selection-more')).toHaveAccessibleName('More actions');
+  if (info.project.name !== 'phone') await expect(bar).toHaveClass(/anchored/);
+  await page.waitForTimeout(300);
+  // The selected words' own box, in the page.
+  const frameBox = (await page.getByTestId('reader-frame').boundingBox())!;
+  const selected = await frame.locator('body').evaluate(() => { const r = getSelection()!.getRangeAt(0).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+  const capsule = await bar.boundingBox(), text = { ...selected, x: selected.x + frameBox.x, y: selected.y + frameBox.y }, stage = await page.locator('.paper-stage').boundingBox();
+  expect(capsule!.height).toBeLessThan(48); // one line
+  if (info.project.name === 'phone') {
+    // Docked: at the bottom of the paper, centred.
+    expect(stage!.y + stage!.height - (capsule!.y + capsule!.height)).toBeLessThan(40);
+  } else {
+    // Just above the selected text (or just below it near the top of the view), inside the paper.
+    const above = capsule!.y + capsule!.height <= text!.y + 1, below = capsule!.y >= text!.y + text!.height - 1;
+    expect(above || below, JSON.stringify({ capsule, text })).toBe(true);
+    expect(Math.min(Math.abs(capsule!.y + capsule!.height - text!.y), Math.abs(capsule!.y - (text!.y + text!.height)))).toBeLessThan(24);
+    expect(capsule!.x).toBeGreaterThanOrEqual(stage!.x); expect(capsule!.x + capsule!.width).toBeLessThanOrEqual(stage!.x + stage!.width);
+    // It follows the selection as the paper scrolls.
+    await frame.locator('body').evaluate(() => scrollBy(0, 40)); await page.waitForTimeout(300);
+    const moved = await bar.boundingBox();
+    expect(Math.abs((capsule!.y - moved!.y) - 40)).toBeLessThan(4);
+  }
+  await bar.getByTestId('selection-more').click();
+  await expect(page.getByRole('menu', { name: 'More actions' }).getByRole('menuitem')).toHaveText(['Why it matters', 'Related', 'Add paper', 'Copy']);
+  await page.keyboard.press('Escape');
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme }); await select(); await page.waitForTimeout(300);
+    await page.screenshot({ path: `../../.artifacts/ux-audit-20261022/bugfixes/R15-selection-${info.project.name}-${scheme}.png` });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  if (info.project.name === 'desktop') {
+    // Right-click on the selection: every action in a menu at the pointer.
+    const box = (await paragraph.boundingBox())!;
+    await page.mouse.click(box.x + 40, box.y + 10, { button: 'right' });
+    const menu = page.getByTestId('selection-context-menu');
+    await expect(menu.getByRole('menuitem')).toHaveText(['Explain', 'Why it matters', 'Related', 'Add paper', 'Save snippet', 'Copy']);
+    await page.screenshot({ path: '../../.artifacts/ux-audit-20261022/bugfixes/R15-selection-context-menu-desktop.png' });
+    await page.keyboard.press('Escape'); await expect(menu).toHaveCount(0);
+  }
+  // Esc closes the actions with the selection.
+  await select(); await expect(bar).toBeVisible();
+  await frame.locator('body').press('Escape');
+  await expect(bar).toHaveCount(0);
 });
 
 test('selected answer text and formulas: Quote in Chat, Explain, Define, Copy LaTeX and Copy as text (B1)', async ({ page, request, browserName }, info) => {

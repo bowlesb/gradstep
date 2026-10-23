@@ -253,6 +253,39 @@
     // A drag that selected text over the link is a selection, not a click on it.
     if (url && (url.protocol === 'https:' || url.protocol === 'http:') && window.getSelection()?.isCollapsed !== false) send({ type: 'link', url: url.href });
   });
+  // The paper's selection, for the actions anchored to it (ui/SelectionActions.tsx): its box and the text column's edges,
+  // again as the paper scrolls; a tapped equation (a selection the bridge makes without a text range) by its element.
+  // Right-click on a selection: the app's menu of the same actions instead of the browser's.
+  if (!config?.bundle?.figure_id) {
+    let tapped = null, frame = 0, sentEmpty = true;
+    const geometry = () => {
+      const selection = getSelection();
+      let rect = null;
+      if (selection && selection.rangeCount && !selection.isCollapsed) {
+        const boxes = [...selection.getRangeAt(0).getClientRects()].filter(r => r.width > 0 && r.height > 0);
+        if (boxes.length) {
+          const left = Math.min(...boxes.map(r => r.left)), top = Math.min(...boxes.map(r => r.top));
+          rect = [left, top, Math.max(...boxes.map(r => r.right)) - left, Math.max(...boxes.map(r => r.bottom)) - top];
+        }
+      } else if (tapped?.isConnected) { const r = tapped.getBoundingClientRect(); rect = [r.left, r.top, r.width, r.height]; }
+      if (!rect && sentEmpty) return;
+      sentEmpty = !rect;
+      const body = document.body?.getBoundingClientRect();
+      send({ type: 'selectionRect', rect, column: body ? [body.left, body.right] : [0, innerWidth] });
+    };
+    const report = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(geometry); };
+    addEventListener('pointerdown', event => { tapped = event.target instanceof Element ? event.target.closest('[data-reader-equation]') : null; }, true);
+    addEventListener('pointerup', report, true);
+    document.addEventListener?.('selectionchange', report);
+    addEventListener('scroll', report, { passive: true });
+    addEventListener('resize', report);
+    addEventListener('contextmenu', event => {
+      const selection = getSelection();
+      if (!selection || selection.isCollapsed || !String(selection).trim()) return;
+      event.preventDefault();
+      send({ type: 'selectionMenu', x: event.clientX, y: event.clientY });
+    });
+  }
   // A figure shown on its own: its laid-out height, so the page around it sizes the frame to the figure and its caption
   // instead of leaving an empty white area under them (UX audit R18).
   if (config?.bundle?.figure_id) addEventListener('load', () => {

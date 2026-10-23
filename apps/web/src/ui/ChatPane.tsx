@@ -74,15 +74,16 @@ export function composerBalance(balance: CreditBalance | null, answerMaximum: nu
   if (!low && !refused) return null;
   return `${balance.available.toLocaleString()} ${balance.available === 1 ? 'credit' : 'credits'} left${balance.reserved ? ` · ${balance.reserved} held` : ''}${asOf ? ` · as of ${asOf}` : ''}`;
 }
-const starterSeeds = new Map<string, number>();
-/** One seed per chat for this tab, so hiding and showing the chat pane (which unmounts it) shows the same starter
- * questions (UX audit R24: "rows must not jump"); another empty chat still gets a fresh set. */
-export function starterSeedFor(composerID: string, seeds: Map<string, number> = starterSeeds, fresh: () => number = starterSeed): number {
-  let seed = seeds.get(composerID);
-  if (seed === undefined) {
-    seed = fresh(); seeds.set(composerID, seed);
-    if (seeds.size > 256) seeds.delete(seeds.keys().next().value!);
-  }
+const starterSeeds = new Map<string, { composerID: string; seed: number }>();
+/** The starter questions' seed for a paper's (or the general) empty chat, kept for this tab, so hiding and showing the
+ * chat pane shows the same questions (UX audit R24: "rows must not jump"). An empty chat retired while the pane was closed
+ * and silently replaced keeps them; a new chat while the last one still exists (New chat) gets a fresh set. */
+export function starterSeedFor(scope: string, composerID: string, alive: (id: string) => boolean,
+  seeds: Map<string, { composerID: string; seed: number }> = starterSeeds, fresh: () => number = starterSeed): number {
+  const kept = seeds.get(scope);
+  if (kept && (kept.composerID === composerID || !alive(kept.composerID))) { kept.composerID = composerID; return kept.seed; }
+  const seed = fresh(); seeds.set(scope, { composerID, seed });
+  if (seeds.size > 256) seeds.delete(seeds.keys().next().value!);
   return seed;
 }
 
@@ -226,7 +227,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   // this tab is open (across the pane closing and opening); the paper's structure from its verified bundle on this
   // device (none for a general chat).
   const empty = !messages.length && !composerBusy(c) && !c.liveID;
-  const seed = useMemo(() => starterSeedFor(c.id), [c.id]);
+  const seed = useMemo(() => starterSeedFor(c.documentID ?? 'general', c.id, id => chat.composers.has(id)), [c.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const structures = useRef(new Map<string, StarterPaper>());
   const [structure, setStructure] = useState<{ documentID: string; paper: StarterPaper } | null>(null);
   useEffect(() => {
