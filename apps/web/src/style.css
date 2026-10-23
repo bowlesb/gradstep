@@ -939,7 +939,7 @@ button.tag.on:hover { background: var(--accent); color: var(--on-accent); filter
 .reader.reading .paper-toolbar:focus-within { opacity: 1; transform: none; pointer-events: auto; }
 .reader.reading .find-bar { position: absolute; top: 48px; left: 0; right: 0; z-index: var(--z-stage-bar); }
 .reading-hotzone { position: absolute; top: 0; left: 0; right: 0; height: 28px; z-index: var(--z-stage-hotzone); }
-.reading-progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: .65; transform-origin: 0 50%; z-index: var(--z-stage-progress); pointer-events: none; transition: transform var(--dur-2) linear; }
+.reader .reading-progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: .65; transform-origin: 0 50%; z-index: var(--z-stage-progress); pointer-events: none; transition: transform var(--dur-2) linear; }
 .reading-status { flex: 0 1 auto; min-width: 0; max-width: 38ch; color: var(--text-2); font-size: var(--fs-foot); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reading-percent { margin-left: 8px; font-variant-numeric: tabular-nums; color: var(--text-3); }
 .reading-toggle.on { color: var(--accent); }
