@@ -707,7 +707,8 @@ test('a part card opens full screen in one step from the card; its outline fades
  const start=await shownRect(page);
  for(const k of ['x','y','width','height'] as const) expect(Math.abs(start[k]-card[k]),k).toBeLessThan(2.5);
  await page.screenshot({path:fsShot('opening-start-light')});
- await cdp.send('Animation.setPlaybackRate',{playbackRate:0.05});await page.waitForTimeout(2600);await cdp.send('Animation.setPlaybackRate',{playbackRate:0});
+ // About a third of the way: the card starts wider now that the figure page covers the paper (owner, 2026-10-22).
+ await cdp.send('Animation.setPlaybackRate',{playbackRate:0.05});await page.waitForTimeout(1600);await cdp.send('Animation.setPlaybackRate',{playbackRate:0});
  const mid=await shownRect(page),viewport=page.viewportSize()!;
  expect(mid.width).toBeGreaterThan(card.width+4);expect(mid.width).toBeLessThan(viewport.width-4);
  await expect(stage.getByTestId('part-outline')).toBeVisible();

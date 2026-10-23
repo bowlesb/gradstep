@@ -9,7 +9,7 @@ import { answeredBy, profileID, profileSummary, modelOption } from '../lib/chat-
 import type { CreditBalance } from '../lib/account-summary';
 import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer, type FigureFacts } from '../lib/chat-session';
 import type { FigureStructure } from '../lib/figure-structure';
-import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
+import { chooseStarters, type Starter, type StarterPaper } from '../lib/chat-starters';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
 import { citationAnchor } from '../lib/passage';
 import { AnswerOptionsDialog, ExplainerModelDialog } from './ChatProfile';
@@ -74,12 +74,20 @@ export function composerBalance(balance: CreditBalance | null, answerMaximum: nu
   if (!low && !refused) return null;
   return `${balance.available.toLocaleString()} ${balance.available === 1 ? 'credit' : 'credits'} left${balance.reserved ? ` · ${balance.reserved} held` : ''}${asOf ? ` · as of ${asOf}` : ''}`;
 }
-const starterSeeds = new Map<string, { composerID: string; seed: number }>();
+const starterSeeds = new Map<string, { composerID: string; seed: number; starters?: Starter[] }>();
+/** The first non-empty set of starter questions shown for this chat, kept with its seed; until then, what was chosen. */
+export function keepStarters(scope: string, composerID: string, chosen: Starter[], seeds: Map<string, { composerID: string; seed: number; starters?: Starter[] }> = starterSeeds): Starter[] {
+  const kept = seeds.get(scope);
+  if (!kept || kept.composerID !== composerID) return chosen;
+  if (kept.starters?.length) return kept.starters;
+  if (chosen.length) kept.starters = chosen;
+  return chosen;
+}
 /** The starter questions' seed for a paper's (or the general) empty chat, kept for this tab, so hiding and showing the
  * chat pane shows the same questions (UX audit R24: "rows must not jump"). An empty chat retired while the pane was closed
  * and silently replaced keeps them; a new chat while the last one still exists (New chat) gets a fresh set. */
 export function starterSeedFor(scope: string, composerID: string, alive: (id: string) => boolean,
-  seeds: Map<string, { composerID: string; seed: number }> = starterSeeds, fresh: () => number = starterSeed): number {
+  seeds: Map<string, { composerID: string; seed: number; starters?: Starter[] }> = starterSeeds, fresh: () => number = starterSeed): number {
   const kept = seeds.get(scope);
   if (kept && (kept.composerID === composerID || !alive(kept.composerID))) { kept.composerID = composerID; return kept.seed; }
   const seed = fresh(); seeds.set(scope, { composerID, seed });
@@ -227,7 +235,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   // this tab is open (across the pane closing and opening); the paper's structure from its verified bundle on this
   // device (none for a general chat).
   const empty = !messages.length && !composerBusy(c) && !c.liveID;
-  const seed = useMemo(() => starterSeedFor(c.documentID ?? 'general', c.id, id => chat.composers.has(id)), [c.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // An equation's, figure's or explainer's own conversation shows no starters and keeps no seed.
+  const seed = useMemo(() => providedContext ? 0 : starterSeedFor(c.documentID ?? 'general', c.id, id => chat.composers.has(id)), [c.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const structures = useRef(new Map<string, StarterPaper>());
   const [structure, setStructure] = useState<{ documentID: string; paper: StarterPaper } | null>(null);
   useEffect(() => {
@@ -238,8 +247,10 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
     void chat.starterPaper(documentID).then(paper => { structures.current.set(documentID, paper); if (live) setStructure({ documentID, paper }); });
     return () => { live = false; };
   }, [chat, documentID, empty]);
-  const starters = useMemo(() => !documentID ? chooseStarters(null, seed) : structure?.documentID === documentID ? chooseStarters(structure.paper, seed) : [],
-    [documentID, structure, seed]);
+  // The first full set shown for this chat stays (the paper's structure can grow as the reader prepares it, which would
+  // otherwise pick other questions from the same seed after the pane closes and opens).
+  const starters = useMemo(() => providedContext ? [] : keepStarters(c.documentID ?? 'general', c.id, !documentID ? chooseStarters(null, seed)
+    : structure?.documentID === documentID ? chooseStarters(structure.paper, seed) : []), [documentID, structure, seed]); // eslint-disable-line react-hooks/exhaustive-deps
   const showStarters = !context && empty && !deleted && !retired && !c.study && (!c.draft.trim() || starters.some(s => s.text === c.draft));
   const pickStarter = (text: string) => {
     if (!chat.edit(c, text)) return;

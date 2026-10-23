@@ -8,7 +8,7 @@ import { catalogCount } from '../src/ui/Catalogs';
 import { libraryIsEmpty } from '../src/ui/Library';
 import { focusSearch } from '../src/ui/ReadingMode';
 import { paperExplainerTap } from '../src/ui/PaperExplainer';
-import { composerBalance, creditsUsed, starterSeedFor } from '../src/ui/ChatPane';
+import { composerBalance, creditsUsed, keepStarters, starterSeedFor } from '../src/ui/ChatPane';
 import { paneWanted } from '../src/ui/prefs';
 import { placeCapsule } from '../src/ui/SelectionActions';
 import { readFrameMessage } from '../src/reader/frame';
@@ -64,6 +64,14 @@ describe('Starter questions across the chat pane closing and opening (R24)', () 
     alive.add('c');
     expect(starterSeedFor('paper', 'c', has, seeds, fresh)).toBe(11); // New chat beside the last one
     expect(starterSeedFor('general', 'g', has, seeds, fresh)).toBe(12);
+  });
+  it('keeps the first full set shown, even if the paper’s structure later picks others', () => {
+    const seeds = new Map<string, { composerID: string; seed: number; starters?: { category: string; icon: string; text: string }[] }>();
+    starterSeedFor('paper', 'a', () => true, seeds, () => 1);
+    const first = [{ category: 'x', icon: 'list', text: 'One' }], later = [{ category: 'y', icon: 'list', text: 'Two' }];
+    expect(keepStarters('paper', 'a', [], seeds)).toEqual([]);
+    expect(keepStarters('paper', 'a', first, seeds)).toBe(first);
+    expect(keepStarters('paper', 'a', later, seeds)).toBe(first);
   });
 });
 

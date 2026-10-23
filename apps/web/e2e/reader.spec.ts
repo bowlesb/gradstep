@@ -103,9 +103,10 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await shot(page, 'reader');
 
   // Wide windows keep the contents in the side panel; narrow ones open it as a drawer that closes on a jump.
+  // Below 1100 px a paper opens with Contents closed (UX audit R26); the button opens it beside the paper or as a drawer.
   const contents = page.getByRole('navigation', { name: 'Contents' });
-  const drawer = !await contents.isVisible();
-  if (drawer) await page.getByTestId('contents').click();
+  if (!await contents.isVisible()) await page.getByTestId('contents').click();
+  const drawer = await page.locator('[data-testid=pane-left].overlay').count() > 0;
   const headings = await contents.getByRole('button').allTextContents();
   expect(headings.length).toBeGreaterThan(5);
   await contents.getByRole('button', { name: headings[3], exact: true }).click();
