@@ -35,7 +35,7 @@ test('paper open → / → type → the list in the left panel → a result open
   await openDPO(page);
   const dpoURL = page.url();
   const sideTabs = page.getByRole('tablist', { name: 'Side panel' });
-  const before = { open: await page.getByTestId('pane-left').count(), contents: await sideTabs.getByRole('tab', { name: 'Contents' }).getAttribute('aria-selected').catch(() => null) };
+  const before = { open: await page.getByTestId('pane-left').count() };
 
   // / opens search in the left panel (a drawer on a phone), focused in its own field.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
