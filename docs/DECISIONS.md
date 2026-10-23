@@ -1906,9 +1906,11 @@ mental model] in some type of flow, html, or graph." Decisions taken to build a 
 Owner: the web "seems extremely cluttered with an inconsistent placement of buttons and styling"; the iPhone "feels
 planned, controlled and well thought out". Decisions, in the owner's order of conversation:
 
-- **Layout follows the window's shape, not the device.** Wide = wider than tall and at least ~1,000 pt; otherwise
+- **Layout follows the window's shape, not the device.** Wide = at least as wide as tall and at least ~900 pt; otherwise
   Tall. Tall is the iPhone app exactly (iPhone, iPad upright, Split View halves, narrow windows). Wide is the laptop
-  layout (browser, Mac, iPad sideways: "when an iPad flips over it becomes laptop oriented").
+  layout (browser, Mac, iPad sideways: "when an iPad flips over it becomes laptop oriented"). A foldable iPhone follows
+  the same rule: folded is Tall, unfolded is Wide (owner, same day). The rule reads only the window size, never the
+  device type.
 - **One top row on Wide** ("having two rows is awkward at the top… just one row"), about 52 pt: the five places
   (Feed · Library · Paper · Chat · Snippets, with 🔍 last) and each slot's own where-to-go, create and ⋯. No brand
   row, no gear: Settings is the last row of every ⋯. Bottom: only the chat composer. Search, find, notices and sync
