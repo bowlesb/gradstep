@@ -122,11 +122,20 @@ final class PassageJourneyTests: XCTestCase {
             app.show("settings")
             let dark = app.settingsTheme().buttons["Dark"]
             XCTAssertTrue(dark.waitForExistence(timeout: 5)); dark.tap()
+            // Settings is a sheet over the paper: Done closes it (a tap on the tab bar behind it lands in the sheet).
+            closeSettings(app)
             app.show("paper")
             waitFor("The paper keeps the passage it went to", passageVisible)
             capture(app, "Passage with a chat is underlined (dark)")
             app.show("settings")
             app.settingsTheme().buttons["Match device"].tap()
+            closeSettings(app)
         }
+    }
+
+    private func closeSettings(_ app: XCUIApplication) {
+        let done = app.navigationBars["Settings"].buttons["Done"]
+        if done.waitForExistence(timeout: 3) { done.tap() }
+        XCTAssertTrue(app.navigationBars["Settings"].waitForNonExistence(timeout: 5), "Settings closed")
     }
 }

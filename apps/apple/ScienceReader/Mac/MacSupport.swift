@@ -126,6 +126,19 @@ extension ReaderModel {
         }
     }
 
+    /// A figure page's choice made outside the paper's own sheets (Navigate's Contents in the left slot), as PaperView
+    /// applies it when its sheet closes.
+    func applyPendingFigureOutcome() {
+        guard let outcome = takeFigureOutcome() else { return }
+        switch outcome {
+        case .figure(_, let id): if let key = readingLocationKey { paperJump = PaperJumpRequest(locationKey: key, headingID: id, target: .figure) }
+        case .paragraph(let paperID, let marker): goToCitedBlock(marker, paperID: paperID)
+        case .askInChat(let context, let part): askAboutFigure(context, part: part)
+        case .signIn: openSignIn()
+        case .continueChat: tab = .chat; readerChatHidden = false; requestComposerFocus()
+        }
+    }
+
     /// The open paper's reading key (PaperView's): a jump from the Contents in the left slot goes to this reader copy.
     var readingLocationKey: String? {
         guard let paper = selectedPaper else { return nil }

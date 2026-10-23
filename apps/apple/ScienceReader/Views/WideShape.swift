@@ -246,6 +246,34 @@ struct WideSearchField<Field: View>: View {
     }
 }
 
+// MARK: - Shared frames between slots
+
+/// The hand-off between slots that keeps the content's identity on screen (owner, 2026-10-22: the explainer turns into the
+/// chat "with a smooth transition with the same content").
+enum WideSlotTransition {
+    static let explainerToChat = "explainer-to-chat"
+}
+
+private struct SlotNamespaceKey: EnvironmentKey { static let defaultValue: Namespace.ID? = nil }
+
+extension EnvironmentValues {
+    /// The Wide slots' shared namespace (WideSlots): views that hand a slot to each other match their frames in it.
+    var slotNamespace: Namespace.ID? {
+        get { self[SlotNamespaceKey.self] }
+        set { self[SlotNamespaceKey.self] = newValue }
+    }
+}
+
+/// One frame shared by the view leaving a slot and the one arriving (matchedGeometryEffect); nothing outside the slots.
+struct SharedSlotFrame: ViewModifier {
+    let id: String
+    let namespace: Namespace.ID?
+    func body(content: Content) -> some View {
+        if let namespace { content.matchedGeometryEffect(id: id, in: namespace, properties: .frame, anchor: .topTrailing) }
+        else { content }
+    }
+}
+
 // MARK: - Explainers over the whole paper
 
 private struct CoverPresentationKey: EnvironmentKey { static let defaultValue = false }
@@ -263,12 +291,15 @@ extension EnvironmentValues {
 /// paper stays loaded beneath, so ✕ returns to it at the same place; the left slot is unchanged.
 struct ExplainPane<Content: View>: View {
     @ViewBuilder var content: Content
+    @Environment(\.slotNamespace) private var slots
     var body: some View {
         content
             .environment(\.coverPresentation, true)
             .frame(maxWidth: DesignMetrics.column + 2 * DesignMetrics.margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(uiColor: .systemBackground).ignoresSafeArea(.container, edges: .bottom))
+            // Continue in Chat: the explainer's slot becomes the chat's (WideSlots), one shared frame moving.
+            .modifier(SharedSlotFrame(id: WideSlotTransition.explainerToChat, namespace: slots))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("explain.pane")
             // The paper's share of the top row stays in view and usable above the explainer.
