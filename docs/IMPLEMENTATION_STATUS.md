@@ -19,7 +19,13 @@ Evidence: `npm test` 731 pass, build passes; Playwright desktop/phone on the tou
 Not yet: the Tall/Wide single-row, two-slot layout on the web (iPad first, in a branch); an empty grey strip above the
 figure page's message box.
 
-## iPad Tall and Wide, second pass — 2026-10-23 UTC (branch `ipad-shapes-2`, not released)
+## iPad Tall and Wide, second pass — 2026-10-23 UTC (TestFlight 85, iOS and Mac uploaded)
+
+Merged to `main` and uploaded as TestFlight build 85 (iOS and Mac). Gates on the merge: `npm test` passed, import
+acceptance 15/15. Not yet reviewed by the owner on a device. The browser's figure and equation pages also lost the grey
+strip above the message box (the contextual chat now uses the page's background and shows no transcript before the
+first message; figure-view and equation-view journeys 69 passed; deployed to app.gradstep.ai, served stylesheet checked).
+
 
 On top of the merged Tall/Wide work: no bottom band or reserved room on Wide (the page's own CSS gives the room after
 its end, which also removed a light strip the scroll-view inset drew); the page on the app's background in Wide (no dark
