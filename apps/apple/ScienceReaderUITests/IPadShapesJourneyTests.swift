@@ -376,8 +376,18 @@ final class IPadShapesJourneyTests: XCTestCase {
         dismissMenu(app)
     }
 
+    /// The places capsule, once a software keyboard has gone (Tall hides it while one is up).
+    private func showCapsule(_ app: XCUIApplication) {
+        for _ in 0..<3 where !app.buttons["tab.paper"].exists {
+            if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+            else if app.keyboards.firstMatch.exists { app.keyboards.buttons["Hide keyboard"].firstMatch.tap() }
+            _ = app.buttons["tab.paper"].waitForExistence(timeout: 3)
+        }
+    }
+
     /// Tall: the same views one at a time (the iPhone app).
     private func tallViews(_ app: XCUIApplication, prefix: String) {
+        showCapsule(app)
         app.buttons["tab.paper"].tap(); sleep(2)
         save("\(prefix)-read")
         menu("Paper options", app, save: "\(prefix)-paper-menu")

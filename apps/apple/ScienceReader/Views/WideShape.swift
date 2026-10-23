@@ -67,6 +67,8 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
     var wide = true
     /// The main view's share of the width while the other slot is on its right (Discuss: the paper's 45%).
     var mainShareBesideRight: CGFloat = 0.45
+    /// A list that needs more room than the usual 300–380 pt (Contents' four tabs and ✕).
+    var listWidth: ((CGFloat) -> CGFloat)? = nil
     @ViewBuilder var main: Main
     @ViewBuilder var otherView: Other
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -78,7 +80,7 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
         let side = wide ? other : .none
         HStack(spacing: 0) {
             if side == .left {
-                otherView.frame(width: Self.listWidth(for: width))
+                otherView.frame(width: listWidth?(width) ?? Self.listWidth(for: width))
                     .transition(.move(edge: .leading).combined(with: .opacity))
                 Divider()
             }

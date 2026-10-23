@@ -109,7 +109,8 @@ struct NotesView: View {
     @ViewBuilder private var detail: some View {
         if let id = model.notes.openNoteID, model.notes.state.note(id) != nil {
             NoteDetailView(model: model, noteID: id, showsBack: false).id(id)
-        } else {
+        } else if !(wideBar && model.notes.state.notes.isEmpty) {
+            // (Wide with no collections: the list beside says it once, with New collection.)
             ContentUnavailableView {
                 Label { Text(model.notes.state.notes.isEmpty ? "Your ideas, collected" : "Choose a collection") } icon: { Image(GradstepSymbol.notes) }
             } description: {

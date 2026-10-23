@@ -582,7 +582,8 @@ struct LibraryView: View {
                 }
                 // Wide only: the library's list beside the paper (Browse, a place of its own before 2026-10-22).
                 if !model.compactLayout {
-                    Toggle(isOn: Binding(get: { model.libraryBesidePaper }, set: { model.setLibraryBesidePaper($0) })) {
+                    // On the Library itself the list is the screen: the choice opens it beside the paper.
+                    Toggle(isOn: Binding(get: { model.browsing }, set: { model.setLibraryBesidePaper($0) })) {
                         Label { Text("Show library beside paper") } icon: { menuIcon("sidebar.left") }
                     }
                     .accessibilityIdentifier("library.browse")
@@ -1373,44 +1374,44 @@ struct ChatView: View {
     }
 
     @ViewBuilder private var optionsMenuContent: some View {
-            // Discuss's bar has no New chat button of its own.
-            if discussChat {
-                Section {
-                    MenuRow("New chat", systemImage: GradstepSymbol.newChat) { model.newChat(general: model.generalChat); composerFocused = true }
-                        .accessibilityIdentifier("chat.newChat")
-                }
-            }
-            ControlGroup {
-                MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.chatFontSize = max(13, model.chatFontSize - 1) }
-                MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
-            }.controlGroupStyle(.compactMenu)
-            // Owner, build 57: "put the chat settings in the top right drop down… Please also put in there Enter Study Mode".
+        // Discuss's bar has no New chat button of its own.
+        if discussChat {
             Section {
-                Button { composerFocused = false; model.showAnswerOptions = true } label: {
-                    Label { Text("Answer options…"); Text(ChatProfileText.summary(model.chatProfile, table: model.chatProfileTable)) }
-                        icon: { Image(systemName: "slider.horizontal.3") }
-                }.accessibilityIdentifier("chat.profile")
-                // Study mode (reworked 2026-10-22): a tutor that quizzes you and explains when you need it.
-                if model.chatStudying {
-                    MenuRow("End study mode", systemImage: "graduationcap") { model.endStudy() }.accessibilityIdentifier("chat.study.end")
-                } else if model.canStudyPaper {
-                    Button { composerFocused = false; Task { await model.startStudy() } } label: {
-                        Label { Text("Study mode"); Text("Quiz me and help me learn") } icon: { Image(systemName: "graduationcap") }
-                    }.accessibilityIdentifier("chat.study.start")
-                }
+                MenuRow("New chat", systemImage: GradstepSymbol.newChat) { model.newChat(general: model.generalChat); composerFocused = true }
+                    .accessibilityIdentifier("chat.newChat")
             }
+        }
+        ControlGroup {
+            MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.chatFontSize = max(13, model.chatFontSize - 1) }
+            MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
+        }.controlGroupStyle(.compactMenu)
+        // Owner, build 57: "put the chat settings in the top right drop down… Please also put in there Enter Study Mode".
+        Section {
+            Button { composerFocused = false; model.showAnswerOptions = true } label: {
+                Label { Text("Answer options…"); Text(ChatProfileText.summary(model.chatProfile, table: model.chatProfileTable)) }
+                    icon: { Image(systemName: "slider.horizontal.3") }
+            }.accessibilityIdentifier("chat.profile")
+            // Study mode (reworked 2026-10-22): a tutor that quizzes you and explains when you need it.
+            if model.chatStudying {
+                MenuRow("End study mode", systemImage: "graduationcap") { model.endStudy() }.accessibilityIdentifier("chat.study.end")
+            } else if model.canStudyPaper {
+                Button { composerFocused = false; Task { await model.startStudy() } } label: {
+                    Label { Text("Study mode"); Text("Quiz me and help me learn") } icon: { Image(systemName: "graduationcap") }
+                }.accessibilityIdentifier("chat.study.start")
+            }
+        }
+        Section {
+            GoToPassageMenuRow(model: model) { composerFocused = false }
+            MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
+            MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
+        }
+        // Beside the paper in Wide, the paper's ⋯ is the screen's menu: Report and Settings are there once (audit N4).
+        if !(wideBar && besidePaper) {
             Section {
-                GoToPassageMenuRow(model: model) { composerFocused = false }
-                MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
-                MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
+                MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
+                SettingsMenuSection(model: model) { composerFocused = false }
             }
-            // Beside the paper in Wide, the paper's ⋯ is the screen's menu: Report and Settings are there once (audit N4).
-            if !(wideBar && besidePaper) {
-                Section {
-                    MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
-                    SettingsMenuSection(model: model) { composerFocused = false }
-                }
-            }
+        }
     }
 }
 

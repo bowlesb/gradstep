@@ -85,6 +85,8 @@ extension XCUIApplication {
 
     /// Wide: the Library with the paper beside it (Library ⋯ › Show paper beside library, formerly Browse).
     func showBrowse(file: StaticString = #filePath, line: UInt = #line) {
+        // Already there (a paper opened from the Library lands in Browse).
+        if segmentedControls["library.searchScope"].exists { return }
         show("library")
         let options = buttons["Library options"]
         XCTAssertTrue(options.waitForExistence(timeout: 5), file: file, line: line)

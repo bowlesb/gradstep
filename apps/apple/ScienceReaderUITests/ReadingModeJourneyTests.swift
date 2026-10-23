@@ -24,6 +24,8 @@ final class ReadingModeJourneyTests: XCTestCase {
         app.buttons[sampleID].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 8))
         XCTAssertTrue(app.webViews.firstMatch.staticTexts["An interactive reading sample · 2026"].waitForExistence(timeout: 8), "The paper is ready")
+        // Opened from the Library on a Wide screen: Browse; ✕ closes the list (Read).
+        if app.buttons["library.panel.close"].waitForExistence(timeout: 3) { app.buttons["library.panel.close"].tap() }
         XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape")
         return app
     }
@@ -106,12 +108,18 @@ final class ReadingModeJourneyTests: XCTestCase {
         XCTAssertTrue(enter.waitForExistence(timeout: 5), "Reading mode in the paper's ⋯")
         enter.tap()
         let bar = app.descendants(matching: .any)["reading.bar"]
-        XCTAssertTrue(bar.waitForExistence(timeout: 3), "The quiet bar shows on entering")
-        XCTAssertTrue(app.descendants(matching: .any)["reading.section"].exists)
+        // The bar shows on entering and steps aside as soon as the restored page reports its place (entering from ⋯,
+        // the menu's closing can take that long): a tap at the top edge brings it back.
+        if !bar.waitForExistence(timeout: 3) { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: 12)).tap() }
+        XCTAssertTrue(bar.waitForExistence(timeout: 3), "The quiet bar")
+        XCTAssertTrue(app.descendants(matching: .any)["reading.section"].waitForExistence(timeout: 3))
         capture("iPad reading mode: the bar on entering")
 
         // The paper alone: no places, no chat column.
-        XCTAssertTrue(wait { !app.wideMode("Reader").exists }, "The places step aside")
+        if !wait({ !app.wideMode("Reader").exists }) {
+            capture("places still showing")
+        }
+        XCTAssertFalse(app.wideMode("Reader").exists, "The places step aside")
         XCTAssertTrue(wait { abs(web.frame.width - app.frame.width) < 2 }, "The paper takes the screen: \(splitWidth) → \(web.frame.width)")
         XCTAssertFalse(composer.exists, "No chat column")
         // It steps aside after a moment, and a tap near the top edge brings it back.
@@ -143,7 +151,7 @@ final class ReadingModeJourneyTests: XCTestCase {
         let app = openSample(appearance: "dark")
         app.buttons["Paper options"].tap()
         app.buttons["paper.readingMode"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["reading.bar"].waitForExistence(timeout: 5))
+        XCTAssertTrue(barButton("reading.exit", in: app).exists)
         capture("iPad reading mode: dark")
         app.buttons["reading.exit"].tap()
         XCTAssertTrue(app.wideMode("Reader").waitForExistence(timeout: 5))

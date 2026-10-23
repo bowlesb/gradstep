@@ -146,7 +146,8 @@ struct WideSlots: View {
     var body: some View {
         let slots = model.wideSlots
         let side: TwoSlotLayout<PaperView, AnyView>.Side = slots.right == .chat ? .right : (slots.left == nil ? .none : .left)
-        TwoSlotLayout(width: width, other: side) {
+        // Contents' row holds its four tabs and ✕: a little more room than a list.
+        TwoSlotLayout(width: width, other: side, listWidth: slots.left == .contents ? { min(420, max(390, ($0 * 0.33).rounded())) } : nil) {
             PaperView(model: model)
         } otherView: {
             other(side == .right ? .chat : (slots.left ?? .paper))

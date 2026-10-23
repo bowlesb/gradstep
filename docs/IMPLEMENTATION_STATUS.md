@@ -1,5 +1,19 @@
 # Implementation status
 
+## iPad Tall and Wide — 2026-10-22 UTC (in branch, not released)
+
+The owner's "One app, two shapes" and "Two slots, a few views" for the iPad, on a worktree branch only: no TestFlight,
+no merge. Tall (upright, any window under 900 × 600 or taller than wide) is the iPhone app; Wide (sideways) has one
+52 pt top row with the places capsule and two slots on one container (Read, Browse, Navigate, Explain, Discuss, Chats;
+Snippets as Collections | Collection). Spec: DESIGN.md "Tall and Wide". Mac: the toolbar's five places only. Not yet:
+Settings as Sections | Page, the Mac's own Wide step, figure pages in Navigate's Contents without their actions, the dark
+page/chrome seam (audit N11). Evidence: Core `swift test` 437 pass (LayoutShapeTests 2/2); `IPadShapesJourneyTests` 7/7
+on iPad Pro 11" and 13" Simulators; the earlier iPad journeys updated for the shapes pass (Reading mode 3/3, Passage
+tablet, Browse/Ask, equation view, split chat ×2, keyboard tabs, podcast dock, Notes wide); iPhone 17 ChatHistoryTable
+6/6, ReaderNavigation 4/4 (1 iPad-only skipped); iPhone `PassageJourneyTests` portrait failed twice at different steps
+(edit menu, then Settings), not re-run on main; Mac Catalyst builds (tests not run). Screenshots:
+`.artifacts/ux-audit-20261022/ipad-shapes/`.
+
 ## TestFlight 84, browser and admin release — 2026-10-22 UTC
 
 iOS and Mac build 84 uploaded (the Mac archive was retried once after a derived-data permission error); browser and

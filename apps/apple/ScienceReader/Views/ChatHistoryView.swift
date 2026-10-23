@@ -223,7 +223,8 @@ struct ChatHistoryView: View {
 
     // MARK: List
 
-    private var tableShown: Bool { !dynamicTypeSize.isAccessibilitySize }
+    /// The Chats view's narrow left slot shows the list's rows, as at accessibility sizes.
+    private var tableShown: Bool { !dynamicTypeSize.isAccessibilitySize && !embedded }
     private var rowWidth: CGFloat { max(0, width - 2 * DesignMetrics.margin) }
 
     private var chosenColumns: Set<ChatHistoryField> { model.chatColumns[.current] }
