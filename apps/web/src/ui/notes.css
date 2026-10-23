@@ -34,15 +34,19 @@
 .notes-empty h2 { margin: 0; font-size: var(--fs-title); }
 .notes-empty p { max-width: 44ch; margin: 0; }
 .notes-skipped { padding: 10px var(--gutter); }
-.notes-rail-actions { padding: 10px; }
-.notes-rail-actions button { display: inline-flex; align-items: center; gap: 6px; }
+/* The rail header's round + (UX audit S19). */
+.pane-header .pane-new { border: 1px solid var(--line); border-radius: var(--r-circle); color: var(--accent); }
 .notes-issue, .notes-banner { margin: 6px var(--gutter) 10px; }
 .notes-issue span { flex: 1; min-width: 12ch; }
 .notes-choose { color: var(--text-2); }
 
 /* A note */
-.note-detail { max-width: 760px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; padding-bottom: 40px; }
-.note-head { display: flex; align-items: center; gap: 6px; padding: 14px var(--gutter) 10px; }
+/* The collection's text is a centred 760 px column; its header spans the pane so the screen's "…" sits at the pane's right
+   edge, a gutter in, as Library's and Feed's controls do (UX audit S21). The title still lines up with the column. */
+.note-detail { width: 100%; display: flex; flex-direction: column; padding-bottom: 40px; }
+.note-detail > :not(.note-head) { width: calc(100% - 2 * var(--gutter)); max-width: calc(760px - 2 * var(--gutter)); margin-left: auto; margin-right: auto; }
+.note-detail > .note-stream { width: 100%; max-width: 760px; }
+.note-head { display: flex; align-items: center; gap: 6px; padding: 14px var(--gutter) 10px max(var(--gutter), calc((100% - 760px) / 2 + var(--gutter))); }
 .note-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .note-head h1 { font-size: var(--fs-title); margin: 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
 .note-stream { padding: 8px var(--gutter); display: flex; flex-direction: column; }
@@ -142,6 +146,7 @@ button.snippet-image { cursor: zoom-in; }
 @media (max-width: 640px) {
   .note-head { padding: 10px 8px 8px 12px; } .note-stream { padding: 6px 12px; } .notes-search { margin: 4px 12px 10px; } .notes-rows { padding: 2px 12px 4px; }
   .notes-issue, .notes-banner { margin: 6px 12px 10px; }
+  .note-detail > :not(.note-head):not(.note-stream) { width: calc(100% - 24px); }
   .snippet-bar { top: 6px; gap: 6px; padding: 6px 8px; } .snippet-title .fine { display: none; }
   .notes-saved, .notes-toast { bottom: 72px; }
 }

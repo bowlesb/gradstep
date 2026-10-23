@@ -1,11 +1,18 @@
 import { useState } from 'react';
 import { type Library, commandError } from './Library';
 import { BackendError } from '../lib/backend';
-import { Dialog, SheetTop } from './common';
+import { Dialog, InfoTip, SheetTop } from './common';
+import { Icon } from './icons';
 import type { Catalog } from '../lib/library-catalogs';
 import { catalogCSVRows, csvFileName, libraryCSV } from '../lib/library-csv';
 
 const paperCount = (count: number) => `${count} ${count === 1 ? 'paper' : 'papers'}`;
+/** "2 papers · 1 archived": the papers the Library shows, then the archived ones it hides (UX audit S13: the count
+ * included archived papers, so it disagreed with the Library's). */
+export function catalogCount(entries: readonly { archived?: boolean }[]): string {
+  const archived = entries.filter(e => e.archived).length;
+  return `${paperCount(entries.length - archived)}${archived ? ` · ${archived} archived` : ''}`;
+}
 
 /** Export as CSV (owner, build 75: "save the entire catalog as csv"): every paper in the catalog, written here and saved
  * by this browser; nothing is sent. */
@@ -38,7 +45,9 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
   const others = catalogs?.state.catalogs.filter(c => c.id !== deleting?.id) ?? [];
   const close = () => { if (!busy) { reset(); onClose(); } };
   return <Dialog open={open} onClose={close} title="Catalogs">
-    <SheetTop onClose={close} closeDisabled={busy} testID="catalogs-close"><h2>{deleting ? 'Delete catalog' : editing === 'new' ? 'New catalog' : editing ? 'Rename catalog' : 'Catalogs'}</h2></SheetTop>
+    {/* The sentence behind ⓘ beside the title (UX audit S13). */}
+    <SheetTop onClose={close} closeDisabled={busy} testID="catalogs-close"><h2>{deleting ? 'Delete catalog' : editing === 'new' ? 'New catalog' : editing ? 'Rename catalog' : 'Catalogs'}</h2>
+      {!deleting && !editing && <InfoTip text="Your default opens when you start the app. New papers go into the catalog you’re viewing." testID="catalogs-info" />}</SheetTop>
     {!catalogs?.ready && <p>Unlock your library to manage catalogs.</p>}
     {issue && <p role="alert" className="issue">{issue}</p>}
     <fieldset disabled={busy || !catalogs?.ready} className="catalog-fields">
@@ -62,7 +71,7 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
       </> : <>
         <ul className="catalog-list">{catalogs?.state.catalogs.map(c => <li key={c.id}>
           <button className="catalog-select" aria-pressed={c.id === catalogs.currentID} onClick={() => catalogs.select(c.id)}>
-            <strong>{c.name}{c.id === catalogs.currentID ? ' ✓' : ''}</strong><span className="fine">{paperCount(library.catalogEntries(c.id).length)}{c.id === catalogs.state.defaultID ? ' · Default' : ''}</span>
+            <strong>{c.name}{c.id === catalogs.currentID ? ' ✓' : ''}</strong><span className="fine">{catalogCount(library.catalogEntries(c.id))}{c.id === catalogs.state.defaultID && c.name !== 'Default' ? ' · Default' : ''}</span>
           </button>
           <div className="row-actions">
             <button className="link" aria-label={`Rename ${c.name}`} onClick={() => { setEditing(c); setName(c.name); }}>Rename</button>
@@ -70,9 +79,10 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
             <button className="link" aria-label={`Export ${c.name} as CSV`} data-testid="catalog-export" onClick={() => saveCSV(c.name, libraryCSV(catalogCSVRows(library.catalogEntries(c.id))))}>Export as CSV</button>
             <button className="link" aria-label={`Delete ${c.name}`} onClick={() => { const other = catalogs.state.catalogs.find(x => x.id !== c.id); setDeleting(c); setMode(other ? 'existing' : 'new'); setTarget(other?.id ?? ''); setName(''); }}>Delete…</button>
           </div>
-        </li>)}</ul>
-        <p className="fine">Your default opens when you start the app. New papers go into the catalog you’re viewing.</p>
-        <div className="row-actions"><button className="secondary" onClick={() => { setEditing('new'); setName(''); }}>New catalog</button></div>
+        </li>)}
+          {/* New catalog as the list's last row (UX audit S13). */}
+          <li className="catalog-new-row"><button className="link catalog-new" onClick={() => { setEditing('new'); setName(''); }}><Icon name="plus" size={14} /> New catalog</button></li>
+        </ul>
       </>}
     </fieldset>
     {busy && <p role="status">{progress || 'Saving…'}</p>}

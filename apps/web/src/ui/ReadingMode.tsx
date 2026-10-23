@@ -3,6 +3,7 @@
 // mode … that feels like a truly great experience". The measure is applied by the shared reader bridge; reading mode is
 // the app's chrome stepping aside (and the window going full screen when the browser allows it).
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { LINE_WIDTHS, type LineWidth } from '../reader/line-width';
 import { readStored } from './prefs';
 import type { WorkspaceControls } from './Shell';
@@ -38,6 +39,14 @@ export function LineWidthControl({ value, onChange }: { value: LineWidth; onChan
       aria-label={LINE_WIDTH_TITLES[width]} title={`${LINE_WIDTH_TITLES[width]} · ${LINE_WIDTH_DETAILS[width]}`} onClick={() => onChange(width)}>
       <Glyph width={width} /></button>)}
   </span>;
+}
+
+/** `/` or ⌘K: the search field. Reading mode hides the top bar, so it ends first, committed at once so the field is shown
+ * and takes focus before the next letter arrives; otherwise focus would stay in the paper and the next letters typed
+ * would be read as shortcuts (UX audit R5). */
+export function focusSearch(reading: Pick<ReadingMode, 'on' | 'exit'> | null, focus: () => void, commit: (run: () => void) => void = flushSync) {
+  if (reading?.on) commit(() => reading.exit());
+  focus();
 }
 
 export interface ReadingMode {

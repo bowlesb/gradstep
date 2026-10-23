@@ -356,6 +356,8 @@ export class ChatSession {
     const saved=this.scenarioChoices[kind];
     return saved && this.profileTable && available(this.profileTable,saved) ? saved : kind === 'figures' ? this.figuresDefault : this.defaultProfile;
   }
+  /** Whether the reader chose a default for this activity (AI chat options, or Use for new chats) that is still offered. */
+  hasScenarioChoice(kind:AIUseCase):boolean { const saved=this.scenarioChoices[kind]; return !!saved && !!this.profileTable && available(this.profileTable,saved); }
   setScenarioProfile(kind:AIUseCase,choice:ProfileChoice) {
     this.scenarioChoices[kind]={...choice}; this.saveScenarios(); this.publish();
   }

@@ -21,7 +21,7 @@ import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
-import { Dialog, MenuButton, MenuCheck, SheetTop, SubMenu, dateLines, formatDate, formatDateTime } from './common';
+import { Dialog, InfoTip, MenuButton, MenuCheck, SheetTop, SubMenu, dateLines, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { RecommendChoices, type Recommender } from './Recommend';
@@ -138,6 +138,11 @@ export function useLibraryModel(library: Library, current: Map<string, Activity>
   return { all, counts, tags, shown, viewport, windowed, setWindowed, library };
 }
 export type LibraryModel = ReturnType<typeof useLibraryModel>;
+/** Nothing in the library yet (none in this catalog, archived or not, and no other catalog to switch to): its tools and
+ * filter rail can't do anything, so they aren't shown (DESIGN.md "Empty states"; UX audit S11). */
+export function libraryIsEmpty(model: Pick<LibraryModel, 'all' | 'library'>): boolean {
+  return model.library.state === 'ready' && model.all.length === 0 && (model.library.catalogs?.state.catalogs.length ?? 1) <= 1;
+}
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'All papers' }, { value: 'unread', label: 'Unread' }, { value: 'reading', label: 'Reading' },
@@ -402,7 +407,8 @@ function LibraryOptions({ library, model, view, setView, recommender, onAdd, onR
       <button type="button" role="menuitem" className="menu-item menu-add" disabled={library.state !== 'ready'} onClick={() => { close(); onAdd(); }} data-testid="add-paper">
         <Icon name="plus" size={14} /> Add paper…</button>
       <hr className="menu-divider" />
-      <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); onCatalogs(); }} data-testid="library-catalogs"><Icon name="book" size={14} /> Catalogs…</button>
+      {/* An empty library with one catalog has nothing to manage yet (DESIGN.md Empty states; UX audit S11). */}
+      {!libraryIsEmpty(model) && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); onCatalogs(); }} data-testid="library-catalogs"><Icon name="book" size={14} /> Catalogs…</button>}
       {recommender?.catalogAvailable && <SubMenu label="Recommend papers" icon="sparkles" testID="recommend-catalog">
         <RecommendChoices note={`For ${recommender.catalogName} · ${recommender.note}`} onChoose={n => { close(); recommender.catalog(n); }} />
       </SubMenu>}
@@ -652,7 +658,7 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs, onO
   const selectedName = file?.name ?? null;
   const progressText = progress ? 'Checking PDF…' : null;
   return (
-    <Dialog open={open} onClose={close} title="Add paper">
+    <Dialog open={open} onClose={close} title="Add paper" className="add-paper-dialog">
       <form onSubmit={submit} noValidate>
         <h2>Add paper</h2>
         <label>arXiv ID, DOI or link
@@ -674,10 +680,13 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs, onO
           {selectedName && <span className="pdf-upload-name" title={selectedName}>{selectedName}</span>}
         </div>
         {progressText && <p className="fine" role="status" aria-live="polite">{progressText}</p>}
-        <p className="fine">Add an arXiv ID, DOI or paper link, or choose a PDF from this device. PDFs are opened and processed only here. Your library title and tags sync encrypted; the file stays on this device.</p>
+        {/* One short line; the rest behind ⓘ (UX audit S14). */}
+        <p className="fine with-info">PDFs stay on this device. <InfoTip testID="add-paper-info"
+          text="Add an arXiv ID, DOI or paper link, or choose a PDF from this device. PDFs are opened and processed only here. Your library title and tags sync encrypted; the file stays on this device." /></p>
         <div className="dialog-actions">
           <button type="button" className="secondary" onClick={close} disabled={busy}>{outcome?.finished ? 'Done' : 'Cancel'}</button>
-          <button type="submit" className="primary" disabled={adding || library.state !== 'ready' || (!text.trim() && !file)} data-testid="arxiv-add">{adding ? (file ? 'Adding PDF…' : 'Adding…') : file ? 'Add PDF' : 'Add'}</button>
+          {/* Already in the library: nothing to add until the field changes (UX audit S14). */}
+          <button type="submit" className="primary" disabled={adding || library.state !== 'ready' || (!text.trim() && !file) || outcome?.status === 'present'} data-testid="arxiv-add">{adding ? (file ? 'Adding PDF…' : 'Adding…') : file ? 'Add PDF' : 'Add'}</button>
         </div>
       </form>
     </Dialog>

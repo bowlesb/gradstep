@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { Icon } from './icons';
 
-/** A user-invoked clipboard action with a narrow fallback for browsers without Clipboard API support. */
-export function CopyButton({ text, label = 'Copy', copiedLabel = 'Copied', className = 'link small' }: {
-  text: string; label?: string; copiedLabel?: string; className?: string;
+/** A user-invoked clipboard action with a narrow fallback for browsers without Clipboard API support. `icon` draws it as
+ * a quiet icon button (an answer's Copy, UX audit R25); its name stays the label. */
+export function CopyButton({ text, label = 'Copy', copiedLabel = 'Copied', className = 'link small', icon = false }: {
+  text: string; label?: string; copiedLabel?: string; className?: string; icon?: boolean;
 }) {
   const [state, setState] = useState<'ready' | 'copied' | 'failed'>('ready');
   const copy = async () => {
@@ -23,8 +25,10 @@ export function CopyButton({ text, label = 'Copy', copiedLabel = 'Copied', class
       setState('failed');
     }
   };
-  return <button type="button" className={className} onClick={() => void copy()} disabled={!text || state === 'copied'}
-    aria-label={state === 'failed' ? `${label} failed` : state === 'copied' ? copiedLabel : label} data-testid={`copy-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}>
-    {state === 'failed' ? 'Copy failed' : state === 'copied' ? copiedLabel : label}
+  const name = state === 'failed' ? `${label} failed` : state === 'copied' ? copiedLabel : label;
+  return <button type="button" className={icon ? 'icon-button copy-icon' : className} onClick={() => void copy()} disabled={!text || state === 'copied'}
+    aria-label={name} title={icon ? name : undefined} data-testid={`copy-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}>
+    {icon ? <Icon name={state === 'copied' ? 'check' : state === 'failed' ? 'close' : 'copy'} size={15} />
+      : state === 'failed' ? 'Copy failed' : state === 'copied' ? copiedLabel : label}
   </button>;
 }

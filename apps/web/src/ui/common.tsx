@@ -149,7 +149,7 @@ export function SheetTop({ children, onClose, closeLabel = 'Close', closeDisable
 /** An ⓘ just to the right of a row's words (owner, build 57: descriptive sentences behind an info icon): a click or
  * Enter shows the text in a small popover, Esc or a click elsewhere hides it; screen readers hear it as the button's
  * description either way. */
-export function InfoTip({ text, testID }: { text: string; testID?: string }) {
+export function InfoTip({ text, testID, label = 'More information' }: { text: ReactNode; testID?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null), note = useRef<HTMLSpanElement>(null), id = useId();
   // Kept inside the dialog (or the box marked `data-info-bounds`, or the window) it opens in: shifted left when it would
@@ -172,7 +172,7 @@ export function InfoTip({ text, testID }: { text: string; testID?: string }) {
     return () => document.removeEventListener('pointerdown', away);
   }, [open]);
   return <span className="info-tip" ref={box}>
-    <button type="button" className="info-tip-button" aria-label="More information" aria-expanded={open} aria-describedby={id} data-testid={testID}
+    <button type="button" className="info-tip-button" aria-label={label} aria-expanded={open} aria-describedby={id} data-testid={testID}
       onClick={event => { event.preventDefault(); event.stopPropagation(); setOpen(o => !o); }}
       onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}><Icon name="info" size={14} /></button>
     {/* The rest of the screen darkens while the bubble shows (owner, build 59: "so the bubble text stands out"); a

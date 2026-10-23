@@ -20,7 +20,7 @@ button.usage-row:focus-visible { outline: 2px solid var(--accent); outline-offse
 .usage-head { color: var(--text-2); font-size: var(--fs-foot); font-weight: 600; padding-top: 8px; padding-bottom: 6px; }
 .usage-time, .usage-model, .usage-tokens { color: var(--text-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .usage-activity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.usage-activity strong { font-weight: 600; }
+.usage-activity strong { font-weight: 600; overflow-wrap: anywhere; }
 .usage-paper { color: var(--text-2); font-size: var(--fs-sub); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .usage-num { text-align: right; font-variant-numeric: tabular-nums; }
 .usage-cost { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
@@ -34,6 +34,15 @@ button.usage-row:focus-visible { outline: 2px solid var(--accent); outline-offse
 .usage-parts li.fine { display: block; margin-top: 2px; }
 .usage-meta { display: none; }
 .usage-more { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 12px 0; }
+
+/* A tablet-width window (an iPad in portrait, about 800 px of dialog): the fixed columns would leave Activity a few
+   pixels, so its words ran over Model (UX audit S30). Activity keeps at least 120 px; the others narrow and wrap. */
+@media (min-width: 641px) and (max-width: 1000px) {
+  .usage-row { grid-template-columns: 84px minmax(120px, 1fr) minmax(0, 120px) minmax(0, 170px) 92px; gap: 10px; }
+  .usage-time { font-size: var(--fs-sub); }
+  .usage-parts { padding-left: 102px; }
+  .usage-parts li { grid-template-columns: minmax(0, 150px) minmax(0, 130px) minmax(0, 1fr); }
+}
 
 @media (max-width: 640px) {
   .usage-head { display: none; }

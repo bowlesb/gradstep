@@ -75,7 +75,19 @@ export function useTheme(): { theme: Theme; resolved: 'light' | 'dark'; setTheme
 // ---------- Panes ----------
 
 export type Route = 'library' | 'paper' | 'feed' | 'notes';
-export interface PaneLayout { left: number; right: number; open: Record<Route, { left: boolean; right: boolean }> }
+export interface PaneLayout { left: number; right: number; open: Record<Route, { left: boolean; right: boolean }>;
+  /** Which panes the reader has shown or hidden themselves (`paper.left`); a default can follow the window until then. */
+  chosen?: string[] }
+/** Below this width a paper opens with its contents panel closed unless the reader chose otherwise (UX audit R26: at
+ * iPad widths it took a third of the screen; the iPad opens Contents as a sheet). */
+export const PAPER_RAIL_DEFAULT_MIN = 1100;
+/** Whether a side pane shows: the reader's own choice once made; for a paper's contents panel at narrower windows,
+ * closed until then. */
+export function paneWanted(layout: PaneLayout, route: Route, side: 'left' | 'right', width: number): boolean {
+  const wanted = layout.open[route][side];
+  if (route === 'paper' && side === 'left' && width < PAPER_RAIL_DEFAULT_MIN && !layout.chosen?.includes('paper.left')) return false;
+  return wanted;
+}
 export const PANE_LIMITS = { left: { min: 200, max: 460, initial: 272 }, right: { min: 300, max: 640, initial: 392 }, center: 440 };
 const LAYOUT_KEY = 'gradstep.layout.v1';
 const DEFAULT_LAYOUT: PaneLayout = {
@@ -97,7 +109,8 @@ export function usePaneLayout() {
   const layout: PaneLayout = stored.open.notes ? stored : { ...stored, open: { ...stored.open, notes: DEFAULT_LAYOUT.open.notes } };
   const setWidth = useCallback((side: 'left' | 'right', width: number) => setLayout(l => ({ ...l, [side]: clampWidth(side, width) })), [setLayout]);
   const setOpen = useCallback((route: Route, side: 'left' | 'right', open: boolean) =>
-    setLayout(l => ({ ...l, open: { ...l.open, [route]: { ...(l.open[route] ?? DEFAULT_LAYOUT.open[route]), [side]: open } } })), [setLayout]);
+    setLayout(l => ({ ...l, open: { ...l.open, [route]: { ...(l.open[route] ?? DEFAULT_LAYOUT.open[route]), [side]: open } },
+      chosen: [...new Set([...(Array.isArray(l.chosen) ? l.chosen.filter(c => typeof c === 'string') : []), `${route}.${side}`])] })), [setLayout]);
   const reset = useCallback((side: 'left' | 'right') => setLayout(l => ({ ...l, [side]: PANE_LIMITS[side].initial })), [setLayout]);
   return { layout, setWidth, setOpen, reset };
 }

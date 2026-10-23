@@ -323,7 +323,7 @@ test('notes: the list shows each note as a card, apart from the next, in light a
     return { radius: parseFloat(s.borderTopLeftRadius), top: parseFloat(s.borderTopWidth), bottom: parseFloat(s.borderBottomWidth), left: parseFloat(s.borderLeftWidth), y: r.top, bottomY: r.bottom }; }));
   for (const card of look) { expect(card.radius).toBeGreaterThanOrEqual(12); expect([card.top, card.bottom, card.left]).toEqual([1, 1, 1]); }
   for (let i = 1; i < look.length; i++) expect(look[i].y - look[i - 1].bottomY).toBeGreaterThanOrEqual(8);
-  await expect(rows.first()).toContainText('0 snippets');
+  await expect(rows.first()).toContainText('No snippets yet');
   await shot(page, 'light-cards');
   await page.emulateMedia({ colorScheme: 'dark' });
   await shot(page, 'dark-cards');

@@ -89,7 +89,7 @@ for (const scheme of ['light', 'dark'] as const) test(`choose model and length; 
   await chats.getByRole('button', { name: 'Rename Preference objective explained' }).click();
   await chats.getByTestId('rename-input').fill('My DPO notes'); await chats.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(chats.getByRole('button', { name: 'My DPO notes', exact: true })).toBeVisible();
-  await chats.getByTestId('history-menu').click(); await chats.getByRole('menuitem', { name: 'Close' }).click();
+  await chats.getByTestId('history-close').click();
   await expect(chats).toBeHidden();
   await expect(page.getByTestId('chat-title')).toHaveText('My DPO notes');
   expect(errors).toEqual([]);
@@ -147,7 +147,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   // A selection action answers with what the pane showed.
   const frame = page.frameLocator('[data-testid=reader-frame]');
   await frame.locator('p').filter({ hasText: 'preferences' }).first().evaluate(node => { const r = document.createRange(); r.selectNodeContents(node); const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event('selectionchange')); });
-  await page.getByRole('button', { name: 'Why it matters', exact: true }).click();
+  await page.getByTestId('selection-more').click(); await page.getByRole('menuitem', { name: 'Why it matters', exact: true }).click();
   await expect(page.getByTestId('answer-by')).toHaveText('Haiku · Brief');
   const requests = (await evidence(request)).requests;
   expect(requests.at(-1).profile).toEqual({ model: 'haiku', effort: 'auto', length: 'brief' }); expect(requests.at(-1).action).toBe('relevance');

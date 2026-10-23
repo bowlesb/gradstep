@@ -113,8 +113,9 @@ export function NotesList({ store, current, onOpen, onNew, rail = false }: { sto
       {found.map(n => <li key={n.id}><button className={`note-row${n.id === current ? ' on' : ''}`} onClick={() => onOpen(n.id)} aria-current={n.id === current ? 'true' : undefined} data-testid="note-row">
         <span className="note-mark" aria-hidden="true"><Icon name="notes" size={18} /></span>
         <span className="note-row-text"><span className="note-row-title">{noteTitle(n)}</span>
-          <span className="note-row-preview">{preview(n)}</span>
-          <span className="note-row-meta">{entriesLabel(n.entries.length)} · {n.lastEdited ? dayLabel(n.lastEdited) : '—'}{store.pendingIn(n) ? ' · Waiting to sync' : ''}{n.versions.length > 1 ? ' · 2 titles' : ''}</span></span>
+          {/* An empty collection says so once, in its details line (UX audit S21). */}
+          {(n.entries.length > 0 || n.future > 0) && <span className="note-row-preview">{preview(n)}</span>}
+          <span className="note-row-meta">{n.entries.length || n.future ? entriesLabel(n.entries.length) : 'No snippets yet'} · {n.lastEdited ? dayLabel(n.lastEdited) : '—'}{store.pendingIn(n) ? ' · Waiting to sync' : ''}{n.versions.length > 1 ? ' · 2 titles' : ''}</span></span>
       </button></li>)}
     </ul> : <div className="notes-empty">
       {view.notes.length ? <p className="muted">Nothing matches “{query.trim()}”.</p> : <>
@@ -122,7 +123,6 @@ export function NotesList({ store, current, onOpen, onNew, rail = false }: { sto
         <button className="primary" onClick={onNew} disabled={!store.writable}>New collection</button></>}
     </div>}
     {view.malformed > 0 && <p className="fine notes-skipped" role="status">{view.malformed} snippet {view.malformed === 1 ? 'record' : 'records'} couldn’t be read and {view.malformed === 1 ? 'was' : 'were'} skipped.</p>}
-    {rail && <div className="notes-rail-actions"><button className="secondary small" onClick={onNew} disabled={!store.writable} data-testid="new-note"><Icon name="plus" size={14} /> New collection</button></div>}
   </div>;
 }
 
@@ -183,7 +183,7 @@ export function NoteDetail({ store, noteID, onBack, onAddText, onOpenSource, bac
       }) : <div className="notes-empty"><h2>A place for your next idea</h2><p className="muted">Collect a snippet while reading: Paper ⋯ › Draw snippet, or select text and choose Save snippet.</p></div>}
     </div>
     {notice && <div className="notes-toast" role="status">{notice}</div>}
-    {editing?.kind === 'rename' && note.record && <NameDialog title="Rename note" action="Rename" initial={note.title ?? ''} onClose={() => setEditing(null)}
+    {editing?.kind === 'rename' && note.record && <NameDialog title="Rename collection" action="Rename" initial={note.title ?? ''} onClose={() => setEditing(null)}
       onSubmit={name => store.renameNote(note.id, name)} />}
     {editing?.kind === 'delete-note' && <ConfirmDialog title={`Delete “${title}”?`} action="Delete collection" onClose={() => setEditing(null)}
       onConfirm={async () => { await store.deleteNote(note.id); onBack(); }}>
@@ -263,7 +263,7 @@ function NameDialog({ title, action, initial, onSubmit, onClose }: { title: stri
 }
 export function NewNoteDialog({ store, onCreated, onClose }: { store: NotesStore; onCreated: (noteID: string) => void; onClose: () => void }) {
   const op = useRef(entryOperation());
-  return <NameDialog title="New note" action="Create" initial="" onClose={onClose} onSubmit={async name => { onCreated(await store.createNote(name, op.current)); }} />;
+  return <NameDialog title="New collection" action="Create" initial="" onClose={onClose} onSubmit={async name => { onCreated(await store.createNote(name, op.current)); }} />;
 }
 
 function ConfirmDialog({ title, action, children, onConfirm, onClose }: { title: string; action: string; children: ReactNode; onConfirm: () => Promise<unknown>; onClose: () => void }) {

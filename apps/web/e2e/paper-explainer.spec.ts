@@ -20,7 +20,12 @@ test('AI Explainer: the paper’s background, key ideas and diagram stream in un
  await openAuthoredPaper(page,request);
  await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{figureStream:'step'}});
  const dialog=await openExplainer(page);
- // Which model first, then the chat's consent; nothing is asked before.
+ // The page opens with its AI Explainer button and asks nothing (UX audit R20); the tap asks which model (no default is
+ // set), then the chat's consent.
+ await expect(dialog.getByTestId('paper-explainer-title')).toHaveText(PAPER_TITLE);
+ await expect(page.getByRole('dialog',{name:'AI model'})).toHaveCount(0);
+ await expect(dialog.getByRole('button',{name:'Open in Chat'})).toHaveCount(0);
+ await dialog.getByTestId('paper-explainer-start').click();
  await expect(page.getByRole('dialog',{name:'AI model'})).toBeVisible();
  expect((await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(0);
  await page.getByTestId('explainer-default').click();

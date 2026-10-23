@@ -16,6 +16,12 @@ function issueMessage(error: unknown): string {
   }
   return 'The report could not be saved. Keep this dialog open and try again.';
 }
+/** A failed read of your reports (the list, or one report's thread) says it couldn't load, never that a report couldn't
+ * be saved (UX audit S25). */
+export function loadMessage(error: unknown, what: 'list' | 'thread'): string {
+  if (error instanceof BackendError && error.code === 'sign_in_required') return what === 'list' ? 'Sign in again to see your reports.' : 'Sign in again to see this report.';
+  return what === 'list' ? 'Couldn’t load your reports.' : 'Couldn’t load this report.';
+}
 
 function screenLabel(): string {
   const route = `${location.pathname}${location.pathname === '/' ? '' : location.search}`.slice(0, 48) || '/';
@@ -117,30 +123,32 @@ export function ReportsDialog({ open, onClose, account }: { open: boolean; onClo
   const [error, setError] = useState<string | null>(null);
   const reload = async () => {
     setLoading(true); setError(null);
-    try { setReports(await listSupportReports(account)); } catch (reason) { setError(issueMessage(reason)); }
+    try { setReports(await listSupportReports(account)); } catch (reason) { setError(loadMessage(reason, 'list')); }
     finally { setLoading(false); }
   };
   useEffect(() => { if (open) { setSelected(null); setThread(null); void reload(); } }, [open, account]);
   useEffect(() => {
     if (!selected) return;
     let live = true; setLoading(true); setError(null);
-    void getSupportThread(selected, account).then(value => { if (live) setThread(value); }).catch(reason => { if (live) setError(issueMessage(reason)); }).finally(() => { if (live) setLoading(false); });
+    void getSupportThread(selected, account).then(value => { if (live) setThread(value); }).catch(reason => { if (live) setError(loadMessage(reason, 'thread')); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [selected, account]);
   const openReport = (id: string) => { setSelected(id); setThread(null); };
   const back = () => { setSelected(null); setThread(null); };
   return <Dialog open={open} onClose={onClose} title="My reports" wide>
+    {/* Read again each time the dialog opens; a failure offers Try again, never a standing Refresh (UX audit S25). */}
     <SheetTop onClose={onClose} testID="reports-close">{selected && thread
       ? <><button className="link" onClick={back}>‹ My reports</button><span className="fine">{thread.report.status.replaceAll('_', ' ')}</span></>
-      : <><h2>My reports</h2><button className="link" onClick={() => void reload()} disabled={loading}>Refresh</button></>}</SheetTop>
-    {selected && thread ? <ReportThread thread={thread} account={account} onRefresh={() => { void getSupportThread(selected, account).then(setThread).catch(reason => setError(issueMessage(reason))); }} />
+      : <h2>My reports</h2>}</SheetTop>
+    {selected && thread ? <ReportThread thread={thread} account={account} onRefresh={() => { void getSupportThread(selected, account).then(setThread).catch(reason => setError(loadMessage(reason, 'thread'))); }} />
       : <>
         {loading && <p className="muted">Loading reports…</p>}
         {!loading && !reports.length && !error && <p className="muted">Your submitted reports and replies will appear here.</p>}
         <div className="support-report-list">{reports.map(report => <button className="support-report-row" key={report.id} onClick={() => openReport(report.id)}>
           <span><strong>{report.title}</strong><small>{report.status.replaceAll('_', ' ')} · {formatDate(Date.parse(report.created_at))}</small></span><span aria-hidden="true">›</span>
         </button>)}</div>
-        {error && <p className="issue" role="alert">{error}</p>}
+        {error && <div className="support-load-issue" role="alert" data-testid="reports-load-issue"><p className="issue">{error}</p>
+          {!loading && <button className="secondary small" onClick={() => void reload()}>Try again</button>}</div>}
       </>}
   </Dialog>;
 }

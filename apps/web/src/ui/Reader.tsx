@@ -23,7 +23,8 @@ import { FigureViewer } from './Figures';
 import { ReaderVersionDialog, type ReaderUpdate } from './ReaderVersion';
 import { Dialog, InfoTip, MenuButton, SheetTop } from './common';
 import { Icon } from './icons';
-import { readStored, writeStored } from './prefs';
+import { readStored, useMedia, writeStored } from './prefs';
+import { type SelectionGeometry, type SelectionItem, SelectionActions } from './SelectionActions';
 import { useWorkspaceControls } from './Shell';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
@@ -136,12 +137,22 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   // Back after a jump: offered with the section it returns to ('' when unknown), null when not offered.
   const [back, setBack] = useState<{ from: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  // Where the selection is in the paper (its actions sit beside it), and a right-click on it (its context menu).
+  const [selectionGeometry, setSelectionGeometry] = useState<SelectionGeometry | null>(null);
+  const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeSelectionMenu = useCallback(() => setSelectionMenu(null), []);
+  const menuOpenedAt = useRef(0);
+  // Below 600 px the actions dock at the bottom of the paper, as on iPhone.
+  const dockedSelection = useMedia('(max-width: 599px)');
   const [author, setAuthor] = useState<string | null>(null);
   const [markedChats, setMarkedChats] = useState<string[]>([]);
   const [bridgeReady, setBridgeReady] = useState(false);
   const appliedPassage = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [contentsDiscovered, setContentsDiscovered] = useState(() => readStored('gradstep.contents.doubleTapDiscovered', false, v => typeof v === 'boolean'));
+  // The double-tap hint shows only when Contents was opened with its button (the gesture it teaches does the same), never
+  // in a panel that was simply open beside the paper (UX audit R26).
+  const [contentsHint, setContentsHint] = useState(false);
   const [reference, setReference] = useState<ReaderReference | null>(null);
   const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
   // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
@@ -265,14 +276,19 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   useEffect(() => {
     commands.current = {
       find: openFind,
-      escape: () => { if (snippet && !snippet.busy) { setSnippet(null); return true; } if (finding) { closeFind(); return true; } return false; },
+      escape: () => {
+        if (snippet && !snippet.busy) { setSnippet(null); return true; } if (finding) { closeFind(); return true; }
+        // Esc closes the selection's actions with the selection.
+        if (selection) { setSelection(null); setSelectionMenu(null); command('clearSelection'); return true; }
+        return false;
+      },
       section: delta => sectionStep.current(delta),
       versionDetails: () => setVersionOpen(true),
       drawSnippet: () => drawSnippet.current(),
       paperExplainer: () => setPaperExplaining(true),
     };
     return () => { commands.current = null; };
-  }, [commands, openFind, closeFind, finding, snippet]);
+  }, [commands, openFind, closeFind, finding, snippet, selection, command]);
   // A short pause while typing, then the frame searches from the reading place.
   useEffect(() => {
     if (!finding || !frameReady.current) return;
@@ -313,7 +329,15 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
           break;
         }
         case 'citation': setBack(message.back ? { from: message.from } : null); break;
-        case 'selection': setSelection(message.selection); break;
+        // A right-click changes the selection around the menu it opens (the word under the pointer): only a selection that
+        // clears afterwards closes the menu.
+        case 'selection': setSelection(message.selection); if (!message.selection && Date.now() - menuOpenedAt.current > 500) setSelectionMenu(null); break;
+        case 'selectionRect': setSelectionGeometry(message.rect ? { rect: message.rect, column: message.column } : null); break;
+        case 'selectionMenu': {
+          const box = frame.current.getBoundingClientRect();
+          menuOpenedAt.current = Date.now(); setSelectionMenu({ x: box.left + message.x, y: box.top + message.y });
+          break;
+        }
         case 'marks': if (message.ids.length === 1) onMarkedChat(message.ids[0]); else setMarkedChats(message.ids); break;
         case 'passage': if (!message.found) setNotice('Couldn’t find the passage. The paper may have changed.'); onPassageHandled(); break;
         case 'figure': setFigure({ id: message.id, open: true }); break;
@@ -576,7 +600,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
       {reading?.on && <div className="reading-hotzone" onMouseEnter={() => showBar()} onMouseLeave={hideBarSoon} aria-hidden="true" />}
       <header className="paper-toolbar" ref={toolbar} onMouseEnter={reading?.on ? () => showBar() : undefined} onMouseLeave={reading?.on ? hideBarSoon : undefined}
         onFocus={reading?.on ? () => showBar() : undefined} onBlur={reading?.on ? hideBarSoon : undefined}>
-        <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={onContents} disabled={!bridgeReady} data-testid="contents"
+        <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={() => { if (!contentsShown) setContentsHint(true); onContents(); }} disabled={!bridgeReady} data-testid="contents"
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
         {reading?.on && <span className="reading-status" aria-live="off" data-testid="reading-status">
@@ -606,6 +630,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
         </div>
       </header>
       {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='paper')setPaperExplaining(true);else if(explainerReturn.kind==='equation')setEquation(equationTarget(explainerReturn.id));else setFigure({id:explainerReturn.id,open:true});setExplainerReturn(null);}}>{explainerReturn.kind==='paper'?'Back to AI Explainer':`Back to ${explainerReturn.kind==='equation'?'Equation':explainerReturn.kind==='table'?'Table':'Figure'} Explainer`}</button>}
+      <div className="paper-stage">
+      {/* Find floats over the top of the paper, so the page never moves when it opens (UX audit R17; native PaperFindBar). */}
       {finding && (
         <form className="find-bar" role="search" aria-label="Find in paper" onSubmit={e => e.preventDefault()}>
           <Icon name="search" size={14} />
@@ -616,14 +642,14 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
               if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
             }} />
           <span className="find-count" aria-live="polite" data-testid="find-count">{found && findText.trim() ? (found.count ? `${found.index + 1} of ${found.count}${found.count >= 1000 ? '+' : ''}` : 'No matches') : ''}</span>
-          <button type="button" className="icon-button" disabled={!found?.count} aria-label="List occurrences" onClick={()=>setFindList(v=>!v)}><Icon name="list" /></button>
+          {/* The word "All", so it doesn't read as the Contents glyph (UX audit R17). */}
+          <button type="button" className={`find-all${findList ? ' on' : ''}`} disabled={!found?.count} aria-label="List occurrences" aria-pressed={findList} title="List occurrences" onClick={()=>setFindList(v=>!v)}>All</button>
           <button type="button" className="icon-button" onClick={() => command('find', findText, 'previous')} disabled={!found?.count} aria-label="Previous match"><Icon name="chevronUp" /></button>
           <button type="button" className="icon-button" onClick={() => command('find', findText, 'next')} disabled={!found?.count} aria-label="Next match"><Icon name="chevronDown" /></button>
           <button type="button" className="link" onClick={closeFind}>Done</button>
         </form>
       )}
       {finding && findList && <div className="find-occurrences" role="list" aria-label="Occurrences">{found?.matches.map(m=><button type="button" key={m.index} onClick={()=>{command('find',findText,m.index);setFindList(false);}}>{m.index+1}. {m.text}</button>)}</div>}
-      <div className="paper-stage">
         {error ? ((pdfOffer === 'pdf' || pdfOffer === 'only') && pdfSource ? (
           // One screen whatever stopped the reader (owner, build 62: "there should be just one"; "remove the try again"):
           // the paper's PDF, opened from arXiv by this browser (ARXIV_DEVICE_ONLY.md); the reason's code behind an ⓘ.
@@ -653,33 +679,36 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
           <div className="empty" role="status"><p>{loaded < 0.8 ? 'Downloading…' : 'Preparing…'} {Math.floor(loaded * 100)}%</p>
             <progress max={1} value={loaded} aria-label={`${loaded < 0.8 ? 'Downloading' : 'Preparing'} ${Math.floor(loaded * 100)} percent`} /></div>
         )}
-        {quote && selection && bundle && <div className="selection-bar" role="toolbar" aria-label="Selected passage">
-          {SELECTION_ACTIONS.filter(({action}) => !(selection.parts.length === 1 && selection.parts[0].kind === 'equation') || ['define','similar'].includes(action)).flatMap(({ action, title }) => [<button key={action} className="secondary small" onClick={() => {
-            const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
-            const paragraph = bundle.index.blocks.findIndex(b => b.id === selection.parts[0]?.blockID) + 1;
-            if (action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID) { setEquation({ id:selection.parts[0].equationID,quote,anchor,explain:false }); setSelection(null); command('clearSelection'); return; }
-            if (anchor) { onSelection(action, quote, anchor, paragraph > 0 ? paragraph : undefined); setSelection(null); command('clearSelection'); }
-          }}>{action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' ? 'Chat about Equation' : title}</button>,
-            // One tapped equation: Focus, right after Chat about Equation, opens its view large without asking the AI (owner,
-            // build 78: "Let's change AI explainer to Focus… we should not necessarily assume they need an AI explainer").
-            ...(action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID ? [
-              <button key="equation" className="secondary small" data-testid="equation-open" onClick={() => {
-                const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
-                setEquation({ id: selection.parts[0].equationID!, quote, anchor, explain: false }); setSelection(null); command('clearSelection');
-              }}>Focus</button>,
-              // The raw formula, as the apps' Copy as Text on a tapped equation copies it.
-              <button key="copy" className="secondary small" data-testid="equation-copy" onClick={() => {
-                void navigator.clipboard.writeText(quote).then(() => setNotice('Copied.'), () => setNotice('Couldn’t copy the equation.'));
-              }}>Copy as Text</button>] : [])])}
-          {/* Notes: the selection as a quotation (no AI), or a tapped equation as its rendered image. */}
-          {noteCapture && <button className="secondary small" data-testid="selection-add-to-note" onClick={() => {
-            const part = selection.parts[0];
-            if (selection.parts.length === 1 && part.kind === 'equation' && part.equationID) {
-              const e = part.equationID; setSelection(null); command('clearSelection');
-              void addElement(e, part.blockID, equationLabel(e));
-            } else addSelection(selection, quote);
-          }}>Save snippet</button>}
-        </div>}
+        {quote && selection && bundle && (() => {
+          const done = () => { setSelection(null); setSelectionMenu(null); command('clearSelection'); };
+          const anchor = () => passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
+          const part = selection.parts[0], tappedEquation = selection.parts.length === 1 && part.kind === 'equation' && !!part.equationID;
+          const act = (action: SelectionAction) => {
+            const a = anchor(), paragraph = bundle.index.blocks.findIndex(b => b.id === part?.blockID) + 1;
+            if (action === 'define' && tappedEquation) { setEquation({ id: part.equationID!, quote, anchor: a, explain: false }); done(); return; }
+            if (a) { onSelection(action, quote, a, paragraph > 0 ? paragraph : undefined); done(); }
+          };
+          const title = (action: SelectionAction) => SELECTION_ACTIONS.find(s => s.action === action)!.title;
+          const copy = (failure: string) => void navigator.clipboard.writeText(quote).then(() => setNotice('Copied.'), () => setNotice(failure));
+          // Notes: the selection as a quotation (no AI), or a tapped equation as its rendered image.
+          const save: SelectionItem[] = noteCapture ? [{ key: 'snippet', label: 'Save snippet', testID: 'selection-add-to-note', run: () => {
+            if (tappedEquation) { const e = part.equationID!; done(); void addElement(e, part.blockID, equationLabel(e)); }
+            else addSelection(selection, quote);
+          } }] : [];
+          // One tapped equation: Chat about Equation; then Focus (owner, build 78: it opens the view large without asking the
+          // AI), Related and Copy as Text (the raw formula, as the apps' equation menu) in ⋯.
+          const items: SelectionItem[] = tappedEquation ? [{ key: 'define', label: 'Chat about Equation', run: () => act('define') }, ...save]
+            : [{ key: 'define', label: title('define'), run: () => act('define') }, ...save];
+          const more: SelectionItem[] = tappedEquation ? [
+            { key: 'focus', label: 'Focus', testID: 'equation-open', run: () => { setEquation({ id: part.equationID!, quote, anchor: anchor(), explain: false }); done(); } },
+            { key: 'similar', label: title('similar'), run: () => act('similar') },
+            { key: 'copy', label: 'Copy as Text', testID: 'equation-copy', run: () => copy('Couldn’t copy the equation.') }]
+            : [...(['relevance', 'similar', 'ingest'] as const).map(action => ({ key: action, label: title(action), run: () => act(action) })),
+              { key: 'copy', label: 'Copy', testID: 'selection-copy', run: () => copy('Couldn’t copy the passage.') }];
+          const context: SelectionItem[] = [...items.slice(0, 1), ...more.filter(m => m.key !== 'copy'), ...save, ...more.filter(m => m.key === 'copy')];
+          return <SelectionActions label="Selected passage" items={items} more={more} geometry={selectionGeometry} docked={dockedSelection}
+            context={selectionMenu} contextItems={context} onContextClose={closeSelectionMenu} />;
+        })()}
         {snippet && srcdoc && !error && <SnippetOverlay initial={snippet.box} busy={snippet.busy} issue={snippet.issue} onUse={box => void takeSnippet(box)} onCancel={() => setSnippet(null)} />}
         {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage" data-testid="passage-chats">{markedChats.map(id => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>{markTitle(id)}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Cancel</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
@@ -692,7 +721,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
           {referenceNotice.kind !== 'working' && <button className="icon-button" aria-label="Dismiss reference message" onClick={() => setReferenceNotice(null)}><Icon name="close" size={14} /></button>}
         </div>}
       </div>
-      {contentsSlot && bundle && bridgeReady && createPortal(<Contents discovered={contentsDiscovered} headings={headings} active={active} bundle={bundle} onJump={jump}
+      {contentsSlot && bundle && bridgeReady && createPortal(<Contents discovered={contentsDiscovered || !contentsHint} headings={headings} active={active} bundle={bundle} onJump={jump}
         onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation} onEquationTiles={() => setEquationTiles(true)}
         onTable={t => setTableDetail({ id: t.id, label: t.number ?? 'Table', goTitle: 'Show in paper' })} />, contentsSlot)}
       {reference && <ReferenceActions reference={reference} frame={frame.current} onClose={() => setReference(null)}

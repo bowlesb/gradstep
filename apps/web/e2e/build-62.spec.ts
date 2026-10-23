@@ -105,17 +105,19 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
 
  // A tapped equation also offers Copy as Text: the formula as the paper writes it (B10, the apps' equation menu).
  if(test.info().project.name!=='webkit')await page.context().grantPermissions(['clipboard-read','clipboard-write']);
- await display.click();await page.getByTestId('equation-copy').click();
+ await display.click();await page.getByTestId('selection-more').click();await page.getByTestId('equation-copy').click();
  await expect(page.locator('.toast')).toHaveText('Copied.');
  if(test.info().project.name!=='webkit')expect(await page.evaluate(()=>navigator.clipboard.readText())).toMatch(/\\\[|\\\(|\\begin/);
  // An equation explained (Focus from its menu, then the view's AI Explainer, after the consent), then a figure.
- await display.click();await page.getByTestId('equation-open').click();
+ await display.click();await page.getByTestId('selection-more').click();await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
  // Focus asks nothing (build 78); AI Explainer asks which model first (B7): Default.
  await expect(page.getByRole('dialog',{name:'AI model'})).toHaveCount(0);await view.getByTestId('equation-explain').click();
  await expect(page.getByRole('dialog',{name:'AI model'})).toBeVisible();await page.getByTestId('explainer-default').click();
  await view.getByRole('button',{name:'Allow and explain'}).click();
  await expect(view.getByTestId('equation-summary')).toBeVisible();
+ // Closed once the explanation has finished (closing earlier stops it, and an unfinished one isn't kept).
+ await expect(view.getByTestId('equation-progress-status')).toHaveText('Done');
  await view.getByTestId('equation-close').click();await expect(view).toBeHidden();
  await page.getByTestId('figures').click();
  const viewer=page.getByRole('dialog',{name:'Figures'});

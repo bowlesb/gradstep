@@ -388,14 +388,21 @@ progress.mini { height: 3px; margin-top: 4px; }
 .text-size { font-weight: 600; width: 28px; }
 .a-small { font-size: var(--fs-foot); }
 .a-large { font-size: var(--fs-headline); }
-.find-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); color: var(--text-3); flex-direction: row; }
-.find-bar input { width: min(320px, 40vw); min-height: 30px; height: 30px; padding: 4px 8px; font-size: var(--fs-sub); }
+/* Find floats over the top of the paper (UX audit R17): the page doesn't move as it opens and closes. */
+.find-bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: var(--z-stage-capture); width: min(600px, calc(100% - 24px)); display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px 6px 12px; border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--elev-2); color: var(--text-3); flex-direction: row;
+  background: color-mix(in srgb, var(--surface) 90%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px); }
+@media (prefers-reduced-transparency: reduce) { .find-bar { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+.find-all { min-height: 30px; padding: 2px 10px; border-radius: var(--r-md); font-size: var(--fs-foot); font-weight: 600; color: var(--text-2); }
+.find-all:hover:not(:disabled) { background: var(--fill-quiet); color: var(--text); }
+.find-all.on { color: var(--accent); background: var(--accent-tint); }
+.find-bar input { flex: 1; width: auto; min-width: 0; min-height: 30px; height: 30px; padding: 4px 8px; font-size: var(--fs-sub); }
 .find-bar input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
 .find-count { font-size: var(--fs-foot); color: var(--text-2); min-width: 64px; font-variant-numeric: tabular-nums; }
 .paper-stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 .reader-frame { flex: 1; width: 100%; border: 0; background: var(--surface); min-height: 0; display: block; }
-.selection-bar, .toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; max-width: min(560px, calc(100% - 32px)); background: var(--text); color: var(--surface);
-  padding: 9px 14px; border-radius: var(--r-lg); font-size: var(--fs-sub); box-shadow: var(--elev-2); z-index: var(--z-stage-float); }
+.selection-bar, .toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; max-width: min(560px, calc(100% - 32px)); box-shadow: var(--elev-2); z-index: var(--z-stage-float); }
+.toast { background: var(--text); color: var(--surface); padding: 9px 14px; border-radius: var(--r-lg); font-size: var(--fs-sub); }
 .toast { bottom: 64px; }
 @media (max-width: 640px) {
   .tool-button span:not(.count) { display: none; } .tool-button { padding: 0 7px; }
@@ -442,6 +449,9 @@ progress.mini { height: 3px; margin-top: 4px; }
 .support-preview { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .support-preview img { display: block; width: min(100%, 520px); max-height: 300px; object-fit: contain; object-position: left top; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--figure-white); }
 .support-report-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; }
+.support-load-issue { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* Add paper grows downwards from a fixed top, so an outcome appearing doesn't move the field (UX audit S14). */
+.dialog.add-paper-dialog { margin-top: 12vh; margin-bottom: auto; }
 .support-report-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); color: var(--text); text-align: left; }
 .support-report-row:hover { border-color: var(--line-strong); background: var(--fill-quiet); }
 .support-report-row span:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
@@ -469,6 +479,15 @@ progress.mini { height: 3px; margin-top: 4px; }
 .figure-viewer { display: flex; flex-direction: column; gap: 12px; }
 .figure-frame { width: 100%; height: 72dvh; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); display: block; }
 .figure-frame.compact { height: min(46dvh, 460px); }
+/* The figure page's frame: sized to the figure and caption once measured (inline height), never taller than leaves the
+   pager in the dialog; Open fullscreen on its corner (UX audit R18). */
+.figure-frame-wrap { position: relative; }
+.figure-frame-wrap > .figure-frame { max-height: calc(88dvh - 190px); }
+.figure-frame-wrap > .figure-frame.compact { max-height: min(46dvh, 460px); }
+.figure-frame-wrap > .figure-fullscreen { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; min-height: 30px; border-radius: var(--r-circle); color: var(--text);
+  background: color-mix(in srgb, var(--surface) 82%, transparent); border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.figure-frame-wrap > .figure-fullscreen:hover:not(:disabled) { background: var(--surface); }
 /* The figure view (FIGURE_VIEW.md): the page scrolls as one, the walkthrough at a reading width under the figure. */
 .dialog.figure-dialog { overflow: hidden; }
 .figure-dialog .dialog-body { max-height: 88dvh; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; }
@@ -575,10 +594,12 @@ dialog.figure-fullscreen::backdrop { background: transparent; }
 
 /* Approve from your phone (ui/Approve.tsx). The QR keeps a white quiet zone in both themes so cameras read it. */
 .approve-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text); }
-.approve-qr { margin: 0; align-self: center; width: min(100%, 248px); aspect-ratio: 1; display: grid; place-items: center; }
+/* 180 px keeps the whole card, and its Use recovery code and Sign out, inside a laptop window (UX audit S31). */
+.approve-qr { margin: 0; align-self: center; width: min(100%, 180px); aspect-ratio: 1; display: grid; place-items: center; }
+.auth-card:has(.approve-qr) { gap: 14px; }
 .approve-qr svg { width: 100%; height: 100%; border-radius: var(--r-lg); border: 1px solid var(--line); }
 .approve-code { margin: 0; text-align: center; color: var(--text-2); }
-.approve-code output { display: block; margin-top: 4px; font-size: var(--fs-code); letter-spacing: 0.08em; color: var(--text); }
+.approve-code output { display: block; margin-top: 2px; font-size: var(--fs-code); letter-spacing: 0.08em; color: var(--text); }
 .approve-status { display: flex; align-items: center; gap: 8px; }
 
 /* Encrypted chat: transcript owns scrolling and never pushes the composer away. */
@@ -592,13 +613,18 @@ dialog.figure-fullscreen::backdrop { background: transparent; }
 .branch-picker select { min-width: 0; width: 100%; }
 .chat-sync { padding: 8px 14px; border-bottom: 1px solid var(--line); }
 .chat-sync button { margin-left: 8px; }
-.chat-transcript { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 8px; overscroll-behavior: contain; }
+.chat-transcript { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 20px; overscroll-behavior: contain; }
 .chat-transcript .chat-empty { min-height: 150px; padding: 12px; }
 .chat-message { margin: 0 0 24px; font-size: var(--chat-text, 14px); line-height: 1.62; overflow-wrap: anywhere; }
 .message-label-row { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; }
 .message-label { font-size: var(--fs-foot); font-weight: 600; color: var(--text-3); margin: 0; }
 .message-label-row .link { margin-left: auto; opacity: .72; }
 .message-label-row .link:hover { opacity: 1; }
+/* An answer's quiet actions: Copy and the ⓘ with its cost, model and length (UX audit R22, R25). */
+.answer-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; color: var(--text-3); }
+.answer-actions .copy-icon { width: var(--h-sm); height: var(--h-sm); min-height: var(--h-sm); color: var(--text-3); }
+.answer-actions .copy-icon:hover:not(:disabled) { color: var(--text); }
+.answer-actions .info-tip-text { font-size: var(--fs-foot); }
 .chat-message.user { margin-left: 16px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
 .question-text { white-space: pre-wrap; }
 .answer-markdown > :first-child { margin-top: 0; }
@@ -659,21 +685,30 @@ dialog.figure-fullscreen::backdrop { background: transparent; }
 /* Grounded citations in answers ([¶N]) and one-tap follow-up questions. */
 .cite { display: inline-block; font-size: .78em; line-height: 1.5; padding: 0 5px; margin: 0 1px; border-radius: var(--r-pill); background: var(--accent-tint); color: var(--accent); cursor: pointer; white-space: nowrap; text-decoration: none; }
 .cite:hover, .cite:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.follow-ups { display: flex; flex-wrap: wrap; gap: 6px; margin: -10px 0 18px; }
-.follow-up { font: inherit; font-size: var(--fs-foot); line-height: 1.3; min-height: var(--h-md); padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-pill); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
-.follow-up:hover:not(:disabled), .follow-up:focus-visible { border-color: var(--accent); color: var(--accent); }
-.follow-up:active:not(:disabled) { background: var(--accent-tint); transform: scale(.98); }
+/* Suggested questions: the toggle on its own line, then one full-width row each, as the starter questions (UX audit R23:
+   pills wrapped unevenly and the last one ran under the message box). */
+.follow-ups { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: -10px 0 18px; }
+.follow-ups > .follow-ups-toggle { align-self: flex-start; }
+.follow-up { font: inherit; font-size: var(--fs-sub); line-height: var(--lh-snug); width: 100%; min-height: var(--h-md); padding: 7px 12px; border: 0; border-radius: var(--r-lg); background: transparent;
+  color: var(--text); text-align: left; cursor: pointer; }
+.follow-up:hover:not(:disabled), .follow-up:focus-visible { background: var(--accent-tint); color: var(--accent); }
+.follow-up:active:not(:disabled) { background: var(--accent-tint); }
 .follow-up:disabled { opacity: .55; cursor: default; }
 /* Sticks to the bottom of the transcript itself, so it never covers the composer or the study panel. */
 .jump-latest { position: sticky; bottom: 6px; display: flex; width: max-content; margin: 4px auto 0; box-shadow: var(--elev-2); }
 .source-address { overflow-wrap: anywhere; font-size: var(--fs-body); }
 .consent-list { margin: -4px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sub); }
-/* All chats (owner, build 57): the search field and the ≡ options on one row; no title, no Done. */
-.history-top { display: flex; align-items: center; gap: 8px; }
-.history-top input[type=search] { flex: 1; min-width: 0; }
-.history-top .icon-button { width: var(--h-lg); height: var(--h-lg); min-height: var(--h-lg); }
+/* All chats (owner, build 57): the search field and the ≡ options on one row; no Done. With its title and a round X in
+   the sheet's top row (UX audit S23), at a fixed height so the sheet doesn't jump as rows load or filters change. */
+.dialog.history-dialog { height: min(80dvh, 820px); }
+.history-dialog .dialog-body { height: 100%; box-sizing: border-box; }
+.history-dialog .sheet-top-start { overflow: visible; }
+.history-dialog .sheet-top-start input[type=search] { flex: 1; min-width: 0; min-height: var(--h-md); height: var(--h-md); padding: 4px 12px; }
+.history-dialog .sheet-top .menu-anchor > .icon-button { width: var(--h-header); height: var(--h-header); min-height: var(--h-header); }
 .history-filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .history-table-wrap { max-height: 60dvh; overflow: auto; }
+.history-dialog .history-table-wrap { flex: 1; min-height: 0; max-height: none; }
+@media (max-width: 640px) { .history-dialog .sheet-top h2 { display: none; } }
 .history-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .history-table td, .history-table th { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .history-table th { font-size: var(--fs-foot); font-weight: 600; color: var(--text-2); }
@@ -691,7 +726,33 @@ dialog.figure-fullscreen::backdrop { background: transparent; }
 .history-row-actions .link { min-height: 22px; padding: 0 2px; font-size: var(--fs-foot); }
 .history-draft { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .chat-delete { margin-top: 15px; }
-.selection-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+/* Selection actions: one line on a glass capsule over the page's bottom band, actions as accent words between hairlines,
+   scrolling sideways when they don't fit (UX audit R15: it was an inverted slab that wrapped to three rows). */
+.selection-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
+  max-width: min(720px, calc(100% - 24px)); padding: 3px 4px; border-radius: var(--r-pill); color: var(--text);
+  background: color-mix(in srgb, var(--surface) 86%, transparent); -webkit-backdrop-filter: saturate(1.5) blur(16px); backdrop-filter: saturate(1.5) blur(16px);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 75%, transparent); }
+.selection-bar::-webkit-scrollbar { display: none; }
+.selection-bar > button, .selection-bar > button.secondary, .selection-bar > .link { position: relative; flex: none; white-space: nowrap; min-height: 34px; padding: 4px 13px;
+  border: 0; border-radius: var(--r-pill); background: transparent; color: var(--accent); font-size: var(--fs-sub); font-weight: 500; }
+.selection-bar > button:hover:not(:disabled) { background: var(--accent-tint); }
+.selection-bar > button + button::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 1px; background: var(--line-strong); }
+@media (prefers-reduced-transparency: reduce) { .selection-bar { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+/* The paper's selection actions (ui/SelectionActions.tsx): beside the selection, like the system edit menu, at its
+   measured place; docked at the paper's bottom below 600 px. Three items: the first action, Save snippet, ⋯. */
+.selection-capsule.anchored { bottom: auto; transform: none; max-width: calc(100% - 16px); z-index: calc(var(--z-stage-float) + 1); }
+/* No transform or backdrop filter on the capsule itself: either would make it the containing block of its ⋯ menu (fixed
+   to the window), which would then open off screen. The glass is a layer behind it instead. */
+.selection-capsule { transform: none; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; isolation: isolate; }
+.selection-capsule.docked { left: 0; right: 0; margin: 0 auto; width: max-content; }
+.selection-capsule::after { content: ''; position: absolute; inset: 0; z-index: calc(var(--z-raised) - 2); border-radius: inherit; pointer-events: none;
+  background: color-mix(in srgb, var(--surface) 86%, transparent); -webkit-backdrop-filter: saturate(1.5) blur(16px); backdrop-filter: saturate(1.5) blur(16px); }
+@media (prefers-reduced-transparency: reduce) { .selection-capsule::after { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+.selection-capsule .menu-anchor { flex: none; position: relative; }
+.selection-capsule .menu-anchor > .icon-button { width: 34px; height: 34px; min-height: 34px; border-radius: var(--r-pill); color: var(--accent); }
+.selection-capsule .menu-anchor > .icon-button:hover:not(:disabled), .selection-capsule .menu-anchor > .icon-button.on { background: var(--accent-tint); }
+.selection-capsule > .menu-anchor::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 1px; background: var(--line-strong); }
+.selection-context-menu { right: auto; bottom: auto; width: max-content; min-width: 190px; }
 @media(max-width: 600px) { .chat-message { font-size: var(--chat-text, 15px); } .chat-pane .segment { min-height: 32px; } }
 .chat-text-size .seg { flex: 1; }
 
@@ -937,7 +998,7 @@ button.tag.on:hover { background: var(--accent); color: var(--on-accent); filter
 /* The chat over the paper keeps the bar (and its Chat button) clear of it. */
 .app.reading:has(.pane-right) .reader.reading .paper-toolbar, .app.reading:has(.pane-right) .reading-hotzone { right: min(440px, 92vw); }
 .reader.reading .paper-toolbar:focus-within { opacity: 1; transform: none; pointer-events: auto; }
-.reader.reading .find-bar { position: absolute; top: 48px; left: 0; right: 0; z-index: var(--z-stage-bar); }
+.reader.reading .find-bar { top: 56px; z-index: var(--z-stage-bar); }
 .reading-hotzone { position: absolute; top: 0; left: 0; right: 0; height: 28px; z-index: var(--z-stage-hotzone); }
 .reader .reading-progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: .65; transform-origin: 0 50%; z-index: var(--z-stage-progress); pointer-events: none; transition: transform var(--dur-2) linear; }
 .reading-status { flex: 0 1 auto; min-width: 0; max-width: 38ch; color: var(--text-2); font-size: var(--fs-foot); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1050,10 +1111,27 @@ button.tag.on:hover { background: var(--accent); color: var(--on-accent); filter
 .zoom-crop .figure-crop { margin:0; }
 
 /* Build 70 feedback: occurrence navigation and complete figure inspection. */
-.find-occurrences{max-height:45dvh;overflow:auto;padding:8px;background:var(--surface);border-bottom:1px solid var(--line)}
+.find-occurrences{position:absolute;top:58px;left:50%;transform:translateX(-50%);z-index:var(--z-stage-capture);width:min(600px,calc(100% - 24px));max-height:45dvh;overflow:auto;padding:8px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--elev-2)}
+.reader.reading .find-occurrences{top:106px;z-index:var(--z-stage-bar)}
 .find-occurrences button{display:block;width:100%;text-align:left;padding:12px;border-bottom:1px solid var(--line);border-radius:0;background:transparent;color:var(--text)}
 .find-occurrences button:hover{background:var(--fill-quiet)}
-.advanced-search{padding:12px 0}.advanced-search summary{cursor:pointer;font-weight:600}.search-criterion{display:flex;gap:8px;margin:8px 0}.search-criterion input{min-width:0;flex:1}.advanced-search>button{margin-right:8px}
+/* ML paper search's Search by fields (UX audit S5): an inset chevron row on the content's margin, as the apps' AdvancedPaperSearch. */
+.advanced-search { margin: 12px var(--gutter) 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.advanced-search > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--h-lg); padding: 0 12px;
+  cursor: pointer; font-size: var(--fs-sub); font-weight: 600; color: var(--accent); border-radius: var(--r-lg); }
+.advanced-search > summary::-webkit-details-marker { display: none; }
+.advanced-search > summary .icon { transition: transform var(--dur-1) var(--ease-out); }
+.advanced-search[open] > summary { border-bottom: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.advanced-search[open] > summary .icon { transform: rotate(180deg); }
+.advanced-search > :not(summary) { margin-left: 12px; margin-right: 12px; }
+.advanced-search > .fine { margin: 8px 12px 12px; }
+.search-criterion { display: flex; gap: 8px; margin: 8px 0; }
+.search-criterion input { min-width: 0; flex: 1; }
+.search-criterion select { width: auto; }
+.advanced-search > button { margin-right: 8px; margin-left: 0; }
+.advanced-search > button:first-of-type { margin-left: 12px; }
+@media (max-width: 640px) { .advanced-search { margin: 10px 12px 0; } }
 .fullscreen-figure{width:calc(100vw - 24px)!important;max-width:none!important;height:calc(100dvh - 24px);max-height:none!important}
 .fullscreen-figure .figure-frame{height:calc(100dvh - 120px)!important}.fullscreen-figure .zoom-crop{max-height:calc(100dvh - 150px);overflow:auto}
 .sheet-top-start{flex:1}.explainer-return{align-self:flex-start;margin:6px 12px}.feed-actions{align-self:center}
@@ -1068,6 +1146,8 @@ button.tag.on:hover { background: var(--accent); color: var(--on-accent); filter
 .catalog-list li { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .catalog-select { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; background: transparent; color: inherit; border: 0; padding: 8px 0; }
 .catalog-list .row-actions { justify-content: flex-start; gap: 16px; flex-wrap: wrap; }
+.catalog-list li.catalog-new-row { border-bottom: 0; padding: 6px 0 0; }
+.catalog-new { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
 /* The catalog left of the search (owner, build 75): compact, a long name truncates (its title shows it whole). */
 .topbar-catalog { flex: none; display: flex; align-items: center; }
 .topbar-catalog select { height: 32px; min-height: 32px; max-width: 168px; padding: 0 24px 0 10px; font-size: var(--fs-sub); text-overflow: ellipsis; }
@@ -1115,3 +1195,28 @@ button.tag.on:hover { background: var(--accent); color: var(--on-accent); filter
 .storage-notice .link, .offline-banner .link, .notes-issue .link, .notes-banner .link, .dock-notice .link, .feed-feedback-notice .link, .chat-issue .link { min-height: 0; padding: 0; font-weight: 600; }
 .toast, .notes-saved, .notes-toast { animation: toast-in var(--dur-2) var(--ease-out); }
 @keyframes toast-in { from { opacity: 0; translate: 0 8px; } }
+/* Figure, equation and paper AI Explainer pages cover the paper (owner, 2026-10-22: "the ai explainer pop up should go
+   completely over the paper rather than partially over it, providing an opportunity to copy the look and feel of the
+   iPhone"): everything under the top bar, side panels included; one sheet row as the iPhone's (✕ first, then the page's
+   words: Snippet · Chat · AI Explainer); the page in a centred 720 px column; the figure pager floats at the bottom. */
+dialog.dialog.cover { position: fixed; inset: 48px 0 0 0; margin: 0; width: 100vw; max-width: 100vw; height: calc(100dvh - 48px); max-height: none;
+  border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; background: var(--surface); overflow: hidden; }
+.app.reading dialog.dialog.cover { inset: 0; height: 100dvh; border-top: 0; }
+dialog.dialog.cover::backdrop { background: transparent; }
+dialog.dialog.cover[open] { animation: cover-in var(--dur-2) var(--ease-out); }
+@keyframes cover-in { from { opacity: 0; transform: translateY(10px); } }
+dialog.dialog.cover > .dialog-body { height: 100%; max-height: none; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; padding: 0 20px 40px; gap: 16px; }
+dialog.dialog.cover .sheet-top { top: 0; margin: 0 -20px; padding: 10px 16px; border-radius: 0; gap: 10px; }
+dialog.dialog.cover .sheet-top .sheet-close { order: -1; width: 40px; height: 40px; min-height: 40px; }
+dialog.dialog.cover .sheet-top .sheet-action { color: var(--accent); font-weight: 600; min-height: 38px; padding: 6px 16px; }
+dialog.dialog.cover .figure-viewer, dialog.dialog.cover .equation-view { gap: 16px; }
+dialog.dialog.cover .figure-viewer > :not(.sheet-top), dialog.dialog.cover .equation-view > :not(.sheet-top), dialog.dialog.cover .dialog-body > .paper-explainer {
+  width: 100%; max-width: 720px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+dialog.dialog.cover .figure-viewer > .figure-nav { position: sticky; bottom: 14px; z-index: var(--z-sticky); width: max-content; max-width: calc(100% - 16px); padding: 4px; gap: 6px;
+  border-radius: var(--r-pill); background: color-mix(in srgb, var(--surface) 86%, transparent); -webkit-backdrop-filter: saturate(1.5) blur(16px); backdrop-filter: saturate(1.5) blur(16px);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent); box-shadow: var(--elev-2); }
+dialog.dialog.cover .figure-nav .icon-button { width: 40px; height: 40px; min-height: 40px; border-radius: var(--r-circle); color: var(--accent); }
+dialog.dialog.cover .figure-nav .secondary { border: 0; border-radius: var(--r-pill); background: transparent; color: var(--accent); font-weight: 600; min-height: 40px; }
+@media (prefers-reduced-transparency: reduce) { dialog.dialog.cover .figure-viewer > .figure-nav { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+.paper-explainer-heading { margin: 8px 0 2px; font-size: var(--fs-display); letter-spacing: -.015em; }
+@media (max-width: 640px) { dialog.dialog.cover > .dialog-body { padding: 0 14px 32px; } dialog.dialog.cover .sheet-top { margin: 0 -14px; padding: 8px 10px; } }

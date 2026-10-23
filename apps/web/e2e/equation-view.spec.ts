@@ -53,7 +53,12 @@ test('equation explanation, model choice and follow-up remain together with encr
  await keywords.locator('h2').click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
  await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
  await display.click(); const bar=page.getByRole('toolbar',{name:'Selected passage'});
- await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','Focus','Copy as Text','Related','Save snippet']); // Focus (build 78), Copy as Text (B10), Save snippet (Snippets)
+ // A compact capsule beside the equation (owner, 2026-10-22): Chat about Equation · Save snippet · ⋯ (Focus, build 78;
+ // Related; Copy as Text, B10).
+ await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','Save snippet','']);
+ await bar.getByTestId('selection-more').click();
+ await expect(page.getByRole('menu',{name:'More actions'}).getByRole('menuitem')).toHaveText(['Focus','Related','Copy as Text']);
+ await page.keyboard.press('Escape');
  await bar.getByRole('button',{name:'Chat about Equation',exact:true}).click();
  const view=page.getByTestId('equation-view'), context=view.getByTestId('contextual-chat');
  await expect(context.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();
@@ -262,7 +267,7 @@ test('a wide equation fits at 100 percent and automatically pans when enlarged',
  await openFixture(page,request,source);
  const frame=page.frameLocator('[data-testid=reader-frame]');
  await frame.locator('.reader-display[data-reader-equation]').nth(1).click();
- await expect(page.getByTestId('equation-open')).toHaveText('Focus');await page.getByTestId('equation-open').click();
+ await page.getByTestId('selection-more').click();await expect(page.getByTestId('equation-open')).toHaveText('Focus');await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
  // Focus asks nothing: no model choice, AI Explainer waits in the top row (owner, build 78).
  await expect(view.getByTestId('equation-explain')).toBeVisible();await expect(page.getByRole('dialog',{name:'AI model'})).toHaveCount(0);
@@ -305,7 +310,7 @@ async function explainEquation(page:import('@playwright/test').Page,request:impo
  await request.post(`${fixtureOrigin}/__chat-fixture`,{data:{equationStream}});
  const display=page.frameLocator('[data-testid=reader-frame]').locator('.reader-display[data-reader-equation]').nth(nth); // a finished explanation is kept: another equation for each case
  await expect(display).toBeVisible({timeout:20000});await display.click();
- await page.getByTestId('equation-open').click();
+ await page.getByTestId('selection-more').click();await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
  await view.getByTestId('equation-explain').click();await page.getByTestId('explainer-default').click();
  // The chat's consent is asked once a session.
