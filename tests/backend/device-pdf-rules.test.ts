@@ -2,8 +2,13 @@
 // against their arXiv HTML before it became the default.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contentsAsText, extendSpans, frontMatterRoles, lineOwners, referenceEntries } from '../../supabase/functions/_shared/reader/device-pdf/convert.ts';
+import { contentsAsText, equationNumber, extendSpans, frontMatterRoles, lineOwners, mergeOverlapping, referenceEntries } from '../../supabase/functions/_shared/reader/device-pdf/convert.ts';
+import { composeDevicePDFReader } from '../../supabase/functions/_shared/reader/device-pdf/bundle.ts';
+import { validateHTML } from '../../supabase/functions/_shared/reader/html-validate.ts';
+import { det, extent, host, input, line, page } from './device-pdf/synthetic.ts';
 import { renderMath, tidyLatex } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
+import { venueNotice } from '../../supabase/functions/_shared/reader/device-pdf/structure.ts';
+import { aliasFont } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
 import type { Glyph, Region } from '../../supabase/functions/_shared/reader/device-pdf/types.ts';
 
 /** A line of text as glyphs from x = 72 at `top` (points), 6 pt per character. */
@@ -92,4 +97,80 @@ test('the recogniser\'s LaTeXML-style rows and package commands are tidied into 
   assert.equal(tidyLatex('\\mathbbm{1}(x>0)'), '\\mathbb{1}(x>0)');
   assert.equal(tidyLatex('\\overset{\\text{\\scalebox{0.6}{$\\circ$}}}{\\lambda}'), '\\overset{\\text{{$\\circ$}}}{\\lambda}', 'its argument stays in its group');
   assert.equal(tidyLatex('\\begin{cases}a & b\\end{cases}'), '\\begin{cases}a & b\\end{cases}', 'an environment is left as it is');
+});
+
+test('a display\'s equation number set apart at its right is left out of the formula and kept as its tag', () => {
+  const display = [...words('y = W x + b', 100), ...words('(12)', 100).map(g => ({ ...g, x0: g.x0 + 300, x1: g.x1 + 300 }))];
+  const found = equationNumber(display);
+  assert.equal(found?.tag, '(12)');
+  assert.equal(found?.body.map(g => g.text).join('').trim(), 'y = W x + b');
+  assert.equal(equationNumber(words('f(x) = (12)', 100)), null, 'a parenthesis in the formula is not a number');
+  const rows = [...words('a = b', 100), ...words('(3a)', 100).map(g => ({ ...g, x0: g.x0 + 300, x1: g.x1 + 300 })),
+    ...words('c = d', 115), ...words('(3b)', 115).map(g => ({ ...g, x0: g.x0 + 300, x1: g.x1 + 300 }))];
+  assert.equal(equationNumber(rows)?.tag, '(3a) (3b)');
+  const centred = [...words('a = b', 100), ...words('c = d', 125), ...words('(4)', 112).map(g => ({ ...g, x0: g.x0 + 300, x1: g.x1 + 300 }))];
+  assert.equal(equationNumber(centred)?.tag, '(4)', 'a number centred between two rows');
+  // Two-column REVTeX: "…+ f_p], (7)" with little more than half an em before the number, flush with the column's edge.
+  const tight = [...words('F = x + y,', 100), ...words('(7)', 100).map(g => ({ ...g, x0: g.x0 + 66, x1: g.x1 + 66 }))];
+  assert.equal(equationNumber(tight), null, 'not set apart enough without the box edge');
+  assert.equal(equationNumber(tight, 72 + 66 + 3 * 6 + 2)?.tag, '(7)', 'flush with the display box\'s right edge');
+});
+
+test('overlapping reference boxes in one column are read as one region; columns stay apart', () => {
+  const at = (cls: string, x0: number, top: number, x1: number, bottom: number): Region => ({ cls, score: 0.8, box: [x0, top, x1, bottom].map(v => v * 150 / 72), pt: [x0, top, x1, bottom] });
+  const merged = mergeOverlapping([at('bibitem', 54, 100, 290, 600), at('bibitem', 56, 300, 288, 700), at('paragraph', 54, 100, 290, 200),
+    at('bibitem', 315, 100, 550, 700)], 'bibitem');
+  assert.deepEqual(merged.map(r => [r.cls, Math.round(r.pt[1]), Math.round(r.pt[3])]), [['paragraph', 100, 200], ['bibitem', 100, 700], ['bibitem', 100, 700]]);
+  assert.equal(merged.filter(r => r.cls === 'bibitem').length, 2);
+});
+
+test('rules end to end: caption math, an equation number as a tag, a bibliography without a heading', () => {
+  const L = 54;
+  const para = line('A paragraph with $x$ in it, and more words follow here.', L, 100);
+  const display = line('$y = W x + b$', 110, 130), tag = line('(7)', 400, 130);
+  const caption = line('Figure 1: The loss $L$ falls with $k$ experts.', L, 330, 9);
+  const refs = [line('[1] A. Author. A first paper on routing. 2020.', L, 400), line('[2] B. Author. A second paper,', L, 415),
+    line('with a long title. 2021.', L + 10, 430), line('[3] C. Author. A third. 2022.', L, 445)];
+  const pages = [page([...para, ...display, ...tag, ...caption, ...refs.flat()], [
+    det('paragraph', extent(para), 0.9), det('display', extent([...display, ...tag], 3), 0.9), det('figure', [L, 160, 400, 320], 0.9),
+    det('caption', extent(caption), 0.9), det('bibitem', extent([...refs[0], ...refs[1], ...refs[2]]), 0.8), det('bibitem', extent([...refs[2], ...refs[3]]), 0.8),
+  ])];
+  const read = (rules: object) => {
+    const bundle = composeDevicePDFReader(input(1, { title: 'T', displayGate: 0.9, ...rules }), host(pages));
+    const index = JSON.parse(new TextDecoder().decode(bundle.members.get('reader.json')!));
+    return { html: new TextDecoder().decode(bundle.members.get('index.html')!), index, bundle };
+  };
+  const off = read({});
+  assert.ok(!/<figcaption>[^<]*<span class="reader-equation/.test(off.html));
+  const on = read({ captionMath: true, equationNumbers: true, bibliography: true, splitReferences: true });
+  assert.match(on.html, /<figcaption>Figure 1: The loss <span class="reader-equation reader-inline"/);
+  assert.match(on.html, /class="reader-equation reader-display reader-tagged"[^>]*><math display="block">.*?<\/math><span class="reader-tag">\(7\)<\/span>/);
+  assert.match(on.html, /<ul class="reader-references"><li[^>]*>\[1\] A\. Author[^<]*<\/li><li[^>]*>\[2\] B\. Author\. A second paper, with a long title\. 2021\.<\/li><li[^>]*>\[3\]/);
+  const figure = on.index.figures[0];
+  assert.match(figure.caption, /^Figure 1: The loss .+ falls with .+ experts\.$/);
+  assert.ok(on.index.equations.some((e: { block_id: string }) => e.block_id === figure.block_id), 'caption formulas belong to the figure');
+});
+
+test('the venue\'s notice on a first page is found: the proceedings line at the foot, the watermark at the head', () => {
+  const body = Array.from({ length: 20 }, (_, i) => words('We study the problem of routing and find that it matters.', 200 + i * 14, 11)).flat();
+  const affiliation = words('1Department of Things. Correspondence to: A. Author.', 690, 9);
+  const notice = [...words('Proceedings of the 41st International Conference on Machine', 702, 9), ...words('Learning, Vienna, Austria. PMLR 235, 2024.', 713, 9)];
+  const watermark = words('This CVPR paper is the Open Access version, provided by the Computer Vision Foundation.', 20, 8);
+  const found = new Set(venueNotice([...watermark, ...body, ...affiliation, ...notice], 792));
+  assert.ok([...notice, ...watermark].every(g => found.has(g) || !g.text.trim()));
+  assert.ok(![...body, ...affiliation].some(g => found.has(g)), 'the text and the affiliation line above the notice stay');
+  const ownText = words('as presented at the Conference on Learning Theory.', 700, 11);
+  assert.equal(venueNotice([...body, ...ownText], 792).length, 0, 'the paper\'s own text at the foot, in its own size, stays');
+});
+
+test('fonts the tagger does not know read as the ones they stand for', () => {
+  const vocab = { font_vocab: { CMMI: 12, CMSY: 20, CMEX: 94, CMR: 2, MSBM: 102, 'LMMathItalic10-Regular': 64 } };
+  assert.equal(aliasFont('ABCDEF+CMMI10', vocab), 'ABCDEF+CMMI10', 'a known font is kept');
+  assert.equal(aliasFont('ABCDEF+LMMathItalic6-Regular', vocab), 'LMMathItalic10-Regular', 'a Latin Modern size as its 10 pt design');
+  assert.equal(aliasFont('ABCDEF+MathDesign-CH-Regular-Italic-MathItalic-10', vocab), 'CMMI10');
+  assert.equal(aliasFont('ABCDEF+MathDesign-CH-Regular-Symbol-10', vocab), 'CMSY10');
+  assert.equal(aliasFont('ABCDEF+MathDesign-CH-Regular-Extension-10', vocab), 'CMEX10');
+  assert.equal(aliasFont('ABCDEF+MathDesign-CH-Regular-OT1-10', vocab), 'CMR10');
+  assert.equal(aliasFont('ABCDEF+TeX-matha', vocab), 'CMSY10');
+  assert.equal(aliasFont('ABCDEF+GoogleSans-Regular', vocab), 'ABCDEF+GoogleSans-Regular', 'a text font it cannot place is kept');
 });

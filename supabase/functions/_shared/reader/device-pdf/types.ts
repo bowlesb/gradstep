@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 5;
+export const DEVICE_PDF_PORT_REVISION = 6;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -102,6 +102,23 @@ export interface DevicePDFInput {
   headingDupes?: boolean;
   /** A references region holding several entries read as its entries (convert.referenceEntries). */
   splitReferences?: boolean;
+  /** Figure and table captions keep their math as marked text (tagged and font-found formulas), as paragraphs do. */
+  captionMath?: boolean;
+  /** A bibliography without a heading read as references, overlapping entry boxes merged, entries continued across regions. */
+  bibliography?: boolean;
+  /** A display's equation number ("(12)", set apart at its right) is left out of the recogniser's crop and shown as the
+   * equation's tag (convert.equationNumber). */
+  equationNumbers?: boolean;
+  /** Overlapping display boxes (a group and its rows) read as one display (convert.mergeOverlapping). */
+  mergeDisplays?: boolean;
+  /** The venue's notice on the first page (proceedings line, copyright, open-access watermark) left out (structure.venueNotice). */
+  venueNotice?: boolean;
+  /** A display's full stop or comma set just outside its box is added to its LaTeX (convert.trailingPunctuation). */
+  displayPunctuation?: boolean;
+  /** Fonts the tagger does not know read as the ones they stand for (tagger.aliasFont). */
+  fontAliases?: boolean;
+  /** The display gate's threshold (second-lowest token probability) instead of GATE_DISPLAY; 0.5 to 1. */
+  displayGate?: number;
 }
 
 export interface Formula {
@@ -114,4 +131,10 @@ export interface Formula {
   /** Written from the text layer (transcribe.ts), not read by the recogniser. */
   transcribed?: boolean;
   rendered: boolean; mathml?: unknown; image?: { path: string; width: number; height: number };
+  /** A display's equation number, read from the text layer (equationNumbers) and left out of `box`. */
+  tag?: string;
+  /** Where the formula's image is cut when it differs from `box` (the display with its number). */
+  imageBox?: Box;
+  /** The punctuation after a display, outside its box (displayPunctuation). */
+  trailing?: string;
 }

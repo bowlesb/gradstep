@@ -22,7 +22,8 @@ public final class DevicePDFRoute {
         public var record = false
         /// Converter rules beyond the port kit, by their input names (device-pdf/types.ts): `transcribe` (simple inline
         /// formulas from the text layer), `frontMatter` (the title page's title and author lines found by the library's
-        /// metadata), `tidy` (confident recognitions Temml refuses, tidied).
+        /// metadata), `tidy` (confident recognitions Temml refuses, tidied), …; `name=number` sets a numeric option
+        /// (`displayGate=0.9`). The converter ignores names it does not know.
         public var rules: Set<String> = []
         /// The library's authors (the `frontMatter` rule finds the author lines by them).
         public var authors: [String] = []
@@ -285,7 +286,7 @@ public final class DevicePDFRoute {
             "pdf": ["sha256": digest, "bytes": data.count, "name": name], "pages": pageCount,
             "models": models.provenance, "tagger": models.taggerVocabulary, "trace": options.trace, "record": options.record,
         ]
-        for rule in options.rules where ["transcribe", "frontMatter", "tidy", "fontMath", "extendSpans", "lineOwners", "headingDupes", "splitReferences"].contains(rule) { input[rule] = true }
+        for (name, value) in Self.converterRules(options.rules) { input[name] = value }
         if !options.authors.isEmpty { input["authors"] = Array(options.authors.prefix(200)) }
         if let title = options.title { input["title"] = title }
         if let sourceID = options.sourceID, let revision = options.revision { input["paper"] = ["source_id": sourceID, "revision": revision] }
@@ -333,5 +334,20 @@ public final class DevicePDFRoute {
         }
         let summary = (value.objectForKeyedSubscript("summary")?.toDictionary()).flatMap { try? JSONSerialization.data(withJSONObject: $0) } ?? Data("{}".utf8)
         return Output(manifest: manifest, manifestSHA256: sha, members: members, summary: summary, trace: trace)
+    }
+}
+
+@available(iOS 18.0, macOS 15.0, *)
+extension DevicePDFRoute {
+    /// The converter's input options for `Options.rules`: a bare name is `true`, `name=number` a number; anything else is
+    /// dropped (names are ASCII letters; the converter ignores those it does not know).
+    public static func converterRules(_ rules: Set<String>) -> [(String, Any)] {
+        rules.sorted().compactMap { rule -> (String, Any)? in
+            let parts = rule.split(separator: "=", maxSplits: 1).map(String.init)
+            guard let name = parts.first, !name.isEmpty, name.count <= 40, name.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+            if parts.count == 1 { return (name, true) }
+            guard let number = Double(parts[1]), number.isFinite else { return nil }
+            return (name, number)
+        }
     }
 }

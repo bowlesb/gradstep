@@ -5,6 +5,24 @@ import type { Glyph, TagLine, TaggerVocabulary } from './types.ts';
 
 export const fontFamily = (font: string): string => font.replace(/^[A-Z]{6}\+/, '').replace(/\d+$/, '');
 
+/** A font the tagger's vocabulary does not know, named as the one it reads like (fontAliases; venue templates and
+ * packages set math in fonts arXiv training papers rarely used): a Latin Modern size variant as its 10 pt design
+ * ("LMMathItalic6-Regular"), a math italic, symbol, extension or blackboard font by its name (MathDesign, mathabx,
+ * MnSymbol, URW's Symbol) as Computer Modern's. Known fonts and unrecognised names are returned unchanged. */
+export function aliasFont(font: string, vocab: { font_vocab: Record<string, number> }): string {
+  const family = fontFamily(font);
+  if (family in vocab.font_vocab) return font;
+  const sized = family.replace(/^(LM[A-Za-z]+?)\d+(-)/, '$110$2');
+  if (sized !== family && sized in vocab.font_vocab) return sized;
+  const bold = /Bold/i.test(family);
+  if (/Math.?Italic|MathMI|-MI$|^TeX-mathi/i.test(family)) return bold ? 'CMMIB10' : 'CMMI10';
+  if (/Blackboard|DoubleStruck|^bbold|^dsrom|^msbm/i.test(family)) return 'MSBM10';
+  if (/Extension|-EX$|^TeX-mathx|MathEX/i.test(family)) return 'CMEX10';
+  if (/Math.?Symbol|Symbol(A|B)?-?$|MathDesignSymbol|-SY$|^TeX-math[ab]|^MnSymbol|^StandardSymL|^Cmsy$/i.test(family)) return bold ? 'CMBSY10' : 'CMSY10';
+  if (/^MathDesign-.*-(OT1|T1)-?$/i.test(family)) return 'CMR10';
+  return font;
+}
+
 // Python's str.isdigit(): decimal digits and the Unicode "Digit" numerics (superscripts, circled digits).
 const DIGIT = /^[\p{Nd}²³¹⁰⁴-⁹₀-₉①-⑨⑴-⑼⒈-⒐⓪⓵-⓽⓿❶-❾➀-➈➊-➒]$/u;
 export function charClass(ch: string): number {

@@ -5,12 +5,13 @@ import { check, fail, sha256Hex, utf8 } from '../util.ts';
 import { argsort, assign, byX, canonicalText, centreIn, clipBytes, growLines, joinLines, lineText, linesOf, median, orphanRegions,
   pyRound, recogniserRect, union, visible } from './geometry.ts';
 import { confidence, renderMath, tidyLatex } from './math.ts';
-import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure } from './structure.ts';
+import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
-import { spansOf, tagInput } from './tagger.ts';
+import { aliasFont, spansOf, tagInput } from './tagger.ts';
 import { mathRuns, transcribe } from './transcribe.ts';
 import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
-  PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region } from './types.ts';
+  PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region,
+  type TaggerVocabulary } from './types.ts';
 
 /** A piece of text with formula markers (`__EQ_<id>__`) where the reference's HTML had them. */
 export type Marked = string;
@@ -24,8 +25,8 @@ export type LogicalBlock =
   | { kind: 'equation'; formula: string }
   | { kind: 'code'; lines: Marked[]; text: string }
   | { kind: 'references'; refs: string[] }
-  | { kind: 'figure'; table: boolean; page: number; rect: [number, number, number, number]; caption: string }
-  | { kind: 'cells'; caption: string; rows: { marked: Marked; span: number }[][]; text: string };
+  | { kind: 'figure'; table: boolean; page: number; rect: [number, number, number, number]; caption: string; captionMarked?: Marked }
+  | { kind: 'cells'; caption: string; captionMarked?: Marked; rows: { marked: Marked; span: number }[][]; text: string };
 
 export interface TraceIndex {
   format: string; title: string;
@@ -43,11 +44,13 @@ export interface Reading {
   submissions: { ticket: number; formulas: Formula[] }[];
   /** The recogniser's LaTeX tidied when Temml refuses it as read (math.tidyLatex). */
   tidy: boolean;
+  /** The display gate's threshold (input.displayGate, else GATE_DISPLAY). */
+  displayGate: number;
 }
 
 interface Page { width: number; height: number; imageWidth: number; imageHeight: number; scale: number; glyphs: Glyph[]; detections: PageInput['detections'] }
 
-function readPage(raw: PageInput): Page {
+function readPage(raw: PageInput, aliases?: TaggerVocabulary): Page {
   check(raw && typeof raw === 'object', 'device_pdf_page');
   const g = raw.glyphs, n = g?.text?.length ?? -1;
   check(n >= 0 && n <= 200_000 && ['x0', 'top', 'x1', 'bottom', 'size', 'font', 'upright'].every(k => (g as Record<string, unknown[]>)[k]?.length === n), 'device_pdf_page');
@@ -55,7 +58,8 @@ function readPage(raw: PageInput): Page {
   check([raw.width, raw.height, raw.image_width, raw.image_height, raw.scale].every(finite) && raw.width > 0 && raw.height > 0 && raw.scale > 0, 'device_pdf_page');
   const glyphs: Glyph[] = [];
   for (let i = 0; i < n; i++) {
-    const glyph = { text: String(g.text[i] ?? ''), x0: +g.x0[i], top: +g.top[i], x1: +g.x1[i], bottom: +g.bottom[i], size: +g.size[i], font: String(g.font[i] ?? ''), upright: !!g.upright[i] };
+    const font = String(g.font[i] ?? '');
+    const glyph = { text: String(g.text[i] ?? ''), x0: +g.x0[i], top: +g.top[i], x1: +g.x1[i], bottom: +g.bottom[i], size: +g.size[i], font: aliases ? aliasFont(font, aliases) : font, upright: !!g.upright[i] };
     if (![glyph.x0, glyph.top, glyph.x1, glyph.bottom, glyph.size].every(Number.isFinite)) continue;
     glyphs.push(glyph);
   }
@@ -70,7 +74,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const cancelled = () => { if (host.cancelled?.()) fail('cancelled'); };
   // The text layer and the layout of every page first: running heads are known only from the whole document.
   const pages: Page[] = [];
-  for (let p = 0; p < nPages; p++) { cancelled(); pages.push(readPage(host.page(p))); host.progress?.('layout', p + 1, nPages); }
+  for (let p = 0; p < nPages; p++) { cancelled(); pages.push(readPage(host.page(p), input.fontAliases ? input.tagger : undefined)); host.progress?.('layout', p + 1, nPages); }
   const known = furniture(pages.map(page => ({ glyphs: page.glyphs, height: page.height })));
   const s = DPI / 72;
   const blocks: LogicalBlock[] = [];
@@ -97,6 +101,8 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     trace.equations.push({ id: f.id, block_id: blockID, latex: '', display: f.display, source_form: sourceForm });
   };
   let title = '', inReferences = false, refs: string[] = [];
+  /** References read without a heading (bibliography): they end at the first region that is not an entry. */
+  let headless = false;
   let para: { marked: Marked; text: string; formulas: Formula[]; role: '' | 'abstract' }[] = [];
   let nGlyphs = 0, nUnowned = 0, recognitionFailures = 0;
 
@@ -171,10 +177,15 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     cancelled();
     const page = pages[p];
     const heads = new Set(marginGlyphLines(page.glyphs, page.height).filter(([text]) => known.has(text)).flatMap(([, ln]) => ln));
+    // The venue's notice on the first page (proceedings line, copyright, open-access watermark) is not the paper's text.
+    if (input.venueNotice && p === 0) for (const g of venueNotice(page.glyphs, page.height)) heads.add(g);
     let glyphs = page.glyphs.filter(g => visible(g) && !heads.has(g));
     let regions: Region[] = page.detections.map(d => ({ cls: d.cls, score: d.score, box: d.box.map(v => v / page.scale), pt: d.box.map(v => v / page.scale / s) as Box }));
     const dropped = new Set(regions.filter(r => isFurniture(r, glyphs, page.height, known) || (p === 0 && isFrontMatter(r, glyphs))));
     regions = regions.filter(r => !dropped.has(r));
+    if (input.bibliography) regions = mergeOverlapping(regions, 'bibitem');
+    // A display boxed twice (the group and a row of it) would be read in pieces: one formula, as it was set.
+    if (input.mergeDisplays) regions = mergeOverlapping(regions, 'display');
     const gone = new Set(glyphs.filter(g => [...dropped].some(r => centreIn(g, r.pt))));
     glyphs = glyphs.filter(g => !gone.has(g));
     regions = [...regions, ...orphanRegions(glyphs, growLines(glyphs, assign(glyphs, regions)), s)];
@@ -199,6 +210,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const candidates: Glyph[][] = [];
     for (const r of ordered) {
       if (TAGGED.has(r.cls)) candidates.push(...linesFor(r).filter(l => l.length >= 2));
+      if (input.captionMath) for (const c of r.captions ?? []) candidates.push(...linesFor(c).filter(l => l.length >= 2));
       if (r.cls === 'table') {
         const body = owned(r).filter(visible), cells = cellsFor(r);
         if (cells && cells.reduce((n, row) => n + row.reduce((m, [gl]) => m + gl.length, 0), 0) >= TABLE_PLACED * body.length) {
@@ -225,16 +237,32 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     for (const r of ordered) {
       let cls = r.cls;
       if (cls === 'figure' || cls === 'table') { float(r, p); continue; }
+      // A bibliography without a heading ends where its entries do: at a display, or a paragraph that opens without a label.
+      if (headless && inReferences && (cls === 'display' || cls === 'listing' || cls === 'abstract' ||
+        (cls === 'paragraph' && !REFERENCE_LABEL.test(lineText(linesFor(r)[0] ?? [], [])[0])))) {
+        if (refs.length) flushRefs();
+        inReferences = false; headless = false;
+      }
       if (cls === 'display') {
         flushPara(); prevCls = cls;
         const body = owned(r);
-        const f = makeFormula(body, p, true, body.length ? median(body.map(g => g.size)) : 10, body.length ? union(body) : r.pt);
+        // The equation number is not part of the formula the recogniser learnt to read (equationNumbers).
+        const numbered = input.equationNumbers ? equationNumber(body, r.pt[2]) : null;
+        const formulaBody = numbered?.body ?? body;
+        const f = makeFormula(formulaBody, p, true, body.length ? median(body.map(g => g.size)) : 10, formulaBody.length ? union(formulaBody) : r.pt);
+        if (numbered) { f.tag = numbered.tag; f.imageBox = union(body); }
+        // The full stop or comma after a display often falls just outside its box, unowned; the formula keeps it.
+        if (input.displayPunctuation) f.trailing = trailingPunctuation(formulaBody, glyphs.filter((_, i) => owner[i] === null));
         blocks.push({ kind: 'equation', formula: f.id });
         commit(f, addTrace('equation', PLACEHOLDER), 'environment');
         continue;
       }
       const inside = owned(r);
       if (!inside.length) continue;
+      // A bibliography without a heading (REVTeX): the layout's reference entries, two or more opening with a label.
+      if (input.bibliography && !inReferences && cls === 'bibitem' && linesFor(r).filter(l => REFERENCE_LABEL.test(lineText(l, [])[0])).length >= 2) {
+        flushPara(); inReferences = true; headless = true;
+      }
       const texts: string[] = [], parts: Marked[] = [], tagFormulas: Formula[] = [];
       for (const line of linesFor(r)) {
         let spans = TAGGED.has(cls) && !inReferences ? spansFor(line) : [];
@@ -271,7 +299,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         blocks.push({ kind: 'heading', level: 1, marked: inner, text }); addTrace('heading', text, 1);
       } else if (cls === 'heading') {
         if (inReferences && refs.length) flushRefs();
-        inReferences = /^\s*(\d+\.?\s*)?(references|bibliography|literature cited|works cited)\b/i.test(text);
+        inReferences = /^\s*(\d+\.?\s*)?(references|bibliography|literature cited|works cited)\b/i.test(text); headless = false;
         const level = /^\d+(\.\d+)*\.?\s/.test(text) ? 2 + Math.min(2, (text.trim().split(' ')[0].match(/\./g) ?? []).length) : 2;
         blocks.push({ kind: 'heading', level, marked: inner, text, trace: addTrace('heading', text, level) });
       } else if (cls === 'listing') {
@@ -281,8 +309,15 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       } else if (inReferences && (cls === 'paragraph' || cls === 'bibitem')) {
         // One region often holds several entries (the layout boxes a column of them): each entry starts at a line that
         // opens with a label ("[12]", "12.") or sits out to the left of the line before (hanging indent).
-        if (input.splitReferences) refs.push(...referenceEntries(linesFor(r), texts));
-        else refs.push(text);
+        if (input.splitReferences) {
+          const entries = referenceEntries(linesFor(r), texts);
+          // An entry broken by a column or page (a bibliography without a heading): a region that opens without a
+          // label, after labelled entries, continues the last one.
+          if (headless && entries.length && refs.length && !REFERENCE_LABEL.test(entries[0]) && REFERENCE_LABEL.test(refs[refs.length - 1])) {
+            refs[refs.length - 1] = joinLines([refs[refs.length - 1], entries.shift()!]);
+          }
+          refs.push(...entries);
+        } else refs.push(text);
       } else if (cls === 'footnote') {
         notes.push({ marked: inner, text, formulas: tagFormulas });
         continue; // a footnote at the column's foot does not close the paragraph above it
@@ -312,6 +347,17 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       if (rect[2] - rect[0] < 8 || rect[3] - rect[1] < 8) return;
       const caps = (r.captions ?? []).map(c => joinLines(linesOf(owned(c)).map(ln => lineText(ln, [])[0])));
       const capText = caps.filter(Boolean).join(' ');
+      // Captions keep their math (captionMath): the tagger's spans and font-found math, as in a paragraph's lines.
+      const capFormulas: Formula[] = [];
+      const captionMarked = input.captionMath ? (r.captions ?? []).map(c => joinLines(linesFor(c).map(line => {
+        let spans = spansFor(line);
+        if (input.fontMath && spans.length < 64) spans = [...spans, ...fontSpans(line, spans)].sort((a, b) => a[0] - b[0]);
+        const [text, fl] = lineText(line, spans);
+        let marked = text;
+        const size = median(line.map(g => g.size));
+        for (const gl of fl) { const f = makeFormula(gl, pageIndex, false, size); capFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
+        return marked;
+      }))).filter(Boolean).join(' ') : undefined;
       const kind = r.cls === 'figure' ? 'figure' : 'table';
       if (kind === 'table') {
         const body = owned(r).filter(visible);
@@ -336,15 +382,16 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
             rows.push(tds);
           }
           const text = canonicalText([...(capText ? [capText] : []), ...texts].join(' '));
-          blocks.push({ kind: 'cells', caption: capText, rows, text });
+          blocks.push({ kind: 'cells', caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}), rows, text });
           const bid = addTrace('table', text);
-          for (const f of cellFormulas) commit(f, bid, 'body');
+          for (const f of [...capFormulas, ...cellFormulas]) commit(f, bid, 'body');
           return;
         }
       }
-      const block: LogicalBlock = { kind: 'figure', table: kind === 'table', page: pageIndex, rect, caption: capText };
+      const block: LogicalBlock = { kind: 'figure', table: kind === 'table', page: pageIndex, rect, caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}) };
       blocks.push(block);
       const bid = addTrace(kind, capText);
+      for (const f of capFormulas) commit(f, bid, 'body');
       traceFigureBlocks.set(block, bid);
       if (kind === 'figure') trace.figures.push({ id: bid, block_id: bid, asset_paths: [], caption: clipBytes(capText, 20_000),
         alt: clipBytes(capText ? capText.split('. ')[0] : 'Figure', 2000) });
@@ -357,8 +404,55 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
 
   trace.title = title || input.pdf.name.replace(/\.[^.]*$/, '');
   return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions, tidy: !!input.tidy,
+    displayGate: typeof input.displayGate === 'number' && input.displayGate >= 0.5 && input.displayGate <= 1 ? input.displayGate : GATE_DISPLAY,
     unowned: pyRound(nUnowned / Math.max(1, nGlyphs), 4),
     pages: pages.map(pg => ({ width: pg.width, height: pg.height, imageWidth: pg.imageWidth, imageHeight: pg.imageHeight })) };
+}
+
+/** The punctuation mark that ends a display just outside its box, or '': among `free` glyphs, a run to the right of
+ * the formula (each within 0.8 em of the one before; a closing delimiter the box cut off may come first) whose last
+ * glyph is a full stop, comma or semicolon in the lower part of the formula (its last row, or beside limits below it). */
+export function trailingPunctuation(body: readonly Glyph[], free: readonly Glyph[]): string {
+  const shown = body.filter(visible);
+  if (!shown.length) return '';
+  const em = median(shown.map(g => g.size)) || 10, top = Math.min(...shown.map(g => g.top)), bottom = Math.max(...shown.map(g => g.bottom));
+  let right = Math.max(...shown.map(g => g.x1));
+  const beside = byX(free.filter(g => visible(g) && g.x0 >= right - 0.1 * em && g.x0 - right <= 3 * em && (g.top + g.bottom) / 2 >= top && (g.top + g.bottom) / 2 <= bottom + 0.3 * em));
+  for (const g of beside) {
+    if (g.x0 - right > 0.8 * em) break;
+    if (/^[.,;]$/.test(g.text)) return (g.top + g.bottom) / 2 >= top + 0.4 * (bottom - top) ? g.text : '';
+    right = Math.max(right, g.x1);
+  }
+  return '';
+}
+
+const NUMBER_TAG = /^\((?:[A-Z]{1,2}\.?)?\d{1,3}(?:\.\d{1,3})?[a-z]?\)$/;
+/** A display's equation numbers: on each of its lines, a run of glyphs reading "(12)", "(3.4)", "(A.1)" or "(81a)" set
+ * apart to the right of the formula (1.5 em or more, or half an em when it ends within 1.5 em of the display box's right
+ * edge `right`, where a tight two-column layout sets it), or alone on a line of its own right of everything else (a
+ * number centred between rows). Returns the glyphs without the numbers and the numbers as one tag; null when none. */
+export function equationNumber(body: readonly Glyph[], right = Infinity): { body: Glyph[]; tag: string } | null {
+  const shown = body.filter(visible);
+  if (shown.length < 4) return null;
+  const em = median(shown.map(g => g.size)) || 10;
+  const drop = new Set<Glyph>(), tags: { top: number; text: string }[] = [];
+  for (const line of linesOf(shown)) {
+    const order = byX(line);
+    let k = order.length - 1;
+    while (k > 0 && order[k].x0 - order[k - 1].x1 < 0.5 * em) k--;
+    const run = order.slice(k), text = run.map(g => g.text).join('').replace(/\s+/g, '');
+    if (!NUMBER_TAG.test(text)) continue;
+    const rest = shown.filter(g => !run.includes(g) && !drop.has(g));
+    if (rest.length < 3) continue;
+    const gap = k > 0 ? run[0].x0 - order[k - 1].x1 : run[0].x0 - Math.max(...rest.map(g => g.x1));
+    const flush = right - Math.max(...run.map(g => g.x1)) <= 1.5 * em;
+    const apart = gap >= 1.5 * em || (flush && gap >= 0.5 * em);
+    if (!apart) continue;
+    for (const g of run) drop.add(g);
+    tags.push({ top: Math.min(...run.map(g => g.top)), text });
+  }
+  if (!tags.length) return null;
+  return { body: body.filter(g => !drop.has(g)), tag: tags.sort((a, b) => a.top - b.top).map(t => t.text).join(' ') };
 }
 
 // One sorted copy per cell glyph list, so the tagger's results are found again by identity.
@@ -387,8 +481,30 @@ export function fontSpans(line: readonly Glyph[], taken: readonly [number, numbe
 /** A references region's lines (glyphs, and their text) as its entries: a line starts an entry when it opens with a
  * label ("[12]", "12.", "(12)") or begins more than half an em left of the line before (the hanging indent most styles
  * use); otherwise it continues the entry, a word broken at the line's end joined. */
+const REFERENCE_LABEL = /^\s*(\[\s*[\w+.\-]{1,12}\s*\]|\(\d{1,4}\)|\d{1,4}\.)\s/;
+/** Regions of one class that overlap within a column, as one region (their union): the layout often boxes a column of
+ * reference entries as overlapping regions, and glyphs shared between them would be read in two pieces out of order.
+ * Regions overlap when they share more than half of the narrower one's width and any height. */
+export function mergeOverlapping(regions: readonly Region[], cls: string): Region[] {
+  const same = regions.filter(r => r.cls === cls).map(r => ({ ...r, box: [...r.box], pt: [...r.pt] as Box }));
+  const overlap = (a: Region, b: Region) => Math.min(a.box[2], b.box[2]) - Math.max(a.box[0], b.box[0]) > 0.5 * Math.min(a.box[2] - a.box[0], b.box[2] - b.box[0])
+    && Math.min(a.box[3], b.box[3]) - Math.max(a.box[1], b.box[1]) > 0;
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < same.length && !merged; i++) for (let j = i + 1; j < same.length && !merged; j++) {
+      if (!overlap(same[i], same[j])) continue;
+      const a = same[i], b = same[j];
+      a.box = [Math.min(a.box[0], b.box[0]), Math.min(a.box[1], b.box[1]), Math.max(a.box[2], b.box[2]), Math.max(a.box[3], b.box[3])];
+      a.pt = [Math.min(a.pt[0], b.pt[0]), Math.min(a.pt[1], b.pt[1]), Math.max(a.pt[2], b.pt[2]), Math.max(a.pt[3], b.pt[3])];
+      a.score = Math.max(a.score, b.score);
+      same.splice(j, 1); merged = true;
+    }
+  }
+  return [...regions.filter(r => r.cls !== cls), ...same];
+}
+
 export function referenceEntries(lines: readonly Glyph[][], texts: readonly string[]): string[] {
-  const label = /^\s*(\[\s*[\w+.\-]{1,12}\s*\]|\(\d{1,4}\)|\d{1,4}\.)\s/;
+  const label = REFERENCE_LABEL;
   const lefts = lines.map(l => Math.min(...l.filter(visible).map(g => g.x0)));
   const sizes = lines.map(l => median(l.map(g => g.size)) || 10);
   const labelled = texts.filter(t => label.test(t)).length >= 2;
@@ -557,7 +673,9 @@ export function settle(reading: Reading, host: DevicePDFHost): void {
 export function gate(reading: Reading): void {
   for (const id of reading.committed) {
     const f = reading.formulas.get(id)!;
-    if (f.latex && f.confidence >= (f.display ? GATE_DISPLAY : GATE)) {
+    // A display's punctuation the recogniser could not see (displayPunctuation): after the formula, as LaTeXML sets it.
+    if (f.trailing && f.latex && !f.transcribed && !/[.,;]\s*(\\end\{[a-z*]+\}\s*)?$/.test(f.latex)) f.latex = `${f.latex}${f.trailing}`;
+    if (f.latex && f.confidence >= (f.display ? reading.displayGate : GATE)) {
       let math = renderMath(f.latex, f.display);
       // Port revision 5: the recogniser's LaTeXML-style rows and package commands, tidied when Temml refuses them as read.
       if (!math && reading.tidy) {
