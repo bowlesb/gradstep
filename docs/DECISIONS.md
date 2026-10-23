@@ -252,6 +252,15 @@ for entire PDFs is too ambitious" and the Mathpix research
   lower threshold would typeset more displays at lower precision: an owner choice, not taken). The desktop project (`/home/ben/mathpix`) stays read-only; new training or
   export work runs in `/home/ben/science-reader-device-pdf` on the desktop, and any new model reaches the app only
   through `scripts/device-models.mjs` and a lock update.
+- 2026-10-23 (owner: "if it works it will be a big unlock for non arXiv papers"; agent decisions, reversible, each
+  measured on two arXiv corpora and a new 31-paper corpus of venue PDFs, [review](reviews/DEVICE_PDF_ROUTE_20261023.md)):
+  ten more converter rules are on in the app (equation numbers out of the recogniser's crop, overlapping displays as
+  one, line bands, font aliases, caption math, word gaps, headless bibliographies, display punctuation, text accents,
+  venue notices); a page with no usable text layer (a scan, or fonts without a Unicode mapping) is read with Apple's
+  on-device text recogniser (Vision), on the device only; the display gate stays at 0.95 (0.9 loses typeset precision on
+  every corpus); the recogniser's export gains a 512-token decoder cache (same weights; only formulas the old cache cut
+  off read differently; lock updated). Venue PDFs used for evaluation are open-access local research copies on the Mac,
+  never in the repo.
 
 
 ## Subfigures: rough zoom is the goal (owner, 2026-10-21)

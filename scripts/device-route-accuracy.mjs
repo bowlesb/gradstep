@@ -225,7 +225,9 @@ export function readBundle(html, { device = false } = {}) {
         // The truth's glyphs from its LaTeX through Temml, as the device's are (LaTeXML's own MathML rewrites some symbols:
         // an argument list's ";" becomes ","), else from its MathML.
         const latex = n.attribs['data-latex'] ?? '';
-        const leaves = device ? (math ? leafText(math) : null) : ((temml && latex && texLeaves(latex, display)) || (math ? leafText(math) : null));
+        // (An author's macro Temml does not know comes out as its own name, "\\dist": then the MathML.)
+        const viaTemml = !device && temml && latex ? texLeaves(latex, display) : '';
+        const leaves = viaTemml && !viaTemml.includes('\\') ? viaTemml : math ? leafText(math) : null;
         tokens.push({ f: true, id: n.attribs.id, display, latex, shown, leaves });
         return;
       }

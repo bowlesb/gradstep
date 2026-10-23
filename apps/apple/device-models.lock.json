@@ -1,5 +1,5 @@
 {
- "note": "Package digests of the device route models (scripts/device-models.mjs). Layout and tagger: converter 0.1.0 port kit, 2026-10-14; recogniser: texteller-ft-v4 as one batched multifunction package, 2026-10-21.",
+ "note": "Package digests of the device route models (scripts/device-models.mjs). Layout and tagger: converter 0.1.0 port kit, 2026-10-14; recogniser: texteller-ft-v4 as one batched multifunction package with a 512-token cache, 2026-10-23.",
  "models": {
   "layout": {
    "export": "layout-fcos-v5-coreml",
@@ -12,9 +12,9 @@
    "sha256": "516064d074f540bf1cb700a4fd52bbeacdeb6e5cf975c3c459ca5b4d8ff72121"
   },
   "recogniser": {
-   "export": "texteller-ft-v4-mf8-int8",
+   "export": "texteller-ft-v4-mf8-int8-l512",
    "package": "recogniser.mlpackage",
-   "sha256": "6ff1fb4da995aaf7809c1f238f5fc93c3b3872afaf6b8aa9756f35dc51b3d054"
+   "sha256": "636c81fb98f3480189bc229cc3cf114db148b5c3bcb88fe17b20cf7a8d79b403"
   }
  }
 }

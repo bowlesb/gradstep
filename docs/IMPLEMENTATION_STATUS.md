@@ -1,5 +1,33 @@
 # Implementation status
 
+## On-device PDF route on publishers' PDFs: ten rules, text recognition, a longer recogniser cache — 2026-10-23 (local source; not released)
+
+Owner, 2026-10-22: "if it works it will be a big unlock for non arXiv papers." Full measurements:
+[review](reviews/DEVICE_PDF_ROUTE_20261023.md); design: [DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md#non-arxiv-layouts--port-revisions-69-2026-10-2223).
+
+- **New evaluation set**: 31 open-access venue PDFs (ACL, CVPR, ICML/AISTATS, NeurIPS, JMLR, ICLR, SciPost/TACL/Quantum)
+  scored against the same papers' arXiv HTML, with their arXiv PDFs as a control (local research copies on the Mac,
+  manifest with sources and licences); 7 PDFs with no arXiv version reviewed from screenshots; 4 scanned copies. The
+  harness (`scripts/device-route-accuracy.mjs`) adds per-template scores, a control PDF (`--pdf`), a shared-content text
+  F1, and scores the truth's formulas through Temml like the device's; replays merge records (`--also`).
+- **Converter port revision 9**: ten rules on in the app (`DeviceModelReading.rules`): equation numbers out of the
+  recogniser's crop (shown as the tag), overlapping displays as one, line bands (no more interleaved lines), font aliases
+  (MathDesign, mathabx, PLOS's renamed Computer Modern), caption math, word gaps for justified/tracked text, bibliographies
+  without a heading, display punctuation, text accents, first-page venue notices. The display gate stays 0.95.
+- **Host**: a page with an empty or unreadable text layer is read by Vision's on-device text recogniser
+  (`DevicePDFOCR.swift`, `Options.ocrFallback`); the host forwards any converter rule (and `name=number` options).
+- **Recogniser**: the same weights exported with a 512-token decoder cache (`texteller-ft-v4-mf8-int8-l512`, desktop CPU
+  export; `scripts/device-models.mjs` and the lock updated): cut-off recognitions read whole, all others unchanged; display
+  glyph-right +0.010 to +0.013; decoder step +13 %, a batch's state 0.41 → 0.51 GB. No fine-tune was run; the review has
+  the plan (display boxes first, then training crops cut the way the app cuts them).
+- **Results** (before → after, the 512-token recogniser included): arXiv test text F1 0.857 → 0.890, display glyph-right
+  0.801 → 0.892 (typeset precision 0.924 → 0.976), inline found 0.777 → 0.841; dev 0.876 → 0.896, displays 0.775 → 0.902;
+  venue text F1 0.795 → 0.844, shared-content 0.872 → 0.899 (the arXiv PDFs of the same papers: 0.898), displays
+  0.533 → 0.622; a CVPR PDF with no usable text layer 0.00 → 0.51; scans from no text at all to text F1 0.82.
+- Evidence: `npm test` passes; `swift test --filter DevicePDF` 18 tests pass; the Mac Catalyst app builds; Simulator
+  `DeviceModelJourneyTests` (iPhone 17 Pro) passes. Not verified: any iPhone (paused); timing on a quiet machine (the Mac
+  was shared throughout); the 512-token recogniser on a phone (state memory on 6 GB devices).
+
 ## TestFlight 84, browser and admin release — 2026-10-22 UTC
 
 iOS and Mac build 84 uploaded (the Mac archive was retried once after a derived-data permission error); browser and
