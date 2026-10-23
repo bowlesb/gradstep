@@ -1900,3 +1900,29 @@ mental model] in some type of flow, html, or graph." Decisions taken to build a 
 - **Not done:** persistence across sessions, a cross-paper model of the reader, quizzes with scoring, spaced
   repetition, and any admin or analytics view. The proposal in
   [proposals/LEARNING_GUIDE.md](proposals/LEARNING_GUIDE.md) remains the place for the product angle.
+
+## Tall and Wide layouts, two slots (owner decided 2026-10-22 after the cross-surface UX audit)
+
+Owner: the web "seems extremely cluttered with an inconsistent placement of buttons and styling"; the iPhone "feels
+planned, controlled and well thought out". Decisions, in the owner's order of conversation:
+
+- **Layout follows the window's shape, not the device.** Wide = wider than tall and at least ~1,000 pt; otherwise
+  Tall. Tall is the iPhone app exactly (iPhone, iPad upright, Split View halves, narrow windows). Wide is the laptop
+  layout (browser, Mac, iPad sideways: "when an iPad flips over it becomes laptop oriented").
+- **One top row on Wide** ("having two rows is awkward at the top… just one row"), about 52 pt: the five places
+  (Feed · Library · Paper · Chat · Snippets, with 🔍 last) and each slot's own where-to-go, create and ⋯. No brand
+  row, no gear: Settings is the last row of every ⋯. Bottom: only the chat composer. Search, find, notices and sync
+  status float over content; nothing inserts a row. New features must fit an existing bar or ⋯.
+- **Fewer visible controls** ("hiding more controls behind a menu… not feeling like a MS Word document"). Text size
+  stays the iPhone's floating control ("works well").
+- **Two slots, six views** (owner approved "let's start with it"): Read, Browse (Papers | Paper), Navigate
+  (Contents | Paper), Explain (explainer in the paper's slot, iPhone look), Discuss (Paper | Chat), Chats (All chats |
+  Chat). Actions move between them with content-preserving transitions (Explain → Continue in Chat → Discuss); never
+  a third column. Tall shows the same views one slot at a time.
+- **Search** lives at the top of the left list, like Mail; a result opens on the right and the list stays.
+- **Selection actions** on Wide: a small capsule at the selection (Explain · Save snippet · ⋯) and right-click; the
+  web's bottom-centre five-button bar "didn't work well". Tall keeps the iPhone bar.
+- **Approved web changes:** Library and Feed get one ⋯ each (Add paper first in Library's); a Settings window replaces
+  the long account menu; information dialogs close with ✕, task dialogs have Cancel + verb bottom right.
+- **Order:** iPad first ("the most challenging… has to accommodate both usage patterns"), then web, then Mac.
+- Proposal with drawings: https://claude.ai/artifact/7bkqfqkryuJM5VU7HganDj (private to the owner).
