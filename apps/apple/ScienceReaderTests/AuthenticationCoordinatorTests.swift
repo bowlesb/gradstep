@@ -104,6 +104,29 @@ private final class AuthenticationOwnerPresenter: AuthenticationPresenting {
     func cancel() { cancellations += 1 }
 }
 
+/// A provider page that stays open until cancelled, as a real one does while the person is on it.
+@MainActor
+private final class HeldGooglePresenter: AuthenticationPresenting {
+    var starts = 0
+    var cancellations = 0
+    private var pending: CheckedContinuation<Void, Error>?
+    private func hold() async throws {
+        starts += 1
+        try await withCheckedThrowingContinuation { pending = $0 }
+    }
+    func google(_ authorization: GoogleAuthorization) async throws -> URL {
+        try await hold(); return authorization.callbackURL
+    }
+    func apple(_ authorization: AppleAuthorization) async throws -> String {
+        try await hold(); return "fixture-token"
+    }
+    func cancel() {
+        cancellations += 1
+        let waiting = pending; pending = nil
+        waiting?.resume(throwing: AuthenticationPresentationError.cancelled)
+    }
+}
+
 @MainActor
 private final class AuthenticationOwnerFixture {
     let backend = AuthenticationOwnerBackend()
@@ -261,19 +284,69 @@ final class AuthenticationCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.phase, .emailEntry(email: "", issue: nil))
     }
 
-    func testFailedPresentationFinishesAndProviderCancellationIsNotAnError() async throws {
-        for error in [AuthenticationPresentationError.unavailable, .cancelled, .invalidCredential] {
+    func testFailedPresentationFinishesAndOnlyAppleCancellationIsQuiet() async throws {
+        for method in [AuthenticationCoordinator.Method.google, .apple] {
+            for error in [AuthenticationPresentationError.unavailable, .cancelled, .invalidCredential] {
+                let fixture = AuthenticationOwnerFixture(); defer { fixture.close() }
+                fixture.coordinator.open(readerSessionID: UUID())
+                let presenter = AuthenticationOwnerPresenter(); presenter.error = error
+                if method == .google { fixture.coordinator.startGoogle(presenter: presenter) }
+                else { fixture.coordinator.startApple(presenter: presenter) }
+                await eventually("failed presenter retired") { fixture.backend.cancellations.count == 1 }
+                // Apple's own Cancel is the person's choice. A Google page that closes without an answer may follow a
+                // finished Google sign-in (iPad build 86), so it is never silent.
+                let issue: AuthenticationCoordinator.Issue? = error == .cancelled ? (method == .google ? .googleUnfinished : nil) :
+                    (error == .invalidCredential ? .invalidResponse : .presentation)
+                XCTAssertEqual(fixture.coordinator.phase, .choices(issue), "\(method) \(error)")
+                XCTAssertEqual(presenter.cancellations, 1)
+                XCTAssertTrue(fixture.accepted.isEmpty)
+            }
+        }
+    }
+
+    /// Owner report, iPad build 86: Google finished, Supabase issued a code, no exchange followed and the sheet showed
+    /// its choices with no word. A cancellation the sheet didn't ask for now reads as an unfinished sign-in.
+    func testCancellationUnderAnOwnedExchangeIsVisible() async throws {
+        for method in [AuthenticationCoordinator.Method.google, .apple] {
             let fixture = AuthenticationOwnerFixture(); defer { fixture.close() }
+            fixture.backend.holdExchanges = true
             fixture.coordinator.open(readerSessionID: UUID())
-            let presenter = AuthenticationOwnerPresenter(); presenter.error = error
-            fixture.coordinator.startGoogle(presenter: presenter)
-            await eventually("failed presenter retired") { fixture.backend.cancellations.count == 1 }
-            let issue: AuthenticationCoordinator.Issue? = error == .cancelled ? nil :
-                (error == .invalidCredential ? .invalidResponse : .presentation)
-            XCTAssertEqual(fixture.coordinator.phase, .choices(issue))
-            XCTAssertEqual(presenter.cancellations, 1)
+            if method == .google { fixture.coordinator.startGoogle(presenter: AuthenticationOwnerPresenter()) }
+            else { fixture.coordinator.startApple(presenter: AuthenticationOwnerPresenter()) }
+            await eventually("exchange started") { fixture.backend.begins.last.map { fixture.backend.hasExchange($0.1) } ?? false }
+            let id = try XCTUnwrap(fixture.backend.begins.last?.1)
+            fixture.backend.releaseExchange(id, result: .failure(CancellationError()))
+            await eventually("unfinished sign-in is said") { fixture.coordinator.phase == .choices(.rejected) }
             XCTAssertTrue(fixture.accepted.isEmpty)
         }
+    }
+
+    func testLeavingAnUnansweredGooglePageSaysItDidNotFinish() async throws {
+        let fixture = AuthenticationOwnerFixture(); defer { fixture.close() }
+        fixture.coordinator.open(readerSessionID: UUID())
+        let presenter = HeldGooglePresenter()
+        fixture.coordinator.startGoogle(presenter: presenter)
+        await eventually("Google page open") { fixture.coordinator.phase == .external(.google) && presenter.starts == 1 }
+        fixture.coordinator.showChoices()
+        await eventually("choices say Google didn't finish") { fixture.coordinator.phase == .choices(.googleUnfinished) }
+        XCTAssertEqual(presenter.cancellations, 1)
+        XCTAssertTrue(fixture.accepted.isEmpty)
+        // Leaving before the page opened stays quiet.
+        fixture.coordinator.startApple(presenter: HeldGooglePresenter())
+        await eventually("Apple sheet open") { fixture.coordinator.phase == .external(.apple) }
+        fixture.coordinator.showChoices()
+        await eventually("quiet choices") { fixture.coordinator.phase == .choices(nil) }
+    }
+
+    func testOnlyTheSignInReturnIsTakenFromTheAppsURLHandler() {
+        XCTAssertTrue(NativeAuthenticationPresenter.isAuthenticationCallback(URL(string: "sciencereader://auth/callback?code=abc")!))
+        XCTAssertTrue(NativeAuthenticationPresenter.isAuthenticationCallback(URL(string: "SCIENCEREADER://AUTH/callback#error=access_denied")!))
+        XCTAssertFalse(NativeAuthenticationPresenter.isAuthenticationCallback(URL(string: "sciencereader://paper/arxiv/2401.00001")!))
+        XCTAssertFalse(NativeAuthenticationPresenter.isAuthenticationCallback(URL(string: "https://gradstep.ai/auth/callback?code=abc")!))
+        XCTAssertFalse(NativeAuthenticationPresenter.isAuthenticationCallback(URL(string: "sciencereader://auth/callback/extra")!))
+        // With no Google page open the return is consumed, never treated as a paper link, and nothing else happens.
+        XCTAssertTrue(NativeAuthenticationPresenter.handleOpenedURL(URL(string: "sciencereader://auth/callback?code=abc")!))
+        XCTAssertFalse(NativeAuthenticationPresenter.handleOpenedURL(URL(string: "sciencereader://paper/arxiv/2401.00001")!))
     }
 
     func testRejectedModelHandoffRetiresPersistedButUnacceptedSession() async throws {

@@ -34,6 +34,9 @@ final class NativeAuthenticationPresenter: NSObject, AuthenticationPresenting {
     // unrelated scene's key window or manufacture an unattached fallback window.
     private let anchor: UIWindow
     private var presentation: Presentation?
+    /// The one presenter whose Google page is open, for a return that reaches the app's URL handler instead of the
+    /// session (see `handleOpenedURL`). Weak: the coordinator's attempt owns the presenter.
+    private static weak var googleOwner: NativeAuthenticationPresenter?
 
     init(anchor: UIWindow) {
         self.anchor = anchor
@@ -86,6 +89,7 @@ final class NativeAuthenticationPresenter: NSObject, AuthenticationPresenting {
                 session.presentationContextProvider = self
                 session.prefersEphemeralWebBrowserSession = true
                 presentation = .google(GooglePresentation(id: id, session: session, continuation: continuation))
+                Self.googleOwner = self
                 if !session.start() {
                     finishGoogle(id: id, result: .failure(.unavailable))
                 }
@@ -142,6 +146,7 @@ final class NativeAuthenticationPresenter: NSObject, AuthenticationPresenting {
         presentation = nil
         switch current {
         case .google(let current):
+            if Self.googleOwner === self { Self.googleOwner = nil }
             current.session.cancel()
             current.continuation.resume(throwing: AuthenticationPresentationError.cancelled)
         case .apple(let current):
@@ -152,9 +157,38 @@ final class NativeAuthenticationPresenter: NSObject, AuthenticationPresenting {
         }
     }
 
+    /// Whether `url` is the app's sign-in return (`sciencereader://auth/callback`), whatever its query.
+    static func isAuthenticationCallback(_ url: URL) -> Bool {
+        guard let received = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let expected = URLComponents(url: AuthenticationConfiguration.callbackURL, resolvingAgainstBaseURL: false)
+        else { return false }
+        return received.scheme?.lowercased() == expected.scheme?.lowercased()
+            && received.host?.lowercased() == expected.host?.lowercased()
+            && received.percentEncodedPath == expected.percentEncodedPath
+    }
+
+    /// The app's URL handler offers every opened URL here first. The Google return is registered as the app's own
+    /// scheme, so the system can hand it to the app rather than to the open authentication session; the session then
+    /// never answers and the sheet went back to its choices with no word (owner report, iPad build 86: Supabase
+    /// issued the code, no exchange followed). Deliver it to the one open Google presentation, exactly as if the
+    /// session had answered: the coordinator still checks the attempt owns it, and the backend validates the whole URI
+    /// and needs this attempt's PKCE verifier, so nothing outside the attempt can sign in. A sign-in return with no
+    /// open Google page is dropped. Returns whether the URL was a sign-in return (consumed either way).
+    @discardableResult
+    static func handleOpenedURL(_ url: URL) -> Bool {
+        guard isAuthenticationCallback(url) else { return false }
+        guard url.absoluteString.utf8.count <= 8_192, let owner = googleOwner,
+              case .google(let current) = owner.presentation else { return true }
+        owner.finishGoogle(id: current.id, result: .success(url))
+        // Fenced above: the session's own cancellation callback finds no presentation and is ignored.
+        current.session.cancel()
+        return true
+    }
+
     private func finishGoogle(id: UUID, result: Result<URL, AuthenticationPresentationError>) {
         guard case .google(let current) = presentation, current.id == id else { return }
         presentation = nil
+        if Self.googleOwner === self { Self.googleOwner = nil }
         switch result {
         case .success(let callback): current.continuation.resume(returning: callback)
         case .failure(let error): current.continuation.resume(throwing: error)

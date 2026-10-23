@@ -18,7 +18,7 @@ final class AuthenticationCoordinator {
     enum Method: Equatable { case apple, google, email }
     enum Issue: Equatable {
         case configuration, noAccount, presentation, invalidEmail, invalidCode, rateLimited
-        case connection, invalidResponse, credentialStorage, rejected
+        case connection, invalidResponse, credentialStorage, rejected, googleUnfinished
 
         var message: String {
             switch self {
@@ -32,6 +32,9 @@ final class AuthenticationCoordinator {
             case .invalidResponse: "Couldn’t verify the sign-in response. Please try again."
             case .credentialStorage: "Couldn’t update sign-in on this device. Please try again."
             case .rejected: "Sign-in wasn’t completed. Try again or choose another method."
+            // The Google page closed without a usable answer reaching Gradstep (closed by hand, or the return
+            // didn't arrive). Never leave the person on the choices with no word: they may have finished there.
+            case .googleUnfinished: "Google sign-in didn’t finish, so you’re still signed out. Try again, or choose another method."
             }
         }
     }
@@ -77,7 +80,7 @@ final class AuthenticationCoordinator {
         var backendID: UUID?
     }
     private enum Intent {
-        case choices, email(String)
+        case choices(Issue?), email(String)
         case start(Method, email: String?, presenter: (any AuthenticationPresenting)?)
     }
 
@@ -117,7 +120,10 @@ final class AuthenticationCoordinator {
         request(.start(.google, email: nil, presenter: presenter))
     }
     func showEmail() { request(.email("")) }
-    func showChoices() { request(.choices) }
+    func showChoices() {
+        // Leaving a Google page that never answered is not silent either (owner report, build 86).
+        request(.choices(phase == .external(.google) ? .googleUnfinished : nil))
+    }
     func useAnotherEmail() {
         guard case .codeEntry(let challenge) = phase else { return }
         request(.email(challenge.email))
@@ -260,7 +266,7 @@ final class AuthenticationCoordinator {
             pending = nil
             guard presentation == next.presentation else { continue }
             switch next.intent {
-            case .choices: phase = .choices(cleanupIssue)
+            case .choices(let issue): phase = .choices(cleanupIssue ?? issue)
             case .email(let email): phase = .emailEntry(email: email, issue: cleanupIssue)
             case .start(let method, let email, let presenter):
                 let current = Attempt(id: UUID(), presentation: next.presentation,
@@ -306,7 +312,7 @@ final class AuthenticationCoordinator {
     }
 
     private func startApple(_ authorization: AppleAuthorization, current: Attempt) {
-        guard let presenter = current.presenter else { request(.choices); return }
+        guard let presenter = current.presenter else { request(.choices(nil)); return }
         phase = .external(.apple)
         runAction(current) { [weak self, backend] in
             let token = try await presenter.apple(authorization)
@@ -316,7 +322,7 @@ final class AuthenticationCoordinator {
         }
     }
     private func startGoogle(_ authorization: GoogleAuthorization, current: Attempt) {
-        guard let presenter = current.presenter else { request(.choices); return }
+        guard let presenter = current.presenter else { request(.choices(nil)); return }
         phase = .external(.google)
         runAction(current) { [weak self, backend] in
             let callback = try await presenter.google(authorization)
@@ -375,15 +381,23 @@ final class AuthenticationCoordinator {
                 if let failure { failure(error) }
                 else {
                     self.retireCurrent()
-                    let cancelled = error is CancellationError ||
-                        (error as? AuthenticationPresentationError) == .cancelled
-                    self.phase = .choices(cancelled ? nil : Self.issue(error))
+                    self.phase = .choices(Self.unownedFailureIssue(error, method: current.method))
                     self.driveLifecycle()
                 }
             }
             guard let self, self.actionID == token else { return }
             self.actionID = nil; self.actionTask = nil
         }
+    }
+
+    /// The attempt is still this sheet's own: a deliberate change (Close, another method, sign-out) fenced it before
+    /// cancelling, so reaching here was not the person's choice, except closing a provider's own sheet. Apple's
+    /// Cancel stays quiet; a Google page that closed without an answer, or an exchange cancelled underneath the
+    /// attempt, says so instead of returning to the choices with no word (owner report, iPad build 86).
+    private static func unownedFailureIssue(_ error: any Error, method: Method) -> Issue? {
+        if (error as? AuthenticationPresentationError) == .cancelled { return method == .google ? .googleUnfinished : nil }
+        if error is CancellationError { return .rejected }
+        return issue(error)
     }
 
     private func owns(_ current: Attempt) -> Bool {
