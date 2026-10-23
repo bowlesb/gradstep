@@ -74,8 +74,8 @@ function Feedback({ paper, actions }: { paper: DiscoveryResult; actions: Actions
           buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
         }
       }}>
-      <button role="menuitem" disabled={actions.feedbackBusy} onClick={() => { close(); void actions.feedback!(paper.source_id, liked ? null : 'more_like_this'); }}>{liked ? 'Undo more like this' : 'More like this'}</button>
-      <button role="menuitem" disabled={actions.feedbackBusy} onClick={() => { close(); void actions.feedback!(paper.source_id, 'not_interested'); }}>Not interested</button>
+      <button className="menu-item" role="menuitem" disabled={actions.feedbackBusy} onClick={() => { close(); void actions.feedback!(paper.source_id, liked ? null : 'more_like_this'); }}>{liked ? 'Undo more like this' : 'More like this'}</button>
+      <button className="menu-item" role="menuitem" disabled={actions.feedbackBusy} onClick={() => { close(); void actions.feedback!(paper.source_id, 'not_interested'); }}>Not interested</button>
     </div>, document.body)}
   </>;
 }

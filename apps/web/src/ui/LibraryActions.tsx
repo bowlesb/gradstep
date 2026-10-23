@@ -146,26 +146,26 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
   const links=paperShareLinks(selection.item);
   const share=async(url:string)=>{try{await sharePublicURL(url);actions.close(selection,typeof navigator.share==='function'?undefined:'Link copied');}catch(e){if((e as Error).name!=='AbortError')actions.close(selection,'Couldn’t share the link. Try again.');}};
   return <div ref={ref} role="menu" aria-label="Paper actions" className="paper-action-menu" data-library-row-owner={`${selection.item.kind}:${selection.item.id}`} onKeyDown={move}>
-    {actions.onSimilar && <button type="button" role="menuitem" onClick={()=>{actions.close(selection,undefined,false);actions.onSimilar?.(selection.item);}}>Find similar papers</button>}
+    {actions.onSimilar && <button type="button" role="menuitem" className="menu-item" onClick={()=>{actions.close(selection,undefined,false);actions.onSimilar?.(selection.item);}}>Find similar papers</button>}
     {actions.recommender?.eligible(selection.item) && <>
-      <button type="button" role="menuitem" className="submenu-trigger" aria-haspopup="menu" aria-expanded={recommending} data-testid="recommend-menu"
+      <button type="button" role="menuitem" className="menu-item submenu-trigger" aria-haspopup="menu" aria-expanded={recommending} data-testid="recommend-menu"
         onClick={() => setRecommending(open => !open)}>Recommend similar papers<span className="chevron" aria-hidden="true">›</span></button>
       {recommending && <div className="paper-action-submenu" role="group" aria-label="Recommend similar papers">
         <RecommendChoices note={actions.recommender.note} onChoose={count => { const r = actions.recommender!; actions.close(selection, undefined, false); r.paper(selection.item, count); }} />
       </div>}
     </>}
-    {links.source && <button type="button" role="menuitem" onClick={()=>void share(links.source!)}>Share Source URL</button>}
-    {links.gradstep && <button type="button" role="menuitem" onClick={()=>void share(links.gradstep!)}>Share Gradstep link</button>}
-    {extra.filter(x => x.applies(selection.item)).map(x => <button key={x.testID} type="button" role="menuitem" data-testid={x.testID} onClick={() => { actions.close(selection, undefined, false); x.run(selection.item); }}>{x.label}</button>)}
-    {selection.item.kind === 'import' && <button type="button" role="menuitem" onClick={() => {
+    {links.source && <button type="button" role="menuitem" className="menu-item" onClick={()=>void share(links.source!)}>Share Source URL</button>}
+    {links.gradstep && <button type="button" role="menuitem" className="menu-item" onClick={()=>void share(links.gradstep!)}>Share Gradstep link</button>}
+    {extra.filter(x => x.applies(selection.item)).map(x => <button key={x.testID} type="button" role="menuitem" className="menu-item" data-testid={x.testID} onClick={() => { actions.close(selection, undefined, false); x.run(selection.item); }}>{x.label}</button>)}
+    {selection.item.kind === 'import' && <button type="button" role="menuitem" className="menu-item" onClick={() => {
       window.open(`https://arxiv.org/pdf/${selection.item.source_id}v${selection.item.source_revision}`, '_blank', 'noopener,noreferrer');
       actions.close(selection);
     }}>Open PDF on this device</button>}
     {managed(selection.item) && <>
-      <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'tags')}>Edit tags…</button>
-      {actions.library.catalogs && actions.library.catalogs.state.catalogs.length > 1 && <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'catalog')}>Move to catalog…</button>}
-      <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'archive')}>{selection.item.archived ? 'Unarchive…' : 'Archive…'}</button>
-      <button type="button" role="menuitem" className="remove-action" onClick={() => actions.choose(selection, 'remove')}>Remove from library…</button>
+      <button type="button" role="menuitem" className="menu-item" onClick={() => actions.choose(selection, 'tags')}>Edit tags…</button>
+      {actions.library.catalogs && actions.library.catalogs.state.catalogs.length > 1 && <button type="button" role="menuitem" className="menu-item" onClick={() => actions.choose(selection, 'catalog')}>Move to catalog…</button>}
+      <button type="button" role="menuitem" className="menu-item" onClick={() => actions.choose(selection, 'archive')}>{selection.item.archived ? 'Unarchive…' : 'Archive…'}</button>
+      <button type="button" role="menuitem" className="menu-item remove-action" onClick={() => actions.choose(selection, 'remove')}>Remove from library…</button>
     </>}
   </div>;
 }
@@ -298,8 +298,8 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
         </form>
         {invalidDraft && <p className="issue fine" id={`tag-limit-${baseline.id}`}>Use 1–40 characters, up to 120 UTF-8 bytes, for a tag.</p>}
         {!busy && !conflict && <div className="tag-suggestions" aria-label="Suggested tags">
-          {typed && !containsTag(tags, typed) && !vocabularyName(typed) && <button type="button" onClick={() => add(typed)} aria-label={`Add ${typed}`}><span>Add “{typed}”</span></button>}
-          {suggestions.map(tag => <button key={tag.name} type="button" onClick={() => add(tag.name)} aria-label={`Add ${tag.name}`}><span>{tag.name}</span>{tag.detail && <small>{tag.detail}</small>}</button>)}
+          {typed && !containsTag(tags, typed) && !vocabularyName(typed) && <button type="button" className="tag-suggestion" onClick={() => add(typed)} aria-label={`Add ${typed}`}><span>Add “{typed}”</span></button>}
+          {suggestions.map(tag => <button key={tag.name} type="button" className="tag-suggestion" onClick={() => add(tag.name)} aria-label={`Add ${tag.name}`}><span>{tag.name}</span>{tag.detail && <small>{tag.detail}</small>}</button>)}
         </div>}
         <p className="fine">Suggested tags come from the paper’s title and abstract. Your tags sync through Gradstep’s server; they aren’t end-to-end encrypted.</p>
       </> : <p>{archive ? (archiveTarget ? 'Archive this paper? It will remain in your library under Archived.' : 'Move this paper back to your active library?')

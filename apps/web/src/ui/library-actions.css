@@ -1,23 +1,26 @@
-.paper-menu-button { float: right; display: inline-flex; align-items: center; justify-content: center; width: 28px; min-height: 28px; padding: 4px; margin: -2px 0 2px 6px; color: var(--muted); border-radius: 6px; }
-.paper-menu-button:hover, .paper-menu-button[aria-expanded=true] { background: var(--accent-soft); color: var(--accent); }
+/* The IconButton look at the row size (28, round): quiet on hover, the accent tint while its menu is open. */
+.paper-menu-button { float: right; display: inline-flex; align-items: center; justify-content: center; width: var(--h-sm); height: var(--h-sm); min-height: var(--h-sm); padding: 0; margin: -2px 0 2px 6px; color: var(--text-2); border-radius: var(--r-pill); }
+.paper-menu-button:hover:not(:disabled) { background: var(--fill-quiet); color: var(--text); }
+.paper-menu-button:active:not(:disabled) { background: var(--fill-press); }
+.paper-menu-button[aria-expanded=true], .paper-menu-button[aria-expanded=true]:hover { background: var(--accent-tint); color: var(--accent); }
 .compact-list li:has(> .paper-menu-button) { position: relative; }
 .compact-list li > .paper-menu-button { position: absolute; right: 5px; top: 8px; float: none; margin: 0; }
 .compact-list li:has(> .paper-menu-button) > .compact-link { padding-right: 40px; }
-.paper-action-menu { position: fixed; z-index: 100; width: 220px; max-width: calc(100vw - 16px); padding: 5px; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--pop); }
-.paper-action-menu button { display: block; text-align: left; width: 100%; padding: 8px 10px; border-radius: 6px; }
-.paper-action-menu button:hover, .paper-action-menu button:focus-visible { background: var(--accent-soft); }
-.paper-action-menu .remove-action { color: var(--problem); }
-.library-action-notice { margin: 0; padding: 8px 20px; color: var(--accent); }
+/* The Menu look (style.css .menu): rows are .menu-item, 32 px. */
+.paper-action-menu { position: fixed; z-index: var(--z-menu-popup); display: flex; flex-direction: column; gap: 2px; width: 236px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto;
+  padding: 6px; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--elev-2); animation: menu-in var(--dur-2) var(--ease-out); }
+.paper-action-menu .remove-action { color: var(--danger); }
+.library-action-notice { margin: 0 var(--gutter) 8px; }
 .paper-action-dialog h2 { margin: 0; }
 .paper-action-title { margin: 0; overflow-wrap: anywhere; }
 .editable-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.editable-tag { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; min-height: 32px; border-radius: 999px; background: var(--accent-soft); overflow-wrap: anywhere; text-align: left; }
-.editable-tag span { color: var(--muted); }
+.editable-tag { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; min-height: var(--h-md); border-radius: var(--r-pill); background: var(--accent-tint); overflow-wrap: anywhere; text-align: left; }
+.editable-tag span { color: var(--text-2); }
 .tag-add-form { display: flex; flex-direction: row; gap: 8px; }
 .tag-add-form input { min-width: 0; flex: 1; }
 .tag-suggestions { display: flex; flex-direction: column; max-height: 230px; overflow-y: auto; }
 .tag-suggestions:empty { display: none; }
-.tag-suggestions button { display: flex; flex-direction: column; text-align: left; padding: 7px 10px; min-height: 36px; border-radius: 6px; }
-.tag-suggestions button:hover { background: var(--row-hover); }
-.tag-suggestions small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.tag-suggestions button { display: flex; flex-direction: column; text-align: left; padding: 7px 10px; min-height: 36px; border-radius: var(--r-sm); color: var(--text); }
+.tag-suggestions button:hover { background: var(--fill-quiet); }
+.tag-suggestions small { color: var(--text-2); font-size: var(--fs-foot); line-height: 1.35; }
 .paper-action-dialog .dialog-actions { justify-content: space-between; }

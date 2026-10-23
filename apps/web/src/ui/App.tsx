@@ -899,7 +899,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onAdjust={composer.adjust ? () => { const adjust = composer.adjust!; setComposer(null); adjust(); } : undefined} onClose={() => setComposer(null)}
         onSaved={(id, title) => { const text = composer.draft.kind === 'text'; setComposer(null); if (text || route === 'notes') void navigate(`/notes/${id}`); else setSavedNote({ noteID: id, title, offline: typeof navigator !== 'undefined' && navigator.onLine === false }); }} /></RegionBoundary>}
       {notes && newNote && <NewNoteDialog store={notes} onClose={() => setNewNote(false)} onCreated={id => { setNewNote(false); void navigate(`/notes/${id}`); }} />}
-      {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
+      {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button className="link" onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
       <RegionBoundary region="recommend" label="Recommended papers" compact resetKey={recommender.run} onReport={report}>
         <RecommendDialog recommender={recommender} />
       </RegionBoundary>
@@ -1058,7 +1058,7 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
         <Icon name={compact ? 'more' : 'user'} />{!compact && <span className="account-email">{email ?? 'Account'}</span>}
       </button>
       {open && (
-        <div className="menu" role="menu">
+        <div className="menu" role="menu" data-info-bounds>
           <button role="menuitem" className="menu-item menu-add" disabled={!onAdd} onClick={() => { setOpen(false); onAdd?.(); }} data-testid="add-paper"><Icon name="plus" size={14} /> Add paper…</button>
           {compact && <p className="fine menu-heading">Settings</p>}
           <p className="menu-email">{email}</p>

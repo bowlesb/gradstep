@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { verifyBundle } from '../src/lib/bundle';
 import type { Item } from '../src/lib/library';
 import { Reader, type ReaderCommands } from '../src/ui/Reader';
+import '../src/tokens.css';
 import '../src/style.css';
 
 document.documentElement.dataset.theme = new URLSearchParams(location.search).has('dark') ? 'dark' : 'light';

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { auth } from '../src/lib/backend';
 import { loadPosition, positionsKey } from '../src/lib/podcast-playback';
 import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from '../src/ui/Podcast';
+import '../src/tokens.css';
 import '../src/style.css';
 const account = '11111111-2222-4333-8444-555555555555', itemID = 'd0000000-0000-4000-8000-000000000001';
 function PlayerFixture() {

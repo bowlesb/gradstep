@@ -91,7 +91,7 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen, o
     <details className="advanced-search"><summary>Search by fields</summary>
       {criteria.map((c,i)=><div className="search-criterion" key={i}><select aria-label="Field" value={c.field} onChange={e=>setCriteria(rows=>rows.map((r,j)=>j===i?{...r,field:e.target.value}:r))}>{['title','author','abstract','year'].map(f=><option key={f} value={f}>{f[0].toUpperCase()+f.slice(1)}</option>)}</select>
         <input aria-label={`${c.field} criterion`} value={c.value} maxLength={60} placeholder={c.field==='year'?'2024 or 2020-2026':'Contains…'} onChange={e=>setCriteria(rows=>rows.map((r,j)=>j===i?{...r,value:e.target.value.replaceAll('"','')}:r))}/>
-        {criteria.length>1 && <button type="button" aria-label="Remove criterion" onClick={()=>setCriteria(rows=>rows.filter((_,j)=>i!==j))}>−</button>}</div>)}
+        {criteria.length>1 && <button type="button" className="icon-button" aria-label="Remove criterion" onClick={()=>setCriteria(rows=>rows.filter((_,j)=>i!==j))}>−</button>}</div>)}
       <button type="button" className="secondary small" disabled={criteria.length>=4} onClick={()=>setCriteria(rows=>[...rows,{field:'title',value:''}])}>Add criterion</button>
       <button type="button" className="primary small" disabled={criteria.every(c=>!c.value.trim())} onClick={()=>{search.setQuery(criteria.filter(c=>c.value.trim()).map(c=>`${c.field}:"${c.value}"`).join(' '));search.run();}}>Search</button>
       <p className="fine">Results must match all criteria.</p>

@@ -56,7 +56,7 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
           <div className="row-actions"><button className="secondary" onClick={reset}>Cancel</button><button className="primary" onClick={() => mode === 'delete' ? setConfirm(true) : remove()}>{mode === 'delete' ? 'Continue' : 'Move papers and delete catalog'}</button></div>
         </> : <>
           <p>Remove these papers from your library and delete {deleting.name}? The catalog stays visible if a removal cannot finish.</p>
-          <div className="row-actions"><button className="secondary" onClick={() => setConfirm(false)}>Back</button><button className="danger" onClick={remove}>Delete catalog and papers</button></div>
+          <div className="row-actions"><button className="secondary" onClick={() => setConfirm(false)}>Back</button><button className="primary danger" onClick={remove}>Delete catalog and papers</button></div>
         </>}
       </> : <>
         <ul className="catalog-list">{catalogs?.state.catalogs.map(c => <li key={c.id}>
