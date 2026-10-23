@@ -34,6 +34,8 @@ public final class DevicePDFRoute {
         public var background = true
         /// Pages whose layout and text are read ahead at once (0: on demand, as the converter asks).
         public var prefetchPages = 2
+        /// A page whose text layer is missing or unreadable is read by on-device text recognition instead (DevicePDFOCR).
+        public var ocrFallback = true
         /// Threads the inline tagger's lines are spread over. 1: concurrent predictions of the flexible-shape tagger gave
         /// different logits under load even on separate instances (2026-10-21), so the default keeps one.
         public var taggerThreads = 1
@@ -100,7 +102,7 @@ public final class DevicePDFRoute {
         }
         // An encrypted document is read by this thread only (the read-ahead opens its own copies of an unlocked PDF).
         let prefetch = options.prefetchPages > 0 && !document.isEncrypted
-            ? DevicePDFPagePrefetch(data: data, count: pageCount, workers: options.prefetchPages, models: models, timings: timings) : nil
+            ? DevicePDFPagePrefetch(data: data, count: pageCount, workers: options.prefetchPages, models: models, timings: timings, ocr: options.ocrFallback) : nil
         let recogniser = options.background && models.recogniserIssue == nil
             ? DevicePDFBackgroundRecogniser(models: models, workers: options.recogniserConcurrency, timings: timings) { done, total in progress(.formulas(done: done, of: total)) }
             : nil
@@ -145,8 +147,9 @@ public final class DevicePDFRoute {
             do { detected = try timed("layout") { try self.models.detect(page: image) } }
             catch { context.exception = JSValue(newErrorFromMessage: "layout: \(error)", in: context); return NSNull() }
             options.observeDetections?(index, detected.detections, detected.scale)
-            let glyphs = timed("text") { DevicePDFTextLayer.glyphs(page: page) }
+            var glyphs = timed("text") { DevicePDFTextLayer.glyphs(page: page) }
             let size = DevicePDFTextLayer.pageSize(page: page)
+            if options.ocrFallback, DevicePDFOCR.unreadable(glyphs) { glyphs = timed("ocr") { DevicePDFOCR.glyphs(layer: glyphs, image: image, size: size) } }
             return pageObject(width: size.width, height: size.height, imageWidth: rgb.width, imageHeight: rgb.height, scale: detected.scale,
                               glyphs: glyphs, detections: detected.detections)
         }

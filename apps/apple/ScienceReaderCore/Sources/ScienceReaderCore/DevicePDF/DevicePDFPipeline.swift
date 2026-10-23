@@ -27,13 +27,13 @@ final class DevicePDFPagePrefetch: @unchecked Sendable {
     private var next = 0, stopped = false
     private let count: Int
 
-    init(data: Data, count: Int, workers: Int, models: DevicePDFModels, timings: DevicePDFTimings) {
+    init(data: Data, count: Int, workers: Int, models: DevicePDFModels, timings: DevicePDFTimings, ocr: Bool = false) {
         self.count = count
         for _ in 0..<max(1, workers) {
             let thread = Thread { [self] in
                 guard let provider = CGDataProvider(data: data as CFData), let document = CGPDFDocument(provider) else { return }
                 while let index = claim() {
-                    let page = Self.read(document: document, index: index, models: models, timings: timings)
+                    let page = Self.read(document: document, index: index, models: models, timings: timings, ocr: ocr)
                     condition.lock(); pages[index] = page; condition.broadcast(); condition.unlock()
                 }
             }
@@ -46,12 +46,14 @@ final class DevicePDFPagePrefetch: @unchecked Sendable {
         guard !stopped, next < count else { return nil }
         next += 1; return next - 1
     }
-    static func read(document: CGPDFDocument, index: Int, models: DevicePDFModels, timings: DevicePDFTimings) -> Page {
+    static func read(document: CGPDFDocument, index: Int, models: DevicePDFModels, timings: DevicePDFTimings, ocr: Bool = false) -> Page {
         guard let pdfPage = document.page(at: index + 1), let image = timings.timed("render", { DevicePDFRaster.render(pdfPage, dpi: 150) }) else {
             return Page(width: 0, height: 0, imageWidth: 0, imageHeight: 0, scale: 0, glyphs: [], detections: [], failure: "page \(index + 1)")
         }
         let size = DevicePDFTextLayer.pageSize(page: pdfPage)
-        let glyphs = timings.timed("text") { DevicePDFTextLayer.glyphs(page: pdfPage) }
+        var glyphs = timings.timed("text") { DevicePDFTextLayer.glyphs(page: pdfPage) }
+        // A scan, or a text layer of unmapped codes: the page's text recognised from its render (DevicePDFOCR).
+        if ocr, DevicePDFOCR.unreadable(glyphs) { glyphs = timings.timed("ocr") { DevicePDFOCR.glyphs(layer: glyphs, image: image, size: size) } }
         do {
             // The canvas from the same pixels the on-demand path draws (the page's RGB copy): drawn from the rendered
             // image directly, a few detections near a threshold came out differently.

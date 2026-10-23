@@ -9,12 +9,20 @@ export const fontFamily = (font: string): string => font.replace(/^[A-Z]{6}\+/, 
  * packages set math in fonts arXiv training papers rarely used): a Latin Modern size variant as its 10 pt design
  * ("LMMathItalic6-Regular"), a math italic, symbol, extension or blackboard font by its name (MathDesign, mathabx,
  * MnSymbol, URW's Symbol) as Computer Modern's. Known fonts and unrecognised names are returned unchanged. */
+/** Characters a font's broken Unicode mapping names wrongly, by font family (fontAliases): PLOS's Computer Modern symbols
+ * map the parentheses to ð Þ and the equals sign to ¼ (PLOS Comput Biol 2024). */
+const MISNAMED: Record<string, Record<string, string>> = { TeX_CM_Maths_Symbols: { 'ð': '(', 'Þ': ')', '¼': '=' } };
+export function aliasText(text: string, font: string): string { return MISNAMED[fontFamily(font)]?.[text] ?? text; }
+
 export function aliasFont(font: string, vocab: { font_vocab: Record<string, number> }): string {
   const family = fontFamily(font);
   if (family in vocab.font_vocab) return font;
   const sized = family.replace(/^(LM[A-Za-z]+?)\d+(-)/, '$110$2');
   if (sized !== family && sized in vocab.font_vocab) return sized;
   const bold = /Bold/i.test(family);
+  // PLOS's typesetting embeds Computer Modern under its own names.
+  const plos = /^TeX_CM_Maths_(Symbols|Italic|Extension)/.exec(family);
+  if (plos) return plos[1] === 'Symbols' ? 'CMSY10' : plos[1] === 'Italic' ? 'CMMI10' : 'CMEX10';
   if (/Math.?Italic|MathMI|-MI$|^TeX-mathi/i.test(family)) return bold ? 'CMMIB10' : 'CMMI10';
   if (/Blackboard|DoubleStruck|^bbold|^dsrom|^msbm/i.test(family)) return 'MSBM10';
   if (/Extension|-EX$|^TeX-mathx|MathEX/i.test(family)) return 'CMEX10';

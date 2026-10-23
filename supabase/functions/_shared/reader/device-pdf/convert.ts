@@ -3,15 +3,18 @@
 // formulas with their crops; `emit.ts` turns the logical blocks into this reader's vocabulary.
 import { check, fail, sha256Hex, utf8 } from '../util.ts';
 import { argsort, assign, byX, canonicalText, centreIn, clipBytes, growLines, joinLines, lineText, linesOf, median, orphanRegions,
-  pyRound, recogniserRect, union, visible } from './geometry.ts';
+  pyRound, recogniserRect, typicalGap, union, useWordGaps, visible } from './geometry.ts';
 import { confidence, renderMath, tidyLatex } from './math.ts';
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
-import { aliasFont, spansOf, tagInput } from './tagger.ts';
+import { aliasFont, aliasText, spansOf, tagInput } from './tagger.ts';
 import { mathRuns, transcribe } from './transcribe.ts';
 import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region,
   type TaggerVocabulary } from './types.ts';
+
+/** The font of glyphs the host recognised from the page image (DevicePDFOCR.swift). */
+export const OCR_FONT = 'GradstepOCR';
 
 /** A piece of text with formula markers (`__EQ_<id>__`) where the reference's HTML had them. */
 export type Marked = string;
@@ -59,7 +62,8 @@ function readPage(raw: PageInput, aliases?: TaggerVocabulary): Page {
   const glyphs: Glyph[] = [];
   for (let i = 0; i < n; i++) {
     const font = String(g.font[i] ?? '');
-    const glyph = { text: String(g.text[i] ?? ''), x0: +g.x0[i], top: +g.top[i], x1: +g.x1[i], bottom: +g.bottom[i], size: +g.size[i], font: aliases ? aliasFont(font, aliases) : font, upright: !!g.upright[i] };
+    const text = String(g.text[i] ?? '');
+    const glyph = { text: aliases ? aliasText(text, font) : text, x0: +g.x0[i], top: +g.top[i], x1: +g.x1[i], bottom: +g.bottom[i], size: +g.size[i], font: aliases ? aliasFont(font, aliases) : font, upright: !!g.upright[i] };
     if (![glyph.x0, glyph.top, glyph.x1, glyph.bottom, glyph.size].every(Number.isFinite)) continue;
     glyphs.push(glyph);
   }
@@ -69,19 +73,24 @@ function readPage(raw: PageInput, aliases?: TaggerVocabulary): Page {
 
 export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const prefix = sha256Hex(utf8(`${input.pdf.sha256}:${DEVICE_PDF_RENDERER_ID}:${DEVICE_PDF_CONVERTER_VERSION}`)).slice(0, 12);
+  useWordGaps(null);
   const nPages = input.pages;
   check(Number.isSafeInteger(nPages) && nPages >= 1 && nPages <= 2000, 'device_pdf_pages');
   const cancelled = () => { if (host.cancelled?.()) fail('cancelled'); };
   // The text layer and the layout of every page first: running heads are known only from the whole document.
   const pages: Page[] = [];
   for (let p = 0; p < nPages; p++) { cancelled(); pages.push(readPage(host.page(p), input.fontAliases ? input.tagger : undefined)); host.progress?.('layout', p + 1, nPages); }
+  if (input.wordGaps) useWordGaps(typicalGap(pages));
   const known = furniture(pages.map(page => ({ glyphs: page.glyphs, height: page.height })));
+  // Pages the host read by text recognition (its text layer missing or unreadable; DevicePDFOCR.swift).
+  const recognisedPages = pages.filter(page => page.glyphs.length && page.glyphs.every(g => g.font === OCR_FONT)).length;
   const s = DPI / 72;
   const blocks: LogicalBlock[] = [];
   const formulas = new Map<string, Formula>();
   const committed: string[] = [];
   const pendingRecognition: Formula[] = [];
   const warnings: string[] = [];
+  if (recognisedPages) warnings.push(`text recognised from the page image: ${recognisedPages} of ${nPages} pages`);
   const trace: TraceIndex = { format: 'reader-index-v1', title: '', headings: [], blocks: [], equations: [], figures: [] };
   const traceFigureBlocks = new Map<LogicalBlock, string>();
   let nEq = 0;
@@ -249,8 +258,12 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         // The equation number is not part of the formula the recogniser learnt to read (equationNumbers).
         const numbered = input.equationNumbers ? equationNumber(body, r.pt[2]) : null;
         const formulaBody = numbered?.body ?? body;
-        const f = makeFormula(formulaBody, p, true, body.length ? median(body.map(g => g.size)) : 10, formulaBody.length ? union(formulaBody) : r.pt);
-        if (numbered) { f.tag = numbered.tag; f.imageBox = union(body); }
+        // On a page read by text recognition (DevicePDFOCR) the glyphs' boxes are a word's, spread: the layout's box is the formula's.
+        const recognised = body.length > 0 && body.every(g => g.font === OCR_FONT);
+        const numberLeft = numbered ? Math.min(...body.filter(g => !numbered.body.includes(g)).map(g => g.x0)) : Infinity;
+        const regionBox: Box = [r.pt[0], r.pt[1], Math.max(r.pt[0] + 1, Math.min(r.pt[2], numberLeft - 1)), r.pt[3]];
+        const f = makeFormula(formulaBody, p, true, body.length ? median(body.map(g => g.size)) : 10, formulaBody.length && !recognised ? union(formulaBody) : regionBox);
+        if (numbered) { f.tag = numbered.tag; f.imageBox = recognised ? r.pt : union(body); }
         // The full stop or comma after a display often falls just outside its box, unowned; the formula keeps it.
         if (input.displayPunctuation) f.trailing = trailingPunctuation(formulaBody, glyphs.filter((_, i) => owner[i] === null));
         blocks.push({ kind: 'equation', formula: f.id });

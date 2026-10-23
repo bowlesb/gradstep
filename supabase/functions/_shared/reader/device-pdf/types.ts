@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 6;
+export const DEVICE_PDF_PORT_REVISION = 7;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -117,6 +117,8 @@ export interface DevicePDFInput {
   displayPunctuation?: boolean;
   /** Fonts the tagger does not know read as the ones they stand for (tagger.aliasFont). */
   fontAliases?: boolean;
+  /** A tightly set line's word gaps from its own letter spacing (geometry.lineText). */
+  wordGaps?: boolean;
   /** The display gate's threshold (second-lowest token probability) instead of GATE_DISPLAY; 0.5 to 1. */
   displayGate?: number;
 }

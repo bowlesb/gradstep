@@ -38,8 +38,36 @@ export function argsort<T>(items: readonly T[], key: (item: T) => number): numbe
 }
 export const byX = (gl: readonly Glyph[]): Glyph[] => argsort(gl, g => g.x0).map(i => gl[i]);
 
-/** Words by gaps (a gap over a fifth of the glyph size), each formula span one placeholder. `spans` index `line`
- * as given; returns the text and each span's glyphs in x order (empty spans dropped). */
+let wordGap = 0.2, lineGaps = false;
+/** The word gap (em) for the lines read after this call (one conversion at a time, as `read` runs): 0.2, or with the
+ * converter's `wordGaps` rule a document set tight (letters' boxes overlapping: justified with negative tracking, as
+ * PLOS sets its text) takes it from its own letter spacing, 0.12 em over the median gap between letters, at least 0.08. */
+export function useWordGaps(typicalGap: number | null): void {
+  wordGap = typicalGap !== null && typicalGap <= -0.01 ? Math.max(0.08, typicalGap + 0.12) : 0.2;
+  lineGaps = typicalGap !== null;
+}
+const MATH_FONT = /CMMI|CMSY|CMEX|CMBSY|MSBM|MSAM|Math|Symbol|^t?x(mi|sy|ex)|ntxmi|ntxsy|rsfs|EUFM|EUSM|bbold|dsrom/i;
+const prose = (g: Glyph) => /^\p{L}$/u.test(g.text) && !MATH_FONT.test(g.font.replace(/^[A-Z]{6}\+/, ''));
+/** Between two letters of a text font, a line's word gap from its own letter spacing (0.12 em over its median gap,
+ * at least 0.08, at most the document's): justified lines shrink their spaces below a fifth of an em. */
+function proseWordGap(line: readonly Glyph[], order: readonly number[]): number {
+  if (order.length < 12) return wordGap;
+  const gaps = order.slice(1).map((g, i) => (line[g].x0 - line[order[i]].x1) / Math.max(line[g].size, 1.0)).sort((a, b) => a - b);
+  return Math.min(wordGap, Math.max(0.08, gaps[Math.floor(gaps.length / 2)] + 0.12));
+}
+/** The median gap between neighbouring glyphs of the pages' lines, in em (the document's letter spacing). */
+export function typicalGap(pages: readonly { glyphs: readonly Glyph[] }[]): number {
+  const gaps: number[] = [];
+  for (const page of pages) for (const line of linesOf(page.glyphs.filter(visible))) {
+    const order = argsort(line, g => g.x0);
+    for (let i = 1; i < order.length && gaps.length < 200_000; i++) gaps.push((line[order[i]].x0 - line[order[i - 1]].x1) / Math.max(line[order[i]].size, 1.0));
+  }
+  gaps.sort((a, b) => a - b);
+  return gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+}
+
+/** Words by gaps (a gap over a fifth of the glyph size, or the document's own word gap: useWordGaps), each formula span
+ * one placeholder. `spans` index `line` as given; returns the text and each span's glyphs in x order (empty spans dropped). */
 export function lineText(line: readonly Glyph[], spans: readonly [number, number][]): [string, Glyph[][]] {
   const inSpan = new Map<number, number>();
   spans.forEach(([s, e], k) => { for (let i = s; i < e; i++) inSpan.set(i, k); });
@@ -47,9 +75,11 @@ export function lineText(line: readonly Glyph[], spans: readonly [number, number
   const formulas: Glyph[][] = spans.map(() => []);
   let lastSpan = -1;
   const order = argsort(line, g => g.x0);
+  const proseEm = lineGaps ? proseWordGap(line, order) : wordGap;
   order.forEach((g, i) => {
     const gl = line[g];
-    if (i && gl.x0 - line[order[i - 1]].x1 > 0.2 * Math.max(gl.size, 1.0)) parts.push(' ');
+    const em = i && proseEm < wordGap && prose(gl) && prose(line[order[i - 1]]) ? proseEm : wordGap;
+    if (i && gl.x0 - line[order[i - 1]].x1 > em * Math.max(gl.size, 1.0)) parts.push(' ');
     const k = inSpan.get(g);
     if (k === undefined) { parts.push(gl.text); lastSpan = -1; }
     else {
