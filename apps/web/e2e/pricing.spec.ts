@@ -17,8 +17,8 @@ async function signIn(page: Page) {
 }
 async function row(page: Page, testID: string, label: string, value: string | RegExp) {
   const r = page.getByTestId(testID);
-  await expect(r.locator('span').first()).toContainText(label);
-  await expect(r.locator('.menu-fact-value')).toHaveText(value);
+  await expect(r.locator('.settings-label')).toContainText(label);
+  await expect(r.locator('.settings-value')).toHaveText(value);
 }
 test.beforeEach(async ({ request }) => { await request.post(`${API}/__reset`); });
 
@@ -29,9 +29,9 @@ for (const scheme of ['light', 'dark'] as const) test(`a free reader's plan, its
   await request.post(`${API}/__store`, { data: { available: 32, reserved: 0, plan: null,
     free: { monthly: 50, available: 32, usable: true, reason: null, resumes_at: NOV, daily: 20 } } });
   await signIn(page);
-  await page.getByTestId('account-menu').click();
-  const menu = page.getByRole('menu');
-  await row(page, 'account-credits', 'AI credits', '32');
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click();
+  const menu = page.getByRole('dialog', { name: 'Settings' }); // a Settings window since 2026-10-22 (audit S9)
+  await row(page, 'account-credits', 'Available', '32');
   await row(page, 'account-plan', 'Plan', 'Free');
   await row(page, 'account-free-ai', 'Free AI this month', '32 of 50 left');
   await expect(menu).not.toContainText(/Get credits|Buy|Upgrade/);
@@ -50,11 +50,11 @@ test('used up this month; a yearly Plus subscriber has no free AI row', async ({
   await request.post(`${API}/__store`, { data: { available: 0, reserved: 0, plan: null,
     free: { monthly: 50, available: 12, usable: false, reason: 'pool', resumes_at: NOV, daily: 20 } } });
   await signIn(page);
-  await page.getByTestId('account-menu').click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click();
   await row(page, 'account-free-ai', 'Free AI this month', 'Used up · back November 1');
-  await page.getByTestId('account-menu').click();
+  await page.getByTestId('settings-close').click();
   await request.post(`${API}/__store`, { data: { available: 600, reserved: 0, plan: 'standard', period_months: 12, free: null } });
-  await page.getByTestId('account-menu').click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click();
   await row(page, 'account-plan', 'Plan', 'Plus (yearly)');
   await expect(page.getByTestId('account-free-ai')).toHaveCount(0);
 });

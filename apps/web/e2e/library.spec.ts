@@ -28,7 +28,7 @@ test('a full library stays searchable while an import progresses', async ({ page
   await expect(rows).toHaveCount(3999); // full rendering remains the default
   const recoveryToLibraryMs = Date.now() - started;
   // Exercise the heaviest chosen-column view on both sizes; compact defaults are deliberately smaller.
-  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-columns').click();
   const columns = page.getByRole('dialog', { name: 'Library columns' });
   await columns.getByRole('checkbox', { name: 'Show rows as you scroll', exact: true }).check();
   for (const name of ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress']) await columns.getByRole('checkbox', { name, exact: true }).check();

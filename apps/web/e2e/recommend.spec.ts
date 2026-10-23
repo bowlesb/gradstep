@@ -115,7 +115,7 @@ test('keyboard: → or Enter opens the choices, Esc returns to the menu; the cat
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
   // The catalog's Recommend: its most recent papers as seeds.
-  await page.getByTestId('recommend-catalog').click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('recommend-catalog').click(); // the Library's "…" › Recommend papers ›
   await expect(page.getByTestId('recommend-note')).toHaveText(/^For Default · 1 credit/);
   await shot(page, 'catalog-menu');
   await page.getByTestId('recommend-add-1').click();
@@ -132,7 +132,7 @@ test('papers go to the catalog being viewed', async ({ page, request }) => {
   await fixture(request, { mode: 'normal', delay: 100 });
   await signIn(page);
   const catalogs = page.getByRole('dialog', { name: 'Catalogs', exact: true });
-  await page.getByRole('button', { name: 'Catalogs', exact: true }).click();
+  await page.getByTestId('library-options').click(); await page.getByTestId('library-catalogs').click();
   await catalogs.getByRole('button', { name: 'Rename Default', exact: true }).click();
   await catalogs.getByLabel('Catalog name', { exact: true }).fill('Reading'); await catalogs.getByRole('button', { name: 'Save', exact: true }).click();
   await catalogs.getByRole('button', { name: 'New catalog', exact: true }).click();

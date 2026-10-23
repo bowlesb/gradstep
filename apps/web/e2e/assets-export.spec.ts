@@ -72,7 +72,7 @@ test('Download your assets: a zip made here with the collection, its comment and
   await expect(page.getByTestId('notes-saved')).toContainText('Saved to Export check');
 
   // Your assets › Download your assets.
-  await page.getByTestId('account-menu').click();
+  await page.getByTestId('account-menu').click(); await page.getByTestId('open-settings').click(); // Settings › Your assets
   await page.getByTestId('assets-download').click();
   const dialog = page.getByRole('dialog', { name: 'Download your assets' });
   await expect(dialog).toContainText('Downloaded papers aren’t included');

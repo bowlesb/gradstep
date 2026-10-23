@@ -1,17 +1,18 @@
-// Browser parity with the apps' Settings (owner, builds 57–59): the account menu shows AI credits and the Subscription
-// plan as the server reports them (explained behind ⓘ; bought in the apps, never here), and Your assets with Chats and
-// Diagrams. Local fixtures only.
+// Browser parity with the apps' Settings (owner, builds 57–59; a Settings window since 2026-10-22, audit S9): AI credits
+// and the Subscription plan as the server reports them (explained behind ⓘ; bought in the apps, never here), and Your
+// assets with Chats and Diagrams. Local fixtures only.
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { fixtureOrigin as API } from './environment';
 import { durableKeys } from './key-capability';
+import { openSettings } from './device-reader-helpers';
 const SHOTS = '../../.artifacts/account-assets';
 
 /** A row's words and its value (the ⓘ's own text stays out of it). */
 async function row(page: Page, testID: string, label: string, value: string | RegExp) {
   const r = page.getByTestId(testID);
-  await expect(r.locator('span').first()).toContainText(label);
-  await expect(r.locator('.menu-fact-value')).toHaveText(value);
+  await expect(r.locator('.settings-label')).toContainText(label);
+  await expect(r.locator('.settings-value')).toHaveText(value);
 }
 async function signIn(page: Page) {
   await page.goto('/');
@@ -22,19 +23,19 @@ async function signIn(page: Page) {
 }
 test.beforeEach(async ({ request }) => { await request.post(`${API}/__reset`); });
 
-for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription plan and Your assets in the account menu (${scheme})`, async ({ page, request }, info) => {
+for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription plan and Your assets in Settings (${scheme})`, async ({ page, request }, info) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys; the account menu requires an authenticated browser.');
   await page.emulateMedia({ colorScheme: scheme });
   await request.post(`${API}/__store`, { data: { available: 1240, reserved: 30, plan: 'pro' } });
   await signIn(page);
-  await page.getByTestId('account-menu').click();
-  const menu = page.getByRole('menu');
-  await row(page, 'account-credits', 'AI credits', '1,240');
+  const menu = await openSettings(page);
+  await row(page, 'account-credits', 'Available', '1,240');
   await row(page, 'account-held', 'Held for answers in progress', '30');
   await row(page, 'account-plan', 'Plan', 'Pro');
   // Nothing to buy here: credits and plans are bought in the apps.
   await expect(menu).not.toContainText(/Get credits|Buy|Upgrade/);
-  await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/, /Snippets$/, /Equation explanations$/, /Figure explanations$/, /Paper explanations$/, /Download your assets$/]);
+  expect(await menu.getByRole('region', { name: 'Your assets' }).locator('.settings-open').evaluateAll(rows => rows.map(r => r.getAttribute('aria-label'))))
+    .toEqual(['Chats', 'Diagrams', 'Snippets', 'Equation explanations', 'Figure explanations', 'Paper explanations', 'Download your assets']);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-menu.png` });
 
   // The explanations sit behind ⓘ beside the words; the rest of the page darkens; Esc hides only the bubble.
@@ -55,14 +56,14 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   await expect(menu.getByText('Reading papers is always free.', { exact: false })).toBeHidden(); await expect(menu).toBeVisible();
 
   // Diagrams: none yet.
-  await menu.getByRole('menuitem', { name: 'Diagrams' }).click();
+  await menu.getByTestId('assets-diagrams').click();
   const diagrams = page.getByRole('dialog', { name: 'All diagrams' });
   await expect(diagrams.getByTestId('diagrams-empty')).toHaveText('No diagrams yet');
   await diagrams.getByRole('button', { name: 'Close', exact: true }).click(); await expect(diagrams).toBeHidden();
   // Equation and Figure explanations (owner, build 62): none yet, in the apps' words (KeptExplanationsView); since B4 they
   // are kept in this browser, and the ⓘ says so.
   for (const [item, title] of [['assets-equations', 'Equation explanations'], ['assets-figures', 'Figure explanations']] as const) {
-    await page.getByTestId('account-menu').click(); await page.getByTestId(item).click();
+    await menu.getByTestId(item).click(); // over Settings, which stays open under it
     const kept = page.getByRole('dialog', { name: title });
     await expect(kept.getByRole('heading', { name: title })).toBeVisible();
     const noun = item === 'assets-equations' ? 'equation' : 'figure';
@@ -72,26 +73,26 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
     await kept.getByTestId('explanations-close').click(); await expect(kept).toBeHidden();
   }
   // Chats opens All chats, as the top bar's Chats does.
-  await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'Chats' }).click();
+  await menu.getByTestId('assets-chats').click();
   await expect(page.getByRole('dialog', { name: 'All chats' })).toBeVisible();
 });
 
 test('a reader without a plan sees Free; a failed read is a dash, never a broken menu', async ({ page, request }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
   await signIn(page);
-  await page.getByTestId('account-menu').click();
-  await row(page, 'account-credits', 'AI credits', '1,000');
+  const settings = await openSettings(page);
+  await row(page, 'account-credits', 'Available', '1,000');
   await expect(page.getByTestId('account-held')).toHaveCount(0);
   await row(page, 'account-plan', 'Plan', 'Free');
-  await page.getByTestId('account-menu').click(); await expect(page.getByRole('menu')).toHaveCount(0);
+  await settings.getByTestId('settings-close').click(); await expect(settings).toBeHidden();
   // The plan's read fails: its row says nothing new, the balance is still read, the menu works.
   await request.post(`${API}/__store`, { data: { available: 990, reserved: 0 } });
   await request.post(`${API}/__fault`, { data: { path: 'rest/v1/rpc/v1_store_summary', kind: 500 } });
   await page.reload(); await expect(page.getByRole('link', { name: 'Library' })).toBeVisible();
-  await page.getByTestId('account-menu').click();
-  await row(page, 'account-credits', 'AI credits', '990');
+  await openSettings(page);
+  await row(page, 'account-credits', 'Available', '990');
   await row(page, 'account-plan', 'Plan', '—');
-  await expect(page.getByRole('menuitem', { name: 'Privacy & data' })).toBeVisible();
+  await expect(page.getByTestId('privacy-data')).toBeVisible();
 });
 
 test('Diagrams lists what the chats drew, newest first, and opens one as in its answer', async ({ page, request }, info) => {
@@ -107,7 +108,7 @@ test('Diagrams lists what the chats drew, newest first, and opens one as in its 
   await expect(page.getByTestId('chat-assistant')).toBeVisible();
   await expect(page.getByTestId('chat-pane').getByRole('button', { name: 'Full size' })).toBeVisible();
 
-  await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'Diagrams' }).click();
+  await (await openSettings(page)).getByTestId('assets-diagrams').click();
   const diagrams = page.getByRole('dialog', { name: 'All diagrams' });
   const rows = diagrams.getByTestId('diagram-list').getByRole('button');
   await expect(rows).toHaveCount(1);

@@ -1,0 +1,41 @@
+/* Search in the left panel (ui/SearchRail.tsx): the field, the switch, then the list, which scrolls on its own. */
+.search-rail { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.search-rail-top { flex: none; display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-4) var(--s-4) var(--s-4); border-bottom: 1px solid var(--line); }
+.search-rail-field { display: flex; align-items: center; gap: 6px; height: var(--h-header); padding: 0 var(--s-1) 0 10px; border: 1px solid var(--line);
+  border-radius: var(--r-md); background: var(--bg); color: var(--text-3); }
+.search-rail-field:hover:not(:focus-within) { border-color: var(--line-strong); }
+.search-rail-field:focus-within { border-color: var(--accent); box-shadow: var(--ring); background: var(--surface); }
+.search-rail .search-rail-field input { flex: 1; width: auto; min-width: 0; border: 0; border-radius: 0; background: transparent; padding: 0; min-height: 0; height: 100%; outline: none;
+  box-shadow: none; color: var(--text); font-size: var(--fs-sub); }
+.search-rail-field input::placeholder { color: var(--text-3); }
+.search-rail-field input::-webkit-search-cancel-button { display: none; }
+.search-rail-field .search-rail-close { width: var(--h-sm); height: var(--h-sm); min-height: var(--h-sm); border-radius: var(--r-circle); }
+.search-rail-switch { align-self: stretch; display: flex; }
+.search-rail-switch .segment { flex: 1; }
+.search-rail-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0 var(--s-5); }
+.search-rail-note { margin: 10px var(--s-5); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.search-rail-note p { margin: 0; }
+.search-rail-list { list-style: none; margin: 0; padding: 0 6px; display: flex; flex-direction: column; gap: 1px; }
+.search-rail-row { display: flex; align-items: center; gap: 6px; border-radius: var(--r-md); padding-right: 6px; transition: background var(--dur-1) var(--ease-out); }
+.search-rail-row:hover { background: var(--fill-quiet); }
+.search-rail-row.current { background: var(--accent-tint); }
+.search-rail-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-1); padding: var(--s-3) var(--s-2) var(--s-3) 10px;
+  min-height: var(--h-touch); border: 0; border-radius: var(--r-md); background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.search-rail-open.static { cursor: default; }
+.search-rail-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.search-rail-title { font-size: var(--fs-sub); font-weight: 600; line-height: var(--lh-snug); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.search-rail-row.current .search-rail-title { color: var(--accent); }
+.search-rail-meta { font-size: var(--fs-foot); color: var(--text-2); }
+.search-rail-row .pill { flex: none; font-size: var(--fs-foot); }
+/* ML papers in the panel: its states and Search by fields, compact. */
+.paper-search.compact { padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
+.paper-search.compact .advanced-search { padding: var(--s-2) var(--s-5) 0; }
+.paper-search.compact .advanced-search summary { font-size: var(--fs-foot); color: var(--text-2); font-weight: 500; }
+.paper-search.compact > .chips { padding: 0 var(--s-5); }
+.paper-search.compact .empty { padding: var(--s-6) var(--s-5); min-height: 0; flex: none; }
+.paper-search.compact .empty .icon { display: none; }
+.paper-search.compact .empty p { font-size: var(--fs-sub); margin: 0; }
+/* The Library's switch in its title row while searching. */
+.scope-switch { display: inline-flex; align-items: center; gap: 10px; align-self: center; }
+.library-ml .paper-search { overflow-y: auto; }
+@media (pointer: coarse) { .search-rail-field { height: var(--h-lg); } .search-rail-switch .segment, .scope-switch .segment { min-height: 36px; } }

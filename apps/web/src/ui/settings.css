@@ -1,0 +1,47 @@
+/* Settings (ui/Settings.tsx): the apps' grouped sections, an information dialog with a round X and no footer. */
+.dialog.settings-dialog { width: min(96vw, 620px); }
+.settings-dialog .dialog-body { gap: 0; }
+.settings-page { display: flex; flex-direction: column; gap: 18px; padding-bottom: var(--s-2); }
+.settings-page .sheet-top { margin-bottom: 0; }
+.settings-section { display: flex; flex-direction: column; gap: 6px; }
+.settings-heading { display: flex; align-items: center; gap: 2px; margin: 0 var(--s-2); min-height: 22px; font-size: var(--fs-foot); font-weight: 600; color: var(--text-2); }
+.settings-group { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); }
+.settings-row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); min-height: var(--h-touch); padding: 0 14px; font-size: var(--fs-sub); }
+.settings-row + .settings-row::before { content: ''; position: absolute; top: 0; left: 14px; right: 0; border-top: 1px solid var(--line); }
+.settings-label { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.settings-value { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; }
+.settings-email .settings-label { font-weight: 600; overflow-wrap: anywhere; margin: 0; }
+/* A row that opens something: the button covers the whole row under its words, so an ⓘ can sit just right of them. */
+.settings-open-row { gap: 10px; justify-content: flex-start; transition: background var(--dur-1) var(--ease-out); }
+.settings-open { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: inherit; background: none; cursor: pointer; }
+.settings-open-row > :not(.settings-open) { position: relative; z-index: var(--z-raised); pointer-events: none; }
+.settings-open-row .info-tip { pointer-events: auto; }
+.settings-open-row > .settings-label:has(.info-tip-text.open) { z-index: var(--z-sticky); }
+.settings-open-row .settings-label { gap: 10px; }
+.settings-open-row .settings-label > .icon { color: var(--text-2); flex: none; }
+.settings-open-row .info-tip { margin-left: -8px; }
+.settings-open-row > .icon:last-child { margin-left: auto; color: var(--text-3); flex: none; }
+.settings-open-row .settings-value + .icon:last-child { margin-left: 0; }
+.settings-open-row:hover:not(.disabled) { background: var(--fill-quiet); }
+.settings-group > .settings-row:first-child { border-top-left-radius: var(--r-lg); border-top-right-radius: var(--r-lg); }
+.settings-group > .settings-row:last-child { border-bottom-left-radius: var(--r-lg); border-bottom-right-radius: var(--r-lg); }
+.settings-open-row.action { color: var(--accent); }
+.settings-open-row.danger { color: var(--danger); }
+.settings-open-row.disabled { color: var(--text-3); }
+.settings-open-row.disabled .settings-open { cursor: default; }
+.settings-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-theme { flex: none; }
+.settings-switch { flex: none; position: relative; width: 40px; height: 24px; min-height: 24px; padding: 0; border-radius: var(--r-pill); border: 0; background: var(--line-strong); cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out); }
+.settings-switch span { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: var(--r-circle); background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  transition: transform var(--dur-1) var(--ease-out); }
+.settings-switch[aria-checked=true] { background: var(--accent); }
+.settings-switch[aria-checked=true] span { transform: translateX(16px); }
+.settings-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Operators' tools: grey and apart (owner, build 57). */
+.settings-section.admin { margin-top: 6px; }
+.settings-section.admin .settings-group { background: var(--fill-quiet); border-style: dashed; }
+.settings-page .shortcuts { margin: 0; }
+@media (pointer: coarse) { .settings-theme .segment { min-height: 36px; } }
+@media (max-width: 640px) { .dialog.settings-dialog { width: 100vw; max-width: 100vw; max-height: 100dvh; height: 100dvh; margin: 0; border-radius: 0; border: 0; }
+  .settings-dialog .sheet-top { border-radius: 0; } }

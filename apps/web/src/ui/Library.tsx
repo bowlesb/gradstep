@@ -1,5 +1,6 @@
 import type { DevicePDFs } from './useDevicePDFs';
-import { CatalogsDialog } from './Catalogs';
+import { CatalogsDialog, saveCSV } from './Catalogs';
+import { catalogCSVRows, libraryCSV } from '../lib/library-csv';
 import { entryCatalogKey, arxivCatalogKey } from '../lib/library-catalogs';
 import { compactAuthors, firstAuthorLine } from '../lib/authors';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
@@ -9,7 +10,7 @@ import { type ReaderPaper, isNewPaper, isReaderPaper, isSourcePaper, paperIdenti
 // full-width table — Title, Authors, Year, Tags, Added, Opened, Progress — with sortable headers,
 // the filters in the left rail (or as chips when the rail is hidden), live import progress with
 // inline Retry/Remove/credits states, and a compact list beside an open paper.
-import { type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent, type RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Activity } from '../lib/activity';
 import { addFailure, addOutcome, type AddOutcome, addPaper } from '../lib/add';
@@ -20,10 +21,10 @@ import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
-import { Dialog, MenuButton, SheetTop, dateLines, formatDate, formatDateTime } from './common';
+import { Dialog, MenuButton, MenuCheck, SheetTop, SubMenu, dateLines, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
-import { CatalogRecommendButton, type Recommender } from './Recommend';
+import { RecommendChoices, type Recommender } from './Recommend';
 import { useLibraryColumns } from './prefs';
 import type { useLibrary } from './useLibrary';
 import { LibraryRows, type LibraryRowsCommands, type LibraryViewport, WINDOW_THRESHOLD } from './LibraryRows';
@@ -255,39 +256,11 @@ function revealColumnFocus(event: FocusEvent<HTMLDivElement>) {
   else if (bounds.right > right) scroller.scrollLeft += bounds.right - right;
 }
 
-/** Overlay scrollbars can be invisible. Keep an explicit affordance without rerendering rows on scroll. */
-function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTMLDivElement | null>; available: boolean }) {
-  const [edge, setEdge] = useState({ left: false, right: false });
-  useEffect(() => {
-    const element = scroller.current;
-    if (!element || !available) { setEdge({ left: false, right: false }); return; }
-    const measure = () => {
-      const left = element.scrollLeft > 1, right = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
-      setEdge(previous => previous.left === left && previous.right === right ? previous : { left, right });
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    const table = element.querySelector('table');
-    if (table) observer.observe(table);
-    element.addEventListener('scroll', measure, { passive: true });
-    measure();
-    return () => { observer.disconnect(); element.removeEventListener('scroll', measure); };
-  }, [scroller, available]);
-  if (!edge.left && !edge.right) return null;
-  const scroll = (direction: number) => {
-    const element = scroller.current;
-    if (!element) return;
-    // One useful visible detail area at a time, keeping a small overlap for orientation.
-    const titleWidth = element.querySelector('th.col-title')?.getBoundingClientRect().width ?? 200;
-    element.scrollLeft += direction * Math.max(120, element.clientWidth - titleWidth - 24);
-  };
-  return <div className="column-scroll-controls" role="group" aria-label="Scroll library columns">
-    <button className="icon-button" disabled={!edge.left} onClick={() => scroll(-1)} aria-label="Scroll columns left" title="Scroll columns left"><Icon name="chevronLeft" size={16} /></button>
-    <button className="icon-button" disabled={!edge.right} onClick={() => scroll(1)} aria-label="Scroll columns right" title="Scroll columns right"><Icon name="chevronRight" size={16} /></button>
-  </div>;
-}
+const SORT_LABELS: Record<SortKey, string> = { title: 'Title', authors: 'Authors', year: 'Year', tags: 'Tags', added: 'Added', opened: 'Opened', progress: 'Progress' };
+/** A sort key chosen again reverses it; a new one starts in its natural direction (the column headers' rule). */
+const nextSort = (q: LibraryQuery, key: SortKey): LibraryQuery['sort'] => ({ key, descending: q.sort.key === key ? !q.sort.descending : !['title', 'authors', 'tags'].includes(key) });
 
-export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar, recommender, onSearchTag, chatCount }: {
+export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar, recommender, onSearchTag, chatCount, onReport, searchSwitch }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
   /** Saved chats about a paper (the Chats column, B9). */
   chatCount?: (entry: ClientEntry) => number;
@@ -296,6 +269,10 @@ export function LibraryView({ library, model, activity, view, setView, showChips
   currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void; onSimilar?:(item:LibraryPaper)=>void; recommender?: Recommender;
   /** ML paper search for a tag (the Tags menu's first entry). */
   onSearchTag?: (tag: string) => void;
+  /** The "…"'s Report this screen. */
+  onReport?: () => void;
+  /** While the top-bar field has words: the Library | ML papers switch, in the title row (App's ScopeSwitch). */
+  searchSwitch?: ReactNode;
 }) {
   const { notice, setNotice, run } = useCommandRunner();
   const { columns, setColumns, reset } = useLibraryColumns();
@@ -335,7 +312,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
   const sortedHidden = view.sort.key !== 'title' && !columns.includes(view.sort.key);
   const header = (key: SortKey, label: string, className: string) => (
     <th key={key} className={className} aria-sort={view.sort.key === key ? (view.sort.descending ? 'descending' : 'ascending') : 'none'} scope="col">
-      <button className="sort" onClick={() => setView(q => ({ ...q, sort: { key, descending: q.sort.key === key ? !q.sort.descending : !['title', 'authors', 'tags'].includes(key) } }))}>
+      <button className="sort" onClick={() => setView(q => ({ ...q, sort: nextSort(q, key) }))}>
         {label}{view.sort.key === key && <span className="sort-mark" aria-hidden="true">{view.sort.descending ? ' ↓' : ' ↑'}</span>}
       </button>
     </th>
@@ -350,13 +327,10 @@ export function LibraryView({ library, model, activity, view, setView, showChips
           {library.state === 'ready' || all.length ? `${shown.length.toLocaleString()} ${shown.length === 1 ? 'paper' : 'papers'}${describe.length ? ` · ${describe.join(' · ')}` : ''}` : ''}
         </span>
         {(describe.length > 0) && <button className="link small-link" onClick={() => setView(q => ({ ...q, filter: 'all', tag: '', query: '' }))}>Clear filters</button>}
-        <div className="library-table-tools">
-          <button className="secondary small" onClick={() => setShowCatalogs(true)} aria-haspopup="dialog">Catalogs</button>
-          <CatalogRecommendButton recommender={recommender} />
-          <ColumnScrollControls scroller={scroller} available={all.length > 0} />
-          <button className="secondary small columns-button" aria-haspopup="dialog" aria-expanded={choosingColumns} onClick={() => setChoosingColumns(true)}>Columns</button>
-        </div>
+        {searchSwitch}
         {sortedHidden && <span className="fine library-sort-note">Sorted by {LIBRARY_COLUMNS.find(c => c.key === view.sort.key)?.label} {view.sort.descending ? '↓' : '↑'}</span>}
+        <LibraryOptions library={library} model={model} view={view} setView={setView} recommender={recommender} onAdd={onAdd} onReport={onReport}
+          onCatalogs={() => setShowCatalogs(true)} onColumns={() => setChoosingColumns(true)} />
       </div>
       <CatalogsDialog open={showCatalogs} onClose={() => setShowCatalogs(false)} library={library} />
       <Dialog open={choosingColumns} onClose={() => setChoosingColumns(false)} title="Library columns">
@@ -412,6 +386,43 @@ export function LibraryView({ library, model, activity, view, setView, showChips
       )}
     </section>
   );
+}
+
+/** The Library's one "…" at the right end of its title row (owner-approved 2026-10-22, audit S10; RootView's
+ * optionsMenu): Add paper first (owner, build 75), then catalogs, recommendations, the table's columns, sort and show, the
+ * catalog's CSV and Report this screen. */
+function LibraryOptions({ library, model, view, setView, recommender, onAdd, onReport, onCatalogs, onColumns }: { library: Library; model: LibraryModel; view: LibraryQuery; setView: SetQuery;
+  recommender?: Recommender; onAdd: () => void; onReport?: () => void; onCatalogs: () => void; onColumns: () => void }) {
+  const catalogs = library.catalogs, catalogName = catalogs?.state.catalogs.find(c => c.id === catalogs.currentID)?.name ?? 'Library';
+  const exportCSV = () => saveCSV(catalogName, libraryCSV(catalogCSVRows(catalogs ? library.catalogEntries(catalogs.currentID) : library.entries.filter(e => e.visible))));
+  const empty = model.all.length === 0;
+  const shows = FILTERS.filter(f => offered(model, f.value));
+  return <MenuButton icon="more" label="Library options" testID="library-options" className="screen-options">
+    {close => <>
+      <button type="button" role="menuitem" className="menu-item menu-add" disabled={library.state !== 'ready'} onClick={() => { close(); onAdd(); }} data-testid="add-paper">
+        <Icon name="plus" size={14} /> Add paper…</button>
+      <hr className="menu-divider" />
+      <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); onCatalogs(); }} data-testid="library-catalogs"><Icon name="book" size={14} /> Catalogs…</button>
+      {recommender?.catalogAvailable && <SubMenu label="Recommend papers" icon="sparkles" testID="recommend-catalog">
+        <RecommendChoices note={`For ${recommender.catalogName} · ${recommender.note}`} onChoose={n => { close(); recommender.catalog(n); }} />
+      </SubMenu>}
+      {!empty && <>
+        <hr className="menu-divider" />
+        <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); onColumns(); }} data-testid="library-columns"><Icon name="table" size={14} /> Columns…</button>
+        <SubMenu label="Sort by" icon="list" value={`${SORT_LABELS[view.sort.key]} ${view.sort.descending ? '↓' : '↑'}`} testID="library-sort">
+          {(Object.keys(SORT_LABELS) as SortKey[]).map(key => <MenuCheck key={key} radio checked={view.sort.key === key} onClick={() => { close(); setView(q => ({ ...q, sort: nextSort(q, key) })); }}>
+            {SORT_LABELS[key]}{view.sort.key === key ? (view.sort.descending ? ' ↓' : ' ↑') : ''}</MenuCheck>)}
+        </SubMenu>
+        {shows.length > 1 && <SubMenu label="Show" icon="grid" value={view.filter === 'all' ? 'All' : FILTERS.find(f => f.value === view.filter)?.label} testID="library-show">
+          {shows.map(f => <MenuCheck key={f.value} radio checked={view.filter === f.value} onClick={() => { close(); setView(q => ({ ...q, filter: f.value })); }}>
+            {f.value === 'all' ? 'All' : f.label}</MenuCheck>)}
+        </SubMenu>}
+        <hr className="menu-divider" />
+        <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); exportCSV(); }} data-testid="library-export"><Icon name="download" size={14} /> Export catalog as CSV…</button>
+      </>}
+      {onReport && <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); onReport(); }} data-testid="library-report"><Icon name="bug" size={14} /> Report this screen</button>}
+    </>}
+  </MenuButton>;
 }
 
 /** Only an active import row ticks. Ready papers and the table's query/sort state stay idle. */

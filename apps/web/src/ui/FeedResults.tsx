@@ -7,7 +7,7 @@ import { Dialog, SheetTop } from './common';
 import { Icon } from './icons';
 import { writeStored } from './prefs';
 
-interface Actions {
+export interface Actions {
   expanded: Set<string>; toggle(source: string): void; adding: string | null; inLibrary: Set<string>; addBlocked: boolean;
   add(paper: DiscoveryResult): Promise<void>; feedback?(source: string, kind: FeedFeedback | null): Promise<void>;
   feedbackBusy: boolean; feedbackState: Map<string, FeedFeedback>;
@@ -28,7 +28,7 @@ function Popularity({ paper }: { paper: DiscoveryResult }) {
 function Topics({ paper }: { paper: DiscoveryResult }) {
   return <span className="tags">{resultTopics(paper).map(t => <span key={t} className="tag static">{t}</span>)}</span>;
 }
-function Add({ paper, actions }: { paper: DiscoveryResult; actions: Actions }) {
+export function Add({ paper, actions, short = false }: { paper: DiscoveryResult; actions: Actions; short?: boolean }) {
   const have = actions.inLibrary.has(paper.source_id), fraction = actions.preparing?.get(paper.source_id);
   // Owner, build 58: after Add, the Library's loading spinner (with its percent when known) until the paper is ready;
   // it shows the Library; then the check that opens the paper.
@@ -42,7 +42,7 @@ function Add({ paper, actions }: { paper: DiscoveryResult; actions: Actions }) {
   }
   if (have) return <button className="pill" disabled={!actions.open} onClick={() => actions.open?.(paper.source_id)} title="Open the paper" data-testid="feed-open">✓ In library</button>;
   return <button className="pill accent" disabled={!!actions.adding || actions.addBlocked} onClick={() => void actions.add(paper)}>
-    + Add to library</button>;
+    {short ? '+ Add' : '+ Add to library'}</button>;
 }
 function Feedback({ paper, actions }: { paper: DiscoveryResult; actions: Actions }) {
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
@@ -115,26 +115,13 @@ export function useFeedColumns() {
 }
 const SORT: Partial<Record<FeedColumn, FeedSort>> = { popularity: 'popularity', topic: 'topic', published: 'newest', authors: 'authors' };
 
-export function FeedTable({ results, columns: settings, sort, setSort, actions, toolsSlot }: {
+export function FeedTable({ results, columns: settings, sort, setSort, actions }: {
   results: DiscoveryResult[]; columns: ReturnType<typeof useFeedColumns>; sort: { key: FeedSort; ascending: boolean };
   setSort(key: FeedSort, ascending?: boolean): void; actions: Actions;
-  toolsSlot: HTMLElement | null;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ left: false, right: false });
   const { columns, setColumns } = settings;
   const chosen = FEED_COLUMNS.filter(c => columns.includes(c.key));
-  useEffect(() => {
-    const element = scroller.current;
-    if (!element) return;
-    const measure = () => {
-      const left = element.scrollLeft > 1, right = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
-      setEdges(old => old.left === left && old.right === right ? old : { left, right });
-    };
-    const resize = new ResizeObserver(measure); resize.observe(element); if (element.firstElementChild) resize.observe(element.firstElementChild);
-    element.addEventListener('scroll', measure, { passive: true }); measure();
-    return () => { resize.disconnect(); element.removeEventListener('scroll', measure); };
-  }, [results.length > 0, columns]);
   const header = (label: string, key?: FeedSort, className?: string) => <th className={className} scope="col" aria-sort={key === sort.key ? sort.ascending ? 'ascending' : 'descending' : undefined}>
     {key ? <button className="sort" onClick={() => setSort(key, key === sort.key ? !sort.ascending : undefined)}>{label}{sort.key === key ? sort.ascending ? ' ↑' : ' ↓' : ''}</button> : label}</th>;
   return <>
@@ -147,10 +134,6 @@ export function FeedTable({ results, columns: settings, sort, setSort, actions, 
         <button className="link column-reset" onClick={settings.reset}>Reset</button>
       </div>
     </Dialog>
-    {(edges.left || edges.right) && toolsSlot && createPortal(<div className="column-scroll-controls" role="group" aria-label="Scroll feed columns">
-      <button className="icon-button" disabled={!edges.left} aria-label="Scroll feed columns left" onClick={() => { if (scroller.current) scroller.current.scrollLeft -= 240; }}><Icon name="chevronLeft" size={16} /></button>
-      <button className="icon-button" disabled={!edges.right} aria-label="Scroll feed columns right" onClick={() => { if (scroller.current) scroller.current.scrollLeft += 240; }}><Icon name="chevronRight" size={16} /></button>
-    </div>, toolsSlot)}
     {results.length > 0 && <div className="feed-table-wrap" ref={scroller} tabIndex={0} role="region" aria-label="Feed table" aria-describedby="feed-table-help"
       style={{ '--library-detail-width': `${chosen.reduce((n, c) => n + c.width, 0) + 170}px` } as CSSProperties}
       onKeyDown={event => {

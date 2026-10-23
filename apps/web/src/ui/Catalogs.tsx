@@ -9,7 +9,7 @@ const paperCount = (count: number) => `${count} ${count === 1 ? 'paper' : 'paper
 
 /** Export as CSV (owner, build 75: "save the entire catalog as csv"): every paper in the catalog, written here and saved
  * by this browser; nothing is sent. */
-function saveCSV(name: string, csv: string) {
+export function saveCSV(name: string, csv: string) {
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), link = document.createElement('a');
   link.href = url; link.download = csvFileName(name); link.hidden = true;
   document.body.append(link); link.click(); link.remove();
