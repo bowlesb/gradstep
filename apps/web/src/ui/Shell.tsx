@@ -4,7 +4,7 @@
 // widths and visibility per route in this browser. Narrow windows show the side panes as drawers.
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
-import { PANE_LIMITS, type Route, clampWidth, usePaneLayout } from './prefs';
+import { PANE_LIMITS, type Route, clampWidth, paneWanted, usePaneLayout } from './prefs';
 
 type Side = 'left' | 'right';
 export interface PaneState { open: boolean; inline: boolean; width: number }
@@ -25,7 +25,7 @@ export function useWorkspace(route: Route) {
   }, []);
   useEffect(() => setOverlay(null), [route]);
 
-  const wanted = layout.open[route];
+  const wanted = { left: paneWanted(layout, route, 'left', width), right: paneWanted(layout, route, 'right', width) };
   const leftInline = width >= LEFT_INLINE;
   const leftOpen = leftInline ? wanted.left : overlay === 'left';
   let rightInline = width >= RIGHT_INLINE, left = layout.left, right = layout.right;

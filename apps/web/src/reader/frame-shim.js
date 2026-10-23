@@ -253,6 +253,24 @@
     // A drag that selected text over the link is a selection, not a click on it.
     if (url && (url.protocol === 'https:' || url.protocol === 'http:') && window.getSelection()?.isCollapsed !== false) send({ type: 'link', url: url.href });
   });
+  // A figure shown on its own: its laid-out height, so the page around it sizes the frame to the figure and its caption
+  // instead of leaving an empty white area under them (UX audit R18).
+  if (config?.bundle?.figure_id) addEventListener('load', () => {
+    (window.__scienceReaderReady || Promise.resolve()).then(() => {
+      let frame = 0;
+      const report = () => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          const body = document.body, style = body && getComputedStyle(body);
+          if (!body || !style) return;
+          const height = Math.ceil(body.getBoundingClientRect().bottom + scrollY + (parseFloat(style.marginBottom) || 0));
+          if (height > 0) send({ type: 'figureHeight', height });
+        });
+      };
+      new ResizeObserver(report).observe(document.body);
+      report();
+    }).catch(() => {});
+  });
   addEventListener('message', event => {
     const message = event.data;
     if (event.source !== parent || event.origin !== target || !message || message.gradstep !== 'command') return;

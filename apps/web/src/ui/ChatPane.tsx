@@ -5,7 +5,8 @@ import type { DiagramFormat } from '../lib/events';
 import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { TranscriptFollow } from '../lib/chat-follow';
 import { answerActionPrompt, chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
-import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
+import { answeredBy, profileID, profileSummary, modelOption } from '../lib/chat-profiles';
+import type { CreditBalance } from '../lib/account-summary';
 import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer, type FigureFacts } from '../lib/chat-session';
 import type { FigureStructure } from '../lib/figure-structure';
 import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
@@ -13,7 +14,7 @@ import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from 
 import { citationAnchor } from '../lib/passage';
 import { AnswerOptionsDialog, ExplainerModelDialog } from './ChatProfile';
 import { safeLink } from '../lib/links';
-import { Dialog, formatDate, MenuButton, SheetTop } from './common';
+import { Dialog, formatDate, InfoTip, MenuButton, SheetTop } from './common';
 import { CopyButton } from './CopyButton';
 import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL, usePartCrops } from './Diagram';
 import { Icon, iconName } from './icons';
@@ -62,6 +63,28 @@ function RenameField({ initial, onSave, onCancel, label }: { initial: string; on
 
 /** A fresh 32-bit seed for a new empty chat's starter questions. */
 const starterSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
+export const creditsUsed = (credits: number | null) => credits === null ? null : `${credits} ${credits === 1 ? 'credit' : 'credits'} used`;
+/** Below this many credits the composer says what's left even without an estimate for the chosen answer. */
+const LOW_BALANCE = 50;
+/** The line under the message box: nothing while the balance comfortably covers the chosen answer (UX audit R22: it was
+ * always shown); the balance when it may not cover the answer's maximum, or when an answer was refused for credits. */
+export function composerBalance(balance: CreditBalance | null, answerMaximum: number | null, refused: boolean, asOf: string | null): string | null {
+  if (!balance || balance.unlimited_testing) return null;
+  const low = balance.available < Math.max(answerMaximum ?? 0, LOW_BALANCE);
+  if (!low && !refused) return null;
+  return `${balance.available.toLocaleString()} ${balance.available === 1 ? 'credit' : 'credits'} left${balance.reserved ? ` · ${balance.reserved} held` : ''}${asOf ? ` · as of ${asOf}` : ''}`;
+}
+const starterSeeds = new Map<string, number>();
+/** One seed per chat for this tab, so hiding and showing the chat pane (which unmounts it) shows the same starter
+ * questions (UX audit R24: "rows must not jump"); another empty chat still gets a fresh set. */
+export function starterSeedFor(composerID: string, seeds: Map<string, number> = starterSeeds, fresh: () => number = starterSeed): number {
+  let seed = seeds.get(composerID);
+  if (seed === undefined) {
+    seed = fresh(); seeds.set(composerID, seed);
+    if (seeds.size > 256) seeds.delete(seeds.keys().next().value!);
+  }
+  return seed;
+}
 
 export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, papers, onBackToNote }: {
   chat: ChatSession | null; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
@@ -199,10 +222,11 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const [textSize, setTextSize] = useStored<number | null>(CHAT_TEXT_KEY, null, validChatText);
   const layoutText = useMedia('(max-width: 600px)') ? 15 : 14, chatText = textSize ?? layoutText;
 
-  // Starter questions (CHAT.md, 2026-10-16): a fresh seed whenever another empty chat is shown, kept while it stays on
-  // screen; the paper's structure from its verified bundle on this device (none for a general chat).
+  // Starter questions (CHAT.md, 2026-10-16): a fresh seed whenever another empty chat is shown, kept for that chat while
+  // this tab is open (across the pane closing and opening); the paper's structure from its verified bundle on this
+  // device (none for a general chat).
   const empty = !messages.length && !composerBusy(c) && !c.liveID;
-  const seed = useMemo(starterSeed, [c.id]);
+  const seed = useMemo(() => starterSeedFor(c.id), [c.id]);
   const structures = useRef(new Map<string, StarterPaper>());
   const [structure, setStructure] = useState<{ documentID: string; paper: StarterPaper } | null>(null);
   useEffect(() => {
@@ -325,14 +349,18 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           : promoted.paperExplainer ? <PaperExplainerCards explainer={promoted.paperExplainer} onCite={() => { /* the pane's own [¶N] handling (.cite[data-cite]) takes these */ }} />
           : <Answer text={promoted.explanation ?? promoted.quote} />}</section>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`} data-answer={m.payload.role === 'assistant' ? m.payload.entityID : undefined}>
-        {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
+        {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div>
+          {/* One quiet row of answer actions: Copy, then the answer's details behind ⓘ (UX audit R22, R25). */}
+          <span className="answer-actions"><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" icon />
+            {(() => { const by = answeredBy(m.payload.model, m.payload.profile, table), cost = m === last && !c.issue && !context ? creditsUsed(c.credits) : null;
+              return (by || cost) && <InfoTip label="Answer details" testID="answer-details" text={<>{cost && <span data-testid="answer-cost">{cost}</span>}{cost && by && ' · '}
+                {by && <span data-testid="answer-by">{by}</span>}</>} />; })()}</span></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} caption={(manifest, blockID, paths) => chat.figureFacts(c.documentID, manifest, blockID, paths)} />
             : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}
           {/* A finished answer's papers (B2): never while it streams or when it was cut short. */}
           {papers && m.payload.status === 'complete' && <PapersInAnswer text={stripPartMarkers(m.payload.text ?? '')} papers={papers} />}</>}
         {/* What an early end cost, while this session lasts (2026-10-16); earlier answers keep "Answer interrupted". */}
         {m.payload.status === 'interrupted' && <span className="fine interrupted" data-testid="chat-interrupted">{chat.interruptionNote(m.payload.entityID) ?? 'Answer interrupted'}</span>}
-        {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
         {diagrams.has(m.payload.entityID) && !inlineParts(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} caption={(manifest, blockID, paths) => chat.figureFacts(c.documentID, manifest, blockID, paths)} />}
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
@@ -361,7 +389,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       </div>}
       {!c.issue && canAnswer && !composerBusy(c) && last?.payload.role === 'user' && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
       {canAnswer && (c.issue || last?.payload.role === 'user') && <p className="fine" data-testid="retry-profile">This question: {profileSummary(chat.retryProfile(c), table)}</p>}
-      {c.credits !== null && <p className="fine answer-cost">{c.credits === 0 && c.issue ? 'No credits used' : `${c.credits} ${c.credits === 1 ? 'credit' : 'credits'} used`}</p>}
+      {/* What a failed or cut-short answer cost stays in view beside its issue; a finished answer's is behind its ⓘ. */}
+      {c.credits !== null && c.issue && <p className="fine answer-cost">{c.credits === 0 ? 'No credits used' : creditsUsed(c.credits)}</p>}
       {deleted && <p className="issue">This conversation was deleted. Your draft is still here to copy.</p>}
       {pick && <AnswerSelectionBar pick={pick} canQuote={!retired} canAsk={!disabled && !composerBusy(c) && !c.answer}
         onQuote={quoteInChat} onExplain={quote => askAbout('explain', quote)} onDefine={quote => askAbout('define', quote)}
@@ -399,7 +428,10 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           : chat.durable ? (c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
             : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : '')
           : 'Unsent drafts stay in this tab only and aren’t kept after a reload.';
-        const balance = chat.balance ? `${chat.balance.unlimited_testing ? 'Unlimited testing' : `${chat.balance.available} credits`}${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}${chat.balanceStale && chat.balanceAt ? ` · as of ${asOf(chat.balanceAt)}` : ''}` : null;
+        // The balance only when it matters: low for the chosen answer, or when it stopped one (UX audit R22); never under an
+        // equation's or figure's own conversation, which shows no credit counts (EQUATION_VIEW.md; UX audit R19).
+        const balance = context ? null : composerBalance(chat.balance, table?.estimates.get(profileID(choice))?.max ?? null, c.issue === 'insufficient_credits',
+          chat.balanceStale && chat.balanceAt ? asOf(chat.balanceAt) : null);
         return <div className="composer-status">
           {hint && <p className="fine draft-hint" data-testid="draft-status">{hint}</p>}
           {balance && <p className="fine draft-hint composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{balance}</p>}

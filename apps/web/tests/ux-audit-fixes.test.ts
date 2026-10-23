@@ -6,6 +6,77 @@ import { loadMessage } from '../src/ui/SupportReports';
 import { BackendError } from '../src/lib/backend';
 import { catalogCount } from '../src/ui/Catalogs';
 import { libraryIsEmpty } from '../src/ui/Library';
+import { focusSearch } from '../src/ui/ReadingMode';
+import { paperExplainerTap } from '../src/ui/PaperExplainer';
+import { composerBalance, creditsUsed, starterSeedFor } from '../src/ui/ChatPane';
+import { paneWanted } from '../src/ui/prefs';
+
+describe('/ and ⌘K in reading mode (R5)', () => {
+  it('leaves reading mode first and focuses the field once it is shown again', () => {
+    const calls: string[] = [];
+    let later: (() => void) | null = null;
+    focusSearch({ on: true, exit: () => calls.push('exit') }, () => calls.push('focus'), run => { later = run; });
+    expect(calls).toEqual(['exit']);
+    later!();
+    expect(calls).toEqual(['exit', 'focus']);
+  });
+  it('focuses at once outside reading mode', () => {
+    const calls: string[] = [];
+    focusSearch({ on: false, exit: () => calls.push('exit') }, () => calls.push('focus'), () => { throw new Error('not deferred'); });
+    focusSearch(null, () => calls.push('focus'));
+    expect(calls).toEqual(['focus', 'focus']);
+  });
+});
+
+describe('Paper AI Explainer (R20)', () => {
+  it('asks which model only on the tap, and only without a default', () => {
+    expect(paperExplainerTap(false)).toBe('choose');
+    expect(paperExplainerTap(true)).toBe('run');
+  });
+});
+
+describe('Credits under the message box and on answers (R22)', () => {
+  const balance = (available: number, extra: object = {}) => ({ available, reserved: 0, ...extra });
+  it('shows the balance only when it may not cover the chosen answer, or an answer was refused', () => {
+    expect(composerBalance(balance(1000), 41, false, null)).toBeNull();
+    expect(composerBalance(balance(30), 41, false, null)).toBe('30 credits left');
+    expect(composerBalance(balance(45), null, false, null)).toBe('45 credits left');
+    expect(composerBalance(balance(1000), 41, true, '2:05 PM')).toBe('1,000 credits left · as of 2:05 PM');
+    expect(composerBalance(balance(1, { reserved: 4 }), 41, false, null)).toBe('1 credit left · 4 held');
+    expect(composerBalance(balance(0, { unlimited_testing: true }), 41, true, null)).toBeNull();
+    expect(composerBalance(null, 41, true, null)).toBeNull();
+  });
+  it('says what an answer used', () => {
+    expect(creditsUsed(3)).toBe('3 credits used');
+    expect(creditsUsed(1)).toBe('1 credit used');
+    expect(creditsUsed(null)).toBeNull();
+  });
+});
+
+describe('Starter questions across the chat pane closing and opening (R24)', () => {
+  it('keeps one seed per chat, and a fresh one for another chat', () => {
+    const seeds = new Map<string, number>();
+    let next = 10;
+    const fresh = () => next++;
+    expect(starterSeedFor('a', seeds, fresh)).toBe(10);
+    expect(starterSeedFor('a', seeds, fresh)).toBe(10);
+    expect(starterSeedFor('b', seeds, fresh)).toBe(11);
+    expect(starterSeedFor('a', seeds, fresh)).toBe(10);
+  });
+});
+
+describe('A paper’s contents panel at tablet widths (R26)', () => {
+  const layout = (chosen?: string[]) => ({ left: 272, right: 392, chosen,
+    open: { library: { left: true, right: false }, paper: { left: true, right: true }, feed: { left: true, right: false }, notes: { left: true, right: false } } });
+  it('starts closed below 1100 px until the reader chooses', () => {
+    expect(paneWanted(layout(), 'paper', 'left', 834)).toBe(false);
+    expect(paneWanted(layout(), 'paper', 'left', 1024)).toBe(false);
+    expect(paneWanted(layout(['paper.left']), 'paper', 'left', 834)).toBe(true);
+    expect(paneWanted(layout(), 'paper', 'left', 1280)).toBe(true);
+    expect(paneWanted(layout(), 'paper', 'right', 834)).toBe(true);
+    expect(paneWanted(layout(), 'library', 'left', 834)).toBe(true);
+  });
+});
 
 describe('Catalogs counts (S13)', () => {
   it('counts the papers the Library shows, then the archived ones', () => {

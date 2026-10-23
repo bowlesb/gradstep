@@ -33,6 +33,8 @@ export function scrub(root: Document | Element, bundle: VerifiedBundle) {
     else img.removeAttribute('src');
   }
 }
+/** The reader frame's text selection in dark mode: white on a deep indigo (contrast well above 4.5:1). */
+export const FRAME_SELECTION_STYLE = '@media (prefers-color-scheme: dark){::selection{background:#3b3fa8;color:#fff}}';
 /** The bundle's stylesheets in its own link order, then any remaining style members. */
 export function bundleStyles(bundle: VerifiedBundle, hrefs: (string | null)[] = []): string[] {
   const styles = bundle.manifest.members.filter(m => m.role === 'style');
@@ -60,6 +62,11 @@ function documentTemplate(bundle: VerifiedBundle): { before: string; after: stri
     style.textContent = text;
     head.append(style);
   }
+  // The bundle's selection colour is a pale indigo, under which dark mode's light text can't be read: a deep accent there
+  // (UX audit R15). The shim maps this media query to the app's chosen appearance like the bundle's own.
+  const selection = doc.createElement('style');
+  selection.textContent = FRAME_SELECTION_STYLE;
+  head.append(selection);
   const configBlock = doc.createElement('script');
   configBlock.setAttribute('type', 'application/json');
   configBlock.setAttribute('data-gradstep-config', '');

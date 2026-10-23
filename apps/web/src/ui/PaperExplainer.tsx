@@ -97,6 +97,10 @@ export function PaperExplainerCards({ explainer, onCite }: { explainer: PaperExp
   </div>;
 }
 
+/** The AI Explainer button's tap: run with the reader's default for paper answers when one is set, else ask which model
+ * first. Opening the page never asks (UX audit R20). */
+export const paperExplainerTap = (defaultSet: boolean): 'run' | 'choose' => defaultSet ? 'run' : 'choose';
+
 export function PaperExplainerDialog({ manifest, title, host, onClose, onCite }: {
   manifest: string; title: string; host: PaperExplainerHost; onClose: () => void;
   /** A `¶N`: the page closes and the paper lands there with Back. */
@@ -124,8 +128,13 @@ export function PaperExplainerDialog({ manifest, title, host, onClose, onCite }:
     setResult(loading());
     void host.run(r => { if (!c.signal.aborted) setResult(r); }, c.signal, profile).catch(() => {});
   };
-  // Opening the page: the kept explainer at once; otherwise which model first (as the figure explainer's AI Explainer).
-  useEffect(() => { if (!result) setChoosing(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opening the page shows the kept explainer at once, or the page with its AI Explainer button; nothing is asked before
+  // that tap (native openPaperExplainer(requesting: false); UX audit R20). The tap asks which model only when the reader
+  // hasn't set a default for paper answers.
+  const start = () => {
+    if (paperExplainerTap(!!host.context?.chat.hasScenarioChoice('paper')) === 'choose') setChoosing(true);
+    else setPending(true);
+  };
   useEffect(() => {
     if (!pending) return;
     setPending(false);
@@ -161,16 +170,19 @@ export function PaperExplainerDialog({ manifest, title, host, onClose, onCite }:
   };
 
   return <Dialog open onClose={onClose} title="AI Explainer" wide className="figure-dialog paper-explainer-dialog">
-    <SheetTop onClose={onClose} testID="paper-explainer-close" trailing={context && <button type="button" className="icon-button" aria-label="Open in Chat" data-testid="paper-explainer-open-chat"
+    {/* The top row: AI Explainer (the figure explainer's peer capsule) until there is a result; then Open in Chat, which
+        has something to carry only once an explanation exists (UX audit R18, R20). */}
+    <SheetTop onClose={onClose} testID="paper-explainer-close" trailing={context && result && <button type="button" className="icon-button" aria-label="Open in Chat" data-testid="paper-explainer-open-chat"
       onClick={() => { promoteContextual(context, explanation, undefined, result?.phase === 'done' && explainer ? explainer : undefined); onClose(); }}><Icon name="chat" /></button>}>
-      <h2 className="explainer-heading">AI Explainer</h2>
+      {!result && !asking ? <button type="button" className="sheet-action" onClick={start} disabled={choosing} data-testid="paper-explainer-start"
+        title="The background this paper assumes, its key ideas and a diagram of how they fit together. Uses credits.">AI Explainer</button>
+        : <h2 className="explainer-heading">AI Explainer</h2>}
     </SheetTop>
     <div className="paper-explainer" data-testid="paper-explainer">
       <p className="paper-explainer-title" data-testid="paper-explainer-title">{title}</p>
       <p className="visually-hidden" aria-live="polite" data-testid="paper-progress-status">{announced}</p>
-      {!result && !asking && !choosing && <div className="paper-explainer-intro">
+      {!result && !asking && <div className="paper-explainer-intro">
         <p className="muted">The background this paper assumes, its key ideas and a diagram of how they fit together. Uses credits.</p>
-        <button type="button" className="primary small" onClick={() => setChoosing(true)} data-testid="paper-explainer-start">Explain this paper</button>
       </div>}
       {asking && !consented ? <section className="equation-consent" data-testid="paper-explainer-consent">
         <p>Explaining the paper uses cloud AI: the paper’s text goes through OpenRouter to Google Vertex or DeepInfra according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>

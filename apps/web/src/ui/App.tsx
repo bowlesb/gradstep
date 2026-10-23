@@ -58,7 +58,7 @@ import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
 import type { PaperExplainerHost } from './PaperExplainer';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
-import { useReadingMode } from './ReadingMode';
+import { focusSearch, useReadingMode } from './ReadingMode';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
 // Loaded when first needed (C5): the reader with its frame script, and dialogs opened from the account menu.
@@ -471,16 +471,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       case 'reading': if (route === 'paper') reading.toggle(); break;
       case 'next': if (route === 'paper') readerCommands.current?.section?.(1); break;
       case 'previous': if (route === 'paper') readerCommands.current?.section?.(-1); break;
-      case 'search': {
-        const go = () => latest.current.enterSearch();
-        // Reading mode hides the top bar: leave it first, then focus once the bar is back (the paper's frame, which held
-        // the keyboard, may take focus back while it settles).
-        if (reading.on) {
-          reading.exit(); requestAnimationFrame(go);
-          setTimeout(() => { if (document.activeElement !== search.current && document.activeElement !== railField.current) go(); }, 120);
-        } else go();
-        break;
-      }
+      // Reading mode hides the top bar: it ends first, then the field takes focus (UX audit R5; ReadingMode focusSearch).
+      case 'search': focusSearch(reading, () => latest.current.enterSearch()); break;
       case 'find': if (route === 'paper') readerCommands.current?.find(); break;
       case 'left': ws.toggle('left'); break;
       case 'right': ws.toggle('right'); break;

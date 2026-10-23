@@ -6,7 +6,7 @@
 // The walkthrough's heading is a small menu of the paper's figures to switch to; one switched to waits for AI Explainer.
 import { ContextualChat, useContextualChat, promoteContextual } from './ContextualChat';
 import { citedMarker } from '../lib/passage';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { toBase64 } from '../lib/bytes';
 import type { VerifiedBundle } from '../lib/bundle';
 import { figureName, figureNoun } from '../lib/figure-view';
@@ -54,6 +54,19 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
   const current = index !== null ? figures[index] : null;
   const context = useContextualChat(figureView?.context, bundle.manifestSHA256, current?.id ?? null, index === null ? 'Figure' : names[index], current?.caption || current?.alt || 'Figure');
   const doc = useMemo(() => current ? frameDocument(bundle, { parentOrigin: location.origin, figureID: current.id, theme }) : null, [bundle, current, theme]);
+  // The figure's laid-out height, from its frame (frame-shim.js `figureHeight`); the frame keeps its CSS height until then.
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [contentHeight, setContentHeight] = useState<number | null>(null);
+  useEffect(() => {
+    setContentHeight(null);
+    const measured = (event: MessageEvent) => {
+      if (!frame.current || event.source !== frame.current.contentWindow || event.data?.gradstep !== 'reader' || event.data.value?.type !== 'figureHeight') return;
+      const height = Number(event.data.value.height);
+      if (Number.isFinite(height) && height >= 40 && height <= 20_000) setContentHeight(Math.ceil(height));
+    };
+    addEventListener('message', measured);
+    return () => removeEventListener('message', measured);
+  }, [current?.id, theme]);
   const back = () => { if (index !== null && fromGallery) setIndex(null); else onClose(); };
   const show = (i: number) => { setExplaining(false); setIndex(i); };
 
@@ -85,7 +98,11 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
   return (
     <Dialog open onClose={() => { if (!discussing) back(); }} title="Figures" wide className="figure-dialog">
       <div className="figure-viewer">
-        <SheetTop onClose={onClose} closeDisabled={discussing} testID="figure-close" trailing={context && <button type="button" className="icon-button" aria-label="Open in Chat" onClick={()=>{promoteContextual(context,explanation,index!==null?images[index]??undefined:undefined);onClose();}}><Icon name="chat"/></button>}>
+        {/* Open in Chat only once there is something to carry: an explainer's result, or this figure's own conversation or
+            draft (DESIGN.md: "A pushed explainer keeps its Open in Chat symbol"; UX audit R18: before that it sat beside
+            Chat as a second, unlabelled chat entry). */}
+        <SheetTop onClose={onClose} closeDisabled={discussing} testID="figure-close" trailing={context && current
+          && ((explaining && explanation.trim()) || context.composer.draft.trim() || context.composer.conversationID) && <button type="button" className="icon-button" aria-label="Open in Chat" data-testid="figure-open-chat" onClick={()=>{promoteContextual(context,explanation,index!==null?images[index]??undefined:undefined);onClose();}}><Icon name="chat"/></button>}>
           {current ? <>
             {fromGallery && <button className="icon-button sheet-back" disabled={discussing} onClick={() => setIndex(null)} aria-label="All figures" title="All figures"
               data-testid="figure-gallery-back"><Icon name="chevronLeft" /></button>}
@@ -101,8 +118,13 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
           </> : <h2>Figures · {figures.length}</h2>}
         </SheetTop>
         {current && doc ? <>
-          <iframe key={current.id} className={`figure-frame${explaining ? ' compact' : ''}`} title={current.alt || names[index!]} sandbox="allow-scripts" srcDoc={doc} />
-          <button className="secondary small" onClick={()=>setFullscreen(true)}>Open fullscreen</button>
+          {/* Sized to the figure and its caption (the frame reports its height), within the dialog so the pager below stays
+              in view; Open fullscreen is a small button on the figure's corner (UX audit R18). */}
+          <div className="figure-frame-wrap">
+            <iframe key={current.id} ref={frame} className={`figure-frame${explaining ? ' compact' : ''}`} title={current.alt || names[index!]} sandbox="allow-scripts" srcDoc={doc}
+              style={contentHeight ? { height: contentHeight + 2 } : undefined} />
+            <button type="button" className="icon-button figure-fullscreen" onClick={()=>setFullscreen(true)} aria-label="Open fullscreen" title="Open fullscreen" data-testid="figure-fullscreen"><Icon name="expand" size={15} /></button>
+          </div>
           {fullscreen && <Dialog open onClose={()=>setFullscreen(false)} title={names[index!]} wide className="fullscreen-figure"><SheetTop onClose={()=>setFullscreen(false)}><h2>{names[index!]}</h2></SheetTop><iframe className="figure-frame" title={names[index!]} sandbox="allow-scripts" srcDoc={doc}/></Dialog>}
           <div className="figure-nav">
             <button className="icon-button" onClick={() => show(index! - 1)} disabled={discussing || index === 0} aria-label="Previous figure"><Icon name="chevronLeft" /></button>

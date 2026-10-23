@@ -40,6 +40,15 @@ export function LineWidthControl({ value, onChange }: { value: LineWidth; onChan
   </span>;
 }
 
+/** `/` or ⌘K: the search field. Reading mode hides the top bar, so it ends first and the field takes focus once it is
+ * shown again (two frames: the render, then layout); otherwise focus would stay in the paper and the next letters typed
+ * would be read as shortcuts (UX audit R5). */
+export function focusSearch(reading: Pick<ReadingMode, 'on' | 'exit'> | null, focus: () => void, schedule: (run: () => void) => void = run => requestAnimationFrame(() => requestAnimationFrame(run))) {
+  if (!reading?.on) { focus(); return; }
+  reading.exit();
+  schedule(focus);
+}
+
 export interface ReadingMode {
   on: boolean;
   /** The window is full screen (false: the browser refused it, and reading mode is the focus layout in the window). */

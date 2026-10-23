@@ -142,6 +142,9 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   const appliedPassage = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [contentsDiscovered, setContentsDiscovered] = useState(() => readStored('gradstep.contents.doubleTapDiscovered', false, v => typeof v === 'boolean'));
+  // The double-tap hint shows only when Contents was opened with its button (the gesture it teaches does the same), never
+  // in a panel that was simply open beside the paper (UX audit R26).
+  const [contentsHint, setContentsHint] = useState(false);
   const [reference, setReference] = useState<ReaderReference | null>(null);
   const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
   // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
@@ -576,7 +579,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
       {reading?.on && <div className="reading-hotzone" onMouseEnter={() => showBar()} onMouseLeave={hideBarSoon} aria-hidden="true" />}
       <header className="paper-toolbar" ref={toolbar} onMouseEnter={reading?.on ? () => showBar() : undefined} onMouseLeave={reading?.on ? hideBarSoon : undefined}
         onFocus={reading?.on ? () => showBar() : undefined} onBlur={reading?.on ? hideBarSoon : undefined}>
-        <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={onContents} disabled={!bridgeReady} data-testid="contents"
+        <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={() => { if (!contentsShown) setContentsHint(true); onContents(); }} disabled={!bridgeReady} data-testid="contents"
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
         {reading?.on && <span className="reading-status" aria-live="off" data-testid="reading-status">
@@ -606,6 +609,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
         </div>
       </header>
       {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='paper')setPaperExplaining(true);else if(explainerReturn.kind==='equation')setEquation(equationTarget(explainerReturn.id));else setFigure({id:explainerReturn.id,open:true});setExplainerReturn(null);}}>{explainerReturn.kind==='paper'?'Back to AI Explainer':`Back to ${explainerReturn.kind==='equation'?'Equation':explainerReturn.kind==='table'?'Table':'Figure'} Explainer`}</button>}
+      <div className="paper-stage">
+      {/* Find floats over the top of the paper, so the page never moves when it opens (UX audit R17; native PaperFindBar). */}
       {finding && (
         <form className="find-bar" role="search" aria-label="Find in paper" onSubmit={e => e.preventDefault()}>
           <Icon name="search" size={14} />
@@ -616,14 +621,14 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
               if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
             }} />
           <span className="find-count" aria-live="polite" data-testid="find-count">{found && findText.trim() ? (found.count ? `${found.index + 1} of ${found.count}${found.count >= 1000 ? '+' : ''}` : 'No matches') : ''}</span>
-          <button type="button" className="icon-button" disabled={!found?.count} aria-label="List occurrences" onClick={()=>setFindList(v=>!v)}><Icon name="list" /></button>
+          {/* The word "All", so it doesn't read as the Contents glyph (UX audit R17). */}
+          <button type="button" className={`find-all${findList ? ' on' : ''}`} disabled={!found?.count} aria-label="List occurrences" aria-pressed={findList} title="List occurrences" onClick={()=>setFindList(v=>!v)}>All</button>
           <button type="button" className="icon-button" onClick={() => command('find', findText, 'previous')} disabled={!found?.count} aria-label="Previous match"><Icon name="chevronUp" /></button>
           <button type="button" className="icon-button" onClick={() => command('find', findText, 'next')} disabled={!found?.count} aria-label="Next match"><Icon name="chevronDown" /></button>
           <button type="button" className="link" onClick={closeFind}>Done</button>
         </form>
       )}
       {finding && findList && <div className="find-occurrences" role="list" aria-label="Occurrences">{found?.matches.map(m=><button type="button" key={m.index} onClick={()=>{command('find',findText,m.index);setFindList(false);}}>{m.index+1}. {m.text}</button>)}</div>}
-      <div className="paper-stage">
         {error ? ((pdfOffer === 'pdf' || pdfOffer === 'only') && pdfSource ? (
           // One screen whatever stopped the reader (owner, build 62: "there should be just one"; "remove the try again"):
           // the paper's PDF, opened from arXiv by this browser (ARXIV_DEVICE_ONLY.md); the reason's code behind an ⓘ.
@@ -692,7 +697,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
           {referenceNotice.kind !== 'working' && <button className="icon-button" aria-label="Dismiss reference message" onClick={() => setReferenceNotice(null)}><Icon name="close" size={14} /></button>}
         </div>}
       </div>
-      {contentsSlot && bundle && bridgeReady && createPortal(<Contents discovered={contentsDiscovered} headings={headings} active={active} bundle={bundle} onJump={jump}
+      {contentsSlot && bundle && bridgeReady && createPortal(<Contents discovered={contentsDiscovered || !contentsHint}headings={headings} active={active} bundle={bundle} onJump={jump}
         onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation} onEquationTiles={() => setEquationTiles(true)}
         onTable={t => setTableDetail({ id: t.id, label: t.number ?? 'Table', goTitle: 'Show in paper' })} />, contentsSlot)}
       {reference && <ReferenceActions reference={reference} frame={frame.current} onClose={() => setReference(null)}

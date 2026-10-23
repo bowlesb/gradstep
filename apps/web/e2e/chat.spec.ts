@@ -34,7 +34,7 @@ test('paper/general, consent, math, safe sources, encrypted reload and cross-bro
   await expect(page.getByTestId('chat-assistant').locator('math')).toBeVisible();
   await expect(page.getByTestId('chat-assistant').locator('table')).toBeVisible();
   await expect(page.getByTestId('chat-pane')).toContainText('3 credits used');
-  await expect(page.getByTestId('chat-pane')).toContainText('1000 credits');
+  await expect(page.getByTestId('chat-pane')).not.toContainText('credits left'); // the balance shows only when low (UX audit R22)
   expect(await page.evaluate(() => (window as any).injected)).toBeUndefined();
   await page.getByRole('link', { name: 'Original paper' }).click(); await expect(page.getByRole('dialog', { name: 'Open source' })).toContainText('https://arxiv.org/abs/2305.18290');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -76,7 +76,7 @@ test('assistant answers and Mermaid diagrams can be copied by an explicit user a
   await login(page); await send(page, 'Draw a preference diagram', true);
   await expect(page.getByTestId('chat-assistant')).toBeVisible();
   await page.getByTestId('copy-copy-answer').click();
-  await expect(page.getByTestId('copy-copy-answer')).toHaveText('Copied');
+  await expect(page.getByTestId('copy-copy-answer')).toHaveAttribute('aria-label', 'Copied');
   expect(await page.evaluate(() => (window as any).__copied)).toContain('preference');
   await page.getByRole('button', { name: 'Full size' }).click(); // the diagram is drawn in the answer; full size opens it (build 46)
   await page.getByText('Diagram source', { exact: true }).click();
