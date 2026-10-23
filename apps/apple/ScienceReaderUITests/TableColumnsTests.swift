@@ -74,7 +74,7 @@ final class TableColumnsTests: XCTestCase {
         // Start with the same two choices on both devices; iPad's normal defaults already include Authors.
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture", "--feed-columns=topic,published"]
         app.launch()
-        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") } else { app.wideMode("Feed").tap() }
+        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") } else { app.choosePlace("feed") }
         let options = app.buttons["Feed options"]
         XCTAssertTrue(options.waitForExistence(timeout: 5)); options.tap()
         app.buttons["View as"].firstMatch.tap()
@@ -156,7 +156,7 @@ final class TableColumnsTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--chat-history-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 15))
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         app.buttons["Chat history"].tap()
         XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
         let header = { (id: String) in app.buttons["chat.history.header.\(id)"] }
@@ -271,7 +271,7 @@ final class TableColumnsTests: XCTestCase {
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture",
                                "--feed-layout=table", "--feed-columns=abstract"]
         app.launch()
-        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") } else { app.wideMode("Feed").tap() }
+        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") } else { app.choosePlace("feed") }
         let abstract = app.descendants(matching: .any)["feed.table.header.abstract"].firstMatch
         let add = app.buttons["discover.add.2610.01234"]
         XCTAssertTrue(abstract.waitForExistence(timeout: 5))
@@ -283,7 +283,7 @@ final class TableColumnsTests: XCTestCase {
                                "--chat-columns=answerLength"]
         app.launch()
         XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 15))
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         app.buttons["Chat history"].tap()
         let lastUsed = app.buttons["chat.history.header.lastUsed"], length = app.buttons["chat.history.header.answerLength"]
         XCTAssertTrue(lastUsed.waitForExistence(timeout: 5), "The fixed header remains even when one wide cell fits its viewport")

@@ -278,14 +278,15 @@ final class ReaderNavigationTests: XCTestCase {
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication(); app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.buttons["tab.search"].waitForExistence(timeout: 5), "The Wide row")
+        XCTAssertTrue(app.placesMenu.waitForExistence(timeout: 5), "The places menu")
         app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.wideMode("Reader").isSelected)
-        let reader = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); reader.name = "iPad reader and chat"; reader.lifetime = .keepAlways; add(reader)
+        // Opened from the Library (owner, 2026-10-23): the paper on the right, still the Library place.
+        XCTAssertEqual(app.currentPlace, "Library")
+        let reader = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); reader.name = "iPad library and paper"; reader.lifetime = .keepAlways; add(reader)
         app.showBrowse()
-        XCTAssertTrue(app.segmentedControls["library.searchScope"].waitForExistence(timeout: 5), "The library's list beside the paper")
-        XCTAssertTrue(app.webViews.firstMatch.exists)
+        XCTAssertTrue(app.buttons["Library options"].waitForExistence(timeout: 5), "The library's list beside the paper")
+        XCTAssertLessThan(app.buttons["Library options"].frame.maxX, app.webViews.firstMatch.frame.minX)
         app.openSettingsFromMenu()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()

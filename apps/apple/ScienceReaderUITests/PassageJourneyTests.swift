@@ -37,8 +37,8 @@ final class PassageJourneyTests: XCTestCase {
         // The phone's path (Tall); Wide has the paper beside its chat.
         let phone = !app.wideShape
         app.buttons[sampleID].tap()
-        // Wide: opened from the Library it is Browse; ✕ closes the list (Read), as the journey began before.
-        if !phone, app.buttons["library.panel.close"].waitForExistence(timeout: 3) { app.buttons["library.panel.close"].tap() }
+        // Wide: opened from the Library it is beside the list; Hide library makes it the Paper place (Read), as before.
+        if !phone, app.buttons["paper.listToggle"].waitForExistence(timeout: 3) { app.buttons["paper.listToggle"].tap() }
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         // The sample's first section is on its first screen.

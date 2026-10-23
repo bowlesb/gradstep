@@ -70,8 +70,8 @@ struct NotesView: View {
 
     @ViewBuilder private var wideBody: some View {
         if wideBar {
-            // Collections | Collection on the shared two-slot container; each slot's share of the one top row.
-            TwoSlotLayout(width: width, other: .left) {
+            // Collections | Collection on the shared two-slot container, its divider draggable; each slot's own row.
+            TwoSlotLayout(width: width, other: .left, arrangement: .snippets) {
                 VStack(spacing: 0) {
                     collectionRow
                     NavigationStack { detail }
@@ -97,12 +97,17 @@ struct NotesView: View {
         }
     }
 
-    /// The collection's share: the places capsule, then one ⋯ for the list and the open collection (audit N14).
+    /// The collection's row: its name, then one ⋯ for the list and the open collection (audit N14); the places menu follows
+    /// at the window's corner (owner, 2026-10-23).
     private var collectionRow: some View {
-        WideBar {
-            WidePlacesCapsule(model: model)
+        let note = model.notes.openNoteID.flatMap { model.notes.state.note($0) }
+        return WideBar {
+            if let note {
+                Text(note.title).font(.headline).lineLimit(1)
+                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("note.title")
+            }
         } trailing: {
-            NotesScreenMenu(model: model, note: model.notes.openNoteID.flatMap { model.notes.state.note($0) }, glass: true)
+            NotesScreenMenu(model: model, note: note, glass: true)
         }
     }
 
@@ -381,11 +386,7 @@ struct NoteDetailView: View {
         ScrollViewReader { reader in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    // Wide: no bar of its own; the collection's name heads its stream.
-                    if wideBar {
-                        Text(note.title).font(.title2.weight(.bold)).padding(.bottom, 14).padding(.leading, 4)
-                            .accessibilityAddTraits(.isHeader).accessibilityIdentifier("note.title")
-                    }
+                    // Wide: no bar of its own; the collection's name is in its slot's row (NotesView, owner 2026-10-23).
                     if note.hasConflict { conflictBanner(note).padding(.bottom, 16) }
                     if note.futureEntryCount > 0 {
                         StatusBanner(tone: .info, systemImage: "arrow.down.app", message: "Update Gradstep to see \(note.futureEntryCount) more \(note.futureEntryCount == 1 ? "snippet" : "snippets") in this collection.")

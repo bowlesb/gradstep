@@ -145,18 +145,21 @@ final class ReaderModel {
         if tab != oldValue, settingsPresented { settingsPresented = false }
         if tab != oldValue, notes.capturing != nil { notes.capturing = nil }
     } }
-    /// Wide shape only (docs/DESIGN.md › Tall and Wide, "Two slots"): the list in the left slot beside the paper. Papers
-    /// (Browse: the library or search results) or Contents (Navigate); none is Read.
+    /// Wide shape only (docs/DESIGN.md › Tall and Wide, "Two slots"): the list in the left slot beside the paper in the
+    /// Paper place. Contents (Navigate) or, on the Mac, Papers (Browse); none is the paper alone.
     var wideList: WideList = .none
-    /// The library's list beside the paper (Browse; Library ⋯ › Show library beside paper, the Mac's View menu).
+    /// The Mac's library list beside the paper (Browse; Library ⋯ › Show library beside paper, the View menu).
     var libraryBesidePaper: Bool {
         get { wideList == .papers }
         set { wideList = newValue ? .papers : (wideList == .papers ? .none : wideList) }
     }
-    /// Search opened the Papers list: Cancel puts the left slot back as it was (its list, or the paper's chat).
-    @ObservationIgnored var papersPanelFromSearch = false
-    @ObservationIgnored var listBeforeSearch: WideList = .none
-    @ObservationIgnored var discussBeforeSearch = false
+    /// iPad Wide: the place a paper in the right slot came from (the Library or the Feed), where its list toggle's Show
+    /// returns it once it has been the Paper place (owner, 2026-10-23).
+    var paperOrigin: ReaderTab = .library
+    /// iPad Wide's Feed: the article picked in the list (its abstract on the right; picking never adds it), and whether its
+    /// paper is open there instead (Read).
+    var feedPickID: String?
+    var feedReading = false
     /// Mac: where Settings was opened from (Settings replaces the window's panes there; Done returns).
     @ObservationIgnored var placeBeforeSettings: ReaderTab = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
@@ -2192,7 +2195,8 @@ final class ReaderModel {
     /// The screen's name and the app's own snapshot for a report (no snapshot over the recovery code or sign-in; any
     /// other secret on screen is covered: `hiddenFromReports`).
     func captureReport(sheet: String?) {
-        reportScreen = "\(compactLayout ? tab.rawValue : "\(widePlace.rawValue) (wide)")" + (sheet.map { " / \($0)" } ?? "")
+        // Wide: the place, and the paper beside its list where one is open there (iPad, owner 2026-10-23).
+        reportScreen = "\(compactLayout ? tab.rawValue : "\(widePlace.rawValue)\(paperBesideList ? " with paper" : "") (wide)")" + (sheet.map { " / \($0)" } ?? "")
         reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
     }
 
@@ -3020,13 +3024,15 @@ final class ReaderModel {
             } else { uploads.pickRequest = .init(target: .localPaper(current.id), title: current.title) }
             return
         }
-        // Wide: a paper opened from the full-width Library or Feed lands in Browse, with that list in the left slot.
-        if !compactLayout && !Platform.isMac {
-            if tab == .library { wideList = .papers } else if tab == .feed { wideList = .feed }
+        // iPad Wide: a paper picked in the Library or the Feed opens in that place's right slot, the list staying on the left
+        // (owner, 2026-10-23); from anywhere else it is the Paper place.
+        let besideList = !compactLayout && !Platform.isMac && (tab == .library || tab == .feed)
+        if besideList {
+            paperOrigin = tab
+            if tab == .feed { feedReading = true; if let source = current.sourceID { feedPickID = source } }
         }
-        selectedPaper = current; chatPaperID = current.id; showPaperPlace(); returnToChatAvailable = false
-        // A result picked from the Papers list: the search's earlier view is no longer the way back.
-        discussBeforeSearch = false; papersPanelFromSearch = false
+        selectedPaper = current; chatPaperID = current.id; returnToChatAvailable = false
+        if !besideList { showPaperPlace() }
         generalChat = false
         recordOpened(current)
         openLocalPaperIfNeeded(userInitiated: true)
@@ -3618,7 +3624,7 @@ final class ReaderModel {
             }
         } catch { chatWorkspace.failDiscard(removal); queueDraft(id); show(error) }
     }
-    func openSample() {
+    func openSample(select opening: Bool = true) {
         let bundle: VerifiedReaderBundle
         do { bundle = try ReaderBundleLoader.sample() }
         catch { self.error = "The offline sample couldn’t be verified. Try reinstalling this development build."; return }
@@ -3627,7 +3633,7 @@ final class ReaderModel {
             keywords: ["attention", "optimization", "evaluation"], fileURL: bundle.entryURL,
             artifactID: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000002"), isSample: true, readerBundle: bundle)
         if !papers.contains(where: { $0.id == paper.id }) { papers.append(paper) }
-        select(paper)
+        if opening { select(paper) }
     }
 
     /// The result of "Add to library" on a reference, shown over the reader.
@@ -5504,7 +5510,8 @@ final class ReaderModel {
         let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
             accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
         restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
-        openSample()
+        // `--nothing-open`: the sample is in the library but no paper is open (Wide's Library placeholder).
+        openSample(select: !ProcessInfo.processInfo.arguments.contains("--nothing-open"))
         if let kind = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--chat-paper-navigation-fixture=") }) {
             try configureChatPaperNavigationFixture(pending: kind.hasSuffix("=pending"))
         }
@@ -5615,6 +5622,8 @@ extension ReaderModel {
         libraryTagFilter = argument("--library-tag=")
         // The iPad Reader's chat column: shown at its default width unless a test hides it or keeps the last run's.
         if !arguments.contains("--keep-reader-chat") { readerChatHidden = arguments.contains("--reader-chat-hidden"); readerChatWidth = nil }
+        // The Wide slots' dividers at their defaults unless a test keeps the last run's.
+        if !arguments.contains("--keep-slot-widths") { SlotFractions.shared.reset() }
         // Visual checks only: show the Add-paper sheet, which otherwise needs a signed-in account.
         if arguments.contains("--visual-show-import") { showImport = true }
     }

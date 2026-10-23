@@ -57,7 +57,7 @@ final class LibraryWritesTests: XCTestCase {
         save(app, "library-v5-feed-setting-up")
         if setup.exists {
             setup.tap()
-            XCTAssertTrue(wait(app.buttons["tab.library"], "isSelected == true") || app.wideMode("Library").isSelected,
+            XCTAssertTrue(wait(app.buttons["tab.library"], "isSelected == true") || app.wideMode("Library").isSelected || app.currentPlace == "Library",
                           "The loading sign shows the Library")
         } else {
             app.show("library")

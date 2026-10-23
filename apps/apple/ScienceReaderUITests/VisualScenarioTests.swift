@@ -392,7 +392,7 @@ final class VisualScenarioTests: XCTestCase {
 
     private func ask(_ app: XCUIApplication, _ question: String) {
         // The wide iPad layout has no tab bar; its general chat is a segment.
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
@@ -401,7 +401,7 @@ final class VisualScenarioTests: XCTestCase {
 
     /// Opens All chats from the chat's top bar, after leaving an unsent general draft when one is given.
     private func openHistory(_ app: XCUIApplication, draft: String? = nil) {
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         if let draft {
             if app.buttons["chat.context"].exists, app.buttons["chat.context"].value as? String != "General chat" {
                 app.buttons["chat.context"].tap()

@@ -193,10 +193,11 @@ struct PaperView: View {
     @Environment(\.wideReader) private var wideReader
     /// Inside reading mode: the quiet bar replaces the toolbar and the bottom controls.
     @Environment(\.readingModeActive) private var readingActive
-    /// The Wide shape (WideShape.swift): the paper's share of the one top row replaces the navigation bar.
+    /// The Wide shape (WideShape.swift): the paper's floating controls replace the navigation bar.
     @Environment(\.wideBar) private var wideBar
-    @Environment(\.placesInBar) private var placesInBar
-    /// The Wide row shows unless reading mode or drawing a snippet has the top (its Cancel takes the system bar).
+    /// The room at the right for the places menu, when the paper is the rightmost slot.
+    @Environment(\.placesReserve) private var placesReserve
+    /// Wide's floating controls show unless reading mode or drawing a snippet has the top (its Cancel takes the system bar).
     private var wideRow: Bool { wideBar && !readingActive && model.notes.capturing != .paper }
 
     private var readingKey: String? {
@@ -310,14 +311,22 @@ struct PaperView: View {
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
                     // Wide: the find bar floats over the top of the page and never moves the text (docs/DESIGN.md › Tall and Wide).
                     .overlay(alignment: .topTrailing) {
-                        if find.isPresented && wideBar { PaperFindBar(find: find, floating: true).frame(maxWidth: 440).padding(12) }
+                        // Under the floating controls (owner, 2026-10-23: the paper has no row).
+                        if find.isPresented && wideBar {
+                            PaperFindBar(find: find, floating: true).frame(maxWidth: 440)
+                                .padding(.horizontal, 12).padding(.top, WideMetrics.barHeight + 4)
+                        }
                     }
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if find.isPresented && !wideBar { PaperFindBar(find: find) }
-                        if let run = model.deviceModelRun, run.paperID == paper.id { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() } }
-                        else if let issue = model.deviceModelIssue { DeviceModelIssueBar(issue: issue) { model.deviceModelIssue = nil } }
-                        else if model.isModelReading(paper), !readerFailed {
+                        // Wide: below the floating controls.
+                        if let run = model.deviceModelRun, run.paperID == paper.id {
+                            DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() }.padding(.top, wideRow ? WideMetrics.barHeight : 0)
+                        } else if let issue = model.deviceModelIssue {
+                            DeviceModelIssueBar(issue: issue) { model.deviceModelIssue = nil }.padding(.top, wideRow ? WideMetrics.barHeight : 0)
+                        } else if model.isModelReading(paper), !readerFailed {
                             DeviceModelBanner(summary: model.shownDeviceModelSummary, report: { model.beginReport() }, showHTML: { model.showHTMLReading() })
+                                .padding(.top, wideRow ? WideMetrics.barHeight : 0)
                         }
                     }
                     // A− / A+ (build 16 #6), at the bottom right over the page's fade; not while a reference's
@@ -403,11 +412,18 @@ struct PaperView: View {
                             actions: { Button("Download") { model.retryOpeningSelectedPaper() } }
                     }
                 } else {
-                    ContentUnavailableView("Open a paper", image: GradstepSymbol.paper, description: Text("Choose a paper from your library to start reading."))
+                    if wideBar {
+                        // The Library place's right slot with nothing open yet: a quiet placeholder (owner, 2026-10-23).
+                        ContentUnavailableView { Label("No paper open", image: GradstepSymbol.paper) }
+                            description: { Text("Choose a paper to read it here.") }
+                            .accessibilityIdentifier("paper.placeholder")
+                    } else {
+                        ContentUnavailableView("Open a paper", image: GradstepSymbol.paper, description: Text("Choose a paper from your library to start reading."))
+                    }
                 }
             }
             .tabBarSpace(fade: false)
-            .safeAreaInset(edge: .top, spacing: 0) { if wideRow { wideBarRow } }
+            .overlay(alignment: .top) { if wideRow && model.selectedPaper != nil { floatingControls } }
             .navigationTitle("Paper").navigationBarTitleDisplayMode(.inline)
             .toolbar(readingActive || wideRow ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
@@ -497,8 +513,9 @@ struct PaperView: View {
                 .macSheetKeys()
             }
         }
-        // Explainers outside the NavigationStack: in Wide they take the paper's slot with their own bar (ExplainPane).
-        .explainerPresentation(item: $model.presentedExplainer, wide: wideBar, onDismiss: {
+        // Explainers outside the NavigationStack: in Wide they open in the companion slot on the paper's right with their own
+        // bar (ExplainPane), and the paper becomes the Paper place (owner, 2026-10-23).
+        .explainerPresentation(item: $model.presentedExplainer, wide: wideBar, opened: { model.openCompanion() }, onDismiss: {
             applyFigureOutcome()
             if let outcome = equationFollowUp { equationFollowUp = nil; model.applyEquationOutcome(outcome) }
         }) { presentation in
@@ -526,14 +543,15 @@ struct PaperView: View {
         }
         // The equation view: large, sized and scrolled as the reader likes, each symbol described. A symbol's
         // paragraph or Ask in chat is applied once the sheet has gone.
-        .explainerPresentation(item: $equation, wide: wideBar, onDismiss: {
+        .explainerPresentation(item: $equation, wide: wideBar, opened: { model.openCompanion() }, onDismiss: {
             if let followUp = equationFollowUp { model.applyEquationOutcome(followUp) }
             equationFollowUp = nil
         }) { request in
             EquationView(model: model, request: request) { outcome in equationFollowUp = outcome; equation = nil }
                 .macSheetKeys()
         }
-        .explainerPresentation(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } }), wide: wideBar, onDismiss: applyFigureOutcome) {
+        .explainerPresentation(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } }), wide: wideBar,
+                               opened: { model.openCompanion() }, onDismiss: applyFigureOutcome) {
             NavigationStack {
                 Group {
                     if let figure, let bundle = model.selectedPaper?.readerBundle, let scope = model.readerDocumentScope {
@@ -549,6 +567,11 @@ struct PaperView: View {
             }
             .environment(\.figureViewHost, figureHost { figure = nil })
             .macSheetKeys()
+        }
+        // Wide: the chat takes the companion slot (Discuss) and a list or Contents the other side; a helper open beside the
+        // paper gives way, so nothing adds a third column.
+        .onChange(of: model.wideDiscuss || model.paperBesideList || model.wideList == .contents) { _, taken in
+            if taken && wideBar { closeCompanions() }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
             selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false
@@ -586,7 +609,7 @@ struct PaperView: View {
     }
 
     /// An explainer's choice. In Wide it applies as the explainer closes, in one animated transaction: Continue in Chat
-    /// hands the explainer's slot to the chat while the paper glides into the left slot (Discuss).
+    /// hands the explainer's companion slot to the chat beside the paper (Discuss), one shared frame.
     private func finishExplainer(_ outcome: FigureViewOutcome, close: () -> Void) {
         model.pendingFigureOutcome = outcome
         guard wideBar else { close(); return }
@@ -797,6 +820,9 @@ struct PaperView: View {
         // Wide has no tab bar under the page: room at the end so the floating text size never covers the last lines, and
         // the page on the app's own background (the chat beside it, the bars), in either slot.
         hooked.bottomInset = wideBar ? 72 : 0
+        // Room before the start for the floating controls (owner, 2026-10-23: the paper has no row); the title starts below
+        // them and the page scrolls under them. Not tied to drawing a snippet, so the page never moves as one starts.
+        hooked.topInset = wideBar && !readingActive ? WideMetrics.barHeight : 0
         hooked.wideHost = wideBar
         hooked.citationDismissID = citationDismissID
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
@@ -906,10 +932,14 @@ struct PaperView: View {
         if wideBar && model.canEnterReadingMode {
             MenuRow("Reading mode", systemImage: "book") { model.enterReadingMode() }.accessibilityIdentifier("paper.readingMode")
         }
-        // Wide: the library's list as the left panel (Search opens it too).
+        // Wide: the list toggle's choice, also here (the Library's list, or the Feed's when the paper came from it).
         if wideBar {
-            Toggle(isOn: Binding(get: { model.libraryBesidePaper }, set: { model.setLibraryBesidePaper($0) })) {
-                Label { Text("Show library beside paper") } icon: { menuIcon("sidebar.left") }
+            let feed = model.paperBesideList ? model.tab == .feed : model.paperOrigin == .feed
+            Toggle(isOn: Binding(get: { model.paperBesideList }, set: { shown in
+                if shown { closeCompanions() }
+                model.setLibraryBesidePaper(shown)
+            })) {
+                Label { Text(feed ? "Show feed beside paper" : "Show library beside paper") } icon: { menuIcon("sidebar.left") }
             }
             .accessibilityIdentifier("paper.libraryPanel")
         }
@@ -966,23 +996,46 @@ struct PaperView: View {
         SettingsMenuSection(model: model)
     }
 
-    /// Wide: the paper's share of the one top row. Contents at the left, the places capsule centred over the paper, ⋯ at
-    /// the right; the paper's title is its own heading. Reading mode and Show chat are rows of ⋯ (owner, 2026-10-22).
-    private var wideBarRow: some View {
-        WideBar {
-            // Navigate: Contents in the left slot beside the paper (Discuss: in the chat's place).
-            Button { model.toggleContentsPanel() } label: { HeaderButtonLabel(image: GradstepSymbol.contents) }
+    /// Wide: the paper has no row (owner, 2026-10-23: navigation "never costs vertical space"). Its few controls float in
+    /// glass over its top corners, on the rows' centre line, as on iPhone; the page starts below them (`topInset`) and
+    /// scrolls under them. At the left the list toggle and ☰ Contents, at the right ⋯, with the places menu after it at the
+    /// window's corner when the paper is the rightmost slot. The paper's title is its own heading. Reading mode and Show
+    /// chat are rows of ⋯ (owner, 2026-10-22).
+    private var floatingControls: some View {
+        HStack(spacing: 8) {
+            if let toggle = listToggle {
+                Button(action: toggle.action) { HeaderButtonLabel(systemImage: "sidebar.left") }
+                    .buttonStyle(.plain).accessibilityLabel(toggle.title).accessibilityIdentifier("paper.listToggle")
+                    .help(toggle.title)
+            }
+            // Navigate: Contents in the left slot beside the paper (in place of a list, a chat or a helper).
+            Button { closeCompanions(); model.toggleContentsPanel() } label: { HeaderButtonLabel(image: GradstepSymbol.contents) }
                 .buttonStyle(.plain).accessibilityLabel("Table of contents").accessibilityIdentifier("paper.contents")
-                .disabled(model.selectedPaper == nil)
-        } center: {
-            if placesInBar { WidePlacesCapsule(model: model) }
-        } trailing: {
+            Spacer(minLength: 0)
             Menu { paperMenuContent } label: { HeaderButtonLabel(systemImage: "ellipsis") }
                 .buttonStyle(.plain).accessibilityLabel("Paper options")
         }
+        .padding(.leading, 12).padding(.trailing, 12 + placesReserve)
+        .frame(height: WideMetrics.barHeight)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         // Reading mode's ⇧⌘R with a hardware keyboard (the system bar's button carried it).
         .background { Button("Reading mode") { model.enterReadingMode() }.modifier(ReadingModeShortcut()).disabled(!model.canEnterReadingMode)
             .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false) }
+    }
+
+    /// The list toggle (owner, 2026-10-23: "'Paper' can also be a left primary item"): beside the Library's or the Feed's
+    /// list it hides the list and the paper becomes the Paper place; there it puts the list back, the paper on its right.
+    private var listToggle: (title: String, action: () -> Void)? {
+        guard wideBar, !Platform.isMac, model.selectedPaper != nil else { return nil }
+        if model.paperBesideList { return (model.tab == .feed ? "Hide feed" : "Hide library", { model.promotePaper() }) }
+        guard model.widePlace == .paper else { return nil }
+        return (model.paperOrigin == .feed ? "Show feed" : "Show library", { closeCompanions(); model.showListBesidePaper() })
+    }
+
+    /// Wide: the paper's helpers in the companion slot close (Contents or a list takes the other side; never three columns).
+    private func closeCompanions() {
+        equation = nil; figure = nil
+        if model.presentedExplainer != nil { model.presentedExplainer = nil }
     }
 
     private var titleView: some View {
@@ -1086,12 +1139,15 @@ struct PaperWebView: UIViewRepresentable {
     var onDrawSnippet: (() -> Void)? = nil
     /// Room after the end of the page (the Wide shape's floating text size control).
     var bottomInset: CGFloat = 0
+    /// Room before its start (the Wide shape's floating controls); jumps land below it too.
+    var topInset: CGFloat = 0
     /// Wide: the page's background is the app's (`systemBackground`), so a paper and a chat side by side match in dark mode.
     var wideHost = false
 
-    /// The page's host styles (Wide): room after its end, and its dark background on the app's.
-    static func hostCSS(bottomInset: CGFloat, wide: Bool) -> String {
+    /// The page's host styles (Wide): room before its start and after its end, and its dark background on the app's.
+    static func hostCSS(bottomInset: CGFloat, topInset: CGFloat = 0, wide: Bool) -> String {
         var css = bottomInset > 0 ? "html{padding-bottom:\(Int(bottomInset))px}" : ""
+        if topInset > 0 { css += "html{padding-top:\(Int(topInset))px;scroll-padding-top:\(Int(topInset))px}" }
         if wide { css += "@media(prefers-color-scheme:dark){:root{background:#000!important;--sr-bg:#000}}" }
         return css
     }
@@ -1214,7 +1270,7 @@ struct PaperWebView: UIViewRepresentable {
             web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'; window.__scienceReaderFit?.();",
                                     arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
         }
-        let hostCSS = figureID == nil ? Self.hostCSS(bottomInset: bottomInset, wide: wideHost) : ""
+        let hostCSS = figureID == nil ? Self.hostCSS(bottomInset: bottomInset, topInset: topInset, wide: wideHost) : ""
         if context.coordinator.appliedHostCSS != hostCSS {
             context.coordinator.appliedHostCSS = hostCSS
             web.callAsyncJavaScript("""

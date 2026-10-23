@@ -55,8 +55,18 @@ extension ReaderModel {
     /// tab with a paper's chat is the Paper place there; Chat is the general chat.
     var widePlace: ReaderTab { tab == .chat && !generalChat ? .paper : tab }
 
-    /// Wide Browse: the library's list beside the paper; the open paper's row is highlighted there.
-    var browsing: Bool { !compactLayout && wideList == .papers && widePlace == .paper && !wideDiscuss }
+    /// The library's list beside the open paper, whose row is highlighted there: the iPad's Library place (Library |
+    /// paper), the Mac's Browse (Library ⋯ › Show library beside paper).
+    var browsing: Bool {
+        guard !compactLayout else { return false }
+        return Platform.isMac ? wideList == .papers && widePlace == .paper && !wideDiscuss : tab == .library
+    }
+
+    /// iPad Wide: the paper is in the Library's or the Feed's right slot, its list beside it (owner, 2026-10-23: "When you
+    /// are in this mode, you are still technically in 'Library' view, just with a paper to the right").
+    var paperBesideList: Bool {
+        !compactLayout && !Platform.isMac && selectedPaper != nil && (tab == .library || (tab == .feed && feedReading))
+    }
 
     /// Opening a paper: the Paper place. In iPad Wide's Discuss the paper is already beside the chat: a citation or a
     /// passage scrolls it in place and the chat stays (owner, 2026-10-22).
@@ -65,43 +75,63 @@ extension ReaderModel {
     /// iPad Wide's Discuss is showing (the paper on the left, its chat on the right).
     var discussShown: Bool { !compactLayout && !Platform.isMac && wideDiscuss }
 
-    /// Wide: the places capsule's Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"). On the
-    /// Library it is the Library's own field; elsewhere the Papers panel opens beside the paper with its field focused, and
-    /// Cancel puts the panel back as it was.
+    /// The places menu's Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"): the Library
+    /// place with its field focused; results in its list, the one picked on the right.
     func searchFromPlaces() {
-        if widePlace == .library {
-            MacCommandRequests.shared.librarySearch = UUID()
-            return
-        }
-        // Discuss: the list replaces the paper on the left; the chat comes back with Cancel (Back).
-        discussBeforeSearch = wideDiscuss
-        if wideList != .papers { listBeforeSearch = wideList; papersPanelFromSearch = true; wideList = .papers }
-        if tab != .paper { showPlace(.paper) }
+        if widePlace != .library { showPlace(.library) }
         MacCommandRequests.shared.librarySearch = UUID()
     }
 
-    /// Cancel (or Esc) in the Papers list's search: the left slot as it was before Search opened it.
-    func endPapersSearch() {
-        if papersPanelFromSearch { wideList = listBeforeSearch }
-        if discussBeforeSearch, chatPaperID != nil { generalChat = false; tab = .chat }
-        papersPanelFromSearch = false; discussBeforeSearch = false
+    /// iPad Wide: "Paper can also be a left primary item" (owner, 2026-10-23). The paper's list toggle (Hide library, Hide
+    /// feed) or dragging the divider past the list's minimum: the list slides away and the paper, the same view at the
+    /// same place, becomes the Paper place. Its toggle (Show library, Show feed) returns it to where it came from.
+    func promotePaper() {
+        guard selectedPaper != nil else { return }
+        if tab == .library || tab == .feed { paperOrigin = tab }
+        tab = .paper
     }
 
-    /// Library ⋯ / Paper ⋯ › Show library beside paper: the same Papers list without a query (Browse).
+    /// iPad Wide's Show library / Show feed: that list back on the left, the paper on its right, in the place it came from
+    /// (the Library unless the paper was opened from the Feed). Contents or a companion beside the paper closes.
+    func showListBesidePaper() {
+        wideList = .none
+        if paperOrigin == .feed { feedReading = true; tab = .feed } else { tab = .library }
+    }
+
+    /// iPad Wide: one of the paper's helpers (AI Explainer, the equation view, a figure page) opened in the companion slot
+    /// on its right. The paper becomes the Paper place: a list beside it slides away, a chat gives the slot up (its draft
+    /// stays) and Contents closes, so nothing adds a third column.
+    func openCompanion() {
+        guard !compactLayout, !Platform.isMac else { return }
+        if tab == .library || tab == .feed { paperOrigin = tab; tab = .paper } else if wideDiscuss { tab = .paper }
+        if wideList == .contents { wideList = .none }
+    }
+
+    /// Paper ⋯ › Show library beside paper (the Mac's View menu, and Library ⋯ there): the Mac's Papers list beside the
+    /// paper (Browse); on iPad the list toggle's Show and Hide.
     func setLibraryBesidePaper(_ shown: Bool) {
-        wideList = shown ? .papers : .none; papersPanelFromSearch = false; discussBeforeSearch = false
+        if !Platform.isMac {
+            if shown { showListBesidePaper() } else { promotePaper() }
+            return
+        }
+        wideList = shown ? .papers : .none
         if shown, widePlace != .paper || wideDiscuss { tab = .paper }
     }
 
-    /// Wide ☰: Contents in the left slot beside the paper (Navigate), or closed. It takes the chat's place in Discuss.
+    /// Wide ☰: Contents in the left slot beside the paper (Navigate), or closed. It takes the place of a chat or a list
+    /// beside the paper (the paper becomes the Paper place).
     func toggleContentsPanel() {
-        if wideDiscuss { tab = .paper; wideList = .contents; return }
+        if wideDiscuss || paperBesideList {
+            if paperBesideList { paperOrigin = tab }
+            tab = .paper; wideList = .contents; return
+        }
         wideList = wideList == .contents ? .none : .contents
     }
 
-    /// A place chosen from the places capsule (iPad), the Mac toolbar or View menu. Tall is the tab as it is. Wide: Chat is
-    /// the general chat (a paper's chat is the Paper screen's right slot), and Paper shows the paper's own chat. Leaves
-    /// Settings when it is showing.
+    /// A place chosen from the places menu (iPad Wide), the Mac toolbar or View menu. Tall is the tab as it is. Wide: Chat
+    /// is the general chat (a paper's chat is the Paper place's right slot), and Paper is the paper as the left primary
+    /// item, its chat ready to be its own. Each place keeps its selection (the Library's open paper, the Feed's picked
+    /// article). Leaves Settings when it is showing.
     func showPlace(_ place: ReaderTab) {
         if !compactLayout {
             if place == .chat { generalChat = true }
@@ -112,19 +142,6 @@ extension ReaderModel {
 
     /// Discuss: the paper's chat is open (the paper on the left, the chat on the right).
     var wideDiscuss: Bool { tab == .chat && !generalChat }
-
-    /// The Wide Paper screen's two slots (docs/DESIGN.md › Tall and Wide, "Two slots, a few views"). Read: the paper
-    /// alone. Browse: Papers | Paper. Navigate: Contents | Paper. Discuss: Paper | Chat. Explain is the paper's slot showing
-    /// an explainer (PaperView), the left slot as it was.
-    var wideSlots: (left: WidePane?, right: WidePane) {
-        if wideDiscuss { return (.paper, .chat) }
-        switch wideList {
-        case .papers: return (.papers, .paper)
-        case .feed: return (.feed, .paper)
-        case .contents: return (.contents, .paper)
-        case .none: return (nil, .paper)
-        }
-    }
 
     /// A figure page's choice made outside the paper's own sheets (Navigate's Contents in the left slot), as PaperView
     /// applies it when its sheet closes.

@@ -47,15 +47,17 @@ private struct SheetTopRowModifier: ViewModifier {
     let openChat: ExplainAction?
     let noun: String
     let close: (() -> Void)?
-    /// The X is the Mac's way to close a sheet, and Wide's in the paper's slot (ExplainPane); a touch-screen sheet swipes down.
+    /// The X is the Mac's way to close a sheet, and Wide's in the companion slot (ExplainPane); a touch-screen sheet swipes
+    /// down.
     @Environment(\.coverPresentation) private var cover
+    @Environment(\.placesReserve) private var placesReserve
     private var showsClose: Bool { close != nil && (Platform.isMac || cover) }
 
     func body(content: Content) -> some View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .accessibilityAction(.escape) { close?() }
-            // In Wide's paper slot (ExplainPane) the page's own bar shows, as it does in a sheet.
+            // In Wide's companion slot (ExplainPane) the page's own bar shows, as it does in a sheet.
             .navigationBarShownInCover(cover)
             .toolbar {
                 // One item, not a group: iOS 26 moves bar buttons that don't fit into an overflow menu (both words
@@ -79,7 +81,21 @@ private struct SheetTopRowModifier: ViewModifier {
                         }
                     }
                 }
+                // Wide's companion slot at the window's edge: the bar ends short of the places menu in the corner.
+                if cover && placesReserve > 0 {
+                    if #available(iOS 26.0, *) {
+                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                        ToolbarItem(placement: .topBarTrailing) { placesRoom }.sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarTrailing) { placesRoom }
+                    }
+                }
             }
+    }
+
+    /// The room for the places menu (its circle sits over it, from the window; WideShape.swift).
+    private var placesRoom: some View {
+        Color.clear.frame(width: max(0, placesReserve - 16), height: 1).accessibilityHidden(true)
     }
 
     /// Words only (owner, build 78: "use txt"), the same size for all; a step smaller where the bar is narrow.

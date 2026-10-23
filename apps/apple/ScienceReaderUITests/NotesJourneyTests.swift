@@ -347,11 +347,10 @@ final class NotesJourneyTests: XCTestCase {
         let app = launch(appearance: ProcessInfo.processInfo.environment["NOTES_APPEARANCE"])
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .landscapeLeft
-        _ = app.buttons["tab.search"].waitForExistence(timeout: 5)
+        _ = app.placesMenu.waitForExistence(timeout: 5)
         #endif
-        let notesMode = app.wideMode("Snippets")
-        try XCTSkipUnless(notesMode.waitForExistence(timeout: 5) && app.wideShape, "The Wide shape")
-        notesMode.tap()
+        try XCTSkipUnless(app.wideShape, "The Wide shape")
+        app.show("notes")
         XCTAssertTrue(app.staticTexts["Your ideas, collected"].waitForExistence(timeout: 10))
         app.buttons["notes.new"].firstMatch.tap()
         let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch
@@ -363,7 +362,7 @@ final class NotesJourneyTests: XCTestCase {
         capture("Wide Notes: list and empty note")
 
         // Read, draw, save to that note.
-        app.wideMode("Library").tap()
+        app.choosePlace("library")
         let web = openSample(app)
         #if targetEnvironment(macCatalyst)
         app.menuBars.menuBarItems["Paper"].click()
@@ -420,9 +419,8 @@ final class NotesJourneyTests: XCTestCase {
     func testNotesListShowsCards() throws {
         for appearance in ["light", "dark"] {
             let app = launch(appearance: appearance)
-            let wideMode = app.wideMode("Snippets")
             let wide = app.wideShape
-            if wide { XCTAssertTrue(wideMode.waitForExistence(timeout: 5)); wideMode.tap() } else { app.buttons["tab.notes"].tap() }
+            if wide { app.show("notes") } else { app.buttons["tab.notes"].tap() }
             for title in ["Preference learning", "Reading group: alignment", "Open questions"] {
                 app.buttons["notes.new"].firstMatch.tap()
                 let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch

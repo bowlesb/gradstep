@@ -250,7 +250,7 @@ final class WorkflowJourneyTests: XCTestCase {
     func testDeletedObservedReplyRetainsEarlierMessagesUntilSiblingIsChosen() throws {
         let app = launch(additionalArguments: ["--branch-fixture"])
         // The fixture's current chat is the general one: the Chat tab, or the wide layout's General Chat.
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         XCTAssertEqual(chatContext(app), "General chat")
@@ -911,7 +911,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"] + extraArguments
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
@@ -1053,11 +1053,11 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Answer paper has an explicit Library action")
         target.tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10), "The saved paper opens inside the reader")
-        if app.buttons["tab.library"].exists { app.show("library") } else { app.wideMode("Library").tap() }
+        if app.buttons["tab.library"].exists { app.show("library") } else { app.choosePlace("library") }
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5)); app.buttons[sampleID].tap()
         // Back to the general conversation the draft is in: the Chat tab, or the wide layout's General Chat (Reader
         // shows the paper's own chat beside it).
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         XCTAssertEqual(composer.value as? String, "Keep my follow-up draft")
         XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5), "The original answer remains in its conversation")
         capture(app, "Original conversation and draft after Library action")
@@ -1077,7 +1077,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let progress = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label CONTAINS[c] %@", "importProgress", "Adding")).firstMatch
         XCTAssertTrue(progress.waitForExistence(timeout: 5), "A queued paper opens its current progress")
         capture(app, "Answer Library action shows pending import")
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         XCTAssertEqual(composer.value as? String, "Keep this while it imports")
         XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5))
     }
@@ -1170,7 +1170,7 @@ final class WorkflowJourneyTests: XCTestCase {
         defer { XCUIDevice.shared.orientation = .portrait }
         app.show("chat")
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.wideMode("Reader").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.placesMenu.waitForExistence(timeout: 5), "Wide: the places menu")
         exerciseLatestReplyWhileComposing(app)
     }
 
@@ -1264,7 +1264,7 @@ final class WorkflowJourneyTests: XCTestCase {
         defer { XCUIDevice.shared.orientation = .portrait }
         app.show("chat")
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.wideMode("Reader").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.placesMenu.waitForExistence(timeout: 5), "Wide: the places menu")
         try exerciseScrollbackWhileComposing(app)
     }
 
@@ -1487,12 +1487,12 @@ final class WorkflowJourneyTests: XCTestCase {
             XCTFail("The iPad interface remained in \(app.frame) after the device orientation changed")
             return
         }
-        XCTAssertTrue(app.buttons["tab.search"].waitForExistence(timeout: 5), "Wait for the Wide row before choosing Browse")
+        XCTAssertTrue(app.placesMenu.waitForExistence(timeout: 5), "Wait for the Wide shape before choosing the Library")
         app.showBrowse()
         app.buttons["Paper options"].tap()
         app.buttons["Ask about this paper"].tap()
         // The paper with its chat: the library's list gives way (two columns at most).
-        XCTAssertTrue(app.wideMode("Reader").isSelected)
+        XCTAssertEqual(app.currentPlace, "Paper")
         // The paper is open beside its conversation, so the chat shows no separate link back to it.
         XCTAssertTrue(app.buttons["chat.context"].waitForExistence(timeout: 5))
         XCTAssertEqual(chatContext(app), "Paper chat")

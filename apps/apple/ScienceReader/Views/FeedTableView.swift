@@ -196,8 +196,9 @@ enum FeedFormat {
 struct FeedTable: View {
     @Bindable var model: ReaderModel
     @Binding var issue: String?
-    /// Wide: the topic chips are the table's first row (the one top row has only the places and ⋯).
-    var showsChips = false
+    /// Wide's Feed: a row's tap shows its details beside the list (FeedAbstractPane) instead of the abstract under it; the
+    /// picked row is highlighted.
+    var pick: ((DiscoveryResult) -> Void)? = nil
     @State private var expanded: Set<String> = []
     @State private var adding: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -210,7 +211,8 @@ struct FeedTable: View {
                    horizontalScroll: true,
                    identifier: "feed.table",
                    rowIdentifier: { "feed.table.\($0.sourceID)" },
-                   title: { PaperTableTitle(title: $0.title, subtitle: FeedFormat.subtitle($0), expanded: expanded.contains($0.id),
+                   title: { PaperTableTitle(title: $0.title, subtitle: FeedFormat.subtitle($0),
+                                            highlighted: pick != nil && model.feedPickID == $0.sourceID, expanded: expanded.contains($0.id),
                                             subtitleLines: $0.reason == nil ? 1 : 2) },
                    cell: { result, column in cell(result, column: FeedTableColumn(rawValue: column)) },
                    spoken: { result, column in spoken(result, column: FeedTableColumn(rawValue: column)) },
@@ -227,10 +229,6 @@ struct FeedTable: View {
                        }
                    },
                    top: {
-                       if showsChips {
-                           FeedChipsRow(model: model).listRowSeparator(.hidden)
-                               .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: 0))
-                       }
                        if let issue {
                            StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
                        }
@@ -269,6 +267,7 @@ struct FeedTable: View {
     }
 
     private func action(for result: DiscoveryResult) -> PaperTableAction? {
+        if let pick { return PaperTableAction(hint: "Shows its details beside the list") { pick(result) } }
         guard result.abstract != nil else { return nil }
         let open = expanded.contains(result.id)
         return PaperTableAction(hint: open ? "Hides the abstract" : "Shows the abstract") {
