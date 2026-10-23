@@ -13,7 +13,7 @@ import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from 
 import { citationAnchor } from '../lib/passage';
 import { AnswerOptionsDialog, ExplainerModelDialog } from './ChatProfile';
 import { safeLink } from '../lib/links';
-import { Dialog, formatDate, MenuButton } from './common';
+import { Dialog, formatDate, MenuButton, SheetTop } from './common';
 import { CopyButton } from './CopyButton';
 import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL, usePartCrops } from './Diagram';
 import { Icon, iconName } from './icons';
@@ -444,7 +444,7 @@ export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOp
   onOpen: (documentID: string | null, anchor?: TextAnchor) => void;
   /** Each paper's library tags (All chats' Topics). */ topics?: Map<string, string[]>;
 }) {
-  return <Dialog open={open} onClose={onClose} title="All chats" wide>{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} topics={topics} /> : <p>Loading chats…</p>}</Dialog>;
+  return <Dialog open={open} onClose={onClose} title="All chats" wide className="history-dialog">{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} topics={topics} /> : <p>Loading chats…</p>}</Dialog>;
 }
 // The apps' All chats columns in their order (ChatHistoryView): Kind, Topics and Answer length since B9; a choice saved
 // before them keeps working (they start off).
@@ -507,9 +507,9 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen, topics }:
   const secondLine = (c: ConversationSummary) => shown.paper || !c.documentID ? conversationPreview(c) : paperName(c);
   const sortTitles = { last: 'Last read', started: 'Started', title: 'Title' } as const;
   return <>
-    {/* One row (owner, build 57: "the search bar at the top with the three lines at the right of the search bar"). */}
-    <div className="history-top">
-      <input type="search" autoFocus aria-label="Search chats" placeholder="Search chats" value={search} onChange={e => setSearch(e.target.value)} />
+    {/* One row (owner, build 57: "the search bar at the top with the three lines at the right of the search bar"), in the
+        information sheet's top row with its title and a round X (UX audit S23: the only close was inside ≡). */}
+    <SheetTop onClose={onClose} closeLabel="Close" testID="history-close" trailing={
       <MenuButton icon="menu" label="All chats options" testID="history-menu">{close => <>
         <button type="button" role="menuitem" className="menu-item" disabled={chat.storageRetired} onClick={() => { close(false); newGeneral(); }}><Icon name="plus" size={14} /> New general chat</button>
         <div className="menu-section" role="group" aria-label="Sort by"><p className="fine menu-heading">Sort by</p>
@@ -519,9 +519,10 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen, topics }:
           {HISTORY_COLUMNS.map(([k, label]) => <button key={k} type="button" role="menuitemcheckbox" aria-checked={!!columns[k]} className="menu-item menu-check"
             onClick={() => setColumns(v => ({ ...v, [k]: !v[k] }))}><span className="menu-check-mark" aria-hidden="true">{columns[k] ? '✓' : ''}</span>{label}</button>)}
           {narrow && <p className="fine">A wider window shows them.</p>}</div>
-        <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onClose(); }} data-testid="history-close"><Icon name="close" size={14} /> Close</button>
-      </>}</MenuButton>
-    </div>
+      </>}</MenuButton>}>
+      <h2>All chats</h2>
+      <input type="search" autoFocus aria-label="Search chats" placeholder="Search chats" value={search} onChange={e => setSearch(e.target.value)} />
+    </SheetTop>
     <div className="history-filters">{(currentDocument ? ['all', 'this', 'paper', 'general'] : ['all', 'paper', 'general']).map(f => <button key={f} className={`seg${filter === f ? ' on' : ''}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>{({ this: 'This paper', all: 'All', paper: 'Paper chats', general: 'General' })[f]}</button>)}</div>
     <p className="fine">{rows.length} chats · Synced encrypted history</p>
     {[...chat.composers.values()].filter(c => c.draft).map(c => <div className="history-draft" key={c.id}><button className="link" onClick={() => { chat.chooseDraft(c.id); onOpen(c.documentID); onClose(); }}>Draft · {papers.get(c.documentID ?? '') ?? 'General chat'}</button><button className="link" disabled={composerBusy(c) || !!c.answer || chat.hasUnresolvedTurn(c) || chat.storageRetired}

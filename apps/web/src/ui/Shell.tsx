@@ -58,9 +58,11 @@ export function Workspace({ controls, left, center, right, leftLabel, rightLabel
 }) {
   const [preview, setPreview] = useState<{ side: Side; width: number } | null>(null);
   const width = (side: Side) => (preview?.side === side ? preview.width : controls[side].width);
+  // A screen with nothing for its side panel yet (an empty library) passes null: no pane, divider or edge handle.
+  const has = { left: left !== null, right: right !== null };
   const pane = (side: Side, content: ReactNode, label: string) => {
     const state = controls[side];
-    if (!state.open) return null;
+    if (!state.open || !has[side]) return null;
     return (
       <aside className={`pane pane-${side}${state.inline ? '' : ' overlay'}`} style={{ width: state.inline ? width(side) : undefined }} aria-label={label} data-testid={`pane-${side}`}>
         {content}
@@ -71,19 +73,19 @@ export function Workspace({ controls, left, center, right, leftLabel, rightLabel
     <WorkspaceContext.Provider value={controls}>
       <div className="workspace" ref={controls.measure}>
         {pane('left', left, leftLabel)}
-        {controls.left.open && controls.left.inline && (
+        {has.left && controls.left.open && controls.left.inline && (
           <Splitter side="left" label={`Resize ${leftLabel.toLowerCase()}`} width={width('left')} onPreview={setPreview}
             onCommit={w => { setPreview(null); if (w === null) controls.show('left', false); else controls.setWidth('left', w); }} onReset={() => controls.reset('left')} />
         )}
         <main className="pane-center" id="main">{center}</main>
-        {controls.right.open && controls.right.inline && (
+        {has.right && controls.right.open && controls.right.inline && (
           <Splitter side="right" label={`Resize ${rightLabel.toLowerCase()}`} width={width('right')} onPreview={setPreview}
             onCommit={w => { setPreview(null); if (w === null) controls.show('right', false); else controls.setWidth('right', w); }} onReset={() => controls.reset('right')} />
         )}
         {pane('right', right, rightLabel)}
-        {controls.left.inline && !controls.left.open && <CollapseHandle side="left" label={`Show ${leftLabel.toLowerCase()}`} onClick={() => controls.show('left')} />}
-        {controls.right.inline && !controls.right.open && <CollapseHandle side="right" label={`Show ${rightLabel.toLowerCase()}`} onClick={() => controls.show('right')} />}
-        {controls.overlay && <div className="scrim" onClick={() => controls.show(controls.overlay!, false)} aria-hidden="true" />}
+        {has.left && controls.left.inline && !controls.left.open && <CollapseHandle side="left" label={`Show ${leftLabel.toLowerCase()}`} onClick={() => controls.show('left')} />}
+        {has.right && controls.right.inline && !controls.right.open && <CollapseHandle side="right" label={`Show ${rightLabel.toLowerCase()}`} onClick={() => controls.show('right')} />}
+        {controls.overlay && has[controls.overlay] && <div className="scrim" onClick={() => controls.show(controls.overlay!, false)} aria-hidden="true" />}
       </div>
     </WorkspaceContext.Provider>
   );

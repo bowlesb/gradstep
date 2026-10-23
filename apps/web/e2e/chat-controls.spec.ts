@@ -89,7 +89,7 @@ for (const scheme of ['light', 'dark'] as const) test(`choose model and length; 
   await chats.getByRole('button', { name: 'Rename Preference objective explained' }).click();
   await chats.getByTestId('rename-input').fill('My DPO notes'); await chats.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(chats.getByRole('button', { name: 'My DPO notes', exact: true })).toBeVisible();
-  await chats.getByTestId('history-menu').click(); await chats.getByRole('menuitem', { name: 'Close' }).click();
+  await chats.getByTestId('history-close').click();
   await expect(chats).toBeHidden();
   await expect(page.getByTestId('chat-title')).toHaveText('My DPO notes');
   expect(errors).toEqual([]);

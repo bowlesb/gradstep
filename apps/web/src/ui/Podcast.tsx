@@ -182,8 +182,8 @@ export function ListenView({ podcasts, player, onTryAgain }: { podcasts: Podcast
   if (state === 'failed' && !episodes.length && !own) return (
     <div className="empty"><p>Episodes aren’t available right now. Try again in a moment.</p><button className="secondary" onClick={() => load()}>Try again</button></div>);
   if (state === 'unavailable' || (capabilities && (!capabilities.catalog || !capabilities.delivery) && !own)) return (
-    <div className="empty" data-testid="podcast-unavailable"><p><strong>Listening isn’t available yet.</strong></p>
-      <p className="muted">Shared paper episodes appear here once they’re published. Reading and chat are unaffected.</p></div>);
+    <div className="empty" data-testid="podcast-unavailable"><Icon name="headphones" size={28} /><p><strong>Listening isn’t available yet</strong></p>
+      <p className="muted">Shared paper episodes appear here once they’re published.</p></div>);
   if (state === 'loaded' && !episodes.length && !own) return (
     <div className="empty"><p><strong>No episodes yet.</strong></p><p className="muted">Pick a topic to discover papers. New episodes appear here when they’re ready.</p></div>);
   return (

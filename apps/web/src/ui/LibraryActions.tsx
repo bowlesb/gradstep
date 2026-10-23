@@ -154,7 +154,7 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
         <RecommendChoices note={actions.recommender.note} onChoose={count => { const r = actions.recommender!; actions.close(selection, undefined, false); r.paper(selection.item, count); }} />
       </div>}
     </>}
-    {links.source && <button type="button" role="menuitem" className="menu-item" onClick={()=>void share(links.source!)}>Share Source URL</button>}
+    {links.source && <button type="button" role="menuitem" className="menu-item" onClick={()=>void share(links.source!)}>Share source link</button>}
     {links.gradstep && <button type="button" role="menuitem" className="menu-item" onClick={()=>void share(links.gradstep!)}>Share Gradstep link</button>}
     {extra.filter(x => x.applies(selection.item)).map(x => <button key={x.testID} type="button" role="menuitem" className="menu-item" data-testid={x.testID} onClick={() => { actions.close(selection, undefined, false); x.run(selection.item); }}>{x.label}</button>)}
     {selection.item.kind === 'import' && <button type="button" role="menuitem" className="menu-item" onClick={() => {

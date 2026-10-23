@@ -125,7 +125,9 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
   await page.getByTestId('chat-pane').getByRole('button', { name: 'All chats' }).click();
   const chats = page.getByRole('dialog', { name: 'All chats' });
   await expect(chats.getByRole('searchbox', { name: 'Search chats' })).toBeFocused();
-  await expect(chats.getByRole('heading')).toHaveCount(0);
+  // UX audit S23: a title and a round X in the sheet's top row (the only close used to be inside ≡).
+  if (info.project.name !== 'phone') await expect(chats.getByRole('heading', { name: 'All chats' })).toBeVisible();
+  await expect(chats.getByTestId('history-close')).toBeVisible();
   await expect(chats.getByRole('button', { name: 'Done', exact: true })).toHaveCount(0);
   const [search, lines] = await Promise.all([chats.getByRole('searchbox', { name: 'Search chats' }).boundingBox(), chats.getByTestId('history-menu').boundingBox()]);
   expect(Math.abs((search!.y + search!.height / 2) - (lines!.y + lines!.height / 2))).toBeLessThan(4);
@@ -142,14 +144,14 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
     await expect(secondLine).toContainText('The objective compares preferences');
     await expect(secondLine).not.toContainText('Authored HTML fixture');
   }
-  // ≡ holds Sort by, Columns and Close; Esc closes the menu, not the sheet.
+  // ≡ holds Sort by and Columns; Esc closes the menu, not the sheet.
   await chats.getByTestId('history-menu').click();
   const options2 = page.getByRole('menu', { name: 'All chats options' });
   await expect(options2.getByRole('group', { name: 'Sort by' }).getByRole('menuitemradio')).toHaveText([/Last read/, /Started/, /Title/]);
   await expect(options2.getByRole('menuitemradio', { name: /Last read/ })).toHaveAttribute('aria-checked', 'true');
   // The apps' All chats columns (B9): Kind, Topics and Answer length besides these.
   await expect(options2.getByRole('group', { name: 'Columns' }).getByRole('menuitemcheckbox')).toHaveText([/Paper/, /Kind/, /Topics/, /Messages/, /Started/, /Answer length/]);
-  await expect(options2.getByRole('menuitem', { name: 'Close' })).toBeVisible();
+  await expect(options2.getByRole('menuitem', { name: 'Close' })).toHaveCount(0);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-all-chats-menu.png` });
   await page.keyboard.press('Escape');
   await expect(options2).toHaveCount(0); await expect(chats).toBeVisible();

@@ -15,6 +15,10 @@ import { useStored } from './prefs';
 
 export type DiscoveryState = { kind: 'idle' } | { kind: 'searching' } | { kind: 'failed'; message: string } | { kind: 'results'; results: DiscoveryResult[] };
 const UNAVAILABLE = 'ML paper search isn’t available right now. Try again in a moment.';
+/** The state shown once the query changes: an empty query is always idle; otherwise what the last search left. */
+export function nextDiscoveryState(previous: DiscoveryState, query: string): DiscoveryState {
+  return query.trim() ? previous : previous.kind === 'idle' ? previous : { kind: 'idle' };
+}
 
 /** The search's query, state and order. The latest search owns the results; a failure is shown as one, never as an
  * empty list (native runDiscovery). */
@@ -24,9 +28,13 @@ export function usePaperSearch(account: string) {
   const [state, setState] = useState<DiscoveryState>({ kind: 'idle' });
   const [order, setOrder] = useStored<DiscoveryOrder>(DISCOVERY_ORDER_KEY, 'newest', v => v === 'newest' || v === 'relevance');
   const latest = useRef(query); latest.current = query;
-  // An author tap sets the query and runs it in the same event, before React renders.
-  const setQuery = useCallback((text: string) => { latest.current = text; setQueryState(text); }, []);
   const request = useRef<AbortController | null>(null);
+  // An author tap sets the query and runs it in the same event, before React renders. An emptied field is idle again
+  // (native discoveryState): an earlier failure or result never shows under an empty field (UX audit S3).
+  const setQuery = useCallback((text: string) => {
+    latest.current = text; setQueryState(text);
+    if (!text.trim()) { request.current?.abort(); request.current = null; setState(previous => nextDiscoveryState(previous, text)); }
+  }, []);
   const run = useCallback(() => {
     const text = latest.current.trim();
     request.current?.abort();
@@ -108,7 +116,7 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen, o
   }
   return <section className={`feed paper-search${compact ? ' compact' : ''}`} aria-labelledby="paper-search-title" data-testid="paper-search">
     <h1 id="paper-search-title" className="visually-hidden">ML paper search</h1>
-    <details className="advanced-search"><summary>Search by fields</summary>
+    <details className="advanced-search"><summary><span>Search by fields</span><Icon name="chevronDown" size={14} /></summary>
       {criteria.map((c,i)=><div className="search-criterion" key={i}><select aria-label="Field" value={c.field} onChange={e=>setCriteria(rows=>rows.map((r,j)=>j===i?{...r,field:e.target.value}:r))}>{['title','author','abstract','year'].map(f=><option key={f} value={f}>{f[0].toUpperCase()+f.slice(1)}</option>)}</select>
         <input aria-label={`${c.field} criterion`} value={c.value} maxLength={60} placeholder={c.field==='year'?'2024 or 2020-2026':'Contains…'} onChange={e=>setCriteria(rows=>rows.map((r,j)=>j===i?{...r,value:e.target.value.replaceAll('"','')}:r))}/>
         {criteria.length>1 && <button type="button" className="icon-button" aria-label="Remove criterion" onClick={()=>setCriteria(rows=>rows.filter((_,j)=>i!==j))}>−</button>}</div>)}

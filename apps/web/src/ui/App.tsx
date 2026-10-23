@@ -42,7 +42,7 @@ import type { MineRequest } from '../lib/podcast';
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
 import { RegionBoundary } from './ErrorBoundary';
-import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
+import { AddPaper, CompactLibrary, INITIAL_QUERY, libraryIsEmpty, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { RecommendDialog, useRecommendations } from './Recommend';
 import { readStored, type Route, type Theme, useMedia, useStored, useTheme, writeStored } from './prefs';
@@ -816,7 +816,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     </>
   ) : route === 'notes' ? (
     <>
-      <PaneHeader title="Snippets" onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
+      {/* One way to start a collection (UX audit S19): the round + of this header, as the phone's list header has. */}
+      <PaneHeader title="Snippets" onClose={() => ws.show('left', false)} closeLabel="Hide side panel">
+        {notes && <button className="icon-button pane-new" onClick={() => setNewNote(true)} disabled={!notes.writable} aria-label="New collection" title="New collection" data-testid="new-note">
+          <Icon name="plus" size={16} /></button>}
+      </PaneHeader>
       <div className="rail-body">{notes ? <NotesList store={notes} current={noteID} rail onOpen={id => navigate(`/notes/${id}`)} onNew={() => setNewNote(true)} />
         : <p className="fine rail-note">Opening your snippets…</p>}</div>
     </>
@@ -864,8 +868,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     center = !notes ? <div className="empty" role="status"><div className="spinner" /><p>Opening your snippets…</p></div>
       : noteID ? <NoteDetail key={noteID} store={notes} noteID={noteID} back={!listBeside} onBack={() => navigate('/notes')} onOpenSource={openSource} onChat={entry => void chatAboutEntry(entry)}
         onAddText={id => setComposer({ draft: { kind: 'text', source: null, anchor: null, capturedAt: Date.now(), destination: id } })} />
-      : listBeside ? <div className="empty notes-choose"><Icon name="notes" size={28} /><p className="muted">Choose a collection, or start a new one.</p>
-        <button className="secondary" onClick={() => setNewNote(true)} disabled={!notes.writable}>New collection</button></div>
+      : listBeside ? <div className="empty notes-choose"><Icon name="notes" size={28} /><p className="muted">Choose a collection.</p></div>
       : <NotesList store={notes} current={null} onOpen={id => navigate(`/notes/${id}`)} onNew={() => setNewNote(true)} />;
   } else if (route === 'feed') {
     center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing} onLibrary={() => navigate('/')}
@@ -946,7 +949,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </div>}
       {/* Each region fails on its own (RESILIENCE.md fix 2): a malformed answer, feed row or episode never blanks the page. */}
       <Workspace controls={ws} leftLabel={rail.open && route !== 'library' ? 'Search papers' : route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : route === 'notes' ? 'Snippet collections' : 'Library filters'} rightLabel="Chat"
-        left={<RegionBoundary region="side" label="The side panel" compact resetKey={route} onReport={report}>{left}</RegionBoundary>}
+        left={route === 'library' && libraryIsEmpty(model) ? null : <RegionBoundary region="side" label="The side panel" compact resetKey={route} onReport={report}>{left}</RegionBoundary>}
         center={<RegionBoundary region={route === 'paper' ? 'reader' : route === 'feed' ? (listening ? 'listen' : 'feed') : route === 'notes' ? 'notes' : 'library'}
           label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : route === 'notes' ? 'Snippets' : 'The library'}
           resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}:${noteID ?? ''}`} onReport={report}>{center}</RegionBoundary>}
@@ -1011,12 +1014,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <Dialog open={deletingAccount} onClose={() => { if (!deleteBusy) setDeletingAccount(false); }} title="Delete account" className="delete-account">
         <h2>Delete account</h2>
         <p>This permanently deletes your account:</p>
-        <p>Your beta invitation remains valid. Signing in again creates a new account; your deleted library, conversations and credits won’t return.</p>
         <ul className="delete-list">
           <li>Your library, conversations, snippets and diagrams, and your private podcast episodes</li>
           <li>Your support reports and screenshots</li>
           <li>This browser’s copy; other devices are signed out and your recovery code stops working</li>
         </ul>
+        <p>Your beta invitation remains valid. Signing in again creates a new account; your deleted library, conversations and credits won’t return.</p>
         <p className="fine">Unused credits are forfeited. Records of credits and AI usage are kept without your email or name, for accounting.</p>
         <p className="fine">An App Store subscription isn’t cancelled by deleting your account; manage it in your Apple Account’s Subscriptions settings.</p>
         <label>Type {TYPED_CONFIRMATION} to confirm

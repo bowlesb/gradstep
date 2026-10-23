@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { displayCode } from '../lib/approval';
 import { qrPath } from '../lib/approval-qr';
 import { BackendError } from '../lib/backend';
+import { InfoTip } from './common';
 import { type AwaitingApproval, type Preparation, checkApproval, requestApproval } from '../lib/keys';
 
 /** Bounded backoff between checks; the request is re-checked (and renewed if it expired) about once a minute. */
@@ -63,7 +64,9 @@ export function ApproveFromPhone({ account, onResult, onIssue, onUseCode, attemp
         your iPhone or iPad to add it.</p>
       <ol className="approve-steps">
         <li>On your iPhone or iPad, open Gradstep › Settings › Account › <strong>Add a device</strong>.</li>
-        <li>Scan this code, then check that your phone shows the same number.</li>
+        {/* The no-camera route behind ⓘ, so the way out stays in the window (UX audit S31). */}
+        <li>Scan this code, then check that your phone shows the same number. <InfoTip testID="approve-no-camera"
+          text="No camera on the other device? Open Gradstep there and choose Review on “A new device is waiting”, then compare the number." /></li>
       </ol>
       <figure className="approve-qr" data-testid="approval-qr" data-payload={request?.payload}>
         {qr ? (
@@ -81,7 +84,6 @@ export function ApproveFromPhone({ account, onResult, onIssue, onUseCode, attemp
           <span className="spinner small" aria-hidden="true" /> {offline ? 'Can’t reach Gradstep. Still trying…' : 'Waiting for approval…'}
         </p>
       )}
-      <p className="fine">No camera on the other device? Open Gradstep there and choose Review on “A new device is waiting”, then compare the number.</p>
       <button type="button" className="secondary" onClick={onUseCode} data-testid="use-recovery-code">Use recovery code instead</button>
     </>
   );
