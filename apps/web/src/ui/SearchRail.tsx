@@ -43,7 +43,9 @@ export function SearchRail({ fieldRef, text, ml, onText, onKey, onClose, onLibra
 }) {
   const words = text.trim();
   const focusField = () => (document.querySelector<HTMLInputElement>('[data-testid=rail-search]'))?.focus();
-  return <div className="search-rail" data-testid="search-rail">
+  // Esc from a row returns to the field (where Esc clears, then ends search), never past the list.
+  return <div className="search-rail" data-testid="search-rail"
+    onKeyDown={e => { if (e.key === 'Escape' && (e.target as HTMLElement).tagName !== 'INPUT') { e.preventDefault(); e.stopPropagation(); focusField(); } }}>
     <div className="search-rail-top">
       <div className="search-rail-field">
         <Icon name="search" size={14} />

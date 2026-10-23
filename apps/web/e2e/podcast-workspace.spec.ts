@@ -277,6 +277,7 @@ test('AI chat options sets who writes new episodes; Listen preselects it and ask
   await page.emulateMedia({ colorScheme: 'light' });
   await settings.getByTestId('activity-guide').press('Escape');
   await settings.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByTestId('settings-close').click(); // AI chat options opened over Settings
   // Make an episode starts with that writer and asks for it.
   await page.getByTestId('back-to-library').click(); await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
   await page.getByTestId('podcast-paper-listen').click();

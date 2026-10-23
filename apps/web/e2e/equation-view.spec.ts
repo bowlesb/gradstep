@@ -290,7 +290,8 @@ test('an author byline offers an author search without an AI request', async ({p
  await expect(author).toBeVisible({timeout:20000}); await author.click();
  const search=page.waitForRequest(r=>r.url().includes('/functions/v1/discover?') && new URL(r.url()).searchParams.get('q')==='author:A. Author');
  await page.getByRole('dialog',{name:'Author',exact:true}).getByRole('button',{name:'Find papers by A. Author'}).click();
- await search; await expect(page).toHaveURL(/\/$/);
+ // Answered beside the paper, in the left panel's search list (2026-10-22).
+ await search; await expect(page).toHaveURL(/\/paper\//); await expect(page.getByTestId('search-rail').getByTestId('paper-search')).toBeVisible();
  expect((await(await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(0);
 });
 
