@@ -1,5 +1,17 @@
 # Implementation status
 
+
+## Browser: where credits come from, said plainly — 2026-10-23 UTC (app.gradstep.ai deployed)
+
+Owner, 2026-10-23, after asking what happens to someone using the web without an iPhone: "add messages where needed to
+clarify." Every place the browser sends a reader to buy (free-AI refusals, chat, podcasts, recommendations, credit-blocked
+imports, the composer balance's tooltip) now uses one sentence, `WHERE_TO_BUY` in `apps/web/src/lib/account-summary.ts`:
+credits can't be bought on the web yet; with an iPhone, iPad or Mac, credits added in the Gradstep app work here right
+away. Settings › AI credits has a new row, Add credits · Not on the web yet. The library's credit-blocked pill reads
+"Needs credits" (was "Get credits in the app"). Web checkout (Stripe or a merchant of record) is not built; the
+recommendation given to the owner is to add it at public launch, with web-only sign-up. Evidence: `npm test`; Playwright
+account-assets and pricing 17 passed; deployed bundle checked for the new row.
+
 ## Browser UX audit, first release — 2026-10-22 UTC (app.gradstep.ai deployed)
 
 Owner: the web "seems extremely cluttered with an inconsistent placement of buttons and styling". Four audits (web reader,
