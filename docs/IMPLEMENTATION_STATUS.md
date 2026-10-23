@@ -1,6 +1,18 @@
 # Implementation status
 
 
+
+## Google sign-in return and expired AI key message — 2026-10-23 UTC (TestFlight 87, iOS and Mac uploaded)
+
+Owner report on iPad build 86: Google sign-in returned to the sign-in screen with no message; a figure AI Explainer read
+"The AI service couldn't finish this answer". Staging logs: every native Google attempt since 10-04 got a code from
+Supabase and never exchanged it; the iPad now hands a `sciencereader://auth/callback` that reaches the app's link
+handler to the open Google attempt (PKCE still binds it) and says so when Google doesn't finish
+(NATIVE_AUTHENTICATION.md). Not yet confirmed on a device. The explainer failure was the staging OpenRouter key expiring
+(401 "API key expired") between 14:44 and 19:47 UTC; a 401 now reads "AI answers are unavailable right now" (server part
+deploys with the replacement key, an owner step). TestFlight 87 carries both app changes; `npm test`, import acceptance
+15/15.
+
 ## Figure AI Explainer "couldn't finish": the staging OpenRouter key expired — 2026-10-23 UTC (branch only; not deployed or released)
 
 Owner, build 85/86 on iPad, 2026-10-23: "I did the AI Explainer on iPad for a figure, it says the AI Service couldn't
