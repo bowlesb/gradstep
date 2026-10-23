@@ -279,8 +279,20 @@
     document.addEventListener?.('selectionchange', report);
     addEventListener('scroll', report, { passive: true });
     addEventListener('resize', report);
+    // The browser may collapse the selection on the right button's press before the menu event: the selection as it was
+    // then counts when the pointer is over it, and is put back.
+    let pressed = null;
+    addEventListener('pointerdown', event => {
+      const selection = getSelection();
+      pressed = event.button === 2 && selection && selection.rangeCount && !selection.isCollapsed ? selection.getRangeAt(0).cloneRange() : null;
+    }, true);
     addEventListener('contextmenu', event => {
       const selection = getSelection();
+      if (selection && (selection.isCollapsed || !String(selection).trim()) && pressed
+        && [...pressed.getClientRects()].some(r => event.clientX >= r.left - 2 && event.clientX <= r.right + 2 && event.clientY >= r.top - 2 && event.clientY <= r.bottom + 2)) {
+        selection.removeAllRanges(); selection.addRange(pressed);
+      }
+      pressed = null;
       if (!selection || selection.isCollapsed || !String(selection).trim()) return;
       event.preventDefault();
       send({ type: 'selectionMenu', x: event.clientX, y: event.clientY });
