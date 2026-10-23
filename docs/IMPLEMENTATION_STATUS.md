@@ -46,7 +46,10 @@ taller than wide) is the iPhone app; Wide (sideways) has one 52 pt top row with 
 container (Read, Browse, Navigate, Explain, Discuss, Chats; Snippets as Collections | Collection). Spec: DESIGN.md "Tall
 and Wide". Mac: the toolbar's five places only.
 
-## On-device PDF route on publishers' PDFs: ten rules, text recognition, a longer recogniser cache — 2026-10-23 (local source; not released)
+## On-device PDF route on publishers' PDFs: ten rules, text recognition, a longer recogniser cache — 2026-10-23 (TestFlight 86, iOS and Mac uploaded)
+
+Merged to `main` and uploaded as TestFlight 86 (iOS and Mac) with the iPad second pass. Gates on the merge: `npm test`,
+import acceptance 15/15, Core `swift test` 437 passed. Not yet measured on a phone.
 
 Owner, 2026-10-22: "if it works it will be a big unlock for non arXiv papers." Full measurements:
 [review](reviews/DEVICE_PDF_ROUTE_20261023.md); design: [DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md#non-arxiv-layouts--port-revisions-69-2026-10-2223).
