@@ -1,5 +1,24 @@
 # Implementation status
 
+## Browser UX audit, first release — 2026-10-22 UTC (app.gradstep.ai deployed)
+
+Owner: the web "seems extremely cluttered with an inconsistent placement of buttons and styling". Four audits (web reader,
+other web screens, CSS inventory, iPad/Mac) are in the session scratchpad; decisions in DECISIONS.md "Tall and Wide
+layouts, two slots". Deployed to app.gradstep.ai (verified the served bundle carries the new code):
+- Styling foundation: `tokens.css` (one colour set per theme, type/spacing/radius/layer/motion scales) with a lint guard in
+  `test:fast`; every button has hover/press/focus; one menu, chip, segmented, banner and dialog look; information
+  dialogs close with ✕, task dialogs have Cancel + verb.
+- Search (owner's bug: typing while reading showed nothing): a Papers list in the left panel; a result opens in the middle
+  and the list stays; Esc restores the panel. Library and Feed have one ⋯ each (Add paper first); a Settings window
+  replaces the 23-row account menu.
+- Reader: selection actions are a capsule at the selection (Explain · Save snippet · ⋯, right-click too); the figure,
+  equation and paper AI Explainer pages cover the paper iPhone-style; the find bar floats; no balance line under the
+  composer; starters stable; about 25 audit bugs fixed.
+Evidence: `npm test` 731 pass, build passes; Playwright desktop/phone on the touched specs 211 passed, 3 failed — reader
+"live tags…" (fails identically on the base commit) and one flaky library-window phone run (passed 3/3 on re-run).
+Not yet: the Tall/Wide single-row, two-slot layout on the web (iPad first, in a branch); an empty grey strip above the
+figure page's message box.
+
 ## TestFlight 84, browser and admin release — 2026-10-22 UTC
 
 iOS and Mac build 84 uploaded (the Mac archive was retried once after a derived-data permission error); browser and
