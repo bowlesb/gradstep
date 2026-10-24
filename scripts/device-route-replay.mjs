@@ -49,6 +49,8 @@ for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record
     return { png: png(w, h, 200 + (distinct++ % 50)).toString('base64'), width: w, height: h, ...(r.clean ? { rect: r.rect } : {}) };
   });
   const started = Date.now();
+  // The crops the converter asks the recogniser for (a speed rule changes how many).
+  let crops = 0; const recognise = host.recognise; host.recognise = c => { crops += c.length; return recognise(c); };
   // --set name=json: an input option for this replay (`--set transcribe=true --set frontMatter=true`); the library's
   // authors come from the corpus's meta.json when the record has none.
   const overrides = {};
@@ -65,7 +67,7 @@ for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record
   // The source run's timings stay (the replay has no models); the replay's own seconds are noted beside them.
   const source = JSON.parse(readFileSync(join(FROM, key, 'conversion.json'), 'utf8'));
   writeFileSync(join(out, 'conversion.json'), JSON.stringify({ ...bundle.summary, host_seconds: source.host_seconds, model_load_seconds: source.model_load_seconds,
-    replay: { from: arg('--from'), seconds: (Date.now() - started) / 1000, misses: host.misses } }, null, 1));
+    replay: { from: arg('--from'), seconds: (Date.now() - started) / 1000, misses: host.misses, crops } }, null, 1));
   if (host.misses.tags || host.misses.crops) console.log(`${key}: replay misses ${JSON.stringify(host.misses)}`);
   n += 1;
 }

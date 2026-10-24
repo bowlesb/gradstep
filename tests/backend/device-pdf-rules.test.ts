@@ -6,7 +6,7 @@ import { contentsAsText, equationNumber, extendSpans, frontMatterRoles, lineOwne
 import { composeDevicePDFReader } from '../../supabase/functions/_shared/reader/device-pdf/bundle.ts';
 import { validateHTML } from '../../supabase/functions/_shared/reader/html-validate.ts';
 import { det, extent, host, input, line, page } from './device-pdf/synthetic.ts';
-import { renderMath, tidyLatex } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
+import { glyphsAgree, renderMath, tidyLatex } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
 import { venueNotice } from '../../supabase/functions/_shared/reader/device-pdf/structure.ts';
 import { aliasFont, aliasText } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
 import { composeAccents, lineText, linesOf, typicalGap, useLineBands, useWordGaps } from '../../supabase/functions/_shared/reader/device-pdf/geometry.ts';
@@ -231,4 +231,70 @@ test('line bands: a lowered delimiter that reaches the next line does not join t
     at('4', 30, 129.3, 7.6), at('ˆ', 36, 128.5, 3), at('x', 36, 131.2, 10)];
   assert.equal(linesOf(scripts).length, 1);
   useLineBands(false);
+});
+
+test('verify glyphs: a reading whose letters, digits, accents and operators are the page\'s own passes the gate', () => {
+  const math = (tex: string, display = false) => renderMath(tex, display)!;
+  assert.ok(glyphsAgree(['y', '=', 'W', 'x', '+', 'b'], math('y=Wx+b')));
+  assert.ok(!glyphsAgree(['y', '=', 'W', 'x', '+', 'b'], math('y=Wx-b')), 'an operator misread');
+  assert.ok(!glyphsAgree(['y', '=', 'W', 'x', '+', 'b'], math('y=Wx+c')), 'a letter misread');
+  assert.ok(glyphsAgree(['ˆ', 'x', '¯', 'y', '2'], math('\\hat{x}\\bar{y}^{2}')), 'accents as the text layer names them');
+  assert.ok(!glyphsAgree(['ˆ', 'x', 'y'], math('\\tilde{x}y')), 'the wrong accent');
+  assert.ok(glyphsAgree(['𝑥', '(cid:18)', 'ℝ', '∈'], math('x\\in\\mathbb{R}')), 'unnamed glyphs and styled letters');
+  assert.ok(!glyphsAgree(['x'], math('x')), 'too little to tell');
+  // End to end: a display read under the gate is typeset only when the rule is on and its glyphs agree.
+  const L = 54, display = line('$y = W x + b$', 150, 130);
+  const pages = [page([...line('Some words to read before it.', L, 100), ...display], [det('paragraph', extent(line('Some words to read before it.', L, 100))), det('display', extent(display, 3))])];
+  const read = (latex: string, rules: object) => {
+    const h = host(pages);
+    h.recognise = crops => crops.map(() => ({ latex, probs: [0.6, 0.7, 0.99, 0.99] }));
+    return new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', ...rules }), h).members.get('index.html')!);
+  };
+  assert.match(read('y=Wx+b', {}), /reader-display reader-math-image/);
+  assert.match(read('y=Wx+b', { verifyGlyphs: true }), /reader-display"[^>]*><math display="block">/);
+  assert.match(read('y=Wx-b', { verifyGlyphs: true }), /reader-display reader-math-image/);
+  assert.match(read('y=Wx+b', { verifyGlyphs: 0.8 }), /reader-display reader-math-image/, 'under the floor');
+});
+
+test('display lines: a numbered display the layout read as a paragraph\'s line becomes a display', () => {
+  const L = 54;
+  const before = line('We minimise the loss over all of the weights and biases, giving', L, 100);
+  const display = line('$y = W x + b$', 200, 125), tag = line('(3)', 520, 125);
+  const after = line('where the weights are found by gradient descent on the data.', L, 150);
+  const all = [...before, ...display, ...tag, ...after];
+  const pages = [page(all, [det('paragraph', [L - 1, 99, 541, 161])])];
+  const read = (rules: object) => new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', ...rules }), host(pages)).members.get('index.html')!);
+  assert.doesNotMatch(read({}), /reader-display/);
+  const on = read({ displayLines: true, equationNumbers: true });
+  assert.match(on, /<p[^>]*data-reader-kind="paragraph"[^>]*>We minimise[^<]*giving<\/p><p[^>]*data-reader-kind="equation"[^>]*><span class="reader-equation reader-display/);
+  assert.doesNotMatch(on, /\(3\)/, "the number goes with the display (its image keeps it), not into the text");
+  assert.match(on, /data-reader-kind="paragraph"[^>]*>where the weights/);
+  // A line of prose, or math without a number at the column's edge, stays in its paragraph.
+  const prose = [...before, ...line('$x$ and $y$ are vectors here in this short line', 200, 125), ...tag, ...after];
+  assert.doesNotMatch(new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', displayLines: true }), host([page(prose, [det('paragraph', [L - 1, 99, 541, 161])])])).members.get('index.html')!), /reader-display/);
+  const unnumbered = [...before, ...display, ...after];
+  assert.doesNotMatch(new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', displayLines: true }), host([page(unnumbered, [det('paragraph', [L - 1, 99, 541, 161])])])).members.get('index.html')!), /reader-display/);
+});
+
+test('reuse recognitions: a formula whose glyphs repeat an earlier one is not recognised again and reads the same', () => {
+  const L = 54;
+  // The same display twice on one page and once on the next, at different places; a different one beside them.
+  const shown = (x: number, y: number, text = '$y = W x + b$') => line(text, x, y);
+  const d1 = shown(L + 40, 200), d2 = shown(L + 40, 300), d3 = shown(L + 80, 150), other = shown(L + 40, 400, '$y = W x - c$');
+  const para = line('A paragraph of plain words to read here.', L, 100);
+  const pages = [page([...para, ...d1, ...d2, ...other], [det('paragraph', extent(para)), det('display', extent(d1, 3)), det('display', extent(d2, 3)), det('display', extent(other, 3))]),
+    page([...d3], [det('display', extent(d3, 3))])];
+  const read = (rules: object) => {
+    const h = host(pages);
+    const bundle = composeDevicePDFReader(input(2, { title: 'T', ...rules }), h);
+    const index = JSON.parse(new TextDecoder().decode(bundle.members.get('reader.json')!));
+    return { crops: h.log.crops.length, latex: index.equations.map((e: { latex: string }) => e.latex), html: new TextDecoder().decode(bundle.members.get('index.html')!) };
+  };
+  const off = read({}), on = read({ reuseRecognitions: true });
+  assert.equal(off.crops, 4);
+  assert.equal(on.crops, 2, 'the repeated display is read once');
+  assert.equal(on.latex.length, 4);
+  assert.equal(on.latex[1], on.latex[0]);
+  assert.equal(on.latex[3], on.latex[0]);
+  assert.equal(on.html.match(/reader-equation reader-display/g)?.length, off.html.match(/reader-equation reader-display/g)?.length);
 });

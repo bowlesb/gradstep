@@ -1,7 +1,55 @@
 import Foundation
 import ScienceReaderCore
 import CoreML
+import ImageIO
 import JavaScriptCore
+
+/// Page crops for the weakness report: `[{pdf, page (0-based), rect: [x0, y0, x1, y1] (points, top-left origin), dpi, out,
+/// boxes?: [[x0, y0, x1, y1, "#rrggbb"]] (points)}]`. Pages are rendered by `DevicePDFRaster.render` (font smoothing off,
+/// as the route reads them); each box is outlined on the crop; PNGs are written to `out`.
+func renderCrops(jobs url: URL) throws {
+    let jobs = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]]
+    var documents: [String: CGPDFDocument] = [:]
+    var cache: (key: String, image: CGImage)?
+    var written = 0
+    for job in jobs {
+        guard let path = job["pdf"] as? String, let index = (job["page"] as? NSNumber)?.intValue, let out = job["out"] as? String,
+              let rect = (job["rect"] as? [NSNumber])?.map(\.doubleValue), rect.count == 4 else { continue }
+        let dpi = (job["dpi"] as? NSNumber)?.doubleValue ?? 110
+        if documents[path] == nil, let provider = CGDataProvider(url: URL(fileURLWithPath: path) as CFURL), let document = CGPDFDocument(provider) {
+            documents[path] = document
+        }
+        guard let document = documents[path], let page = document.page(at: index + 1) else { continue }
+        let key = "\(path)#\(index)@\(dpi)"
+        let image: CGImage
+        if let cache, cache.key == key { image = cache.image } else {
+            guard let rendered = DevicePDFRaster.render(page, dpi: dpi) else { continue }
+            image = rendered; cache = (key, rendered)
+        }
+        let k = dpi / 72
+        let x0 = max(0, Int((rect[0] * k).rounded(.down))), y0 = max(0, Int((rect[1] * k).rounded(.down)))
+        let x1 = min(image.width, Int((rect[2] * k).rounded(.up))), y1 = min(image.height, Int((rect[3] * k).rounded(.up)))
+        guard x1 > x0, y1 > y0, let piece = image.cropping(to: CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)),
+              let ctx = CGContext(data: nil, width: x1 - x0, height: y1 - y0, bitsPerComponent: 8, bytesPerRow: (x1 - x0) * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { continue }
+        let h = Double(y1 - y0)
+        ctx.draw(piece, in: CGRect(x: 0, y: 0, width: x1 - x0, height: y1 - y0))
+        for box in (job["boxes"] as? [[Any]]) ?? [] {
+            let b = box.prefix(4).compactMap { ($0 as? NSNumber)?.doubleValue }
+            guard b.count == 4, box.count >= 5, let hex = box[4] as? String, hex.count == 7, let rgb = Int(hex.dropFirst(), radix: 16) else { continue }
+            let bx0 = b[0] * k - Double(x0), bx1 = b[2] * k - Double(x0), by0 = b[1] * k - Double(y0), by1 = b[3] * k - Double(y0)
+            ctx.setStrokeColor(CGColor(red: Double((rgb >> 16) & 255) / 255, green: Double((rgb >> 8) & 255) / 255, blue: Double(rgb & 255) / 255, alpha: 0.9))
+            ctx.setLineWidth(2)
+            // Core Graphics' origin is the bottom left.
+            ctx.stroke(CGRect(x: bx0, y: h - by1, width: bx1 - bx0, height: by1 - by0))
+        }
+        guard let drawn = ctx.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: out) as CFURL, "public.png" as CFString, 1, nil) else { continue }
+        CGImageDestinationAddImage(destination, drawn, nil)
+        if CGImageDestinationFinalize(destination) { written += 1 }
+    }
+    print("rendered \(written) of \(jobs.count) crops")
+}
 
 // The device route on this Mac, for evaluation (docs/architecture/DEVICE_PDF_ROUTE.md):
 //   swift run -c release DevicePDFRouteTool <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js>
@@ -22,6 +70,12 @@ struct Tool {
         // app's JSContext).
         if let recordPath = option("--replay-converter"), let compiler = option("--compiler") {
             try replayConverter(record: URL(fileURLWithPath: recordPath), compiler: URL(fileURLWithPath: compiler), repeats: Int(option("--repeat") ?? "1") ?? 1)
+            return
+        }
+        // --render-crops <jobs.json>: page crops for the weakness report (scripts/device-route-weaknesses.mjs), rendered as
+        // the route renders pages (Core Graphics, font smoothing off), with outlined boxes drawn on top.
+        if let jobsPath = option("--render-crops") {
+            try renderCrops(jobs: URL(fileURLWithPath: jobsPath))
             return
         }
         // --dump-glyphs <page> <pdf>: that page's glyphs as the host reads them (text layer, or text recognition when the

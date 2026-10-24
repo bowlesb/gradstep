@@ -4,11 +4,14 @@
 import { check, fail, sha256Hex, utf8 } from '../util.ts';
 import { argsort, assign, byX, canonicalText, centreIn, clipBytes, composeAccents, growLines, joinLines, lineText, linesOf, median, orphanRegions,
   pyRound, recogniserRect, typicalGap, union, useLineBands, useWordGaps, visible } from './geometry.ts';
-import { confidence, renderMath, tidyLatex } from './math.ts';
+import { confidence, glyphsAgree, renderMath, tidyLatex } from './math.ts';
+
+/** verifyGlyphs: the lowest confidence a recognition whose glyphs the PDF's text layer confirms is typeset at. */
+export const VERIFY_FLOOR = 0.5;
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
-import { aliasFont, aliasText, spansOf, tagInput } from './tagger.ts';
-import { mathRuns, transcribe } from './transcribe.ts';
+import { aliasFont, aliasText, fontFamily, spansOf, tagInput } from './tagger.ts';
+import { mathRuns, mathStyle, transcribe } from './transcribe.ts';
 import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region,
   type TaggerVocabulary } from './types.ts';
@@ -45,10 +48,14 @@ export interface Reading {
   warnings: string[]; unowned: number; recognitionFailures: number;
   /** Recognitions submitted to the host's background recogniser and not yet collected (`settle`). */
   submissions: { ticket: number; formulas: Formula[] }[];
+  /** Formulas that take an earlier formula's recognition (reuseRecognitions): [the copy, the one recognised]. */
+  copies: [Formula, Formula][];
   /** The recogniser's LaTeX tidied when Temml refuses it as read (math.tidyLatex). */
   tidy: boolean;
   /** The display gate's threshold (input.displayGate, else GATE_DISPLAY). */
   displayGate: number;
+  /** verifyGlyphs: the lowest confidence a recognition its glyphs verify is typeset at (null: off). */
+  verifyFloor: number | null;
 }
 
 interface Page { width: number; height: number; imageWidth: number; imageHeight: number; scale: number; glyphs: Glyph[]; detections: PageInput['detections'] }
@@ -154,8 +161,13 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     // A simple inline formula is written from the text layer and never reaches the recogniser (transcribe.ts).
     const tex = !display && input.transcribe ? transcribe(gl, fontSize) : null;
     if (tex) Object.assign(f, { latex: tex, probs: [], recognised: true, confidence: 1, transcribed: true });
+    else if (input.reuseRecognitions && shown.length) f.signature = formulaSignature(shown, bx, display);
+    if (input.verifyGlyphs !== undefined && input.verifyGlyphs !== false && !f.transcribed) f.glyphTexts = shown.map(g => g.text);
     return f;
   };
+  // reuseRecognitions: the first formula of each signature is recognised; the later ones take its reading (`settle`).
+  const firstOfSignature = new Map<string, Formula>();
+  const copies: [Formula, Formula][] = [];
 
   const recognisePending = () => {
     const readable: { f: Formula; rect: [number, number, number, number] }[] = [];
@@ -165,11 +177,14 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       const rect = recogniserRect(f.box, s, page.imageWidth, page.imageHeight);
       // Crops under 4 px either side (before the 8 px margin) are not read.
       if (rect[2] - rect[0] + 2 * CROP_MARGIN < 4 + 2 * CROP_MARGIN || rect[3] - rect[1] + 2 * CROP_MARGIN < 4 + 2 * CROP_MARGIN) continue;
+      const first = f.signature ? firstOfSignature.get(f.signature) : undefined;
+      if (first) { copies.push([f, first]); continue; }
+      if (f.signature) firstOfSignature.set(f.signature, f);
       readable.push({ f, rect });
     }
     pendingRecognition.length = 0;
     if (!readable.length) return;
-    const requests = readable.map(r => ({ page: r.f.page, rect: r.rect, display: r.f.display }));
+    const requests = readable.map(r => ({ page: r.f.page, rect: r.rect, display: r.f.display, cost: [...r.f.glyphText].length }));
     // A host with a background recogniser reads this page's formulas while the converter reads on (port revision 5).
     if (host.submit && host.collect) {
       let ticket: number;
@@ -207,6 +222,8 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const gone = new Set(glyphs.filter(g => [...dropped].some(r => centreIn(g, r.pt))));
     glyphs = glyphs.filter(g => !gone.has(g));
     regions = [...regions, ...orphanRegions(glyphs, growLines(glyphs, assign(glyphs, regions)), s)];
+    // Displays the layout boxed as lines of a paragraph, or did not box at all, become displays (displayLines).
+    if (input.displayLines) regions = displayLines(regions, glyphs, s);
     if (p === 0 && input.frontMatter) frontMatterRoles(regions, glyphs, input);
     const ordered = structure(regions, page.imageWidth, p === 0);
     const readers = [...ordered.filter(r => r.cls !== 'authors'), ...ordered.filter(r => r.cls === 'authors').flatMap(r => r.parts ?? []),
@@ -425,8 +442,9 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   recognisePending();
 
   trace.title = title || input.pdf.name.replace(/\.[^.]*$/, '');
-  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions, tidy: !!input.tidy,
+  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions, copies, tidy: !!input.tidy,
     displayGate: typeof input.displayGate === 'number' && input.displayGate >= 0.5 && input.displayGate <= 1 ? input.displayGate : GATE_DISPLAY,
+    verifyFloor: typeof input.verifyGlyphs === 'number' && input.verifyGlyphs >= 0 && input.verifyGlyphs <= 1 ? input.verifyGlyphs : input.verifyGlyphs === true ? VERIFY_FLOOR : null,
     unowned: pyRound(nUnowned / Math.max(1, nGlyphs), 4),
     pages: pages.map(pg => ({ width: pg.width, height: pg.height, imageWidth: pg.imageWidth, imageHeight: pg.imageHeight })) };
 }
@@ -510,6 +528,104 @@ const BIB_LABEL = /^\s*(\[\s*[\w+.\-]{1,12}\s*\]|\(\d{1,3}\)|\d{1,3}\.)\s/;
  * reference entries as overlapping regions, and glyphs shared between them would be read in two pieces out of order.
  * Regions overlap when they share more than half of the narrower one's width and more than `minShare` of the shorter one's
  * height. */
+const DISPLAY_MATH = new Set(['italic', 'symbol', 'blackboard', 'boldItalic']);
+const BIG_OPERATORS = /^(CMEX|LMMathExtension|NewTXEX|ntxexx?|txex|esint|STIXTwoMath|LMMathSymbols)/i;
+const DISPLAY_WORDS = new Set(['exp', 'log', 'ln', 'max', 'min', 'sin', 'cos', 'tan', 'sinh', 'cosh', 'tanh', 'arg', 'det', 'lim', 'sup',
+  'inf', 'tr', 'diag', 'sign', 'sgn', 'softmax', 'mod', 'var', 'cov', 'rank', 'span', 'dim', 'ker', 'erf', 'argmax', 'argmin', 'and', 'for', 'if']);
+
+/** One line of a paragraph region as a display would be set (displayLines): mostly math (math italic, symbol,
+ * blackboard or extension fonts; digits and operators count for neither side), at most one word of text, indented from
+ * the column's left, with an equation number set apart at the column's right edge (on the page: a region the layout
+ * drew round the line may leave the number out). `math` is true for a line with no text words at all (a fraction's
+ * numerator or denominator, a row of a cases block), which may join a display beside it. */
+function displayLine(line: readonly Glyph[], left: number, right: number, page: readonly Glyph[]): { display: boolean; math: boolean } {
+  const order = byX(line.filter(visible));
+  const em = median(order.map(g => g.size)) || 10;
+  let k = order.length - 1;
+  while (k > 0 && order[k].x0 - order[k - 1].x1 < 0.5 * em) k--;
+  const own = order.slice(k).map(g => g.text).join('').replace(/\s+/g, '');
+  const ownTag = k > 0 && NUMBER_TAG.test(own) && order[k].x0 - order[k - 1].x1 >= 1.5 * em;
+  const body = ownTag ? order.slice(0, k) : order;
+  if (!body.length) return { display: false, math: false };
+  const top = Math.min(...body.map(g => g.top)), bottom = Math.max(...body.map(g => g.bottom)), end = Math.max(...body.map(g => g.x1));
+  const tag = ownTag ? order.slice(k) : byX(page.filter(g => g.x0 >= end + 1.5 * em && (g.top + g.bottom) / 2 > top && (g.top + g.bottom) / 2 < bottom));
+  const tagged = tag.length > 0 && NUMBER_TAG.test(tag.map(g => g.text).join('').replace(/\s+/g, '')) && right - Math.max(...tag.map(g => g.x1)) <= 2 * em;
+  let math = 0, text = 0, words = 0, run = '';
+  const endWord = () => { if (run.length >= 3 && !DISPLAY_WORDS.has(run.toLowerCase())) words++; run = ''; };
+  body.forEach((g, i) => {
+    if (i > 0 && g.x0 - body[i - 1].x1 > 0.15 * em) endWord();
+    const style = mathStyle(g.font);
+    if ((style && DISPLAY_MATH.has(style)) || BIG_OPERATORS.test(fontFamily(g.font))) { math++; endWord(); return; }
+    if (/\p{L}/u.test(g.text)) { text++; run += g.text; } else endWord();
+  });
+  endWord();
+  const share = math / Math.max(1, math + text);
+  const onlyMath = words === 0 && math >= 1 && share >= 0.6;
+  if (body.length < 3 || math < 2) return { display: false, math: onlyMath };
+  return { display: tagged && words <= 1 && share >= 0.6 && body[0].x0 - left >= 1.5 * em, math: onlyMath };
+}
+
+/** Displays the layout read as lines of a paragraph (displayLines): the paragraph region is cut around each run of
+ * display lines, which becomes a display region (a formula numbered at its right margin, or indented on both sides and
+ * nearly all math). Lines with no text words beside such a run (a fraction's parts, a case's row) join it. Nothing
+ * changes where a display region of the layout's already holds the lines. */
+export function displayLines(regions: readonly Region[], glyphs: readonly Glyph[], s: number): Region[] {
+  const displays = regions.filter(r => r.cls === 'display');
+  const out: Region[] = [];
+  const region = (cls: string, score: number, pt: Box): Region => ({ cls, score, pt, box: pt.map(v => v * s) });
+  // The text column a region sits in: the layout's paragraphs that share most of its width (a line the layout left out
+  // has no box of its own to be indented in).
+  const columnOf = (r: Region): [number, number] => {
+    const peers = regions.filter(q => q.cls === 'paragraph' && !q.orphan && q !== r
+      && Math.min(q.pt[2], r.pt[2]) - Math.max(q.pt[0], r.pt[0]) > 0.5 * Math.min(q.pt[2] - q.pt[0], r.pt[2] - r.pt[0]));
+    return [Math.min(r.pt[0], ...peers.map(q => q.pt[0])), Math.max(r.pt[2], ...peers.map(q => q.pt[2]))];
+  };
+  const visibleGlyphs = glyphs.filter(visible);
+  for (const r of regions) {
+    if (r.cls !== 'paragraph') { out.push(r); continue; }
+    const mine = visibleGlyphs.filter(g => centreIn(g, r.pt));
+    if (mine.length < 3) { out.push(r); continue; }
+    const lines = linesOf(mine).map(l => ({ l, top: Math.min(...l.map(g => g.top)), bottom: Math.max(...l.map(g => g.bottom)), em: median(l.map(g => g.size)) || 10 }))
+      .sort((a, b) => a.top - b.top);
+    const [left, right] = columnOf(r);
+    const kind = lines.map(L => displayLine(L.l, left, right, visibleGlyphs));
+    // Runs of display lines, grown over neighbouring math-only lines; lines closer than an em belong to one display.
+    const groups: { from: number; to: number }[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!kind[i].display) continue;
+      let from = i, to = i;
+      while (from > 0 && kind[from - 1].math && lines[from].top - lines[from - 1].bottom <= 0.8 * lines[from].em) from--;
+      while (to + 1 < lines.length && (kind[to + 1].display || kind[to + 1].math) && lines[to + 1].top - lines[to].bottom <= (kind[to + 1].display ? 1.0 : 0.8) * lines[to].em) to++;
+      const last = groups[groups.length - 1];
+      if (last && from <= last.to) last.to = Math.max(last.to, to); else groups.push({ from, to });
+      i = to;
+    }
+    const kept = groups.map(gr => {
+      const gl = lines.slice(gr.from, gr.to + 1).flatMap(L => L.l);
+      const box: Box = [Math.min(...gl.map(g => g.x0)) - 1, Math.min(...gl.map(g => g.top)) - 1, Math.max(...gl.map(g => g.x1)) + 1, Math.max(...gl.map(g => g.bottom)) + 1];
+      // Its equation number, when the region left it out (set at the column's right): in the display's box, so the
+      // number is found and shown as the display's tag (equationNumbers).
+      const beside = byX(visibleGlyphs.filter(g => g.x0 >= box[2] && g.x1 <= right + 2 && (g.top + g.bottom) / 2 > box[1] && (g.top + g.bottom) / 2 < box[3]));
+      if (beside.length && NUMBER_TAG.test(beside.map(g => g.text).join('').replace(/\s+/g, ''))) box[2] = Math.max(...beside.map(g => g.x1)) + 1;
+      return { ...gr, box };
+    }).filter(gr => !displays.some(d => Math.min(d.pt[3], gr.box[3]) - Math.max(d.pt[1], gr.box[1]) > 0 && Math.min(d.pt[2], gr.box[2]) - Math.max(d.pt[0], gr.box[0]) > 0))
+      // The whole region one display only when the layout's box is the display's own (a short region).
+      .filter(gr => gr.from > 0 || gr.to < lines.length - 1 || lines.length <= 4);
+    if (!kept.length) { out.push(r); continue; }
+    let top = r.pt[1];
+    for (const gr of kept) {
+      if (gr.from > 0 && lines.slice(0, gr.from).some(L => L.bottom > top)) out.push(region('paragraph', r.score, [r.pt[0], top, r.pt[2], (lines[gr.from - 1].bottom + gr.box[1]) / 2]));
+      // The rest of a display row the layout boxed only in part (beside it, sharing its lines): that display grows.
+      const row = displays.find(d => Math.min(d.pt[3], gr.box[3]) - Math.max(d.pt[1], gr.box[1]) > 0.5 * (gr.box[3] - gr.box[1]) && gr.box[0] - d.pt[2] < 40 && d.pt[0] - gr.box[2] < 40);
+      if (row) { row.pt = [Math.min(row.pt[0], gr.box[0]), Math.min(row.pt[1], gr.box[1]), Math.max(row.pt[2], gr.box[2]), Math.max(row.pt[3], gr.box[3])]; row.box = row.pt.map(v => v * s); }
+      else out.push(region('display', r.score, gr.box));
+      top = gr.to + 1 < lines.length ? (gr.box[3] + lines[gr.to + 1].top) / 2 : r.pt[3];
+    }
+    if (lines.some(L => L.top >= top)) out.push(region('paragraph', r.score, [r.pt[0], top, r.pt[2], Math.max(top + 1, r.pt[3])]));
+  }
+  return out;
+}
+
 export function mergeOverlapping(regions: readonly Region[], cls: string, minShare = 0): Region[] {
   const same = regions.filter(r => r.cls === cls).map(r => ({ ...r, box: [...r.box], pt: [...r.pt] as Box }));
   const overlap = (a: Region, b: Region) => Math.min(a.box[2], b.box[2]) - Math.max(a.box[0], b.box[0]) > 0.5 * Math.min(a.box[2] - a.box[0], b.box[2] - b.box[0])
@@ -692,6 +808,18 @@ export function settle(reading: Reading, host: DevicePDFHost): void {
     try { results = host.collect!(ticket); } catch { reading.warnings.push('equations: Error'); reading.recognitionFailures += formulas.length; continue; }
     reading.recognitionFailures += assignRecognitions(formulas, results);
   }
+  for (const [copy, first] of reading.copies.splice(0)) {
+    if (!first.recognised || first.transcribed) { reading.recognitionFailures += 1; continue; }
+    Object.assign(copy, { latex: first.latex, probs: first.probs ? [...first.probs] : [], recognised: true, confidence: first.confidence });
+  }
+}
+
+/** A formula's glyphs as a key (reuseRecognitions): each glyph's text, font and size and its place in the formula's box
+ * to a tenth of a point, and the box's size. Two formulas with one key are the same picture on the page, up to where the
+ * page's pixel grid falls; the recogniser reads them alike. */
+export function formulaSignature(glyphs: readonly Glyph[], box: Box, display: boolean): string {
+  const r = (v: number) => Math.round(v * 10);
+  return `${display ? 'd' : 'i'}:${r(box[2] - box[0])}x${r(box[3] - box[1])}:` + byX(glyphs).map(g => `${g.text}\u0001${g.font}\u0001${r(g.size)}\u0001${r(g.x0 - box[0])}\u0001${r(g.top - box[1])}`).join('\u0002');
 }
 
 /** The gate: Temml MathML for each recognised formula whose confidence passes. */
@@ -700,14 +828,17 @@ export function gate(reading: Reading): void {
     const f = reading.formulas.get(id)!;
     // A display's punctuation the recogniser could not see (displayPunctuation): after the formula, as LaTeXML sets it.
     if (f.trailing && f.latex && !f.transcribed && !/[.,;]\s*(\\end\{[a-z*]+\}\s*)?$/.test(f.latex)) f.latex = `${f.latex}${f.trailing}`;
-    if (f.latex && f.confidence >= (f.display ? reading.displayGate : GATE)) {
+    const confident = f.confidence >= (f.display ? reading.displayGate : GATE);
+    // verifyGlyphs: under the gate, a reading whose letters and digits are the page's own glyphs is typeset too.
+    const checkable = !confident && reading.verifyFloor !== null && !!f.glyphTexts && f.confidence >= reading.verifyFloor;
+    if (f.latex && (confident || checkable)) {
       let math = renderMath(f.latex, f.display);
       // Port revision 5: the recogniser's LaTeXML-style rows and package commands, tidied when Temml refuses them as read.
       if (!math && reading.tidy) {
         const tidied = tidyLatex(f.latex);
         if (tidied !== f.latex && (math = renderMath(tidied, f.display))) f.latex = tidied;
       }
-      if (math) { f.rendered = true; f.mathml = math; }
+      if (math && (confident || glyphsAgree(f.glyphTexts!, math, f.display ? 3 : 2))) { f.rendered = true; f.mathml = math; }
     }
   }
 }

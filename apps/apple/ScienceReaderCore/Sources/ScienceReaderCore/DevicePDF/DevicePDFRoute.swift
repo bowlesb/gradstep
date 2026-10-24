@@ -87,14 +87,17 @@ public final class DevicePDFRoute {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 
         let timings = DevicePDFTimings()
-        func timed<T>(_ key: String, _ body: () throws -> T) rethrows -> T { try timings.timed(key, body) }
+        func timed<T>(_ key: String, page: Int? = nil, _ body: () throws -> T) rethrows -> T { try timings.timed(key, page: page, body) }
+        // The page the converter is reading (after every page's layout): its tagger lines and its own JavaScript time are
+        // that page's (the per-page timings; `pageClock` is when the page began).
+        var readingPage = 0, pageClock = DispatchTime.now().uptimeNanoseconds
         // Page images at 150 dpi stay for the recogniser crops of the page being read; other resolutions are kept
         // for the last page asked only.
         var pages150: [Int: DevicePDFRaster.RGB] = [:]
         var other: (page: Int, dpi: Double, image: DevicePDFRaster.RGB)?
         func page150(_ index: Int) -> DevicePDFRaster.RGB? {
             if let image = pages150[index] { return image }
-            guard let page = document.page(at: index + 1), let image = timed("render", { DevicePDFRaster.render(page, dpi: 150) }) else { return nil }
+            guard let page = document.page(at: index + 1), let image = timed("render", page: index, { DevicePDFRaster.render(page, dpi: 150) }) else { return nil }
             let rgb = DevicePDFRaster.rgb(image)
             if pages150.count >= 2, let oldest = pages150.keys.min() { pages150[oldest] = nil }
             pages150[index] = rgb
@@ -144,12 +147,12 @@ public final class DevicePDFRoute {
             guard let page = document.page(at: index + 1) else { return NSNull() }
             guard let rgb = page150(index), let image = DevicePDFRaster.cgImage(rgb) else { return NSNull() }
             let detected: (detections: [DevicePDFModels.Detection], scale: Double)
-            do { detected = try timed("layout") { try self.models.detect(page: image) } }
+            do { detected = try timed("layout", page: index) { try self.models.detect(page: image) } }
             catch { context.exception = JSValue(newErrorFromMessage: "layout: \(error)", in: context); return NSNull() }
             options.observeDetections?(index, detected.detections, detected.scale)
-            var glyphs = timed("text") { DevicePDFTextLayer.glyphs(page: page) }
+            var glyphs = timed("text", page: index) { DevicePDFTextLayer.glyphs(page: page) }
             let size = DevicePDFTextLayer.pageSize(page: page)
-            if options.ocrFallback, DevicePDFOCR.unreadable(glyphs) { glyphs = timed("ocr") { DevicePDFOCR.glyphs(layer: glyphs, image: image, size: size) } }
+            if options.ocrFallback, DevicePDFOCR.unreadable(glyphs) { glyphs = timed("ocr", page: index) { DevicePDFOCR.glyphs(layer: glyphs, image: image, size: size) } }
             return pageObject(width: size.width, height: size.height, imageWidth: rgb.width, imageHeight: rgb.height, scale: detected.scale,
                               glyphs: glyphs, detections: detected.detections)
         }
@@ -181,7 +184,7 @@ public final class DevicePDFRoute {
                     }
                 }
             }
-            timings.add("tag", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9)
+            timings.add("tag", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9, page: readingPage)
             if out.contains(where: { $0 == nil }) { context.exception = JSValue(newErrorFromMessage: "tagger: a line could not be read", in: context); return NSNull() }
             return out.map { $0 ?? [] }
         }
@@ -220,13 +223,18 @@ public final class DevicePDFRoute {
                     results.lock.unlock()
                 }
             }
-            timings.add("equations", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9)
+            timings.add("equations", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9, page: readingPage)
             formulasDone += results.rows.filter { !($0 is NSNull) }.count
             return results.rows
         }
         let submitBlock: @convention(block) (JSValue) -> Int = { crops in
             let count = Int(crops.objectForKeyedSubscript("length")?.toInt32() ?? 0)
-            return recogniser?.submit((0..<count).map { cut(crops.objectAtIndexedSubscript($0)) }) ?? -1
+            // The converter's cost hint (the formula's glyph count), when it gives one: batches of like reading lengths.
+            let costs = (0..<count).map { i -> Int? in
+                guard let value = crops.objectAtIndexedSubscript(i)?.objectForKeyedSubscript("cost"), value.isNumber else { return nil }
+                let n = value.toDouble(); return n.isFinite && n >= 0 ? Int(min(n, 100_000)) : nil
+            }
+            return recogniser?.submit((0..<count).map { cut(crops.objectAtIndexedSubscript($0)) }, page: readingPage, costs: costs) ?? -1
         }
         let collectBlock: @convention(block) (Int) -> Any = { ticket in
             let rows = recogniser?.collect(ticket) ?? []
@@ -242,7 +250,7 @@ public final class DevicePDFRoute {
             let source: DevicePDFRaster.RGB?
             if dpi == 150 { source = page150(page) }
             else if let other, other.page == page, other.dpi == dpi { source = other.image }
-            else if let pdfPage = document.page(at: page + 1), let image = timed("render", { DevicePDFRaster.render(pdfPage, dpi: dpi) }) {
+            else if let pdfPage = document.page(at: page + 1), let image = timed("render", page: page, { DevicePDFRaster.render(pdfPage, dpi: dpi) }) {
                 let rgb = DevicePDFRaster.rgb(image); other = (page, dpi, rgb); source = rgb
             } else { source = nil }
             guard let source else { return NSNull() }
@@ -252,13 +260,13 @@ public final class DevicePDFRoute {
             let clean = request.objectForKeyedSubscript("clean")
             if let clean, clean.isObject, let em = clean.objectForKeyedSubscript("em")?.toNumber()?.doubleValue, em.isFinite, em > 0, em <= 1000,
                let margin = clean.objectForKeyedSubscript("margin")?.toNumber()?.intValue, (0...200).contains(margin) {
-                let (png, placed) = timed("images") { () -> (Data, [Int]) in
+                let (png, placed) = timed("images", page: page) { () -> (Data, [Int]) in
                     let cleaned = DevicePDFRaster.cleanFormula(DevicePDFRaster.crop(source, rect), em: em, margin: margin)
                     return (DevicePDFRaster.png(cleaned.image), [rect[0] + cleaned.rect[0], rect[1] + cleaned.rect[1], rect[0] + cleaned.rect[2], rect[1] + cleaned.rect[3]])
                 }
                 return ["png": png.base64EncodedString(), "width": placed[2] - placed[0], "height": placed[3] - placed[1], "rect": placed] as [String: Any]
             }
-            let png = timed("images") { DevicePDFRaster.png(DevicePDFRaster.crop(source, rect)) }
+            let png = timed("images", page: page) { DevicePDFRaster.png(DevicePDFRaster.crop(source, rect)) }
             return ["png": png.base64EncodedString(), "width": rect[2] - rect[0], "height": rect[3] - rect[1]] as [String: Any]
         }
         let previewBlock: @convention(block) (JSValue) -> Void = { value in
@@ -266,8 +274,18 @@ public final class DevicePDFRoute {
             onPreview(output)
         }
         let progressBlock: @convention(block) (String, Int, Int) -> Void = { stage, done, total in
-            if stage == "layout" { progress(.layout(page: done, of: total)) }
-            else if stage == "pages" { progress(.reading(pagesDone: done, of: total)) }
+            let now = DispatchTime.now().uptimeNanoseconds
+            if stage == "layout" {
+                // Waiting for the read-ahead or reading the page on demand: before the reading starts, not a page's own.
+                if done == total { pageClock = now }
+                progress(.layout(page: done, of: total))
+            } else if stage == "pages" {
+                // The page's wall time on the converter's thread (its rules, its tagger calls and image crops included).
+                timings.addToPage("read", Double(now - pageClock) / 1e9, page: done - 1)
+                // Work submitted after the last page (none is a page's own) counts in the totals only.
+                pageClock = now; readingPage = done < total ? done : -1
+                progress(.reading(pagesDone: done, of: total))
+            }
         }
         let cancelledBlock: @convention(block) () -> Bool = {
             if cancelled() { recogniser?.stop(); prefetch?.stop(); return true }
@@ -310,7 +328,12 @@ public final class DevicePDFRoute {
         // the wall time.
         var seconds = timings.snapshot
         seconds["total"] = total
+        // After the last page: waiting for the recogniser, then the formulas, figures and the bundle written.
+        seconds["finish"] = Double(DispatchTime.now().uptimeNanoseconds - pageClock) / 1e9
         summary["host_seconds"] = seconds.mapValues { ($0 * 100).rounded() / 100 }
+        // Busy seconds per page and stage (evaluation): render, text, layout, ocr (read ahead), tag, equations (the page's
+        // share of its recogniser batches), images, and `read`, the page's wall time on the converter's thread.
+        summary["host_pages"] = timings.pages.map { $0.mapValues { ($0 * 1000).rounded() / 1000 } }
         summary["pipeline"] = ["background": recogniser != nil, "prefetch_pages": prefetch == nil ? 0 : options.prefetchPages,
                                "recogniser_batch": models.recogniserBatch, "recogniser_in_flight": options.recogniserConcurrency,
                                "tagger_threads": options.taggerThreads] as [String: Any]

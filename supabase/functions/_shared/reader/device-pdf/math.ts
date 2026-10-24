@@ -22,6 +22,36 @@ export function tidyLatex(latex: string): string {
   return t;
 }
 
+/** Accents as the text layer names them (spacing forms, combining marks) and as Temml writes them, to one form each. */
+const ACCENTS: Record<string, string> = {
+  '^': 'ˆ', 'ˆ': 'ˆ', '̂': 'ˆ', '~': '˜', '˜': '˜', '̃': '˜', '‾': '¯', '¯': '¯', '̄': '¯', '̅': '¯', '˙': '˙', '̇': '˙',
+  '¨': '¨', '̈': '¨', '˚': '˚', '̊': '˚', 'ˇ': 'ˇ', '̌': 'ˇ', '˘': '˘', '̆': '˘', '´': '´', '́': '´', '`': '`', '̀': '`',
+  '⃗': '→', '*': '∗', '∗': '∗', '-': '−',
+};
+/** The letters, digits, accents and plain operators a formula shows, letters and digits folded to their plain forms
+ * (𝑥, 𝐱 and ℝ as x, x and R), sorted. Delimiters, which the text layer names inconsistently (a big one has no Unicode),
+ * bars and spaces are left out. */
+function checkable(chars: readonly string[]): string {
+  return chars.flatMap(c => [...c]).flatMap(c => ACCENTS[c] ? [ACCENTS[c]] : [...c.normalize('NFKC')])
+    .map(c => c === 'ı' ? 'i' : c === 'ȷ' ? 'j' : c === '-' ? '−' : c)
+    .filter(c => /[\p{L}\p{N}=+−,;<>≤≥×∗⋆′ˆ˜¯˙¨˚ˇ˘´`→]/u.test(c)).sort().join('');
+}
+/** verifyGlyphs (2026-10-24, docs/reviews/DEVICE_PDF_WEAKNESSES_20261024.md): the recognised formula's letters and
+ * digits are exactly the formula's glyphs on the page (the text layer names each one), as many of each, at least `min`
+ * of them. Glyphs the text layer cannot name (`(cid:18)`, a big delimiter) and every operator, bar and space are left
+ * out of both sides; what is compared is what a misreading most often changes. */
+export function glyphsAgree(pageGlyphs: readonly string[], math: OutNode, min = 2): boolean {
+  const page = checkable(pageGlyphs.filter(t => [...t].length === 1));
+  if (page.length < min) return false;
+  const leaves: string[] = [];
+  const visit = (n: OutNode | string, token: boolean) => {
+    if (typeof n === 'string') { if (token) leaves.push(n); return; }
+    for (const c of n.children) visit(c, isMathToken(n.name));
+  };
+  visit(math, false);
+  return checkable(leaves) === page;
+}
+
 type Child = OutNode | string;
 class Refused extends Error {}
 
