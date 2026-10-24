@@ -37,7 +37,7 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
   let output: OutNode[];
   if (n.name === 'h1') cx.titleSeen = true;
   // A heading keeps no line breaks (LaTeX's \\ in a title, 2610.10478 on build 46: "Why is performance on a new line?").
-  if (/^h[1-6]$/.test(n.name)) output = [block(cx, n, n.name, 'heading', id => children(n).flatMap(c => inline(cx, c, id)).map(c => typeof c !== 'string' && c.name === 'br' ? ' ' : c))];
+  if (/^h[1-6]$/.test(n.name)) output = [block(cx, n, n.name, 'heading', id => children(n).flatMap(c => inline(cx, c, id, false, false, true)).map(c => typeof c !== 'string' && c.name === 'br' ? ' ' : c))];
   else if (n.name === 'figure') {
     const insideSVG = (c: DomNode) => { for (let a = c.parent; a; a = a.parent) if (a.name === 'svg') return true; return false; };
     const insideMath = (c: DomNode) => { for (let a = c.parent; a; a = a.parent) if (a.name === 'math') return true; return false; };

@@ -5,6 +5,7 @@ import { LIMITS } from '../profile.ts';
 import { boundedText, check } from '../util.ts';
 import { bind, children, type ArxivContext, type Child } from './context.ts';
 import { mathBadgeText } from './math-badge.ts';
+import { applyMathVariant } from '../mathvariant.ts';
 
 /** LaTeXML's presentation MathML in the reader's vocabulary: annotations and links dropped, attributes allow-listed. */
 export function mathNode(n: DomNode): Child[] {
@@ -44,6 +45,80 @@ export function mathNode(n: DomNode): Child[] {
   }
   return [el(n.name, attrs, children(n).flatMap(mathNode))];
 }
+// A formula in a heading as words (revision 24, 2610.21306v1 "VLA-$\Delta$: …" on the fresh-paper sweep): the index
+// writes an equation as its LaTeX, and a heading's index text is its title in the Library header, Contents and the
+// page's <title>, so "VLA- \Delta : Learning…" showed the macro. A formula that Unicode spells exactly (letters,
+// digits, operators, and sub- or superscripts Unicode has: "Δ", "τ²", "𝒮₀", "λ < 1", "↓") is text in the heading, a
+// one-letter variable in italics; anything else (a fraction, "p_T", "r_{novelty}") stays an equation.
+const SUPERSCRIPT: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+  '+': '⁺', '-': '⁻', '−': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', n: 'ⁿ', i: 'ⁱ', '⊤': 'ᵀ', T: 'ᵀ',
+  // Marks that already sit high: a prime, a star, a dagger.
+  '′': '′', '″': '″', '‴': '‴', '*': '*', '∗': '*', '⋆': '⋆', '†': '†', '‡': '‡' };
+const SUBSCRIPT: Record<string, string> = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+  '+': '₊', '-': '₋', '−': '₋', '=': '₌', '(': '₍', ')': '₎', a: 'ₐ', e: 'ₑ', h: 'ₕ', i: 'ᵢ', j: 'ⱼ', k: 'ₖ', l: 'ₗ', m: 'ₘ',
+  n: 'ₙ', o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', u: 'ᵤ', v: 'ᵥ', x: 'ₓ', β: 'ᵦ', γ: 'ᵧ', ρ: 'ᵨ', φ: 'ᵩ', χ: 'ᵪ' };
+const SPACED = new Set(['=', '<', '>', '≤', '≥', '≈', '≠', '∼', '≡', '∝', '→', '←', '↔', '⇒', '⇐', '⇔', '∈', '+', '−', '×', '·', '⋅', '±', '∓', '⊕', '⊗']);
+const INVISIBLE = /[​⁡-⁤]/g;
+const TOKENS = new Set(['mi', 'mn', 'mo', 'mtext']), GROUPS = new Set(['mrow', 'mstyle', 'mpadded']);
+const elementChildren = (n: DomNode) => children(n).filter(c => c.type === 'tag' && !['annotation', 'annotation-xml'].includes(c.name));
+/** A token's characters, mapped through its mathvariant; null when Unicode has no such letter. */
+function tokenText(n: DomNode): string | null {
+  const text = textContent(n).replace(INVISIBLE, '').trim(), variant = n.attribs.mathvariant;
+  return !variant || variant === 'normal' || variant === 'italic' ? text : applyMathVariant(text, variant);
+}
+/** A script's characters in Unicode's sub- or superscript forms, or null. */
+function scriptText(n: DomNode, map: Record<string, string>): string | null {
+  const parts: string[] = [];
+  const visit = (c: DomNode): boolean => {
+    if (c.type === 'text') return !c.data.trim();
+    if (c.type !== 'tag') return true;
+    if (TOKENS.has(c.name)) { const text = tokenText(c); if (text === null) return false; parts.push(text); return true; }
+    return GROUPS.has(c.name) && children(c).every(visit);
+  };
+  if (!visit(n)) return null;
+  const chars = [...parts.join('').replace(/\s+/g, '')];
+  return chars.length && chars.every(ch => map[ch] !== undefined) ? chars.map(ch => map[ch]).join('') : null;
+}
+export function mathAsText(n: DomNode): Child[] | null {
+  const convert = (c: DomNode): Child[] | null => {
+    if (c.type === 'text') return c.data.trim() ? null : [];
+    if (c.type !== 'tag' || ['annotation', 'annotation-xml'].includes(c.name)) return [];
+    if (c.name === 'math' || c.name === 'semantics' || GROUPS.has(c.name)) {
+      const kids = elementChildren(c), out: Child[] = [];
+      for (const [at, kid] of kids.entries()) {
+        const part = convert(kid); if (!part) return null;
+        // A relation or binary operator between two operands reads with spaces around it ("λ < 1", "D5 × D8"), as the
+        // formula sets it; a sign after an operator or a bracket ("(−1)") does not.
+        const operand = (x: DomNode | undefined, fences: string) => !!x && (x.name !== 'mo' || fences.includes(normalizeSpace(textContent(x))));
+        const spaced = kid.name === 'mo' && SPACED.has(normalizeSpace(textContent(kid))) && operand(kids[at - 1], ')]}|')
+          && operand(kids[at + 1], '([{|') && kid.attribs.lspace !== '0em' && kid.attribs.rspace !== '0em';
+        out.push(...(spaced ? [' ', ...part, ' '] : part));
+      }
+      return out;
+    }
+    if (TOKENS.has(c.name)) {
+      const text = tokenText(c); if (text === null) return null;
+      if (!text) return [];
+      // A one-letter Latin or Greek identifier is a variable, set in italics unless the formula says upright ("Δ" is
+      // mathvariant normal); a styled letter ("𝒮") already carries its face.
+      const italic = c.name === 'mi' && (c.attribs.mathvariant === 'italic' || (!c.attribs.mathvariant && /^[A-Za-zΑ-ωϑϕϵ]$/u.test(text)));
+      return [italic ? el('em', {}, [text]) : text];
+    }
+    if (c.name === 'mspace') return [' '];
+    if (['msub', 'msup', 'msubsup'].includes(c.name)) {
+      const [base, first, second] = elementChildren(c);
+      const head = base ? convert(base) : null;
+      const sub = c.name === 'msup' ? '' : first ? scriptText(first, SUBSCRIPT) : null;
+      const sup = c.name === 'msub' ? '' : c.name === 'msup' ? (first ? scriptText(first, SUPERSCRIPT) : null) : second ? scriptText(second, SUPERSCRIPT) : null;
+      if (!head || sub === null || sup === null) return null;
+      return [...head, sub + sup];
+    }
+    return null;
+  };
+  const out = convert(n);
+  return out && out.some(part => typeof part !== 'string' || part.trim()) ? out : null;
+}
+
 /** One formula: its LaTeX source in the index, its MathML in an equation span (forced display in an equation block). */
 export function equation(cx: ArxivContext, n: DomNode, owner: string, forceDisplay = false): OutNode {
   check(!cx.usedMath.has(n), 'arxiv_math_duplicate'); cx.usedMath.add(n);

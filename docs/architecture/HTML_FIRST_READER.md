@@ -604,6 +604,27 @@ breaks between paragraphs inside an item stay. The bridge hangs the label in the
 was an adaptation fault, not arXiv's: arXiv's own page shows the step texts (overflowing their boxes, as LaTeXML sized
 them); the reader drew every label as one centred line with the `\phantom{Ag}` struts as text. See the TikZ bullet above.
 
+### Heading formulas and bracketed addresses, revision 24
+
+The fresh-paper sweep before TestFlight 90 failed VLA-Δ (2610.21306v1; revision 22 gave the same header). The title
+rendered as math on the page, but the index writes every equation as its LaTeX (`outText`, mirrored by the validator's
+`domText`), and a heading's index text is its title everywhere: the index title, Contents, equation section labels and
+the page's `<title>` read "VLA- \Delta : Learning…". The index format and the validator are unchanged (an installed or
+synced bundle must keep validating); instead a formula in a heading that Unicode spells exactly is written as text
+(`arxiv/math.ts` `mathAsText`, used by `inline(…, asText)` for `h1`–`h6`): tokens as their characters (a styled
+letter through `applyMathVariant`, a one-letter Latin or Greek variable in `<em>`), relations and binary operators
+between operands spaced, a sub- or superscript only when every character has a Unicode script form ("τ²", "𝒮₀",
+"Sₘᵢₙ"). Anything else (a fraction, "p_T", "π_{0.5}", "r_{novelty}") stays an equation, so its LaTeX is still the index text; 9
+of 122 heading formulas in the 174 cached sources are of that kind, none in a title. A text formula is accounted as used,
+not an indexed equation. Running text is unchanged.
+
+The author block's "Zhejiang University ()" came from the address rule: every web link in the block moved to its own
+line, so a domain LaTeXML kept in brackets left them empty and each of the eight authors added a line. A link with a
+bracket on both sides now stays in its affiliation ("Zhejiang University (zju.edu.cn)", as arXiv's page shows it); an
+address on its own is listed once per href and text, and none when its words were a dropped icon (2610.19857v1's ORCID
+badges left two empty lines). `tidy` removes brackets left empty (or holding only commas) after an e-mail or icon
+was dropped; brackets with words stay.
+
 ### Encoded image total, revision 21
 
 The real-source native replay of 2610.20592v1 exposed a boundary the Chromium run did not: identical input

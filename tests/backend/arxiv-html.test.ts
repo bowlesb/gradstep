@@ -787,3 +787,50 @@ test('affiliation lines keep indexed math marks and contacts; the equation entry
  assert.doesNotMatch(anonymous,/reader-authors/);
  assert.match(anonymous,/<span class="reader-affiliation-lines"><sup>[\s\S]*ETH Zurich contact@example\.org<br><sup>2<\/sup> Example Institute<\/span>/);
 });
+
+// Revision 24 (fresh-paper sweep before TestFlight 90, VLA-Δ 2610.21306v1): a formula in a heading that Unicode spells
+// reads as its characters, so the title (index, Contents, <title>) never shows a macro; the author block keeps the web
+// address an affiliation put in brackets and leaves no empty brackets behind.
+const formula = (latex: string, mathml: string) => `<math alttext="${latex}" display="inline"><semantics>${mathml}<annotation encoding="application/x-tex">${latex}</annotation></semantics></math>`;
+test('a formula in a title or heading that Unicode spells is text, never its macro; others stay equations (2610.21306v1)', () => {
+  const delta = formula('\\Delta', '<mi mathvariant="normal">Δ</mi>');
+  const html = source.replace('<h1>Authored HTML fixture</h1>', `<h1 class="ltx_title ltx_title_document">VLA-${delta}: Learning Physical State Transition</h1>`)
+    .replace('<h2>1 Introduction</h2>', `<h2>1 Scaling ${formula('\\tau^{2}', '<msup><mi>τ</mi><mn>2</mn></msup>')} with ${formula('\\lambda&lt;1', '<mrow><mi>λ</mi><mo>&lt;</mo><mn>1</mn></mrow>')}, ${formula('\\mathcal{S}_{0}', '<msub><mi>𝒮</mi><mn>0</mn></msub>')} and ${formula('\\big(1-\\frac{1}{e}\\big)', '<mrow><mo>(</mo><mn>1</mn><mo>−</mo><mfrac><mn>1</mn><mi>e</mi></mfrac><mo>)</mo></mrow>')}</h2>`)
+    .replace('<h2>References</h2>', `<h2>${formula('p_{T}', '<msub><mi>p</mi><mi>T</mi></msub>')} References, ${formula('a\\times b', '<mrow><mi>a</mi><mo>×</mo><mi>b</mi></mrow>')} (${formula('-1', '<mrow><mo>−</mo><mn>1</mn></mrow>')})</h2>`);
+  const {checked, html: rendered} = buildWith(html);
+  assert.equal(checked.index.title, 'VLA-Δ: Learning Physical State Transition');
+  assert.match(rendered, /<h1 [^>]*>VLA-Δ: Learning Physical State Transition<\/h1>/);
+  assert.match(rendered, /<title>VLA-Δ: Learning Physical State Transition<\/title>/);
+  assert.equal(checked.index.blocks[0].text, 'VLA-Δ: Learning Physical State Transition');
+  // Variables in italics, as the formula sets them; a relation spaced; a fraction (no Unicode form) stays math.
+  assert.match(rendered, /<h2 [^>]*>1 Scaling <em>τ<\/em>² with <em>λ<\/em> &lt; 1, 𝒮₀ and <span class="reader-equation reader-inline"[^>]*data-latex="\\big\(1-\\frac\{1\}\{e\}\\big\)"/);
+  assert.equal(checked.index.headings[0].title, '1 Scaling τ² with λ < 1, 𝒮₀ and \\big(1-\\frac{1}{e}\\big)');
+  // A script Unicode has no letter for ("T" below the line) keeps the formula.
+  assert.match(rendered, /<h2 [^>]*><span class="reader-equation reader-inline"[^>]*data-latex="p_\{T\}"/);
+  // A binary operator between operands is spaced; a sign is not.
+  assert.equal(checked.index.headings[1].title, 'p_{T} References, a × b (−1)');
+  assert.deepEqual(checked.index.equations.map(e => e.latex).sort(), ['\\big(1-\\frac{1}{e}\\big)', 'p_{T}', 'x^2', 'x^2'].sort(), 'the text formulas are no equations');
+  // What the reader shows as words has no macro (the sweep's macro_leak check).
+  assert.doesNotMatch(rendered.replace(/<math[\s\S]*?<\/math>|<[^>]+>/g, ' '), /\\[A-Za-z]{3,}/);
+  // In running text the same formula is still an equation.
+  const body = buildWith(source.replace('An equation ', `An equation ${delta} `)).checked;
+  assert.ok(body.index.equations.some(e => e.latex === '\\Delta'));
+});
+
+test('an affiliation keeps its bracketed web address, and brackets emptied by a dropped e-mail go; real brackets stay (2610.21306v1)', () => {
+  const creator = (name: string, affiliation: string) => `<span class="ltx_creator ltx_role_author"><span class="ltx_personname">${name}\n</span><span class="ltx_author_notes"><span class="ltx_author_notes_content"><span class="ltx_contact ltx_role_affiliation"><span class="ltx_contact_name">Affiliation: </span>${affiliation}\n</span></span></span></span>`;
+  const zju = 'Zhejiang University (<a href="https://zju.edu.cn" title="" class="ltx_ref ltx_href">zju.edu.cn</a>)';
+  const authors = `<div class="ltx_authors">${creator('Qi Lu', zju)}<span class="ltx_author_before">  </span>${creator('Jiarun Li', zju)}`
+    + `<span class="ltx_author_before">  </span>${creator('Ce Zhang', 'Central South University (<a href="https://csu.edu.cn" title="" class="ltx_ref ltx_href">csu.edu.cn</a>)')}</div>`;
+  const header = headerOf(buildWith(source.replace('<div class="ltx_authors">A. Author</div>', authors)).html);
+  assert.equal(header, 'Qi Lu<sup>1</sup>, Jiarun Li<sup>1</sup>, Ce Zhang<sup>2</sup> <span class="reader-affiliations"><sup>1</sup>Zhejiang University (<a href="https://zju.edu.cn/" rel="noopener noreferrer">zju.edu.cn</a>)<br><sup>2</sup>Central South University (<a href="https://csu.edu.cn/" rel="noopener noreferrer">csu.edu.cn</a>)</span>');
+  // An e-mail in brackets (as text or a mailto link) is left out with its brackets; brackets with words in them stay; a
+  // project page given by several authors is listed once.
+  const page = '<a href="https://example.org/project" class="ltx_ref ltx_href">https://example.org/project</a>';
+  // An address whose words were an icon (an ORCID badge) leaves no empty line.
+  const orcid = '<a href="https://orcid.org/0000-0000-0000-0000" class="ltx_ref ltx_href"><img src="2601.01234v2/orcid.png" class="ltx_graphics" alt=""></a>';
+  const mixed = `<div class="ltx_authors">${creator('Ada Lovelace', 'MIT (CSAIL) (ada@mit.edu)' + page + orcid)}<span class="ltx_author_before">  </span>`
+    + `${creator('Alan Turing', 'Bletchley Park [Hut 8] [<a href="mailto:alan@example.org">alan@example.org</a>]' + page)}</div>`;
+  assert.equal(headerOf(buildWith(source.replace('<div class="ltx_authors">A. Author</div>', mixed)).html),
+    'Ada Lovelace<sup>1</sup>, Alan Turing<sup>2</sup> <span class="reader-affiliations"><sup>1</sup>MIT (CSAIL)<br><sup>2</sup>Bletchley Park [Hut 8]<br><a href="https://example.org/project" rel="noopener noreferrer">https://example.org/project</a></span>');
+});

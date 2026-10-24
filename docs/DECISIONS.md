@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Heading formulas as characters; bracketed addresses stay (fresh-paper sweep, 2026-10-24; agent decisions, reversible)
+
+The sweep before TestFlight 90 failed VLA-Δ (2610.21306v1). Reader revision 24; details in
+[HTML_FIRST_READER](architecture/HTML_FIRST_READER.md) "Heading formulas and bracketed addresses".
+
+| Decision | Choice |
+|---|---|
+| Formula in a heading | Written as text when Unicode spells it exactly ("Δ", "τ²", "λ < 1"), a one-letter variable in italics; otherwise kept as math. The index format and validator are unchanged, so installed and synced bundles keep validating. |
+| Address in an affiliation | A link in brackets stays in the affiliation's words; a link on its own keeps its own line, once. |
+
 ## List markers are the paper's own; diagram labels keep their lines (owner reports build 88, 2026-10-23; agent decisions, reversible)
 
 Owner, TestFlight 88 on iPad: *"Authors list badly fmt"* (2610.28711v1) and *"Garbled figure text"* (2610.14162v1

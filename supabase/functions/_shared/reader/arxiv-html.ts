@@ -38,9 +38,11 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * without their TeX annotations, 2610.22371v1 on build 73; affiliation and contact paragraphs after the abstract join
  * the header, 2610.22353v1 on build 69; revision 23: a list item's own LaTeXML label is its one marker and its trailing
  * line breaks go, 2610.28711v1 and 2610.14162v1 on build 88; a picture's labels of several lines or in a minipage are
- * drawn line by line and wrapped, without phantom struts, 2610.14162v1 Figure 3), so a device re-prepares papers it
- * compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 23;
+ * drawn line by line and wrapped, without phantom struts, 2610.14162v1 Figure 3; revision 24: a formula in a heading
+ * that Unicode spells is text, so the title's index text has no macro ("VLA-Δ", not "VLA- \Delta "), and an affiliation
+ * keeps its bracketed web address instead of an empty "()", 2610.21306v1 on the fresh-paper sweep), so a device
+ * re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 24;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

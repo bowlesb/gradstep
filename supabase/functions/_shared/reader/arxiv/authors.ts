@@ -18,8 +18,8 @@ export const EMAIL = /\{[^}]*\}@[\w.-]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 export const plain = (parts: Child[]) => normalizeSpace(parts.map(part => typeof part === 'string' ? part : outText(part)).join(''));
 export const isSup = (part: Child): part is OutNode & { name: 'sup' } => typeof part === 'object' && part.name === 'sup';
 export const isBr = (part: Child) => typeof part === 'object' && part.name === 'br';
-// Collapsed whitespace, no e-mail, no space around a mark, consecutive marks as one ("1,2"), tidy punctuation,
-// trimmed ends.
+// Collapsed whitespace, no e-mail, no space around a mark, consecutive marks as one ("1,2"), tidy punctuation, no
+// brackets left empty by what was left out ("Name (a@b.org)", an e-mail link or an icon; 2610.21306v1), trimmed ends.
 export const tidy = (parts: Child[]): Child[] => {
   const out: Child[] = [];
   for (const part of parts) {
@@ -46,7 +46,7 @@ export const tidy = (parts: Child[]): Child[] => {
   }
   for (let i = 0; i < out.length; i++) {
     const part = out[i];
-    if (typeof part === 'string') out[i] = part.replace(/\s+([.,;:])/g, '$1').replace(/:\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ');
+    if (typeof part === 'string') out[i] = part.replace(/\s*[([]\s*(?:[,;]\s*)*[)\]]/g, '').replace(/\s+([.,;:])/g, '$1').replace(/:\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ');
   }
   if (typeof out[0] === 'string') { out[0] = out[0].trimStart(); if (!out[0]) out.shift(); }
   const last = out[out.length - 1];
@@ -124,7 +124,11 @@ export function authorsBlock(cx: ArxivContext, n: DomNode): OutNode {
     const MARK_SYMBOLS: Record<string, string> = { '†': '†', '‡': '‡', '*': '*', '∗': '*', '⋆': '*', '§': '§', '¶': '¶', '‖': '‖' };
     const mathText = (m: DomNode): string => m.type === 'text' ? m.data : m.type !== 'tag' || ['annotation', 'annotation-xml'].includes(m.name) ? '' : children(m).map(mathText).join('').trim();
     const notes: { mark: string; body: Child[] }[] = [], seenNotes = new Set<string>();
-    const addresses: Child[][] = [];
+    const addresses: Child[][] = [], seenAddresses = new Set<string>();
+    const bracketed = (c: DomNode): boolean => {
+      const siblings = c.parent ? children(c.parent) : [], at = siblings.indexOf(c);
+      return at >= 0 && /[([]$/.test(siblings.slice(0, at).map(textContent).join('').trimEnd()) && /^[)\]]/.test(siblings.slice(at + 1).map(textContent).join('').trimStart());
+    };
     const drop = (c: DomNode): Child[] => { for (const m of elements(c, x => x.name === 'math')) cx.skippedMath.add(m); return []; };
     const walk = (c: DomNode): Child[] => {
       if (c.type === 'text') return [c.data];
@@ -152,7 +156,14 @@ export function authorsBlock(cx: ArxivContext, n: DomNode): OutNode {
         const href = c.attribs?.href ?? '';
         if (/^mailto:/i.test(href)) return drop(c);
         const rendered = inline(cx, c, id);
-        if (/^https?:/i.test(href)) { addresses.push(rendered); return []; }
+        // A web address on its own (a project page) gets its own line, once, and none when its words were a dropped
+        // icon (an ORCID badge, 2610.19857v1: empty lines); one in brackets belongs to the words around it
+        // ("Zhejiang University (zju.edu.cn)", 2610.21306v1, whose eight authors each left "()" behind).
+        if (/^https?:/i.test(href) && !bracketed(c)) {
+          const key = plain(rendered);
+          if (key && !seenAddresses.has(href + '\u0000' + key)) { seenAddresses.add(href + '\u0000' + key); addresses.push(rendered); }
+          return [];
+        }
         return rendered;
       }
       if (has(c, 'ltx_author_before') || has(c, 'ltx_author_after')) return [' '];
