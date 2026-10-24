@@ -2,6 +2,19 @@
 
 
 
+## New AI gateway key, iPad Wide places — 2026-10-24 UTC (TestFlight 88, iOS and Mac uploaded)
+
+- **AI key restored on staging:** the owner supplied a new dedicated OpenRouter key (key info: $50 key limit, unused)
+  into `.env.providers`; `deploy-staging.py staging` set the function secrets and deployed the functions, including the
+  401 → `service_unavailable` hardening; `deploy-pipeline-worker.py deploy --project gradstep` serves revision
+  gradstep-pipeline-00052-rbz. Workflow checks after both: `chat.smoke` PASS (a real answer, 1 credit, 4.2 s); the
+  one FAIL is `budget.health` — $32.91 of the $40.00 October provider budget spent (82%) and one OpenRouter attempt
+  from the expired-key window still unknown. Budget not raised (owner's call). The key was pasted in chat; rotating it is
+  recommended.
+- **TestFlight 88:** the iPad Wide places menu and each place's own two slots (branch ipad-places-menu, entry below)
+  with every divider starting in the middle (owner). IPadShapesJourneyTests on 88's code: 12/13; the ⌘1 place shortcut
+  check failed once, and its rerun failed earlier on the stale-Simulator "Landscape" assertion (not rerun after a reboot).
+
 ## Google sign-in return and expired AI key message — 2026-10-23 UTC (TestFlight 87, iOS and Mac uploaded)
 
 Owner report on iPad build 86: Google sign-in returned to the sign-in screen with no message; a figure AI Explainer read
