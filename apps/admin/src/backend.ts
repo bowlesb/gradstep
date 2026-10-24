@@ -219,7 +219,7 @@ export interface Health {
       stats: { cohesion?: number; levels?: Record<string, { kept_share: number | null }> } } | null;
     artifacts: { map_bytes: number | null; terms_bytes: number | null; shards: number; shard_bytes: number };
     delivery: { requests_24h: number; accounts_24h: number };
-    attention: { kind: string; papers?: number; kept_share?: number; published_at?: string }[] };
+    attention: { kind: string; papers?: number; kept_share?: number; published_at?: string; failures?: number; error?: string | null }[] };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

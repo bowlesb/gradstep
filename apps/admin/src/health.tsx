@@ -257,6 +257,9 @@ function interestAttention(item: InterestIndex['attention'][number]): string {
     case 'interest_stability_blocked': return 'Interest index: a map build changed too many topic IDs and was not published (worker_interest_set_policy can allow it).';
     case 'interest_stability_low': return `Interest index: the last map build kept only ${percent(item.kept_share ?? 0)} of topic IDs.`;
     case 'interest_model_mismatch': return 'Interest index: the worker refused to embed because its model does not match the policy.';
+    case 'interest_kick_stalled': return 'Interest index: the 10-minute wake-up has not run for over an hour (check pg_cron).';
+    case 'interest_worker_unreachable': return 'Interest index: the worker was woken over 30 minutes ago and never started a run (check pg_net and the Cloud Run worker).';
+    case 'interest_rebuild_retrying': return `Interest index: the map build failed ${item.failures ?? 2} times in a row${item.error ? ` (${humanize(item.error)})` : ''}; it retries with back-off.`;
     default: return `Interest index: ${humanize(item.kind)}.`;
   }
 }

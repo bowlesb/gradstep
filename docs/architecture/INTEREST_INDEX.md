@@ -1,7 +1,10 @@
 # Interest index: server layer (step 2)
 
-Status, 2026-10-24: **Phase A design for owner review. Nothing is built, applied or deployed.** Phase B (migration,
-worker job, staging deployment, backfill, admin health) waits for the owner's go-ahead. Proposal and owner decisions:
+Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00053-6rf`,
+Edge function `interest-index`; serving `staff`). Evidence and as-built differences are in
+[Phase B as built](#phase-b-as-built-staging-2026-10-24). The lead's interim decisions are recorded in
+[DECISIONS.md](../DECISIONS.md#interest-index-server-layer-agent-design-2026-10-24-phase-b-built-on-staging-the-same-day).
+No client uses it yet (step 3). Proposal and owner decisions:
 [proposals/INTEREST_INDEX.md](../proposals/INTEREST_INDEX.md). Offline reference code: `tools/interest-eval/`
 (`topic_map.py`, `topic_rule2.py`, `terms.py`, `embed.py`, `common.py`).
 
@@ -16,7 +19,7 @@ receives anyone's interest state.
 | 1 | **gte-small, fp32 ONNX, run in the existing Cloud Run worker (Node)** behind a new `POST /interest` entry point, using `onnxruntime-node` and the pure-JS `@huggingface/tokenizers`. The model is baked into the image and pinned by checksum. | Measured identical to the step-1 vectors (min cos 1.0000 on 400 papers). It adds about 170 MB to the image and costs about $0–0.30 a month in CPU. There is no new service, secret or runtime. int8 is 2.5× faster but moves 8 % of top-10 neighbours, so it is rejected. |
 | 2 | **pgvector `halfvec(384)`** for paper fingerprints. The `vector` extension is **not enabled** today (0.8.2 is available on staging), so the migration enables it in schema `extensions`. No ANN index. | No SQL runs a similarity search: devices and the worker do that in memory. An HNSW index can be added later for server-side similar-paper search. |
 | 3 | **Public corpus = Feed-pool papers, kept 180 days** in a new table, beyond the pool's own 30 days. Catalog papers (public metadata of library papers) are embedded too, but **never enter the map, the term statistics or any shared artifact**. | 180 days gives about 100k papers at steady state, so about 20 / 670 / 2,500 nodes. The catalog is the union of readers' libraries, so publishing anything built from it would show readers what other readers hold. |
-| 4 | **Weekly warm-started rebuild** (Sunday 07:00 UTC). It starts from the previous centroids. A leaf splits at 2× its target size (80 papers) and merges below ¼ (10). An ID is kept when membership Jaccard ≥ 0.5 and cos ≥ 0.9 with its previous version, and while it stays within 1 − cos 0.05 of its birth centroid. Retired IDs record their successors. New papers join the nearest leaf of the frozen map every day. | Cold k-means keeps only **10 %** of leaf IDs even on identical data. Warm start keeps **98 %** at 5 % turnover and **87–94 %** during the current growth spurts. Cohesion stays within 0.003 of a cold build. |
+| 4 | **Due-based warm-started rebuild**: due once the map is 14 days old (7 once the corpus passes 50k papers), started in the weekend 06:00–10:00 UTC window or at any tick once 24 hours overdue; failures back off 10 min, 1 h, 6 h. It starts from the previous centroids. A leaf splits at 2× its target size (80 papers) and merges below ¼ (10). An ID is kept when membership Jaccard ≥ 0.5 and cos ≥ 0.9 with its previous version, and while it stays within 1 − cos 0.05 of its birth centroid. Retired IDs record their successors. New papers join the nearest leaf of the frozen map every day. | Cold k-means keeps only **10 %** of leaf IDs even on identical data. Warm start keeps **98 %** at 5 % turnover and **87–94 %** during the current growth spurts. Cohesion stays within 0.003 of a cold build. |
 | 5 | **Term statistics as a versioned, gzip-compressed binary blob** (front-coded phrases, document frequency, conceptness), rebuilt weekly with the map. Per-paper top terms are cached in the database. | The blob is 0.30 MB today (57k phrases) and about 2 MB at 100k papers. Devices run TF-IDF and log-odds on full text locally. |
 | 6 | **Delivery: one Edge function `interest-index`** (manifest plus immutable, content-addressed artifacts held in the database) **and one RPC `v1_interest_library_fingerprints`** that serves only the caller's own public library papers. | The artifacts are identical for every reader. The RPC derives the paper set from membership the server already holds, so neither path tells the server anything new. |
 | 7 | **Privacy: bulk download of the pool, not a padded or k-anonymous fetch.** Library fingerprints come from membership, never from arbitrary IDs. Uploads and anything end-to-end encrypted are embedded on the device (step 3). | Padding with decoys either leaks other readers' catalog papers (catalog decoys) or adds nothing (pool decoys). See §5. |
@@ -103,14 +106,18 @@ New table `app_private.interest_papers`. RLS is enabled with no policies, and it
    bounded runs, about 4 hours of wall time with a 10-minute gate. **Steady state:** 600–900 new pool papers per
    announcement day (measured: 595–835, with catch-up days of 1,359 and 2,192), about 4–5 minutes of CPU a day.
 
-**Wake-up.** pg_cron job `science-reader-interest`, `*/10 * * * *`, calls `app_private.interest_kick()`. It does
-nothing unless `interest_policy.enabled`, no live lease exists, and work is due: pending papers, a shard to publish, or
-a rebuild stage due. When work is due it posts `/interest` through pg_net, using the pipeline URL and secret from
-Vault as `podcast_kick` does.
+**Wake-up.** pg_cron job `science-reader-interest`, `*/10 * * * *`, calls `app_private.interest_kick()`, and a
+statement trigger on `feed_papers` inserts calls it when the pool ingests papers (the incremental embedding hook). While
+`interest_policy.enabled`, every call writes a heartbeat (`interest_state.last_tick_at`); it then posts `/interest`
+through pg_net (the pipeline URL and secret from Vault, as `podcast_kick`) when no lease is live, it has not posted in
+the last 2 minutes, and work is due: pending papers, pool papers not yet mirrored, a shard to publish, or a rebuild
+due (below). A post that no run claims within 30 minutes, or no heartbeat for an hour, is an Attention item, so a dead
+pg_cron, pg_net or worker shows up.
 
-**Run limits.** One run per instance, in its own thread, under the worker's 840 s hard deadline. The soft budget is
-300 s for embedding and 480 s per rebuild stage. The service stays at max 3 instances: `/interest` holds one of them
-for at most about 8 minutes, outside the weekly rebuild hour.
+**Run limits.** One run per instance, in its own thread, under the worker's 840 s hard deadline, with a 780 s soft budget
+(embedding stops claiming new batches 2 minutes in when a build is due; phrase embedding yields 150 s before the deadline).
+The service stays at max 3 instances: `/interest` holds one of them
+for at most about 13 minutes per run (780 s soft budget); rebuilds prefer the weekend morning window.
 
 ## 2. Topic map
 
@@ -164,11 +171,25 @@ between rebuilds.
 
 ### Rebuild cadence and how far the map can move (measured)
 
-The rebuild runs **weekly, Sunday 07:00 UTC** (no announcements on weekends), in resumable stages: corpus, k-means and
-IDs, terms, per-paper terms and artifacts, then publish. Each stage fits one run. A stale `building` version expires
-after 24 hours and the published version keeps serving. The operator can force a rebuild
-(`worker_interest_request_rebuild`). A **reseed** (a cold build) happens only on a fingerprint-model change or an
-explicit operator command. Even then IDs map old→new by membership and get successors.
+**Due-based, never a single missable slot** (migration 0153; lead's clarification 2026-10-24):
+
+- **Due** once the published map is `rebuild_days` old: 14 days while the corpus is under 50,000 papers, then 7
+  (`rebuild_days_growing`, `rebuild_days`, `weekly_after_papers`). The first map is due as soon as the backfill has
+  nothing pending and the corpus has at least `min_corpus` papers.
+- **Started** by the 10-minute kick in the preferred quiet window, weekend 06:00–10:00 UTC (`window_dows`,
+  `window_start_hour`, `window_end_hour`; no announcements then). Once the map has been due for 24 hours
+  (`overdue_hours`) it starts at the next tick whatever the day or hour. A window missed because the worker was down is
+  caught by the next window or, at most, 24 hours after the due time; never two weeks later.
+- **Failures back off**: a build that fails, is blocked by the stability gate, or is killed mid-build (its lease
+  expires after `worker_interest_rebuild_mark`) retries after 10 minutes, then 1 hour, then every 6 hours, and a
+  published build resets the count (`interest_state.rebuild_failures`, `rebuild_retry_at`). Two failures in a row are an
+  Attention item. A build that is still embedding new phrases when its run ends is neither: the next run continues.
+- **Stale map**: Attention when the map is older than `rebuild_days` + 2 days.
+
+A build runs as one bounded run once the phrase vectors it needs are stored (phrase embedding resumes across runs); a
+stale `building` version is abandoned by the next build and the published version keeps serving. The operator can
+force one (`worker_interest_set_policy(null, null, true)`). A **reseed** (a cold build) happens only on a
+fingerprint-model change or an explicit operator command; even then IDs map old→new by membership and get successors.
 
 Measured on the 9.9k pool with the eval embeddings (scikit-learn k-means in a scratch script; Phase B repeats this as a
 TypeScript rehearsal test):
@@ -346,7 +367,7 @@ leaves every artifact byte-identical.
 **Deletion.** There are no per-account rows in any new table. Account deletion is unchanged; the rate windows and
 activity days are already covered.
 
-**Privacy notice, when serving goes to `all`:** "To find your topics, your devices download a public map of recent
+**Privacy notice, when serving goes to `all` (owner approval needed before public release):** "To find your topics, your devices download a public map of recent
 arXiv research from our servers, the same file for everyone. Your topics are worked out on your devices; our servers
 don't receive them."
 
@@ -408,7 +429,7 @@ verify the SHA-256.
 | Device on an old map version | Old IDs | Successor chains in the map (26 versions) and permanent in `interest_nodes`; the interest state can be recomputed from library plus map |
 | Corpus or vocabulary growth beyond plan | Storage and CPU | Policy caps: `corpus_days` 180, at most 150k corpus rows, at most 500k phrases; Attention |
 | pgvector unavailable locally for tests | Migration fails locally | Phase B prerequisite: a Science Reader-owned PostgreSQL 17 + pgvector toolchain under `SCIENCE_READER_PG_BIN`. Staging runs PostgreSQL 17.11 with pgvector 0.8.2 available; the current portable 18.4 build has no pgvector. TextBrain's tool folder is not modified |
-| Instance contention (max 3) | Imports wait about a minute | `/interest` soft budget of 300 to 480 s; the rebuild runs in the quiet Sunday hour |
+| Instance contention (max 3) | Imports wait about a minute | `/interest` soft budget of 300 to 480 s; rebuilds prefer the weekend 06:00–10:00 UTC window |
 
 ### Tests (Phase B)
 
@@ -450,37 +471,14 @@ Slow, opt-in (`docs/TESTING.md`):
   replay of warm rebuilds reproducing the stability table above.
 - On staging after deployment: `interest.health` and `interest.manifest`.
 
-## Phase B plan (after the owner's go-ahead; staging only)
+## Phase B as built (staging, 2026-10-24)
 
-1. **Local toolchain.** Install PostgreSQL 17 with pgvector (Homebrew) for the database tests. Commit fixtures:
-   tokenizer IDs, 20 reference vectors, the n-gram corpus and expected counts.
-2. **Migration** `2026102x01xx_interest_index.sql` (additive; the next free number; applied migrations untouched):
-   - `create extension if not exists vector with schema extensions`;
-   - the tables above, `interest_policy` (`enabled=false`, `serving='off'`, `corpus_days=180`, sizes and thresholds),
-     and the rate rules;
-   - the `worker_`/`v1_` functions, `interest_kick` and the cron job, and `interest_health` in `admin_health_extra`.
-3. **Worker:**
-   - the `/interest` entry (`services/pipeline-worker/interest-run.ts`) and the shared modules in
-     `supabase/functions/_shared/interest/` (embedder, k-means, terms, codecs);
-   - Dockerfile: ORT pruned to linux-x64, the model fetched with `ADD --checksum`;
-   - `scripts/deploy-pipeline-worker.py`: copy the new files and verify the model hash through `/health`.
-4. **Edge function** `interest-index`: added to `supabase/config.toml` (`verify_jwt = false`, auth in the handler)
-   and to `infra/staging.json`.
-5. **Deploy to staging:**
-   - encrypted backup, then the migration, then the worker revision, then the function;
-   - `worker_interest_set_policy(enabled ⇒ true)`, which runs the backfill (about 4 h) and then the first cold build
-     (version 1);
-   - read back `worker_interest_status()`, then set `serving='staff'`.
-6. **Admin:** the Health card and Attention items (`node scripts/deploy-web.mjs admin`); update ADMIN_HEALTH.md.
-7. **Record:** measured run times and cost in OPERATIONS_AND_BILLING.md, and status in IMPLEMENTATION_STATUS.md.
+PLACEHOLDER_AS_BUILT
 
-**Rollback:** `worker_interest_set_policy(enabled ⇒ false, serving ⇒ 'off')`. The function then returns 404, the cron
-gate stops posting, and the tables stay. Nothing else depends on them.
+## Decisions taken for Phase B (lead's interim decisions; the owner can revisit)
 
-## Open points for the owner (none block Phase B)
-
-1. **The 180-day corpus window:** 90 days halves storage (about 215 MB) and gives a coarser map (about 1,250 leaves).
-   180 matches the proposal's ~3,000 leaves.
-2. **Growth-phase churn:** 6–30 % of leaf IDs change per weekly rebuild while the pool grows. The alternative is to
-   rebuild every two weeks until the pool reaches about 50k papers.
-3. **The privacy-notice line** (§5) before `serving='all'`.
+1. **Corpus window 180 days.**
+2. **Rebuild every two weeks until the corpus reaches about 50,000 papers, then weekly**, warm-started; successors kept
+   so synced topic IDs migrate (`rebuild_days_growing` 14, `rebuild_days` 7, `weekly_after_papers` 50,000).
+3. **The privacy-notice line (§5) needs the owner's approval before public release**; it does not block staging.
+4. **Local database tests use Homebrew PostgreSQL 17 with pgvector** (docs/TESTING.md).

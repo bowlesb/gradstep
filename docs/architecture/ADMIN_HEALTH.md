@@ -35,7 +35,9 @@ run, the published map (version, kind, age, nodes per level, leaf sizes, kept sh
 24-hour delivery counts from the rate windows (requests and distinct accounts, never which ones). "What people do" shows
 an Interest index figure, and Attention names a backlog (≥ 50 papers waiting over 24 hours), embedding failures, a map
 not rebuilt on schedule, two failed builds in a row, a build blocked by the stability gate, a kept share under 85 % and
-a model mismatch. The free workflow check `interest.health` mirrors these items.
+a model mismatch; since migration 0153 also a wake-up with no heartbeat for an hour (pg_cron), a post no run claimed
+within 30 minutes (pg_net or the worker) and two or more failed builds in a row (retrying with back-off); the map counts
+as stale after rebuild_days + 2 days. The free workflow check `interest.health` mirrors these items.
 
 What the server cannot see is said on the page, not guessed: reading happens on the device (the arXiv HTML is fetched
 and compiled there), so a reader's preparation failures reach the owner through TestFlight and support reports only.
