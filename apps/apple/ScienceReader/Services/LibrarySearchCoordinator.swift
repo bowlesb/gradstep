@@ -1,4 +1,5 @@
 import Foundation
+import ScienceReaderCore
 
 /// The Library's order: a field and a direction. Each field has a natural direction (newest,
 /// most read, A→Z first); table headers may reverse it. Rows without a value for the field
@@ -54,15 +55,18 @@ struct LibrarySearchKey: Equatable, Sendable {
     let query: String
     let sort: LibrarySearchSort
     let commandRevision: Int64
+    /// Advances when the full-text index changes (a paper's text indexed or removed).
+    let fullTextRevision: UInt64
 
     init(sessionID: UUID, accountID: UUID?, sourceRevision: UInt64, query: String,
-         sort: LibrarySearchSort, commandRevision: Int64 = -1) {
+         sort: LibrarySearchSort, commandRevision: Int64 = -1, fullTextRevision: UInt64 = 0) {
         self.sessionID = sessionID
         self.accountID = accountID
         self.sourceRevision = sourceRevision
         self.query = query
         self.sort = sort
         self.commandRevision = commandRevision
+        self.fullTextRevision = fullTextRevision
     }
 }
 
@@ -75,6 +79,8 @@ struct LibrarySearchCandidate: Equatable, Sendable {
     let recentSequence: Int64
     let position: Int
     var keys = LibrarySortKeys()
+    /// The paper's documents in the full-text index (its ID); nil for imports and queued commands.
+    var fullTextKey: String? = nil
 }
 
 struct LibrarySearchTicket: Equatable, Sendable {
@@ -90,11 +96,20 @@ struct LibrarySearchTicket: Equatable, Sendable {
 struct LibrarySearchInput: Sendable {
     let ticket: LibrarySearchTicket
     let candidates: [LibrarySearchCandidate]
+    /// This account's encrypted full-text index (docs/architecture/NATIVE_LIBRARY_SEARCH.md); nil searches metadata only.
+    var fullText: FullTextIndexStore? = nil
+}
+
+/// Matching rows in order, and a body snippet for the first rows whose match was in the paper's text.
+struct LibrarySearchOutput: Sendable {
+    var rowIDs: [String]
+    var snippets: [String: FullTextSnippet] = [:]
 }
 
 struct LibrarySearchResult: Sendable {
     let ticket: LibrarySearchTicket
     let rowIDs: [String]
+    let snippets: [String: FullTextSnippet]
     /// Time inside the worker, separate from caller snapshot/publication work
     /// and submit-to-result latency. An injected async worker may also suspend.
     let workerElapsedMilliseconds: Double
@@ -106,49 +121,123 @@ enum LibrarySearchEvent: Sendable {
 }
 
 enum LibrarySearchEngine {
-    /// Preserve the existing localized substring rules: whitespace-separated
-    /// terms are ANDed; each term may match any of the caller's original fields.
+    /// Rows (in display order) that get a body snippet; later rows show none.
+    static let snippetLimit = 100
+    /// A clause that only a metadata substring matched (part of a word, punctuation) adds this to the score.
+    static let substringScore = 1.0
+    /// The newest paper's score is multiplied by 1 + this, the oldest's by 1.
+    static let recencyBoost = 0.1
+
+    /// Metadata only (no full-text index): the existing localized substring rules.
     static func search(_ input: LibrarySearchInput) throws -> [String] {
+        try match(input, query: FullTextQuery(input.ticket.key.query), hits: [:], snapshot: nil).rowIDs
+    }
+
+    /// The Library search: every clause (word or quoted phrase) must match, either in the full-text index (words,
+    /// phrases, the last word as a prefix, in title, authors, tags, abstract, notes or the paper's text) or as a
+    /// localized substring of the row's metadata fields as before, so results are never fewer than metadata alone.
+    static func run(_ input: LibrarySearchInput) async throws -> LibrarySearchOutput {
         try Task.checkCancellation()
-        let terms = input.ticket.key.query.split(whereSeparator: \.isWhitespace).map(String.init)
+        let query = FullTextQuery(input.ticket.key.query)
+        var hits: [String: FullTextHit] = [:]
+        var snapshot: FullTextSnapshot?
+        if let store = input.fullText, !query.isEmpty, input.candidates.contains(where: { $0.fullTextKey != nil }) {
+            snapshot = try? await store.snapshot()
+            try Task.checkCancellation()
+            hits = snapshot?.search(query, isCancelled: { Task.isCancelled }) ?? [:]
+        }
+        return try match(input, query: query, hits: hits, snapshot: snapshot)
+    }
+
+    /// Whitespace-separated words outside quotes and quoted phrases are ANDed; each may match any of the caller's
+    /// original fields (localized substring) or the paper's full-text hit. With a query and the default Recent
+    /// order, rows are ranked by relevance (BM25 with field weights, a small recency boost); every other order sorts
+    /// as before.
+    static func match(_ input: LibrarySearchInput, query: FullTextQuery, hits: [String: FullTextHit],
+                      snapshot: FullTextSnapshot?) throws -> LibrarySearchOutput {
+        try Task.checkCancellation()
+        let clauses = query.clauses
         var matches: [Int] = []
+        var scores: [Double] = []
         matches.reserveCapacity(input.candidates.count)
         for (index, candidate) in input.candidates.enumerated() {
             try Task.checkCancellation()
-            var includesEveryTerm = true
-            for term in terms {
+            let hit = candidate.fullTextKey.flatMap { hits[$0] }
+            var includesEveryClause = true
+            var score = hit?.score ?? 0
+            for (clauseIndex, clause) in clauses.enumerated() {
                 try Task.checkCancellation()
-                var includesTerm = false
+                if let hit, hit.clauses & (1 << UInt64(clauseIndex)) != 0 { continue }
+                var includesClause = false
                 for field in candidate.fields {
                     try Task.checkCancellation()
-                    if field.localizedStandardContains(term) {
-                        includesTerm = true
+                    if field.localizedStandardContains(clause.text) {
+                        includesClause = true
                         break
                     }
                 }
-                if !includesTerm {
-                    includesEveryTerm = false
+                if !includesClause {
+                    includesEveryClause = false
                     break
                 }
+                score += substringScore
             }
-            if includesEveryTerm { matches.append(index) }
+            if includesEveryClause { matches.append(index); scores.append(score) }
         }
         try Task.checkCancellation()
-        // Sort just the matching indexes once. Neither the search nor the sort
-        // builds a second joined/lowercased representation of large metadata.
         let sort = input.ticket.key.sort
-        try matches.sort { leftIndex, rightIndex in
-            try Task.checkCancellation()
-            return ordered(input.candidates[leftIndex], before: input.candidates[rightIndex], by: sort)
+        if !clauses.isEmpty && sort.field == .recent && !sort.ascending {
+            // Relevance, then recent order. Recency: the creation sequence's place between the oldest and newest.
+            let sequences = input.candidates.lazy.map(\.recentSequence).filter { $0 != Int64.max }
+            let oldest = sequences.min() ?? 0, newest = sequences.max() ?? 0
+            var ranked: [Double] = []
+            ranked.reserveCapacity(matches.count)
+            for (offset, index) in matches.enumerated() {
+                let sequence = input.candidates[index].recentSequence
+                let recency = sequence == Int64.max || newest == oldest ? 1 : Double(sequence - oldest) / Double(newest - oldest)
+                ranked.append(scores[offset] * (1 + recencyBoost * recency))
+            }
+            var order = Array(matches.indices)
+            try order.sort { left, right in
+                try Task.checkCancellation()
+                if ranked[left] != ranked[right] { return ranked[left] > ranked[right] }
+                return ordered(input.candidates[matches[left]], before: input.candidates[matches[right]], by: sort)
+            }
+            matches = order.map { matches[$0] }
+        } else {
+            // Sort just the matching indexes once. Neither the search nor the sort
+            // builds a second joined/lowercased representation of large metadata.
+            try matches.sort { leftIndex, rightIndex in
+                try Task.checkCancellation()
+                return ordered(input.candidates[leftIndex], before: input.candidates[rightIndex], by: sort)
+            }
         }
         try Task.checkCancellation()
         var rowIDs: [String] = []
         rowIDs.reserveCapacity(matches.count)
+        var snippetRows: [(row: String, hit: FullTextHit)] = []
+        let all: UInt64 = clauses.count >= 64 ? .max : (1 << UInt64(clauses.count)) - 1
         for index in matches {
             try Task.checkCancellation()
-            rowIDs.append(input.candidates[index].id)
+            let candidate = input.candidates[index]
+            rowIDs.append(candidate.id)
+            if snapshot != nil, snippetRows.count < snippetLimit, let hit = candidate.fullTextKey.flatMap({ hits[$0] }),
+               hit.bodyClauses != 0, hit.clauses & all != 0 {
+                snippetRows.append((candidate.id, hit))
+            }
         }
-        return rowIDs
+        var snippets: [String: FullTextSnippet] = [:]
+        if let snapshot, !snippetRows.isEmpty {
+            // Each snippet reads one sealed text (a fraction of a millisecond); in parallel.
+            let results = SnippetResults(count: snippetRows.count)
+            DispatchQueue.concurrentPerform(iterations: snippetRows.count) { offset in
+                guard !Task.isCancelled else { return }
+                results.set(offset, snapshot.snippet(for: snippetRows[offset].hit))
+            }
+            try Task.checkCancellation()
+            for (offset, row) in snippetRows.enumerated() { if let snippet = results.value(offset) { snippets[row.row] = snippet } }
+        }
+        return LibrarySearchOutput(rowIDs: rowIDs, snippets: snippets)
     }
 
     /// The one Library ordering, shared by the search worker and the table's header comparator.
@@ -208,9 +297,20 @@ enum LibrarySearchEngine {
 /// Owns one computation and one replaceable pending input. Cancellation fences
 /// publication immediately, but replacement work waits for the old worker to
 /// actually return, even if an injected worker ignores cancellation.
+/// Snippets written by concurrent workers, each to its own slot.
+private final class SnippetResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [FullTextSnippet?]
+    init(count: Int) { values = Array(repeating: nil, count: count) }
+    func set(_ index: Int, _ value: FullTextSnippet?) { lock.withLock { values[index] = value } }
+    func value(_ index: Int) -> FullTextSnippet? { lock.withLock { values[index] } }
+}
+
 @MainActor
 final class LibrarySearchCoordinator {
+    /// A metadata-only worker returning row IDs (tests inject these).
     typealias Worker = @Sendable (LibrarySearchInput) async throws -> [String]
+    typealias OutputWorker = @Sendable (LibrarySearchInput) async throws -> LibrarySearchOutput
     typealias Publish = @MainActor (LibrarySearchEvent) -> Void
 
     private struct Running: Sendable {
@@ -218,26 +318,31 @@ final class LibrarySearchCoordinator {
         let task: Task<LibrarySearchResult, Error>
     }
 
-    private let worker: Worker
+    private let worker: OutputWorker
     private let publish: Publish
     private var current: LibrarySearchTicket?
     private var pending: LibrarySearchInput?
     private var running: Running?
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(worker: @escaping Worker = { try LibrarySearchEngine.search($0) },
-         publish: @escaping Publish) {
-        self.worker = worker
+    init(worker: @escaping Worker, publish: @escaping Publish) {
+        self.worker = { LibrarySearchOutput(rowIDs: try await worker($0)) }
+        self.publish = publish
+    }
+
+    /// The Library's own search: metadata and, when given, the full-text index.
+    init(publish: @escaping Publish) {
+        self.worker = { try await LibrarySearchEngine.run($0) }
         self.publish = publish
     }
 
     deinit { running?.task.cancel() }
 
     @discardableResult
-    func submit(key: LibrarySearchKey, candidates: [LibrarySearchCandidate]) -> LibrarySearchTicket {
+    func submit(key: LibrarySearchKey, candidates: [LibrarySearchCandidate], fullText: FullTextIndexStore? = nil) -> LibrarySearchTicket {
         let ticket = LibrarySearchTicket(key: key)
         current = ticket
-        pending = LibrarySearchInput(ticket: ticket, candidates: candidates)
+        pending = LibrarySearchInput(ticket: ticket, candidates: candidates, fullText: fullText)
         running?.task.cancel()
         startPendingIfIdle()
         return ticket
@@ -265,9 +370,9 @@ final class LibrarySearchCoordinator {
         let worker = worker
         let task = Task.detached(priority: .userInitiated) {
             let started = ContinuousClock.now
-            let rowIDs = try await worker(input)
+            let output = try await worker(input)
             let elapsed = started.duration(to: .now).components
-            return LibrarySearchResult(ticket: input.ticket, rowIDs: rowIDs,
+            return LibrarySearchResult(ticket: input.ticket, rowIDs: output.rowIDs, snippets: output.snippets,
                 workerElapsedMilliseconds: Double(elapsed.seconds) * 1_000
                     + Double(elapsed.attoseconds) / 1_000_000_000_000_000)
         }

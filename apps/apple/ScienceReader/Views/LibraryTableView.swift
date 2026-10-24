@@ -151,7 +151,7 @@ struct LibraryPaperTable<Top: View>: View {
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
                        PaperTableTitle(title: item.facts.title, highlighted: isSelected(item.entry),
-                                       reservesSpace: true, reservesSubtitleSpace: false)
+                                       reservesSpace: true, reservesSubtitleSpace: false, snippet: model.librarySnippets[item.entry.id])
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
@@ -193,7 +193,7 @@ struct LibraryPaperTable<Top: View>: View {
 
     private func action(for item: LibraryTableItem) -> PaperTableAction? {
         switch item.entry {
-        case .paper(let paper): return PaperTableAction(hint: "Opens the paper") { model.select(paper) }
+        case .paper(let paper): return PaperTableAction(hint: "Opens the paper") { model.openLibraryResult(paper) }
         case .pending where item.facts.needsCredits: return PaperTableAction(hint: "Opens Get credits") { model.showStore = true }
         default: return nil
         }

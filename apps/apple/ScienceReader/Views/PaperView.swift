@@ -306,6 +306,9 @@ struct PaperView: View {
                         guard request != nil else { return }
                         MacCommandRequests.shared.findInPaper = nil; showFind()
                     }
+                    // Opened from a Library search result matched in its text: Find shows those words.
+                    .onChange(of: canFind, initial: true) { _, ready in if ready { showPendingFind() } }
+                    .onChange(of: model.pendingPaperFind) { _, _ in showPendingFind() }
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
@@ -657,6 +660,17 @@ struct PaperView: View {
         guard canFind else { return }
         selection = nil; selectionClearID = UUID()
         findRequestID = UUID()
+    }
+
+    /// The Library search's matched words for this paper, once its page can be searched: Find opens with them,
+    /// its first match shown, the keyboard left down.
+    private func showPendingFind() {
+        guard let pending = model.pendingPaperFind, canFind else { return }
+        model.pendingPaperFind = nil
+        guard pending.paperID == model.selectedPaper?.id else { return }
+        find.query = pending.text
+        find.focusesOnOpen = false
+        showFind()
     }
 
     /// What the open paper offers the Mac's menu bar (Paper menu). A function of its own: inline in the view body the

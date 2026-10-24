@@ -1,6 +1,24 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-24 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Library search over every paper's text: an encrypted on-device index (owner question 2026-10-24; agent decisions, reversible)
+
+Owner: *"is our search engine good enough, ie is it searching full text from all papers instantly?"* It wasn't: a
+substring filter over metadata plus at most 10,000 distinct words of at most 200 papers, rebuilt from the bundles at every
+launch, with no phrases, ranking or snippets. Details and measurements:
+[NATIVE_LIBRARY_SEARCH](architecture/NATIVE_LIBRARY_SEARCH.md) "Full-text index".
+
+| Decision | Choice |
+|---|---|
+| Engine | A compact custom inverted index in ScienceReaderCore, not SQLite FTS5. FTS5 is in the system SQLite, but encrypting its pages needs SQLCipher or a custom VFS (a new dependency or a lot of C), and a plaintext FTS database would break "no plaintext index on disk". The custom index is ~1,800 lines of Swift, has no dependency and is sealed with CryptoKit like the bundles. |
+| On disk | Immutable segments (sorted terms; postings with positions, delta/varint), a manifest, and each body's text in 16 KB LZFSE blocks for snippets: all AES-GCM sealed under the account's local-store key with account- and file-bound associated data, in `search-index/` with complete file protection, excluded from backup. Decrypted segments live in memory only. |
+| Lifecycle | Incremental: each paper is a metadata document (title, authors, tags with keywords and source reference, abstract, its notes and snippets) and a body document (its saved reading's text). A change writes a new small segment; at most 8 segments, the smallest merged. A new format or tokenizer version, or a damaged file, empties the index and it is rebuilt from the encrypted bundles in the background at utility priority. A launch only compares fingerprints. |
+| Matching | Every word and quoted phrase is required (AND, as before). Case, diacritics, width and ligatures folded; hyphenated words match joined, split or as written; light plural stemming; the word being typed (no space after it) matches as a prefix (64 most frequent expansions). Each clause may also match a metadata field by today's substring rule, so results are never fewer than before. |
+| Ranking | BM25 per field, weighted title 6 > tags, authors, abstract 3 > notes 2 > body 1, × up to 1.1 for the newest papers. Applies to the default Recent order when there is a query; any other order (Title, Year, a table column) sorts as before. |
+| Snippet | One line under the title, small and secondary, the matched words in the primary colour and semibold, when a match was in the paper's text: the densest cluster of matches (most query words within a dozen words). Computed for the first 100 results; later rows show none. |
+| Opening a result | Opens the paper as before; if the row had a snippet, Find in paper opens with the matched words searched and the keyboard down. |
+| Reuse | `FullTextSnapshot.documentFrequency`, `documentFrequencies()` and `termFrequencies(group:fields:)` give the interest index's TF-IDF its counts; not used yet. |
 
 ## Heading formulas as characters; bracketed addresses stay (fresh-paper sweep, 2026-10-24; agent decisions, reversible)
 

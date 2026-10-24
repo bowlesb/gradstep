@@ -1,5 +1,23 @@
 # Implementation status
 
+## Unreleased (after TestFlight 90)
+
+- **Library search over every saved paper's text** (branch `worktree-agent-a95c83cd39d83f3b5`; owner question 2026-10-24;
+  DECISIONS.md "Library search over every paper's text"; NATIVE_LIBRARY_SEARCH.md "Full-text index"): an encrypted
+  on-device inverted index (ScienceReaderCore `FullText/`) replaces the 200-paper / 10,000-word in-memory term set.
+  Words and `"phrases"`, all required; the word being typed matches as a prefix; BM25 by field (title > tags, authors,
+  abstract > notes > body) with a small recency boost orders the default Recent sort; metadata substring matching is
+  kept, so results are never fewer. Indexes title, authors, tags, abstract, notes and snippets, and the text of every
+  reading saved on this device; incremental, built in the background on first run, rebuilt only on a version change.
+  Segments, manifest and texts are AES-GCM sealed under the account's local key (complete protection, no backup); no
+  plaintext on disk (tested). A result matched in the text shows one secondary line with the words highlighted under
+  its title (List and table); opening it opens Find in paper on those words. Measured at 2,000 papers on the iPad
+  Simulator: 72 KB/paper on disk, 57–74 ms to load, index queries 0.3–4 ms, the whole Library search 11–18 ms median
+  with 100 snippets. Verification: `swift test` 450 + 38 pass (13 new full-text tests); app unit tests for search
+  (LibraryFullTextSearch, LibrarySearchCoordinator/Model, PaperTable, LibraryMetadata, OfflineModel) pass;
+  WorkflowSafetyTests' `testAskFromBrowseEntersReaderAndKeepsThePaperConversationDraft` fails on iPhone and iPad
+  Simulators (it expects the Mac's `browsing` rule; none of that code changed here); `npm test` passes. Not yet on a device.
+
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 - **Also in 90:** TestFlight 89's iPad Wide work (places button top-left, a double-tapped divider lets the list cover the

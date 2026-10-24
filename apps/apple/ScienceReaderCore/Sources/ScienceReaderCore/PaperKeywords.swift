@@ -90,32 +90,3 @@ final class KeywordMemo: @unchecked Sendable {
         }
     }
 }
-
-/// A bounded, disposable in-memory index. No paper text is written beside the encrypted bundle.
-/// Terms, not snippets, are kept; each paper is independently removable.
-public struct DevicePaperTextIndex: Sendable {
-    public struct Entry: Sendable {
-        public let digest: String
-        public let terms: [String]
-        public init(digest: String, text: String) {
-            self.digest = digest
-            var seen = Set<String>(), result: [String] = []
-            // A stateful filter cannot be a lazy Collection: prefix/map may traverse it more than once.
-            for word in String(text.prefix(500_000)).lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
-                guard word.count > 1, word.count <= 80 else { continue }
-                let term = String(word)
-                if seen.insert(term).inserted { result.append(term); if result.count == 10_000 { break } }
-            }
-            terms = result
-        }
-    }
-    public private(set) var entries: [UUID: Entry] = [:]
-    private var order: [UUID] = []
-    public init() {}
-    public mutating func insert(_ entry: Entry, for id: UUID) {
-        remove(id); entries[id] = entry; order.append(id)
-        while order.count > 200 { remove(order[0]) }
-    }
-    public mutating func remove(_ id: UUID) { entries[id] = nil; order.removeAll { $0 == id } }
-    public mutating func retain(_ ids: Set<UUID>) { for id in Array(entries.keys) where !ids.contains(id) { remove(id) } }
-}

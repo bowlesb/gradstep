@@ -684,11 +684,11 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 0) {
                 switch entry {
                 case .paper(let paper):
-                    Button { model.select(paper) } label: {
+                    Button { model.openLibraryResult(paper) } label: {
                         let copy = model.deviceCopy(for: paper)
                         PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, deviceCopy: copy,
                                  isNew: model.isNew(paper), status: model.libraryStatus(for: entry),
-                                 showAbstract: model.showAbstracts, showTopics: model.showTopics)
+                                 showAbstract: model.showAbstracts, showTopics: model.showTopics, snippet: model.librarySnippets[entry.id])
                     }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(reveal?.row == entry.id ? .isSelected : [])
@@ -852,6 +852,8 @@ struct PaperRow: View {
     var status: LibraryRowFacts.Status = .none
     var showAbstract = true
     var showTopics = true
+    /// A Library search matched in the paper's text: one line of it, the matched words highlighted.
+    var snippet: FullTextSnippet? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         #if OFFLINE_RESOURCE_MEASUREMENTS
@@ -868,6 +870,7 @@ struct PaperRow: View {
                         .accessibilityLabel(copy.label).help(copy.label)
                 }
             }
+            if let snippet { SearchSnippetLine(snippet: snippet) }
             if let authors = LibraryFormat.shortAuthors(for: paper) { Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             switch status {
             case .active(let text):
@@ -882,6 +885,28 @@ struct PaperRow: View {
             let topics = showTopics ? (paper.tags.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: 3) : Array(paper.tags.prefix(3))) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)
+    }
+}
+
+/// One line of a paper's text under a Library search result (its match was in the text, not the metadata): small and
+/// secondary, the matched words in the primary colour.
+struct SearchSnippetLine: View {
+    let snippet: FullTextSnippet
+    var body: some View {
+        Text(Self.attributed(snippet)).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+    }
+
+    static func attributed(_ snippet: FullTextSnippet) -> AttributedString {
+        var out = AttributedString(snippet.text)
+        let text = snippet.text
+        for range in snippet.highlights {
+            guard range.lowerBound >= 0, range.upperBound <= text.utf16.count else { continue }
+            let lower = String.Index(utf16Offset: range.lowerBound, in: text), upper = String.Index(utf16Offset: range.upperBound, in: text)
+            guard let matched = Range(lower..<upper, in: out) else { continue }
+            out[matched].foregroundColor = .primary
+            out[matched].font = .footnote.weight(.semibold)
+        }
+        return out
     }
 }
 
