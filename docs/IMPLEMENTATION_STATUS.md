@@ -2,6 +2,20 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+For you treated readers on the current library as a cold start: `app_private.feed_profile` read papers only from the
+legacy `library_items` (last row added 2026-10-07) and imports in flight, while every arXiv paper added since the
+HTML-first redesign is a settled import (`source_only`, no item). On staging the owner's 71 papers gave 0 profile rows,
+so every reason was "popular" or "category"; "Added by several readers this week" also counted legacy items only. New
+additive migration `202610240154_feed_profile_v4_library.sql` (**not applied to staging**): settled present imports
+(`source_only`, also `failed`/`membership_conflict`) are library papers (catalog record via `metadata_id`, else the
+device's record; the Library's tags and archive state; own tags = customized `source_tags` less category tags; a paper
+with an item and an import counts once); readers count present imports too (new index on `import_requests(source_id,
+created_at)`); an own-tag topic may name a tag on an import. Exclusions were already right (every present import).
+Verified locally on PostgreSQL 17 + pgvector: `tests/database/feed_v4_library.sql` (`test-database.py --feed-only`, also
+in the final phase) passes with 0154 and fails without it; the fixture's For you inputs ranked by `feed-rank.ts` give
+cold_start=false with tag and author reasons; `npm test` passes. To apply: `python3 scripts/backup.py staging`, then
+`python3 scripts/migrate-supabase.py staging`; no Edge function changes.
+
 Owner feedback on 91 (iPhone screenshot, 2610.29989v1 "Looking Ahead…"): Figure 1 read "This figure couldn’t be shown
 here; the PDF has it." The figure is an SVG with two embedded PNG panels, and the device's SVG admission allowed only
 vector elements. **Reader revision 25** admits `<image>` with a base64 PNG/JPEG the shared inspector reads (sizes as a

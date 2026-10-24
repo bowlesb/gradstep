@@ -449,6 +449,8 @@ Homebrew's `postgresql@17` and `pgvector` (staging runs PostgreSQL 17 with pgvec
 `initdb -A trust -E UTF8 --locale=C -D <dir>`, start it on another loopback port with `-c unix_socket_directories=''`,
 then `SCIENCE_READER_PG_BIN=/opt/homebrew/opt/postgresql@17/bin SCIENCE_READER_PG_PORT=<port> python3
 scripts/test-database.py --interest-only` (or the full suite). The Python concurrency modules keep their own 55431 guard.
+For you on the v4 library (migration 0154): `tests/database/feed_v4_library.sql` runs in the final phase and alone with
+`--feed-only` (HTML-first imports in the profile, exclusions, the readers count, own-tag topics).
 
 **Interest index, slow and opt-in.** `INTEREST_MODEL_PATH=<Xenova/gte-small@5927d17 onnx/model.onnx> node --test
 tests/interest/embed-parity.test.ts` (after `npm ci` in `services/pipeline-worker`) checks the worker's embedder against

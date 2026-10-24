@@ -1,5 +1,13 @@
 # Personalized feed ("For you")
 
+Update, 2026-10-24 UTC: **migration `202610240154_feed_profile_v4_library.sql` (written and tested locally, not applied
+to staging)** makes For you read the HTML-first library. Before it, the profile read library papers only from the legacy
+`library_items` plus imports in flight, so a reader whose papers are all HTML-first imports (`phase='source_only'`, no
+library item) was ranked as a cold start: on staging the owner's 71 papers gave an empty profile and every reason was
+"popular" or "category". The sources are in [Interest signals](#interest-signals); `worker_feed_candidates_v2` is
+replaced with the same signature so its readers count (`app_private.feed_readers`) and own-tag topics include imports.
+Evidence: `tests/database/feed_v4_library.sql` (`python3 scripts/test-database.py --feed-only`).
+
 Status, 2026-10-08 UTC: **option A backend built and tested locally; build 21 feedback (specific topics, Topics and
 Popularity columns) built locally for the server and iPhone/iPad; nothing new applied or deployed. Both server
 switches remain off.** Migration `202610070043_personalized_feed.sql` was applied to staging at 2026-10-08 07:42 UTC
@@ -54,17 +62,17 @@ the device.
 
 | Signal | Where it lives | Server-visible | Used |
 |---|---|---|---|
-| Papers in the library (and whether archived) | `library_items` | Yes | Server ranking (A). Archived papers count half |
-| Their arXiv categories, authors, title | `catalog_metadata` (public arXiv metadata) | Yes | Server ranking: category and author affinity; the title appears in "Because you added …" |
-| Catalog tags (vocabulary, per paper version) | `library_items.catalog_tags` | Yes | Server ranking: topic affinity |
-| Personal tags (own, and removed catalog tags) | `library_items.user_tags`, `hidden_tags` | Yes ([owner decision 2026-10-07](../DECISIONS.md#topic-tags-owner-asked-2026-10-07-agent-decisions-reversible)) | Own tags weigh 1.5× and are also matched as phrases in new abstracts ("In your tag: RLHF"); removed tags are not counted |
-| Imports in flight (including Adds from the Feed) | `import_requests` (+ metadata once found) | Yes | Counted like library papers, so an Add changes For you at once. The server cannot tell a Feed Add from another Add, and does not need to |
+| Papers in the library (and whether archived) | Legacy `library_items`, and since migration 0154 the HTML-first library: present `import_requests` no longer in flight and without an item (`source_only`; also `failed`, `membership_conflict`), archived as `library_query_entries.archived` shows | Yes | Server ranking (A). Archived papers count half. A paper with both an item and an import counts once (the item). Together ≤ 300 newest (items by `added_at`, imports by `created_at`) |
+| Their arXiv categories, authors, title | `catalog_metadata` (public arXiv metadata); for an HTML-first import its `metadata_id` record, else the device's `device_metadata` | Yes | Server ranking: category and author affinity; the title appears in "Because you added …" |
+| Catalog tags (vocabulary, per paper version) | `library_items.catalog_tags`; for an HTML-first import the Library's tags (`library_query_entries.effective_tags`; with none, its `source_tags`, else the paper's category tags) | Yes | Server ranking: topic affinity |
+| Personal tags (own, and removed catalog tags) | `library_items.user_tags`, `hidden_tags`; for an HTML-first import `source_tags` when `source_tags_customized`, less the paper's category tags | Yes ([owner decision 2026-10-07](../DECISIONS.md#topic-tags-owner-asked-2026-10-07-agent-decisions-reversible)) | Own tags weigh 1.5× and are also matched as phrases in new abstracts ("In your tag: RLHF"); removed tags are not counted |
+| Imports in flight (including Adds from the Feed) | `import_requests` in `accepted`/`resolving`/`acquiring` (+ catalog or device metadata once found) | Yes | Counted like library papers (≤ 50, `pending`, weight 1, never the "Because you added" anchor), so an Add changes For you at once. The server cannot tell a Feed Add from another Add, and does not need to |
 | Uploaded PDFs | Title is an encrypted descriptor; metadata is a placeholder | Title: no | Only their personal tags count; never anchors a reason |
 | Papers opened, reading progress | Device-local encrypted `ReadingActivity`, never synced | No | Not used now. Phase 3: an on-device re-rank of the server's list (boost topics of papers opened in the last 14 days, "Because you're reading …") |
 | Conversations, passages, notes | End-to-end encrypted events | No | Never on the server. Possible on-device use in Phase 3 |
 | Not interested / More like this | New `feed_feedback` (one row per account and paper) | Yes (new, disclosed) | Server ranking: hidden at once; features of the paper (topics, authors, categories) are snapshotted so the signal outlives the pool's 30 days |
 | Explicit follows of topics/authors | Proposed `feed_follows` | Yes, when built | **Not built.** Comes with the onboarding proposal below |
-| How many readers added a new paper | Aggregate of library membership | Only as an aggregate | Small boost and the "Added by several readers this week" reason, **only when at least three accounts** added it |
+| How many readers added a new paper | Aggregate of library membership: present library items and (since 0154) present imports, added in the last 14 days (`feed_readers`) | Only as an aggregate | Small boost and the "Added by several readers this week" reason, **only when at least three accounts** added it |
 
 ## Candidate generation: one shared pool
 
@@ -108,8 +116,10 @@ the device.
 Split so ranking can change without migrations:
 
 1. **SQL, per request** (`worker_feed_candidates`, ~tens of ms, bounded): builds the inputs and a generous
-   prefilter. Excludes papers in the library, in flight or marked Not interested. Returns the reader's profile
-   (≤ 300 most recent library papers: tags, categories, ≤ 4 author keys each, title), their feedback, and ≤ 400
+   prefilter. Excludes papers in the library (legacy items and every present import, HTML-first ones included), in
+   flight or marked Not interested. Returns the reader's profile (`app_private.feed_profile`: ≤ 300 most recent library
+   papers, items and settled imports together, plus ≤ 50 imports in flight: tags, categories, ≤ 4 author keys each,
+   title), their feedback, and ≤ 400
    candidates from the 14-day window: those sharing a topic, an author or a phrase-matched personal tag with the
    profile (best 250 by a coarse score), plus up to 100 that only share a category, plus up to 50 of the newest
    papers, each set ordered by a per-account-per-day hash so the sample changes daily.
