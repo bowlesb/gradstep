@@ -981,14 +981,18 @@ struct FeedView: View {
                                 StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }.listRowSeparator(.hidden)
                             }
                             FeedColdStartNote(model: model)
-                            ForEach(model.shownFeedResults) { result in
-                                let picked = pick != nil && model.feedPickID == result.sourceID
-                                let revealed = reveal?.row == result.id
-                                DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, pick: pick.map { pick in { pick(result) } })
-                                    .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
-                                    .listRowBackground(revealed ? reveal.map { AnyView(RevealTint(reveal: $0.reveal, end: $0.end)) }
-                                                       : picked ? AnyView(Color.accentColor.opacity(0.12)) : nil)
-                                    .accessibilityAddTraits(revealed ? .isSelected : [])
+                            // For you in sections by why each paper is suggested (owner, 2026-10-24: "having grouped lists in
+                            // list view"); one kind of reason or none (a category) stays one plain list.
+                            if let sections = FeedWhy.sections(model.shownFeedResults) {
+                                ForEach(sections) { section in
+                                    Section {
+                                        ForEach(section.results) { feedRow($0, section: section, reveal: reveal) }
+                                    } header: {
+                                        FeedSectionHeader(section: section)
+                                    }
+                                }
+                            } else {
+                                ForEach(model.shownFeedResults) { feedRow($0, section: nil, reveal: reveal) }
                             }
                         }
                         .listStyle(.plain).refreshable { model.loadFeed() }
@@ -1030,11 +1034,24 @@ struct FeedView: View {
     private func shrinkText() { model.feedTextStep = max(-6, model.feedTextStep - 1) }
     private func growText() { model.feedTextStep = min(6, model.feedTextStep + 1) }
 
+    /// One paper of the List; in a section, its why line leaves out what the header says.
+    private func feedRow(_ result: DiscoveryResult, section: FeedSection?, reveal: TableReveal<String>?) -> some View {
+        let picked = pick != nil && model.feedPickID == result.sourceID
+        let revealed = reveal?.row == result.id
+        return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, section: section,
+                            pick: pick.map { pick in { pick(result) } })
+            .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
+            .listRowBackground(revealed ? reveal.map { AnyView(RevealTint(reveal: $0.reveal, end: $0.end)) }
+                               : picked ? AnyView(Color.accentColor.opacity(0.12)) : nil)
+            .accessibilityAddTraits(revealed ? .isSelected : [])
+    }
+
     /// Feed options › Columns (build 17).
     private var feedColumnsSheet: some View {
         let width = LibraryColumnSettings.WidthClass.current
         let chosen = model.feedColumns[width]
-        let fitting = Set(PaperTableLayout.visibleColumns(FeedTableColumn.columns(chosen), width: max(0, self.width - 2 * DesignMetrics.margin),
+        let reasons = model.shownFeedResults.contains { $0.reason != nil }
+        let fitting = Set(PaperTableLayout.visibleColumns(FeedTableColumn.columns(chosen, reasons: reasons), width: max(0, self.width - 2 * DesignMetrics.margin),
                                                           scale: columnScale).map(\.id))
         return ColumnChooserSheet(
             identifier: "feed.columns", titleRow: ("Title", "With the first author"),
@@ -1043,7 +1060,7 @@ struct FeedView: View {
             chosen: Binding(get: { Set(model.feedColumns[width].map(\.rawValue)) },
                             set: { model.feedColumns[width] = Set($0.compactMap(FeedTableColumn.init(rawValue:))) }),
             defaults: Set(model.feedColumns.defaults(width).map(\.rawValue)),
-            scrolling: Set(chosen.map(\.rawValue)).subtracting(fitting),
+            scrolling: Set(FeedTableColumn.columns(chosen, reasons: reasons).map(\.id)).subtracting(fitting),
             footer: TableColumnWording.footer(width))
     }
 
@@ -2040,6 +2057,8 @@ struct DiscoveryRow: View {
     @Binding var issue: String?
     /// Search results show the arXiv number (people search by it); the Feed doesn't need it.
     var showsIdentifier = true
+    /// The For you List's section the row is in (grouped by why): its why line leaves out what the header says.
+    var section: FeedSection? = nil
     /// Wide's Feed: a tap on the row shows its details beside the list (FeedAbstractPane); its buttons keep their own taps.
     var pick: (() -> Void)? = nil
     @State private var adding = false
@@ -2059,7 +2078,11 @@ struct DiscoveryRow: View {
                 if let authors = LibraryFormat.shortAuthors(result.authors) {
                     Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if let reason = result.reason { FeedReasonLine(reason: reason) }
+                if let reason = result.reason {
+                    if let section {
+                        if let line = FeedWhy.line(reason, in: section) { FeedReasonLine(reason: reason, shown: line) }
+                    } else { FeedReasonLine(reason: reason) }
+                }
                 if let abstract = result.abstract {
                     Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)

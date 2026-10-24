@@ -90,6 +90,30 @@ final class FeedPersonalizationTests: XCTestCase {
         XCTAssertEqual(FeedFormat.spokenPopularity(rows[2]), "Popularity unknown")
         XCTAssertEqual(FeedFormat.subtitle(rows[0]), "In your tag: SSMs · Lin et al.")
         XCTAssertEqual(FeedFormat.subtitle(rows[1]), "Lin et al.")
+        XCTAssertEqual(FeedFormat.subtitle(rows[0], reason: false), "Lin et al.", "the Why column says why: not again under the title")
+    }
+
+    /// The Table's Why column (owner, 2026-10-24): shown only when a paper has a reason; its sort groups the rows by why
+    /// and keeps the server's order within each group.
+    func testWhyColumnAndOrder() throws {
+        let rows = try results([
+            ["source_id": "2610.00001", "reason": ["kind": "explore", "label": "cs.RO", "text": "Something different: Robotics"]],
+            ["source_id": "2610.00002", "reason": ["kind": "author", "label": "Tri Dao", "text": "By Tri Dao, an author in your library"]],
+            ["source_id": "2610.00003", "reason": ["kind": "tag", "label": "RLHF", "text": "In your tag: RLHF"]],
+            ["source_id": "2610.00004", "reason": ["kind": "added", "label": "Muffin", "text": "Because you added “Muffin”"]],
+            ["source_id": "2610.00005", "reason": ["kind": "tag", "label": "RLHF", "text": "In your tag: RLHF"]],
+        ])
+        func order(ascending: Bool) -> [String] {
+            FeedFormat.ordered(rows, by: PaperTableSort(key: .why, ascending: ascending)).map { String($0.sourceID.suffix(1)) }
+        }
+        XCTAssertEqual(order(ascending: true), ["3", "5", "4", "2", "1"], "tag, like papers, author, explore")
+        XCTAssertEqual(order(ascending: false), ["1", "2", "4", "3", "5"], "groups reversed, the server's order within")
+        XCTAssertTrue(FeedSortKey.why.ascendingFirst, "tags first")
+        XCTAssertEqual(FeedTableColumn.why.column.sortKey, .why)
+        XCTAssertEqual(FeedTableColumn.columns([.why, .popularity]).map(\.id), ["why", "popularity", "add"])
+        XCTAssertEqual(FeedTableColumn.columns([.why, .popularity], reasons: false).map(\.id), ["popularity", "add"], "a category: no Why")
+        XCTAssertTrue(FeedTableColumn.compactDefault.contains(.why) && FeedTableColumn.regularDefault.contains(.why))
+        XCTAssertEqual(rows[2].reason?.shortLabel, "Your tag: RLHF")
     }
 
     func testPopularityAndSuggestedOrders() throws {
@@ -108,7 +132,7 @@ final class FeedPersonalizationTests: XCTestCase {
         XCTAssertEqual(FeedTableColumn.defaultSort(personal: true), PaperTableSort(key: .suggested, ascending: false))
         XCTAssertEqual(FeedTableColumn.defaultSort(personal: false), PaperTableSort(key: .published, ascending: false))
         XCTAssertEqual(FeedSortKey.offered(personal: false), [.published, .popularity, .title, .topic, .authors])
-        XCTAssertEqual(FeedSortKey.offered(personal: true).first, .suggested)
+        XCTAssertEqual(Array(FeedSortKey.offered(personal: true).prefix(2)), [.suggested, .why])
         XCTAssertFalse(FeedSortKey.popularity.ascendingFirst, "most popular first")
     }
 
@@ -124,14 +148,23 @@ final class FeedPersonalizationTests: XCTestCase {
         defaults.set("topic,published,arxiv", forKey: "feed.columns.compact")
         defaults.set("topic,published,authors", forKey: "feed.columns.regular")
         var choice = load()
-        XCTAssertEqual(choice.compact, [.popularity, .topic, .published, .arxiv], "the new default column shows once")
-        XCTAssertEqual(choice.regular, [.popularity, .topic, .published, .authors])
+        XCTAssertEqual(choice.compact, [.why, .popularity, .topic, .published, .arxiv], "the new default columns show once")
+        XCTAssertEqual(choice.regular, [.why, .popularity, .topic, .published, .authors])
         choice.compact.remove(.popularity)
         choice.save(to: defaults)
-        XCTAssertEqual(load().compact, [.topic, .published, .arxiv], "turning it off sticks")
-        XCTAssertEqual(load().regular, [.popularity, .topic, .published, .authors])
+        XCTAssertEqual(load().compact, [.why, .topic, .published, .arxiv], "turning it off sticks")
+        XCTAssertEqual(load().regular, [.why, .popularity, .topic, .published, .authors])
+        // Build 90's saved choice (Popularity already seen): Why, added 2026-10-24, shows once; turning it off sticks.
+        defaults.set("popularity,topic,published", forKey: "feed.columns.compact")
+        defaults.set("popularity,topic,published,authors,arxiv,abstract,add", forKey: "feed.columns.seen")
+        choice = load()
+        XCTAssertEqual(choice.compact, [.why, .popularity, .topic, .published])
+        choice.compact.remove(.why)
+        choice.save(to: defaults)
+        XCTAssertEqual(load().compact, [.popularity, .topic, .published])
         XCTAssertEqual(FeedTableColumn.topic.rawValue, "topic", "saved choices name Topics by its old key")
         XCTAssertEqual(FeedTableColumn.topic.title, "Topics")
-        XCTAssertEqual(FeedTableColumn.choosable.first, .popularity)
+        XCTAssertEqual(FeedTableColumn.choosable.first, .why)
+        XCTAssertEqual(FeedTableColumn.choosable.dropFirst().first, .popularity)
     }
 }

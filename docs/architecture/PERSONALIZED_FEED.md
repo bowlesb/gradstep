@@ -339,7 +339,8 @@ the same SwiftUI code.
   later reports `feed_unavailable`, the chip disappears and the first category loads.
 - **Why line**: List rows add one footnote line under the authors, with a small sparkle symbol ("In your tag:
   RLHF"; an arrow for "Popular on Hugging Face Papers"); the Table puts it in the title cell's second line before the
-  first author ("In your tag: RLHF · Lin et al.").
+  first author ("In your tag: RLHF · Lin et al.") only while its Why column is hidden. Since 2026-10-24 the List is
+  grouped by reason and the Table has a Why column: see [Client presentation](#client-presentation-grouped-by-why-owner-2026-10-24).
 - **Columns** (Feed › … › Columns): Popularity ("Upvotes on Hugging Face Papers", "▲ 162" or "—"), Topics ("Its
   specific topics, from title and abstract"), Published, Authors, arXiv ID, Abstract. Popularity and Topics are on by
   default; readers who saved column choices before build 22 get Popularity once (a "seen columns" record makes turning
@@ -358,6 +359,44 @@ the same SwiftUI code.
   each row, a row "…" menu with the same actions, keyboard support (↑/↓, Return to expand, `x` Not interested), and
   "new since last visit" from IndexedDB. Device-local reading activity in the browser could later re-rank the list
   on the page.
+
+### Client presentation: grouped by why (owner, 2026-10-24)
+
+Owner, after the agent proposed grouping the Feed by why each paper is recommended: *"Let's try having a column in
+Table for the reason and having grouped lists in list view."* Only those two changes; List/Table stays a choice on
+every platform, the chip is still "For you" and every chip stays. Presentation only, in the app, over the server's
+ranked list (`ScienceReaderCore/FeedWhy.swift`); the response contract, ranking and weights are unchanged.
+
+| Group (order) | Kinds | List section header | Why column label |
+|---|---|---|---|
+| Your tags | `tag` | the tag's name ("RLHF"), one section per tag; two or more one-paper tags share "Your tags" | Your tag: RLHF |
+| Like papers | `added`, `more_like` | Like papers you added | Like: Muffin – A Shared Memory… |
+| Authors | `author` | From authors you read | Author: Tri Dao |
+| Popular | `trending`, `popular` | Popular this week | Popular ▲ 48 (Hugging Face upvotes) · Readers are adding (several readers this week) |
+| Category | `category` | By category | Category: cs.CL |
+| Explore | `explore` | Something different | Explore |
+| (unknown kind) | later server kinds | More for you | the server's sentence |
+
+- **List**: sections in the order above; tag sections in the order the server ranked their first paper. Within a
+  section, the server's order. Each header shows its symbol, name and count ("RLHF 3"; VoiceOver: "RLHF, 3 papers").
+  A row's why line drops what its header says: nothing under a tag's own header; the tag under "Your tags"; "Like
+  “Muffin…”" / "More like “…”"; "By Tri Dao"; "Added by several readers" / "On Hugging Face Papers"; the category's or
+  exploration's name. VoiceOver keeps the full sentence ("Why: In your tag: RLHF"). When every paper falls in one
+  section (a category chip has no reasons; a topic whose papers share a kind) the List shows no headers and the full
+  sentence, as before. Rows, Add, the cold-start note, sideways iPad picking (`FeedAbstractPane`, which keeps the full
+  sentence) are unchanged.
+- **Table**: a **Why** column (first after the title, 120 pt, so it fits beside the title on every iPhone in portrait,
+  where Popularity now scrolls in; symbol and short label on up to two lines; the full
+  sentence in its VoiceOver reading and, on the Mac, its tooltip). Default on for iPhone and iPad/Mac (added once to
+  saved column choices, like Popularity); it shows only when a row has a reason, so category chips never show it. While
+  it shows, the title cell's second line is the first author only; hidden by the reader, the reason returns there.
+  Sort by **Why** (header tap or Sort by; For you and topics only) groups rows in the List's order, the server's order
+  within each group and rows without a reason last; reversed, the groups reverse.
+- **Result count**: For you already returns up to 50 papers (`rankForYou` default; the app reads at most 50), every
+  fifth an exploration, so a list has ~10 "Something different" and several sections of 3–10. No server change was
+  needed; category chips stay at 25 and show no sections.
+- "New since last visit" marks are still not built in the app (see above), so there is nothing to keep beside the
+  headers.
 
 ## Privacy
 

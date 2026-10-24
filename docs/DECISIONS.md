@@ -38,6 +38,19 @@ download".
 | Updates | A new lock (any changed file) is a new version: the old one is removed at launch (it can't be used with the new converter), and the new one downloads by itself on Wi-Fi for a reader who had downloaded before; on cellular the offer shows where it is used. |
 | Where the controls are | The paper's "Read with the on-device model" offers "Download PDF reading model (about 365 MB)" in the bar where the reading's progress shows, with progress, a Wi-Fi note on cellular, Cancel, then continues into the reading. Settings › Experimental gets one row, "On-device PDF model": Downloaded (size) with Remove, or Not downloaded with Download. |
 
+## Feed grouped by why: a Why column and sectioned List (owner decision 2026-10-24)
+
+The agent proposed grouping the Feed by why each paper is recommended. Owner: *"Let's try having a column in Table for
+the reason and having grouped lists in list view."* Only these two changes are approved: the List/Table choice stays
+on every platform, the chip keeps the name "For you" and all chips stay. Design: [Personalized feed › Client
+presentation](architecture/PERSONALIZED_FEED.md#client-presentation-grouped-by-why-owner-2026-10-24).
+
+| Decision | Choice |
+|---|---|
+| Table | A **Why** column (symbol + "Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao", "Popular ▲ 48" / "Trending", "Category: cs.CL", "Explore"; full sentence for VoiceOver and as the Mac tooltip). On by default, shown only when a row has a reason; sortable by group (tags, like papers, authors, popular, category, explore) keeping the server's order within each. While shown, the title's second line drops the reason. |
+| List | Sections in that order, one per tag, with name and count; the server's order within; rows drop what the header says and keep the anchor ("By Tri Dao"). One section only (category chips; a topic whose papers share a kind): no headers, as before. |
+| Agent choices (reversible) | Two or more one-paper tags share one "Your tags" section; no other merging. Hugging Face upvotes (`trending`) are "Popular ▲ n", several readers (`popular`) "Trending", both under "Popular this week". The column is 120 pt, first after the title. Grouping is in the app; no server change (For you already returns up to 50 papers). |
+
 ## Heading formulas as characters; bracketed addresses stay (fresh-paper sweep, 2026-10-24; agent decisions, reversible)
 
 The sweep before TestFlight 90 failed VLA-Δ (2610.21306v1). Reader revision 24; details in
