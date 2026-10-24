@@ -72,8 +72,12 @@ public struct LocalPaperChatContext: Encodable, Equatable, Sendable {
         case format, source, revision, text
         case membershipID = "membership_id", sourceID = "source_id", manifestSHA256 = "manifest_sha256", sourceSHA256 = "source_sha256"
     }
+    /// `bundle` is the paper's reading on this device: its arXiv HTML reading, or the on-device model's reading of that
+    /// same arXiv revision's PDF (docs/architecture/DEVICE_PDF_ROUTE.md). Either way the text is the verified index's,
+    /// never the PDF, and the request names the same library membership.
     public init(reference: SourcePaperReference, bundle: VerifiedReaderBundle) throws {
-        guard try bundle.arxivSource == reference.arxivSource else { throw ReaderError.invalidEvent }
+        let source = try reference.arxivSource
+        guard bundle.arxivSource == source || bundle.devicePDFArxivSource == source else { throw ReaderError.invalidEvent }
         let text = PaperChatContext.text(bundle.index)
         guard !text.isEmpty, text.utf8.count <= 2_097_152 else { throw ChatRequestError.questionTooLarge }
         membershipID = reference.membershipID.wire; sourceID = reference.sourceID; revision = reference.revision

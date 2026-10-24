@@ -39,6 +39,53 @@ import Testing
         let wrong = try SourcePaperReference(membershipID: ref.membershipID, sourceID: ref.sourceID, revision: 1)
         #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: wrong, bundle: bundle) }
     }
+    /// The on-device model's reading of an arXiv paper's PDF is that paper's text for its chat and explainers, as the
+    /// HTML reading is: the same membership, the reading's own numbered index and manifest (TestFlight 90 follow-up).
+    @Test func anOnDeviceModelReadingOfTheSameRevisionIsThePapersContext() throws {
+        let html = try fixture()
+        let reading = try Self.devicePDFBundle(index: html.index, paper: (sourceID: "2601.01234", revision: 2))
+        #expect(reading.arxivSource == nil)
+        #expect(reading.devicePDFArxivSource == (try ArxivReaderSource(sourceID: "2601.01234", revision: 2)))
+        let ref = try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2)
+        let context = try LocalPaperChatContext(reference: ref, bundle: reading)
+        #expect(context.manifestSHA256 == reading.manifestSHA256)
+        #expect(context.sourceSHA256 == reading.manifest.source.sha256)
+        #expect(context.text == PaperChatContext.text(reading.index))
+        #expect(context.sourceID == "2601.01234" && context.revision == 2)
+        // Another revision, another paper, or a PDF the reader added (no arXiv paper): not this membership's text.
+        let otherRevision = try SourcePaperReference(membershipID: ref.membershipID, sourceID: ref.sourceID, revision: 1)
+        #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: otherRevision, bundle: reading) }
+        let otherPaper = try Self.devicePDFBundle(index: html.index, paper: (sourceID: "2601.04321", revision: 2))
+        #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: ref, bundle: otherPaper) }
+        let added = try Self.devicePDFBundle(index: html.index, paper: nil)
+        #expect(added.devicePDFArxivSource == nil)
+        #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: ref, bundle: added) }
+    }
+
+    /// A minimal verified reading in the on-device model's format (`gradstep-device-pdf-mathml-v1`), with `index` as its
+    /// index and the library paper named in its provenance.
+    static func devicePDFBundle(index: ReaderBundleIndex, paper: (sourceID: String, revision: Int)?) throws -> VerifiedReaderBundle {
+        let pdf = String(repeating: "b", count: 64), build = String(repeating: "a", count: 64)
+        let html = Data("<!doctype html><html><body><p>reading</p></body></html>".utf8)
+        // The index without its figure entries, whose images this minimal reading doesn't carry (the blocks stay).
+        var object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(index)) as? [String: Any])
+        object["figures"] = []
+        let indexData = try JSONSerialization.data(withJSONObject: object)
+        let named = paper.map { ",\"paper\":{\"source_id\":\"\($0.sourceID)\",\"revision\":\($0.revision)}" } ?? ""
+        let provenance = Data(("{\"format\":\"device-pdf-reader-provenance-v1\",\"source\":{\"kind\":\"device-pdf\",\"pdf_sha256\":\"\(pdf)\"\(named)},"
+            + "\"adapter\":{\"id\":\"gradstep-device-pdf-mathml-v1\",\"build_sha256\":\"\(build)\"}}").utf8)
+        let members: [(path: String, role: String, type: String, data: Data)] = [
+            ("index.html", "html", "text/html", html), ("reader.json", "index", "application/json", indexData),
+            ("provenance.json", "provenance", "application/json", provenance)]
+        let rows = members.map { "{\"path\":\"\($0.path)\",\"role\":\"\($0.role)\",\"media_type\":\"\($0.type)\",\"bytes\":\($0.data.count),\"sha256\":\"\(VerifiedReaderBundle.digest($0.data))\"}" }
+        let manifest = Data(("{\"format\":\"reader-bundle-v1\",\"renderer\":{\"id\":\"gradstep-device-pdf-mathml-v1\",\"build_sha256\":\"\(build)\"},"
+            + "\"source\":{\"kind\":\"device-pdf\",\"sha256\":\"\(pdf)\",\"provenance_path\":\"provenance.json\"},"
+            + "\"entrypoint\":\"index.html\",\"index_path\":\"reader.json\",\"members\":[\(rows.joined(separator: ","))]}").utf8)
+        return try VerifiedReaderBundle.verify(manifest: manifest, expectedSHA256: VerifiedReaderBundle.digest(manifest),
+                                               members: Dictionary(uniqueKeysWithValues: members.map { ($0.path, $0.data) }))
+    }
+
+
     @Test func sourceIdentityRequiresNewAuthenticatedEnvelopeWithoutFakeDocument() throws {
         let ref = try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2)
         let event = PrivateEvent(kind: .note, text: "A note", paperReference: ref)
