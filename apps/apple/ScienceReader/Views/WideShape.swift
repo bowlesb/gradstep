@@ -95,6 +95,9 @@ enum SlotArrangement: String, CaseIterable {
 @MainActor @Observable final class SlotFractions {
     static let shared = SlotFractions()
     private var values: [SlotArrangement: CGFloat] = [:]
+    /// Arrangements whose list (or companion) covers the whole window after a double tap on the divider, as on iPhone
+    /// (owner, 2026-10-23). For this run only: picking something from the list splits the slots again.
+    private(set) var covering: Set<SlotArrangement> = []
 
     private init() {
         for arrangement in SlotArrangement.allCases {
@@ -113,8 +116,18 @@ enum SlotArrangement: String, CaseIterable {
         else { UserDefaults.standard.removeObject(forKey: Self.key(arrangement)) }
     }
 
+    /// The double tap: the other slot covers the whole window, or (when it already does) the two slots return.
+    func toggleCovering(_ arrangement: SlotArrangement) {
+        if covering.contains(arrangement) { covering.remove(arrangement) } else { covering.insert(arrangement) }
+    }
+
+    /// Something was picked from a list: it shows beside the list again.
+    func uncover(_ arrangement: SlotArrangement? = nil) {
+        if let arrangement { covering.remove(arrangement) } else if !covering.isEmpty { covering = [] }
+    }
+
     /// Tests and visual checks start from the defaults.
-    func reset() { for arrangement in SlotArrangement.allCases { set(nil, for: arrangement) } }
+    func reset() { for arrangement in SlotArrangement.allCases { set(nil, for: arrangement) }; covering = [] }
 }
 
 /// The Wide two-slot container (owner, 2026-10-22; docs/DESIGN.md › Tall and Wide). Each place owns one arrangement
@@ -138,6 +151,9 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
     /// Dragging the divider past the other slot's minimum: the list collapses (the paper becomes the Paper place) or the
     /// companion closes. Nil: the divider stops at the minimum.
     var collapse: (() -> Void)? = nil
+    /// What the list has picked (a paper, a conversation, a collection, a feed article): when it changes, a list covering
+    /// the window gives the picked thing its slot again.
+    var selection: AnyHashable? = nil
     @ViewBuilder var main: Main
     @ViewBuilder var otherView: Other
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -160,22 +176,33 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
     var body: some View {
         let side = wide ? other : .none
         let left = leftWidth
+        // Double tap on the divider: the list (or the companion) covers the whole window, as on iPhone; the main view stays
+        // loaded beneath it, at its place, and a thin grabber at the far edge brings the two slots back.
+        let covering = side != .none && SlotFractions.shared.covering.contains(arrangement)
         HStack(spacing: 0) {
             if side == .left {
-                otherView.frame(width: left)
-                    .environment(\.placesReserve, 0)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                Color.clear.frame(width: left)
                 divider(left: left, side: side)
             }
             main
                 .frame(width: side == .right ? left : nil)
                 .frame(maxWidth: side == .right ? nil : .infinity)
                 // The places button sits over the rightmost slot.
-                .environment(\.placesReserve, side == .right ? 0 : placesReserve)
+                .environment(\.placesReserve, side == .right || covering ? 0 : placesReserve)
+                .accessibilityHidden(covering)
             if side == .right {
                 divider(left: left, side: side)
-                otherView.frame(maxWidth: .infinity)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                Color.clear.frame(maxWidth: .infinity)
+            }
+        }
+        .overlay(alignment: side == .right ? .trailing : .leading) {
+            if side != .none {
+                otherView
+                    .frame(width: covering ? width : (side == .left ? left : max(0, width - left - 1)))
+                    .background(Color(uiColor: .systemBackground))
+                    .environment(\.placesReserve, side == .left && !covering ? 0 : placesReserve)
+                    .overlay(alignment: side == .left ? .trailing : .leading) { if covering { uncoverGrabber(side: side) } }
+                    .transition(.move(edge: side == .left ? .leading : .trailing).combined(with: .opacity))
             }
         }
         .overlay(alignment: .topLeading) {
@@ -188,6 +215,28 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
             }
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.32), value: side)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.32), value: covering)
+        .onChange(of: selection) { SlotFractions.shared.uncover(arrangement) }
+    }
+
+    /// While the list covers the window: a grabber at its far edge; a tap or a drag inward brings the two slots back.
+    private func uncoverGrabber(side: Side) -> some View {
+        ZStack {
+            Color.clear.frame(width: 24).contentShape(Rectangle())
+            Capsule().fill(Color(uiColor: .tertiaryLabel)).frame(width: 5, height: 44)
+                .hoverEffect(.highlight)
+        }
+        .onTapGesture { SlotFractions.shared.uncover(arrangement) }
+        .gesture(DragGesture(minimumDistance: 8).onEnded { value in
+            if (side == .left && value.translation.width < -20) || (side == .right && value.translation.width > 20) {
+                SlotFractions.shared.uncover(arrangement)
+            }
+        })
+        .accessibilityElement()
+        .accessibilityLabel(side == .left ? "Show the paper beside the list" : "Show the paper beside")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { SlotFractions.shared.uncover(arrangement) }
+        .accessibilityIdentifier("slots.uncover")
     }
 
     /// A drag ending with the left slot `proposed` wide: where the divider goes, or that the other slot closes.
@@ -201,7 +250,8 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
     }
 
     /// The hairline between the slots, with a 24 pt area to drag and a grabber in the middle (as the Mac Reader's,
-    /// ReaderSplit): drag to resize, double-tap for the default; VoiceOver adjusts it in steps of 5% and can reset it.
+    /// ReaderSplit): drag to resize, double-tap to let the list cover the window as on iPhone; VoiceOver adjusts it in
+    /// steps of 5%, can reset it to the middle, and has the covering as an action.
     private func divider(left: CGFloat, side: Side) -> some View {
         let fractions = SlotFractions.shared
         let percent = Int((left / max(width, 1) * 100).rounded())
@@ -220,7 +270,8 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
                         dragLeft = nil
                         if end.closes { collapse?() } else { fractions.set(end.x / max(width, 1), for: arrangement) }
                     })
-                .onTapGesture(count: 2) { fractions.set(nil, for: arrangement) }
+                // As on iPhone: the list over the whole window (owner, 2026-10-23); the grabber at its edge brings it back.
+                .onTapGesture(count: 2) { fractions.toggleCovering(arrangement) }
                 .accessibilityElement()
                 .accessibilityLabel("\(arrangement.title) divider")
                 .accessibilityValue("\(percent) percent on the left")
@@ -230,6 +281,9 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
                     fractions.set(landing(left + step, side: side).x / max(width, 1), for: arrangement)
                 }
                 .accessibilityAction(named: "Reset") { fractions.set(nil, for: arrangement) }
+                .accessibilityAction(named: side == .left ? "Cover the window with the list" : "Cover the window") {
+                    fractions.toggleCovering(arrangement)
+                }
                 .accessibilityIdentifier("slots.divider")
             }
             .zIndex(1)
