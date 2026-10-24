@@ -623,7 +623,7 @@ function analysePaper(run, key) {
     const d = dFigs[best.j];
     if (!d.crop) continue;
     const [, page, x0, y0, x1, y1] = d.crop, crop = [x0, y0, x1, y1];
-    const pics = (gr[page]?.graphics ?? []).filter(g => g[5] < 0.35 && area(intersect(g, [x0 - 24, y0 - 24, x1 + 24, y1 + 24])) > 0.2 * area(g));
+    const pics = (gr[page]?.graphics ?? []).filter(g => g[5] < 0.35 && area(g) <= 2 * area([x0, y0, x1, y1]) && area(intersect(g, [x0 - 16, y0 - 16, x1 + 16, y1 + 16])) > 0.2 * area(g));
     if (!pics.length) continue;
     const truthBox = unionBox(pics.map(g => g.slice(0, 4)));
     const coverage = area(intersect(truthBox, crop)) / Math.max(1e-6, area(truthBox));
@@ -631,7 +631,7 @@ function analysePaper(run, key) {
     const grown = [truthBox[0] - 14, truthBox[1] - 14, truthBox[2] + 14, truthBox[3] + 14];
     const score = Math.max(iou(crop, truthBox), iou(crop, grown));
     figureIoU.push(score);
-    if (coverage < 0.9 || score < 0.6) add('figure.crop', 'layout', Math.max(1 - score, 1 - coverage), { sub: coverage < 0.9 ? `cut: ${Math.round(coverage * 100)} % of the picture inside` : `loose: IoU ${round(score, 2)}`,
+    if (coverage < 0.9 || score < 0.6) add('figure.crop', 'layout', Math.max(1 - score, 1 - coverage), { sub: coverage < 0.5 ? 'cut: under half the picture inside' : coverage < 0.9 ? 'cut: 50–90 % of the picture inside' : 'loose (IoU under 0.6)', coverage: round(coverage, 2),
       loc: { page, box: unionBox([crop, truthBox]) }, deviceBox: crop, truthBox, truth: esc(f.cap.slice(0, 40).join(' ')), device: deviceHTMLSnippet(d.b, run.variant, key), iou: round(score) });
   }
   dFigs.forEach((d, j) => {
@@ -884,7 +884,7 @@ function page(r, ex, base) {
   const exampleSections = r.order.filter(cat => r.categories[cat].incidents).map(cat => {
     const c = r.categories[cat];
     const subs = Object.entries(c.subs).sort((a, b) => b[1] - a[1]).map(([s, v]) => `${esc(s)} (${v})`).join(' · ');
-    const cards = (ex[cat] ?? []).map(i => `<div class="card"><div class="meta"><b>${esc(i.label)} ${esc(i.paper)}</b>${i.loc ? ` · page ${i.loc.page + 1}` : ''} · ${esc(STAGE_TITLES[i.stage])} · severity ${i.severity}${i.sub ? ` · ${esc(i.sub)}` : ''}${i.region ? ` · layout: ${esc(i.region)}` : ''}${i.words ? ` · ${i.words} words` : ''}${i.tokErr !== undefined ? ` · token error ${i.tokErr}` : ''}</div>
+    const cards = (ex[cat] ?? []).map(i => `<div class="card"><div class="meta"><b>${esc(i.label)} ${esc(i.paper)}</b>${i.loc ? ` · page ${i.loc.page + 1}` : ''} · ${esc(STAGE_TITLES[i.stage])} · severity ${i.severity}${i.sub ? ` · ${esc(i.sub)}` : ''}${i.region ? ` · layout: ${esc(i.region)}` : ''}${i.words ? ` · ${i.words} words` : ''}${i.tokErr !== undefined ? ` · token error ${i.tokErr}` : ''}${i.iou !== undefined ? ` · IoU ${i.iou}, coverage ${i.coverage}` : ''}</div>
       <div class="three"><div><h4>PDF</h4>${i.crop ? `<img loading="lazy" src="${i.crop}" alt="page crop">` : '<p class="none">no location</p>'}</div><div><h4>Device</h4>${i.device ?? '<p class="none">—</p>'}</div><div><h4>HTML truth</h4>${i.truth ?? '<p class="none">—</p>'}</div></div></div>`).join('');
     return `<section id="${cat}"><h3>${esc(CATEGORIES[cat][0])} <small>impact ${c.impact} · ${c.incidents} incidents · ${c.papers} papers</small></h3><p>${esc(CATEGORIES[cat][1])} Severity: ${esc(CATEGORIES[cat][2])}.</p><p class="subs">${subs}</p>${cards || '<p class="none">Only truth/convention incidents.</p>'}</section>`;
   }).join('');
@@ -900,7 +900,7 @@ table{border-collapse:collapse;margin:8px 0 20px;font-size:13px}td,th{border-bot
 .three{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:12px}.three img{max-width:100%;border:1px solid var(--line);background:#fff}
 @media (max-width:800px){.three{grid-template-columns:1fr}}
 h4{margin:0 0 4px;font-size:12px;color:var(--muted)}mark{background:var(--mark);color:inherit}code{font-size:11px;word-break:break-all;display:block;color:var(--muted)}
-.math{overflow-x:auto;font-size:16px}.device-block,.table{max-height:360px;overflow:auto;font-size:12px}.device-block img{max-width:100%;background:#fff}.subs{font-size:12px;color:var(--muted)}.none{color:var(--muted)}
+.math{overflow-x:auto;font-size:16px}.device-block,.table{max-height:360px;overflow:auto;font-size:12px}.device-block img{max-width:100%;height:auto;background:#fff}.subs{font-size:12px;color:var(--muted)}.none{color:var(--muted)}
 .legend span{display:inline-block;margin-right:12px}.legend i{display:inline-block;width:10px;height:10px;border:2px solid;margin-right:4px;vertical-align:middle}
 .wrap{overflow-x:auto}
 </style></head><body>

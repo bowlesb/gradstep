@@ -3,7 +3,7 @@
 // formulas with their crops; `emit.ts` turns the logical blocks into this reader's vocabulary.
 import { check, fail, sha256Hex, utf8 } from '../util.ts';
 import { argsort, assign, byX, canonicalText, centreIn, clipBytes, composeAccents, growLines, joinLines, lineText, linesOf, median, orphanRegions,
-  pyRound, recogniserRect, typicalGap, union, useLineBands, useWordGaps, visible } from './geometry.ts';
+  pyRound, recogniserRect, typicalGap, union, useCompounds, useLigatures, useLineBands, useWordGaps, visible, hyphenatedPairs } from './geometry.ts';
 import { confidence, glyphsAgree, renderMath, tidyLatex } from './math.ts';
 
 /** verifyGlyphs: the lowest confidence a recognition whose glyphs the PDF's text layer confirms is typeset at. */
@@ -82,6 +82,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const prefix = sha256Hex(utf8(`${input.pdf.sha256}:${DEVICE_PDF_RENDERER_ID}:${DEVICE_PDF_CONVERTER_VERSION}`)).slice(0, 12);
   useWordGaps(null);
   useLineBands(!!input.lineBands);
+  useLigatures(!!input.ligatures);
   const nPages = input.pages;
   check(Number.isSafeInteger(nPages) && nPages >= 1 && nPages <= 2000, 'device_pdf_pages');
   const cancelled = () => { if (host.cancelled?.()) fail('cancelled'); };
@@ -90,6 +91,8 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   for (let p = 0; p < nPages; p++) { cancelled(); pages.push(readPage(host.page(p), input.fontAliases ? input.tagger : undefined)); host.progress?.('layout', p + 1, nPages); }
   if (input.accents) for (const page of pages) composeAccents(page.glyphs);
   if (input.wordGaps) useWordGaps(typicalGap(pages));
+  // compounds: the paper's own words decide whether a hyphen at a line's end is the word's or TeX's.
+  useCompounds(input.compounds ? hyphenatedPairs(pages.flatMap(page => linesOf(page.glyphs.filter(visible)).map(l => lineText(l, [])[0]))) : null);
   const known = furniture(pages.map(page => ({ glyphs: page.glyphs, height: page.height })));
   // Pages the host read by text recognition (its text layer missing or unreadable; DevicePDFOCR.swift).
   const recognisedPages = pages.filter(page => page.glyphs.length && page.glyphs.every(g => g.font === OCR_FONT)).length;

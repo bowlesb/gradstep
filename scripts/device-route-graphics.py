@@ -5,7 +5,7 @@
     python3 -E scripts/device-route-graphics.py <paper.pdf> <out.json>
 
 Evaluation only, on this Mac (PyMuPDF): raster images placed on the page, and vector drawings grouped into clusters
-(paths within 8 pt of each other), each as [x0, y0, x1, y1, kind, text_share] in points with a top-left origin.
+(paths within 2 pt of each other), each as [x0, y0, x1, y1, kind, text_share] in points with a top-left origin.
 `text_share` is the share of the box covered by text-layer words (a framed algorithm or a coloured box is mostly
 text; a plot is not). Rules a table draws (thin lines) are left out. The route never sees any of this: it is the
 truth a device figure crop is compared with (IoU), standing in for the HTML figure's place on the page, which the
@@ -16,7 +16,7 @@ import sys
 
 import fitz  # PyMuPDF
 
-GAP = 8.0
+GAP = 2.0
 
 
 def merge(rects):
@@ -69,8 +69,11 @@ def main(pdf_path, out_path):
             if r is None:
                 continue
             w, h = r.x1 - r.x0, r.y1 - r.y0
-            # A table's or a footnote's rule, a page-wide background: not a picture.
-            if (h < 2.5 and w > 30) or (w < 2.5 and h > 30) or (w > rect.width * 0.95 and h > rect.height * 0.9):
+            # A table's or a footnote's rule, a page-wide background or frame, a white backdrop: not a picture.
+            if (h < 2.5 and w > 30) or (w < 4 and h > 30) or h > rect.height * 0.6 or (w > rect.width * 0.95 and h > rect.height * 0.3):
+                continue
+            fill, stroke = d.get("fill"), d.get("color")
+            if stroke is None and fill is not None and min(fill) > 0.97:
                 continue
             rects.append((r.x0, r.y0, r.x1, r.y1))
         for c in merge(rects[:20000]):

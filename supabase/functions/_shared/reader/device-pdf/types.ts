@@ -135,6 +135,11 @@ export interface DevicePDFInput {
   /** A recognition under the confidence gate is typeset when its letters and digits are the PDF's own glyphs (the same
    * characters, as many of each) and its confidence is at least this (0 to 1; math.glyphsAgree). */
   verifyGlyphs?: boolean | number;
+  /** Ligature glyphs (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ) written as their letters in text (geometry.lineText). */
+  ligatures?: boolean;
+  /** A hyphen at a line's end is kept when the paper shows it is the word's own ("three-dimensional"), dropped when it is
+   * TeX's hyphenation (geometry.joinLines). */
+  compounds?: boolean;
 }
 
 export interface Formula {

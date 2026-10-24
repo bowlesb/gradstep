@@ -9,7 +9,7 @@ import { det, extent, host, input, line, page } from './device-pdf/synthetic.ts'
 import { glyphsAgree, renderMath, tidyLatex } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
 import { venueNotice } from '../../supabase/functions/_shared/reader/device-pdf/structure.ts';
 import { aliasFont, aliasText } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
-import { composeAccents, lineText, linesOf, typicalGap, useLineBands, useWordGaps } from '../../supabase/functions/_shared/reader/device-pdf/geometry.ts';
+import { composeAccents, hyphenatedPairs, joinLines, lineText, linesOf, typicalGap, useCompounds, useLigatures, useLineBands, useWordGaps } from '../../supabase/functions/_shared/reader/device-pdf/geometry.ts';
 import type { Glyph, Region } from '../../supabase/functions/_shared/reader/device-pdf/types.ts';
 
 /** A line of text as glyphs from x = 72 at `top` (points), 6 pt per character. */
@@ -274,6 +274,23 @@ test('display lines: a numbered display the layout read as a paragraph\'s line b
   assert.doesNotMatch(new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', displayLines: true }), host([page(prose, [det('paragraph', [L - 1, 99, 541, 161])])])).members.get('index.html')!), /reader-display/);
   const unnumbered = [...before, ...display, ...after];
   assert.doesNotMatch(new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', displayLines: true }), host([page(unnumbered, [det('paragraph', [L - 1, 99, 541, 161])])])).members.get('index.html')!), /reader-display/);
+});
+
+test('ligatures read as their letters; a compound\'s hyphen at a line end stays when the paper prints it within a line', () => {
+  const glyph = (text: string, x0: number): Glyph => ({ text, x0, x1: x0 + 5, top: 100, bottom: 110, size: 10, font: 'ABCDEF+CMR10', upright: true });
+  const fixed = ['ﬁ', 'x', 'e', 'd'].map((t, i) => glyph(t, i * 5));
+  useLigatures(false);
+  assert.equal(lineText(fixed, [])[0], 'ﬁxed');
+  useLigatures(true);
+  assert.equal(lineText(fixed, [])[0], 'fixed');
+  useLigatures(false);
+  const pairs = hyphenatedPairs(['a three-dimensional lattice in the bulk, and a deriva-', 'tion of the three-']);
+  assert.deepEqual([...pairs], ['three-dimensional']);
+  useCompounds(pairs);
+  assert.equal(joinLines(['the three-', 'dimensional case']), 'the three-dimensional case');
+  assert.equal(joinLines(['a deriva-', 'tion follows']), 'a derivation follows');
+  useCompounds(null);
+  assert.equal(joinLines(['the three-', 'dimensional case']), 'the threedimensional case', 'the reference drops every such hyphen');
 });
 
 test('reuse recognitions: a formula whose glyphs repeat an earlier one is not recognised again and reads the same', () => {
