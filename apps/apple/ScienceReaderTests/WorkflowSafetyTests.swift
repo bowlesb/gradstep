@@ -286,11 +286,19 @@ final class WorkflowSafetyTests: XCTestCase {
     func testAskFromBrowseEntersReaderAndKeepsThePaperConversationDraft() {
         let model = ReaderModel(configuration: nil)
         var selected = paper(title: "Selected paper"); selected.isSample = true
-        model.papers = [selected]; model.compactLayout = false; model.wideList = .papers; model.tab = .paper; model.select(selected)
+        model.papers = [selected]; model.compactLayout = false
+        // Browse: the library's list beside the paper. The Mac shows it beside the Paper place (Library ⋯ › Show library
+        // beside paper); on iPad Wide it is the Library place with the paper picked into its right slot (TestFlight 88's
+        // places), which `browsing` reads as `tab == .library`.
+        #if targetEnvironment(macCatalyst)
+        model.wideList = .papers; model.tab = .paper; model.select(selected)
+        XCTAssertTrue(model.browsing); XCTAssertEqual(model.tab, .paper)
+        #else
+        model.tab = .library; model.select(selected)
+        XCTAssertTrue(model.browsing); XCTAssertTrue(model.paperBesideList); XCTAssertEqual(model.tab, .library)
+        #endif
         let conversation = UUID()
         model.activeConversation = conversation; model.chatInput = "Follow-up for this paper"
-        // Browse: the library's list beside the paper (iPad Wide's two slots).
-        XCTAssertTrue(model.browsing); XCTAssertEqual(model.tab, .paper)
 
         model.askAboutSelectedPaper()
 
