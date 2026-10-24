@@ -50,7 +50,7 @@ final class MacKeyboardTests: XCTestCase {
 
     func testBrowseOffersFindInPaperAndASeparateLibrarySearch() {
         let app = reader()
-        app.typeKey("4", modifierFlags: .command)
+        app.typeKey("2", modifierFlags: .command) // ⌘2 is the Library (places in the toolbar's order)
         XCTAssertTrue(app.descendants(matching: .any)["library.search"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(app.webViews.firstMatch.exists)
         app.menuBars.menuBarItems["Edit"].click()
