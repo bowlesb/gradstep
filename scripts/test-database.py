@@ -157,7 +157,7 @@ if args.pricing_only:
     phase([*all_migrations, ROOT / 'tests/database/free_ai_and_spend.sql'], ['free_ai_pool_concurrency'])
     raise SystemExit(0)
 if args.interest_only:
-    phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/interest_index.sql'], [])
+    phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/interest_index.sql', ROOT / 'tests/database/interest_rebuild_due.sql'], [])
     raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/beta_admission_revocation.sql'], [])
@@ -192,7 +192,7 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 
 # Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
 # function's anon/authenticated reach. First in its phase, before any fixture creates objects.
-phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql', ROOT / 'tests/database/interest_index.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql', ROOT / 'tests/database/interest_index.sql', ROOT / 'tests/database/interest_rebuild_due.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.

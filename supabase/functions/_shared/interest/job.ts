@@ -63,7 +63,12 @@ export async function runInterest(deps: InterestDeps, deadline: number): Promise
     const embedded = await embedPending(deps, claimID, current, embedUntil);
     counts.embedded = embedded.stored; counts.embed_failed = embedded.failed; processed += embedded.stored;
     counts.shard = await publishShard(deps, claimID);
-    if (claim.rebuild_due && deps.now() < deadline - 60_000) counts.rebuild = await rebuild(deps, claimID, claim.policy, deadline);
+    if (claim.rebuild_due && deps.now() < deadline - 60_000) {
+      // Marked first: a run killed mid-build still counts as a failed attempt (back-off 10 min, 1 h, 6 h; migration 0153).
+      await deps.rpc('worker_interest_rebuild_mark', { p_claim: claimID });
+      try { counts.rebuild = await rebuild(deps, claimID, claim.policy, deadline); }
+      catch (e) { counts.rebuild_failed = codeOf(e); throw e; }
+    }
   } catch (e) {
     error = codeOf(e);
     deps.log('interest_run_error', { code: error });

@@ -80,6 +80,27 @@ test('the job refuses a policy for another model and releases its claim without 
   assert.equal(result.counts.error, 'interest_model_mismatch');
 });
 
+test('a due build is marked first, and a failing build is reported so the database backs it off', async () => {
+  const calls: [string, Record<string, unknown>][] = [];
+  const result = await runInterest({
+    rpc: async <T,>(name: string, params: Record<string, unknown>) => {
+      calls.push([name, params]);
+      if (name === 'worker_interest_claim') return { claimed: true, policy: { model_version: MODEL_VERSION }, map_version: null, rebuild_due: true } as T;
+      if (name === 'worker_interest_embed_claim') return [] as T;
+      if (name === 'worker_interest_shard_due') return { due: false, rows: [] } as T;
+      if (name === 'worker_interest_corpus_page') throw new Error('database_error');
+      return {} as T;
+    },
+    embed: async () => [], modelVersion: MODEL_VERSION, now: () => 0, uuid: () => ID, log: () => {},
+  }, 1_000_000);
+  const names = calls.map(([n]) => n);
+  assert.ok(names.includes('worker_interest_rebuild_mark') && names.indexOf('worker_interest_rebuild_mark') < names.indexOf('worker_interest_corpus_page'));
+  const release = calls.find(([n]) => n === 'worker_interest_release')![1];
+  assert.equal(release.p_state, 'failed');
+  assert.equal((release.p_counts as Record<string, unknown>).rebuild_failed, 'database_error');
+  assert.equal(result.counts.error, 'database_error');
+});
+
 test('a disabled or busy index does nothing', async () => {
   const calls: string[] = [];
   const result = await runInterest({ rpc: async <T,>(name: string) => { calls.push(name); return { claimed: false, reason: 'busy' } as T; },
