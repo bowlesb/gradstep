@@ -1,6 +1,14 @@
 # Implementation status
 
-## Unreleased (after TestFlight 90)
+## TestFlight 91 — 2026-10-24 UTC (iOS uploaded; Mac uploading)
+
+Release gate on the merged main: `npm test`, `npm run test:imports` 15/15, `swift test` 451 + 66 XCTest, all pass; the
+arXiv compiler is unchanged since 90 (no sweep needed). iOS app 35 MB with the on-device models as the On-Demand
+Resources pack `device-pdf-models` (364.6 MB, 19 files, checked by `check-device-model-pack.mjs`). Converter port
+revision 12 (Show in PDF's provenance rows, 11, plus the weakness explorer's rules). Admin redeployed (interest index
+Health card). Not yet seen on a device; first checks on 91: the model download from TestFlight on iPadOS 18.7.8, Show in
+PDF, full-text search, the Feed's Why column and sections, the divider drag.
+
 
 - **The on-device PDF model is a separate download** on iPhone and iPad (owner request 2026-10-24; DECISIONS.md,
   DEVICE_PDF_ROUTE.md "The models as a download"): an On-Demand Resources tag hosted by the App Store with the build,
@@ -146,7 +154,7 @@ pending owner approval, Homebrew PostgreSQL 17 + pgvector for local tests) are i
   `TableColumnsTests` feed columns on iPhone; the Mac Catalyst app builds (not run). Before/after screenshots in
   `.artifacts/feed-why/`. Not seen on a device or with a real 50-paper For you list.
 
-## On-device PDF route: weakness explorer, glyph-verified formulas, line returns — 2026-10-24 (local source; not released)
+## On-device PDF route: weakness explorer, glyph-verified formulas, line returns — 2026-10-24 (in TestFlight 91)
 
 Owner, 2026-10-24: a tool to clarify the route's weaknesses, and a faster, more accurate route. Full numbers:
 [review](reviews/DEVICE_PDF_WEAKNESSES_20261024.md); design: [DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md#weakness-explorer-and-port-revision-11--2026-10-24).
