@@ -56,6 +56,8 @@ extension ReaderModel {
         var paper = Paper(id: reference.membershipID, title: "Authored HTML fixture", authors: "A. Author", year: 2026,
                           abstract: "A short authored paper for the HTML reader.", keywords: ["cs.LG"], fileURL: nil, artifactID: nil)
         paper.sourceID = "2601.01234"; paper.sourceRevision = 2; paper.sourceMembership = reference
+        // The page's author is a name the reader can tap (its menu: Find papers by…).
+        paper.authorNames = ["A. Author"]
         let numbered = paper.displaying(bundle)
         papers.append(numbered)
         selectedPaper = numbered; chatPaperID = numbered.id; generalChat = false

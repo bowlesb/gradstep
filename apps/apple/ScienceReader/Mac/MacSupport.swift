@@ -332,6 +332,13 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         presentAnchoredMenu(UIMenu(children: actions), rect: rect, atEntry: !Platform.isMac)
     }
 
+    /// A short choice raised by a tap in the page (an author's name, a passage with several chats) as the same pull-down
+    /// menu at what was tapped, titled: on iPad and the Mac no prompt is centred over the page or both slots (owner,
+    /// 2026-10-24). The iPhone keeps its action sheet.
+    func presentChoiceMenu(title: String, rect: CGRect, actions: [UIMenuElement]) {
+        presentAnchoredMenu(UIMenu(title: title, children: actions), rect: rect, atEntry: !Platform.isMac)
+    }
+
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
         // Find in the paper (⌘F, ⌘G, as in Safari) is enabled by PaperWebView for the paper's own view.
@@ -481,7 +488,7 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
             var responder: UIResponder? = self
             while responder != nil, !(responder is UIViewController) { responder = responder?.next }
             guard let controller = responder as? UIViewController else { dismissed(); return }
-            let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+            let sheet = UIAlertController(title: menu.title.isEmpty ? nil : menu.title, message: nil, preferredStyle: .actionSheet)
             func append(_ elements: [UIMenuElement]) {
                 for element in elements {
                     if let group = element as? UIMenu { append(group.children) }

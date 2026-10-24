@@ -1241,7 +1241,9 @@
           const button = document.createElement('button'); button.type = 'button'; button.className = 'sr-author'; button.textContent = name;
           button.style.cssText = 'font:inherit;color:inherit;padding:0;border:0;background:none;text-decoration:underline;text-decoration-style:dotted;cursor:pointer';
           button.setAttribute('aria-label', 'More papers by ' + name);
-          button.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); post({type:'author', name}); });
+          // The name's box: iPad and the Mac open the author's menu there (no prompt centred over the page).
+          button.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const r = button.getBoundingClientRect();
+            post({type:'author', name, rect:{x:r.left, y:Math.max(0, r.top), width:r.width, height:Math.min(r.bottom, window.innerHeight) - Math.max(0, r.top)}}); });
           tail.replaceWith(button);
         }
       }
@@ -2015,14 +2017,16 @@
     }, {passive: false});
   }
   // The conversations marked at a point: the caret there is inside the mark and the point is on its text.
-  const marksAt = (x, y) => {
+  // `line` gets the tapped line's box (iPad and the Mac open the passage's chats there).
+  const marksAt = (x, y, line) => {
     const caret = document.caretRangeFromPoint?.(x, y);
     if (!caret) return [];
     const ids = [];
     for (const mark of marks) {
       if (ids.includes(mark.id)) continue;
       try { if (!mark.range.isPointInRange(caret.startContainer, caret.startOffset)) continue; } catch { continue; }
-      if ([...mark.range.getClientRects()].some(rect => x >= rect.left - 2 && x <= rect.right + 2 && y >= rect.top - 4 && y <= rect.bottom + 4)) ids.push(mark.id);
+      const hit = [...mark.range.getClientRects()].find(rect => x >= rect.left - 2 && x <= rect.right + 2 && y >= rect.top - 4 && y <= rect.bottom + 4);
+      if (hit) { ids.push(mark.id); if (line && !line.rect) line.rect = hit; }
     }
     return ids;
   };
@@ -2039,8 +2043,10 @@
       if (moved || !marks.length || !window.getSelection()?.isCollapsed) return;
       const element = event.target instanceof Element ? event.target : event.target?.parentElement;
       if (!element || element.closest(`a,.sr-cite,.sr-toc-link,figure,[role="button"],[data-sr-reference],[data-sr-paper-tags],[data-reader-equation],[${CHROME}]`)) return;
-      const ids = marksAt(event.clientX, event.clientY);
-      if (ids.length) post({type: 'marks', manifest_sha256: manifest, ids});
+      const line = {}, ids = marksAt(event.clientX, event.clientY, line);
+      const r = line.rect;
+      if (ids.length) post({type: 'marks', manifest_sha256: manifest, ids,
+        rect: r ? {x: r.left, y: Math.max(0, r.top), width: r.width, height: Math.min(r.bottom, window.innerHeight) - Math.max(0, r.top)} : null});
     });
   }
   (() => {
