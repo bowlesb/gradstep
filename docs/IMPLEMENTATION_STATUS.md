@@ -1,7 +1,14 @@
 # Implementation status
 
-## TestFlight 90 (pending)
+## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 
+- **Also in 90:** TestFlight 89's iPad Wide work (places button top-left, a double-tapped divider lets the list cover the
+  window, live divider drag, the open paper centred and tinted after turning upright); Feed Add/loading/checkmark keep one
+  size; iPad Wide Library ⋯ has one Catalog row with Manage Catalogs inside; Settings is in the places menu under Search
+  and in no ⋯ menu in Wide; MacKeyboardTests uses ⌘2 for the Library. Release gate on the merged main: `npm test`,
+  `npm run test:imports` 15/15, `swift test` 437 + 38 XCTest, all pass. Not yet seen on a device. Known: the built-in
+  sample paper still names Define/Relevance/Similar/Ingest; in Wide the paper's text-size control floats over the Feed
+  list; two unanchored confirmation dialogs (author, Chats about this passage) may still centre over the paper.
 - Reader **revision 23** (branch `reader-fixes-90`, build 88 reports): one list marker per item, the paper's own label, with
   no empty lines under it (2610.28711v1, 2610.14162v1); multi-line diagram labels drawn line by line without phantom
   struts (2610.14162v1 Figure 3). 125-paper replay and a fresh 60-paper sweep: no new failures; iPad screenshots in
@@ -14,22 +21,18 @@
   60-paper sweep and 125-paper cached replay: 0 fail, findings otherwise unchanged. The Library row's title is the
   catalog's (`$\Delta$` as arXiv writes it), not the reader's; unchanged.
 
-
-## TestFlight 90 (pending)
-
 - **iPad menus, explainers and prompts** (branch `ipad-menus-90`; owner feedback on TestFlight 88, DECISIONS.md › Menus,
   explainers and prompts on iPad): upright, the AI Explainer, equation view and figure page cover the page as on iPhone;
   Why it matters, Related papers, Add paper, Draw snippet and the system's Look Up/Translate/Search Web/Share/Speak are
   gone from a text selection's menu (Copy · Explain in Chat · Save snippet), an equation's is Chat about Equation · Focus ·
   Copy as Text; a reference opens the system's pull-down menu with symbols; the Feed opens as a table; in Wide a slot's
   prompts (model chooser, consent, Columns, Snippets' sheets…) cover that slot only, and app-level sheets are the iPhone's
-  sheet scaled up. Not yet on TestFlight; not seen on a device. Verification (Simulator iOS 26.4, iPad Pro 13-inch M5 and
+  sheet scaled up. Verification (Simulator iOS 26.4, iPad Pro 13-inch M5 and
   iPhone 17 Pro; Mac Catalyst on this Mac): `swift test` 437/437; new `MenusJourneyTests` pass on iPad (8) and iPhone
   (the 5 that apply), `testMacRightClickMenus` passes on the Mac; IPadShapesJourneyTests 14/15 (the ⌘1 place shortcut
   check fails, as noted for TestFlight 88; `testReadAndDiscussKeepThePaperInPlace` failed once and passed on rerun);
   selection, equation and reference journeys in WorkflowJourneyTests and ReaderNavigationTests pass on both;
-  ChatTitle/ChatGeneration/PaperTable unit tests pass. MacKeyboardTests' ⌘4 Browse check fails (⌘4 is Chat since the
-  places were renumbered; stale, not changed here). The Feed's checkmark state after Add isn't reached in the fixture;
+  ChatTitle/ChatGeneration/PaperTable unit tests pass. MacKeyboardTests' stale ⌘4 Browse check was updated to ⌘2 on main. The Feed's checkmark state after Add isn't reached in the fixture;
   rows keep their top and height from Add to loading. iPadOS 18 sizing not run on an 18 Simulator (only 26.4 installed).
 - Figures of on-device readings zoom out onto the PDF page (branch `figure-zoom-out`; converter port revision 10; FIGURE_VIEW.md "Zoom out onto the page").
 
