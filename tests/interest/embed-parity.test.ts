@@ -11,6 +11,8 @@ import { createEmbedder } from '../../services/pipeline-worker/interest-embed.ts
 import { interestText } from '../../supabase/functions/_shared/interest/job.ts';
 
 const modelPath = process.env.INTEREST_MODEL_PATH;
+// As in the image: ONNX Runtime's telemetry stays off (the embedder refuses to load the runtime otherwise).
+process.env.ORT_DISABLE_TELEMETRY = '1';
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/interest/reference-vectors.json', import.meta.url), 'utf8')) as
   { papers: { title: string; abstract: string; f32: string }[] };
 const cos = (a: Float32Array, b: Float32Array) => a.reduce((s, x, i) => s + x * b[i], 0);

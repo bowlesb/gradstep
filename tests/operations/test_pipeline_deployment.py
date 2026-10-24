@@ -117,6 +117,8 @@ class PipelineDeploymentTests(unittest.TestCase):
             self.assertIn('COPY server.ts run.ts podcast-run.ts podcast-encode.ts interest-run.ts interest-embed.ts ./services/pipeline-worker/', docker)
             # The interest index model: fetched at build time, pinned by SHA-256 (docs/architecture/INTEREST_INDEX.md).
             self.assertIn('ADD --checksum=sha256:398a29991324e0b383afa13375d681ced3079c83e097fb1ebd9290d7498523b3', docker)
+            # ONNX Runtime telemetry is switched off in the image (no upload to Microsoft's collector).
+            self.assertIn('ENV ORT_DISABLE_TELEMETRY=1', docker)
 
     def test_no_direct_provider_identity_or_key_reaches_the_worker(self):
         # Owner, 2026-10-21: OpenRouter exclusively. Speech no longer has a Vertex identity; no direct key is accepted.

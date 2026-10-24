@@ -22,7 +22,19 @@ async function fileSha256(path: URL): Promise<string> {
 
 export type Embedder = (texts: string[]) => Promise<Float32Array[]>;
 
+/**
+ * ONNX Runtime 1.30's official Linux build carries Microsoft's 1DS telemetry (onnxruntime/core/platform/posix/telemetry.cc):
+ * on by default, it would persist a device id under $HOME/.cache and upload to
+ * https://mobile.events.data.microsoft.com/OneCollector/1.0. Its documented POSIX opt-out is ORT_DISABLE_TELEMETRY,
+ * read once when the runtime initializes. The image sets it (Dockerfile); the embedder refuses to load the runtime
+ * without it, so servers make no outbound connection but to Supabase (docs/architecture/INTEREST_INDEX.md §1).
+ */
+export function telemetryDisabled(env: Record<string, string | undefined> = process.env): boolean {
+  return ['1', 'true', 'yes', 'on', 'y'].includes((env.ORT_DISABLE_TELEMETRY ?? '').trim().toLowerCase());
+}
+
 export async function createEmbedder(options: { modelPath?: URL; vocabPath?: URL; threads?: number } = {}): Promise<Embedder> {
+  if (!telemetryDisabled()) throw new Error('interest_telemetry_enabled');
   const modelPath = options.modelPath ?? MODEL_PATH;
   if (await fileSha256(modelPath) !== MODEL_SHA256) throw new Error('interest_model_mismatch');
   const ort = await import('onnxruntime-node');
