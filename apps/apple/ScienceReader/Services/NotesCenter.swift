@@ -83,6 +83,8 @@ enum NoteEntrySync: Equatable {
 
 @MainActor @Observable final class NotesCenter {
     private(set) var state = NotesState()
+    /// Advances whenever `state` changes (the full-text index reindexes a paper's notes then).
+    @ObservationIgnored private(set) var stateRevision = 0
     private(set) var pendingEvents: Set<UUID> = []
     private(set) var pendingBlobs: Set<UUID> = []
     /// The note this device last saved to.
@@ -108,6 +110,7 @@ enum NoteEntrySync: Equatable {
         let next = NotesState(privateState)
         guard next != state else { return }
         state = next
+        stateRevision &+= 1
         if let openNoteID, state.note(openNoteID) == nil, state.isDeleted(openNoteID) { self.openNoteID = nil }
     }
 
@@ -128,6 +131,7 @@ enum NoteEntrySync: Equatable {
 
     func reset() {
         state = NotesState(); pendingEvents = []; pendingBlobs = []; destination = nil; uploadFailures = [:]
+        stateRevision &+= 1
         openNoteID = nil; focusEntryID = nil; search = ""; capturing = nil; captureInitialRect = nil; composer = nil; notice = nil
         collapsedEntries = [:]
         images.removeAllObjects()

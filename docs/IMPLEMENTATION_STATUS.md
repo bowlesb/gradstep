@@ -12,6 +12,26 @@
   passages: 293 word for word, 75 approximate, 6 by the block's place, all on a recorded page) and the opt-in journey
   passed on the iPhone 17 Pro and iPad Pro 13-inch (M5) Simulators; the Mac app builds. Not seen on a device; the slot
   sheet beside a second slot and the equation menu's entry were not exercised by a journey.
+- **Library search over every saved paper's text** (branch `worktree-agent-a95c83cd39d83f3b5`; owner question 2026-10-24;
+  DECISIONS.md "Library search over every paper's text"; NATIVE_LIBRARY_SEARCH.md "Full-text index"): an encrypted
+  on-device inverted index (ScienceReaderCore `FullText/`) replaces the 200-paper / 10,000-word in-memory term set.
+  Words and `"phrases"`, all required; the word being typed matches as a prefix; BM25 by field (title > tags, authors,
+  abstract > notes > body) with a small recency boost orders the default Recent sort; metadata substring matching is
+  kept, so results are never fewer. Indexes title, authors, tags, abstract, notes and snippets, and the text of every
+  reading saved on this device; incremental, built in the background on first run, rebuilt only on a version change.
+  Segments, manifest and texts are AES-GCM sealed under the account's local key (complete protection, no backup); no
+  plaintext on disk (tested). A result matched in the text shows one secondary line with the words highlighted under
+  its title (List and table); opening it opens Find in paper on those words. Measured at 2,000 papers on the iPad
+  Simulator: 72 KB/paper on disk, 57–74 ms to load, index queries 0.3–4 ms, the whole Library search 11–18 ms median
+  with 100 snippets. Verification: `swift test` 450 + 38 pass (13 new full-text tests); app unit tests for search
+  (LibraryFullTextSearch, LibrarySearchCoordinator/Model, PaperTable, LibraryMetadata, OfflineModel) pass;
+  WorkflowSafetyTests' `testAskFromBrowseEntersReaderAndKeepsThePaperConversationDraft` fails on iPhone and iPad
+  Simulators (it expects the Mac's `browsing` rule; none of that code changed here); `npm test` passes. UI (iOS 26.4,
+  `-O`): new `LibraryFullTextJourneyTests` (body word → snippet row → paper opens with Find "1 of 2", keyboard down)
+  passes on iPhone 17 Pro and iPad Pro 11-inch; `IPadShapesJourneyTests/testSearchKeepsTheListAfterOpeningAResult` and
+  `PaperToolsTests` find-bar journey pass (the latter 3/3 after one timeout under a machine load average of ~200);
+  `WorkflowJourneyTests` `testSearchOpenReturnNoMatches…` and `testSearchScopeNameFits…` fail at the ML paper search
+  switch on this branch and on the base commit alike. Not yet on a device.
 
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 

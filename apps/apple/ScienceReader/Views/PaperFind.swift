@@ -8,6 +8,8 @@ import WebKit
     var isPresented = false
     var showsMatches = false
     var query = ""
+    /// False when the bar opens already searching (from a Library search result): the keyboard stays down.
+    @ObservationIgnored var focusesOnOpen = true
     private(set) var matches: [Match] = []
     private(set) var index = -1
     private weak var web: WKWebView?
@@ -88,7 +90,7 @@ struct PaperFindBar: View {
             .buttonStyle(.plain).disabled(find.matches.isEmpty).frame(minHeight: 36)
         }
         .padding(.horizontal, 16).padding(.bottom, 6).background(floating ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.bar))
-        .task { focused = true }
+        .task { if find.focusesOnOpen { focused = true }; find.focusesOnOpen = true }
         .task(id: find.query) { await find.search() }
         .slotSheet(isPresented: $find.showsMatches) {
             NavigationStack {
