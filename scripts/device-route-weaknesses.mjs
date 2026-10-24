@@ -22,6 +22,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { homedir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const argv = process.argv.slice(2);
@@ -99,9 +100,12 @@ const words = s => String(s ?? '').normalize('NFC').toLowerCase().match(WORD) ??
 
 /** The record of a run (its own, or the run a replay came from). */
 function recordOf(dir) {
-  if (existsSync(join(dir, 'record.json'))) return readJSON(join(dir, 'record.json'));
+  const at = d => existsSync(join(d, 'record.json')) ? readJSON(join(d, 'record.json'))
+    : existsSync(join(d, 'record.json.gz')) ? JSON.parse(gunzipSync(readFileSync(join(d, 'record.json.gz'))).toString('utf8')) : null;
+  const own = at(dir);
+  if (own) return own;
   const from = readJSON(join(dir, 'conversion.json'))?.replay?.from;
-  return from ? readJSON(join(ACCURACY, from, basename(dir), 'record.json')) : null;
+  return from ? at(join(ACCURACY, from, basename(dir))) : null;
 }
 
 // ---- the PDF's words, to find where a run of words is on the page ---------------------------------------------------
@@ -306,8 +310,8 @@ function analysePaper(run, key) {
           continue;
         }
       }
-      if (nT > 0) bigT.push({ a: ta + 1, b: tb2, words: tw.slice(ta + 1, tb2).map(([t]) => t.w) });
-      if (nD > 0) bigD.push({ a: da + 1, b: db2, words: dw.slice(da + 1, db2).map(([t]) => t.w) });
+      if (nT > 0) bigT.push({ a: ta + 1, b: tb2, gap: k, words: tw.slice(ta + 1, tb2).map(([t]) => t.w) });
+      if (nD > 0) bigD.push({ a: da + 1, b: db2, gap: k, words: dw.slice(da + 1, db2).map(([t]) => t.w) });
     }
   }
   // A run on one side whose words are a run on the other: moved, not lost.
@@ -400,6 +404,17 @@ function analysePaper(run, key) {
     const cut = tw[r.a]?.[0], kindT = tb[cut?.block]?.kind;
     add('text.missing', stage, stage === 'truth' ? 0 : r.words.length / 30, { sub, words: r.words.length, loc, region: region?.cls, blockKind: kindT, truth: ctx(tw, r.a, r.b) });
   }
+  // Words that are no words, whose letters are the letters the truth has in the same gap: two lines merged into one and
+  // sorted by x ("rtihnet seyvsatleum"), a line-building fault, not the text layer's.
+  const letterBag = ws => { const m = new Map(); for (const c of ws.join('')) m.set(c, (m.get(c) ?? 0) + 1); return m; };
+  const interleaved = d => {
+    const t = bigT.find(r => r.gap === d.gap);
+    if (!t) return false;
+    const a = letterBag(d.words), b = letterBag(t.words);
+    let n = 0, total = 0;
+    for (const [c, v] of a) { n += Math.min(v, b.get(c) ?? 0); total += v; }
+    return total >= 8 && n / total >= 0.8;
+  };
   bigD.forEach((d, j) => {
     if (movedD.has(j)) return;
     const loc = locate(pw, d.words);
@@ -415,6 +430,7 @@ function analysePaper(run, key) {
     else if (d.words.length >= 4 && matchedElsewhere >= 0.85) { cat = 'text.duplicated'; stage = region ? 'converter' : 'layout'; sub = 'read twice'; }
     else if (firstPage && dBlock && db.indexOf(dBlock) < 8) { cat = 'text.extra'; stage = 'converter'; sub = 'front matter (affiliations, notes)'; }
     else if (region && ['figure', 'table'].includes(region.cls)) { cat = 'text.extra'; stage = 'layout'; sub = `words of a ${region.cls}`; }
+    else if (!loc && interleaved(d)) { cat = 'text.extra'; stage = 'converter'; sub = 'two lines read as one (letters interleaved)'; }
     else if (!loc) { cat = 'text.extra'; stage = 'text'; sub = 'not in the text layer as words (garbled or OCR)'; }
     else { cat = 'text.extra'; stage = 'truth'; sub = 'printed in the PDF, not in the HTML'; }
     const sev = cat === 'furniture' ? d.words.length / 15 : cat === 'footnote.leak' ? d.words.length / 40 : stage === 'truth' ? 0 : d.words.length / 30;

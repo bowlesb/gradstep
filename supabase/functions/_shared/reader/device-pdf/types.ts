@@ -140,6 +140,8 @@ export interface DevicePDFInput {
   /** A hyphen at a line's end is kept when the paper shows it is the word's own ("three-dimensional"), dropped when it is
    * TeX's hyphenation (geometry.joinLines). */
   compounds?: boolean;
+  /** A glyph returning to the left below its line's own text starts a new line, whatever its scripts widened (linesOf). */
+  lineReturns?: boolean;
 }
 
 export interface Formula {

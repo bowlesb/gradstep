@@ -9,7 +9,7 @@
 //                            (a rule that changes crops, replayed with and without it from two real runs)
 //   then: node scripts/device-route-accuracy.mjs score --variant <new variant>
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, gunzipSync } from 'node:zlib';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,13 +34,15 @@ function png(width, height, shade) {
 }
 
 let n = 0;
-for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record.json'))).sort()) {
+// A record may be kept gzipped (record.json.gz) to save disk.
+const recordAt = dir => existsSync(join(dir, 'record.json')) ? JSON.parse(readFileSync(join(dir, 'record.json'), 'utf8'))
+  : existsSync(join(dir, 'record.json.gz')) ? JSON.parse(gunzipSync(readFileSync(join(dir, 'record.json.gz'))).toString('utf8')) : null;
+for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record.json')) || existsSync(join(FROM, k, 'record.json.gz'))).sort()) {
   if (only.length && !only.includes(key)) continue;
-  const record = JSON.parse(readFileSync(join(FROM, key, 'record.json'), 'utf8'));
+  const record = recordAt(join(FROM, key));
   for (const other of (arg('--also', '') ?? '').split(',').filter(Boolean)) {
-    const path = join(ROOT, '.artifacts/device-route/accuracy', other, key, 'record.json');
-    if (!existsSync(path)) continue;
-    const more = JSON.parse(readFileSync(path, 'utf8'));
+    const more = recordAt(join(ROOT, '.artifacts/device-route/accuracy', other, key));
+    if (!more) continue;
     record.tags = [...more.tags, ...record.tags]; record.recognitions = [...more.recognitions, ...record.recognitions]; // the record's own win
   }
   let distinct = 0;

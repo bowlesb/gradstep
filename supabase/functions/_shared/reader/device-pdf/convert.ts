@@ -81,7 +81,7 @@ function readPage(raw: PageInput, aliases?: TaggerVocabulary): Page {
 export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const prefix = sha256Hex(utf8(`${input.pdf.sha256}:${DEVICE_PDF_RENDERER_ID}:${DEVICE_PDF_CONVERTER_VERSION}`)).slice(0, 12);
   useWordGaps(null);
-  useLineBands(!!input.lineBands);
+  useLineBands(!!input.lineBands, !!input.lineReturns);
   useLigatures(!!input.ligatures);
   const nPages = input.pages;
   check(Number.isSafeInteger(nPages) && nPages >= 1 && nPages <= 2000, 'device_pdf_pages');

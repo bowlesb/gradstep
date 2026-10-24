@@ -16,7 +16,11 @@ export function centreIn(g: Glyph, box: readonly number[]): boolean {
 
 let lineBands = false;
 /** The converter's `lineBands` rule for the lines read after this call (one conversion at a time, as `read` runs). */
-export function useLineBands(on: boolean): void { lineBands = on; }
+export function useLineBands(on: boolean, returns = false): void { lineBands = on; lineReturns = returns; }
+/** lineReturns rule (2026-10-24): a glyph that returns to the left starts a new line when it sits below the line's own
+ * text (the bottom of the line's first glyph), not only below the band its scripts have widened: "tion, the system
+ * requires (|S_T⟩_{n_s} …" and the next line "footprint evaluates to:" were one line, letters interleaved. */
+let lineReturns = false;
 /** Ligatures (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ, ﬅ, ﬆ) written as their letters in the text (ligatures rule): the text layer names the glyph, the
  * reader, search and copied text want the letters. */
 let ligatures = false;
@@ -30,17 +34,17 @@ const LIGATURES: Record<string, string> = { '\uFB00': 'ff', '\uFB01': 'fi', '\uF
  * longer joins the lines: in JMLR's venue PDFs, and some arXiv ones, two lines were read as one, letters interleaved). */
 export function linesOf(glyphs: readonly Glyph[]): Glyph[][] {
   const lines: Glyph[][] = [];
-  let cur: Glyph[] = [], top = 0, bottom = 0;
+  let cur: Glyph[] = [], top = 0, bottom = 0, own = 0;
   for (const g of glyphs) {
     if (cur.length) {
       const shared = Math.min(g.bottom, bottom) - Math.max(g.top, top), band = bottom - top, centre = (g.top + g.bottom) / 2;
       const overlap = lineBands ? centre >= top - 0.35 * band && centre <= bottom + 0.35 * band : shared > 0;
       const back = g.x0 < cur[cur.length - 1].x0 - 2.0 * Math.max(g.size, 1.0);
-      if (!overlap || (back && g.top > bottom - 1.0)) { lines.push(cur); cur = []; }
+      if (!overlap || (back && (g.top > bottom - 1.0 || (lineReturns && g.top > own - 1.0)))) { lines.push(cur); cur = []; }
     }
     // With lineBands only a glyph mostly inside the band (two thirds of the shorter) widens it: a script, an accent, a
     // lowered delimiter or a box reaching the next line joins the line without making it two lines tall.
-    if (!cur.length) { top = g.top; bottom = g.bottom; }
+    if (!cur.length) { top = g.top; bottom = g.bottom; own = g.bottom; }
     else if (!lineBands || Math.min(g.bottom, bottom) - Math.max(g.top, top) >= (2 / 3) * Math.min(g.bottom - g.top, bottom - top)) {
       top = Math.min(top, g.top); bottom = Math.max(bottom, g.bottom);
     }

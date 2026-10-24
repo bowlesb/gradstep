@@ -230,6 +230,14 @@ test('line bands: a lowered delimiter that reaches the next line does not join t
   const scripts = [at('1', 0, 134.8, 7.6), at('N', 6, 131.0, 10), at('=', 12, 130.0, 10.4), at('1', 18, 131.2, 10), at('0', 24, 131.2, 10),
     at('4', 30, 129.3, 7.6), at('ˆ', 36, 128.5, 3), at('x', 36, 131.2, 10)];
   assert.equal(linesOf(scripts).length, 1);
+  // A line whose scripts widened its band down to the next line's top: the next line, starting again at the left below
+  // the line's own text, is its own line with lineReturns (2610.27929v1: "tion, the system requires (|S_T⟩_{n_s} …").
+  const widened = [at('t', 0, 415.4), at('i', 6, 415.4), at('o', 12, 415.4), at('|', 60, 414, 14), at('S', 66, 415.4), at('n', 72, 422, 9),
+    at('f', 0, 429), at('o', 6, 429), at('o', 12, 429)];
+  useLineBands(true);
+  assert.equal(linesOf(widened).length, 1, 'lineBands alone joins them');
+  useLineBands(true, true);
+  assert.deepEqual(linesOf(widened).map(l => l.map(x => x.text).join('')), ['tio|Sn', 'foo']);
   useLineBands(false);
 });
 
