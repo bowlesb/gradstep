@@ -50,7 +50,6 @@ private struct SheetTopRowModifier: ViewModifier {
     /// The X is the Mac's way to close a sheet, and Wide's in the companion slot (ExplainPane); a touch-screen sheet swipes
     /// down.
     @Environment(\.coverPresentation) private var cover
-    @Environment(\.placesReserve) private var placesReserve
     private var showsClose: Bool { close != nil && (Platform.isMac || cover) }
 
     func body(content: Content) -> some View {
@@ -81,21 +80,9 @@ private struct SheetTopRowModifier: ViewModifier {
                         }
                     }
                 }
-                // Wide's companion slot at the window's edge: the bar ends short of the places menu in the corner.
-                if cover && placesReserve > 0 {
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                        ToolbarItem(placement: .topBarTrailing) { placesRoom }.sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .topBarTrailing) { placesRoom }
-                    }
-                }
+                // The places menu is in the window's top-left corner (owner, 2026-10-23): the companion slot is on the
+                // paper's right, and covering the window its page is a centred column, so its bar never reaches it.
             }
-    }
-
-    /// The room for the places menu (its circle sits over it, from the window; WideShape.swift).
-    private var placesRoom: some View {
-        Color.clear.frame(width: max(0, placesReserve - 16), height: 1).accessibilityHidden(true)
     }
 
     /// Words only (owner, build 78: "use txt"), the same size for all; a step smaller where the bar is narrow.
@@ -204,10 +191,12 @@ struct SheetTopRow<Leading: View>: View {
     @ViewBuilder var leading: Leading
     /// In a Wide slot (Navigate's Contents) the row is the slot's share of the one top row: 52 pt, a hairline under it.
     @Environment(\.slotPane) private var slotPane
+    /// The left slot (Contents) starts after the places menu in the window's top-left corner (owner, 2026-10-23).
+    @Environment(\.placesLeadingReserve) private var placesReserve
 
     var body: some View {
         if slotPane {
-            row.padding(.horizontal, 12).frame(height: WideMetrics.barHeight)
+            row.padding(.leading, 12 + placesReserve).padding(.trailing, 12).frame(height: WideMetrics.barHeight)
                 .overlay(alignment: .bottom) { Rectangle().fill(Color(uiColor: .separator)).frame(height: 1 / UIScreen.main.scale) }
         } else {
             row.padding(.horizontal, DesignMetrics.margin).padding(.top, 14).padding(.bottom, 8)

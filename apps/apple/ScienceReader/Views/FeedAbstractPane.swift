@@ -7,7 +7,7 @@ import ScienceReaderCore
 /// appeared, its arXiv number, popularity and topics, why For you suggests it, and the whole abstract, with the row's own
 /// actions — Add to library (then its progress, and Read once it is here) and View on arXiv. Picking a row never adds it;
 /// only Add does. Read opens the paper in this slot, still the Feed place (WideSlots). With nothing picked, a quiet
-/// placeholder. It has no row: the places menu floats over its top-right corner, above the details.
+/// placeholder. It has no row: its details start level with the list's first row.
 struct FeedAbstractPane: View {
     @Bindable var model: ReaderModel
     @State private var adding: Set<String> = []
@@ -64,7 +64,7 @@ struct FeedAbstractPane: View {
                 }
             }
             .padding(.horizontal, 24)
-            // Below the places menu's corner, as the paper's title sits below its floating controls.
+            // Level with the list's first row beside it, as the paper's title sits below its floating controls.
             .padding(.top, WideMetrics.barHeight + 8).padding(.bottom, 32)
             .frame(maxWidth: DesignMetrics.column, alignment: .leading)
             .frame(maxWidth: .infinity)

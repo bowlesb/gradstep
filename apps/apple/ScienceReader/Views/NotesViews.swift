@@ -71,7 +71,8 @@ struct NotesView: View {
     @ViewBuilder private var wideBody: some View {
         if wideBar {
             // Collections | Collection on the shared two-slot container, its divider draggable; each slot's own row.
-            TwoSlotLayout(width: width, other: .left, arrangement: .snippets) {
+            TwoSlotLayout(width: width, other: .left, arrangement: .snippets,
+                          selection: model.notes.openNoteID.map(AnyHashable.init)) {
                 VStack(spacing: 0) {
                     collectionRow
                     NavigationStack { detail }
@@ -97,8 +98,7 @@ struct NotesView: View {
         }
     }
 
-    /// The collection's row: its name, then one ⋯ for the list and the open collection (audit N14); the places menu follows
-    /// at the window's corner (owner, 2026-10-23).
+    /// The collection's row: its name, then one ⋯ for the list and the open collection (audit N14).
     private var collectionRow: some View {
         let note = model.notes.openNoteID.flatMap { model.notes.state.note($0) }
         return WideBar {
@@ -249,9 +249,16 @@ struct NotesList: View {
     @Environment(\.noteActions) private var actions
     @Environment(\.wideBar) private var wideBar
 
+    /// A collection picked: it opens beside the list, and a list covering the window (iPad Wide) splits again, even when
+    /// it is the one already open (owner, 2026-10-23).
+    private func open(_ id: UUID) {
+        model.notes.openNoteID = id
+        SlotFractions.shared.uncover()
+    }
+
     var body: some View {
         let notes = model.notes.shownNotes
-        List(selection: Binding(get: { selection }, set: { if let id = $0 { model.notes.openNoteID = id } })) {
+        List(selection: Binding(get: { selection }, set: { if let id = $0 { open(id) } })) {
             if let status = statusLine {
                 Label(status, systemImage: "icloud.and.arrow.up").font(.footnote).foregroundStyle(.secondary)
                     .listRowSeparator(.hidden).accessibilityIdentifier("notes.status")
@@ -263,7 +270,7 @@ struct NotesList: View {
             ForEach(notes) { note in
                 // Each note is a card (owner, 2026-10-21: "each needs a very pleasant border around it, so it looks like
                 // a bunch of cards"; DESIGN.md "Cards"), 10 pt apart, inside the 16 pt margins.
-                Button { model.notes.openNoteID = note.id } label: { NoteRow(model: model, note: note).contentCard(selected: note.id == selection) }
+                Button { open(note.id) } label: { NoteRow(model: model, note: note).contentCard(selected: note.id == selection) }
                     .buttonStyle(.plain)
                     .tag(note.id)
                     .listRowInsets(EdgeInsets(top: 5, leading: DesignMetrics.margin, bottom: 5, trailing: DesignMetrics.margin))

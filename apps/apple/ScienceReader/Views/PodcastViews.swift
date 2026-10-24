@@ -38,7 +38,7 @@ struct PodcastListenView: View {
     @Bindable var model: ReaderModel
     @State private var width: CGFloat = 0
     @Environment(\.tabBarReserve) private var tabBarReserve
-    /// The Wide shape: the chips and ⋯ in one row (the places menu after it).
+    /// The Wide shape: the chips and ⋯ in one row (after the places menu in the window's top-left corner).
     @Environment(\.wideBar) private var wideBar
     private var center: PodcastCenter { model.podcasts }
 
@@ -124,7 +124,7 @@ struct PodcastListenView: View {
 
     @ViewBuilder private var header: some View {
         if wideBar {
-            // Wide: the iPhone header's grammar in one row, the places menu after it (owner, 2026-10-23).
+            // Wide: the iPhone header's grammar in one row, after the places menu (owner, 2026-10-23: the top left).
             WideBar { chips } trailing: { optionsMenu }
         } else {
             HStack(spacing: 10) {

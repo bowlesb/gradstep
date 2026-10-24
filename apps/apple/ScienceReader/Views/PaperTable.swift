@@ -279,6 +279,13 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     /// that fit show.
     var horizontalScroll = false
     var rowAlignment: VerticalAlignment = .firstTextBaseline
+    /// A row centred and tinted as the list appears (an iPad turned upright, RowReveal).
+    private var reveal: TableReveal<Row.ID>?
+
+    /// The table centring and tinting `reveal`'s row (an iPad turned upright with its paper beside the list).
+    func revealing(_ reveal: TableReveal<Row.ID>?) -> Self {
+        var table = self; table.reveal = reveal; return table
+    }
 
     init(rows: [Row], titleColumn: PaperTableColumn<Key>, columns: [PaperTableColumn<Key>], sort: Binding<PaperTableSort<Key>>,
          extraSortTitles: [Key: String] = [:], horizontalScroll: Bool = false, rowAlignment: VerticalAlignment = .firstTextBaseline,
@@ -344,7 +351,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                         }
                         .frame(minHeight: 44)
                         .listRowInsets(Self.rowInsets)
-                        .listRowBackground(rowBackground(row))
+                        .listRowBackground(rowBackgroundView(row))
                         .onHover { inside in
                             if inside { hovered = row.id } else if hovered == row.id { hovered = nil }
                         }
@@ -364,6 +371,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
             // they work as soon as the table shows; a focused text field (search) keeps its own keys.
             .background { keyCommands(proxy) }
             .onChange(of: rows.map(\.id)) { _, ids in if let id = keyboardRow, !ids.contains(id) { keyboardRow = nil } }
+            .revealScroll(reveal?.row, token: reveal?.reveal.token, proxy: proxy)
         }
     }
 
@@ -379,6 +387,12 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
             .disabled(keyboardRow == nil)
         }
         .opacity(0).frame(width: 0, height: 0).allowsHitTesting(false).accessibilityHidden(true)
+    }
+
+    /// A revealed row's fading tint (RevealTint), else the keyboard's or the hovered row's fill.
+    @ViewBuilder private func rowBackgroundView(_ row: Row) -> some View {
+        if let reveal, reveal.row == row.id { RevealTint(reveal: reveal.reveal, end: reveal.end) }
+        else { rowBackground(row) }
     }
 
     /// The keyboard's row, else the hovered one, gets a quiet fill (the selection color for the keyboard).
@@ -546,13 +560,17 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     @ViewBuilder private func tappable<Content: View>(_ row: Row, @ViewBuilder content: () -> Content) -> some View {
         let label = ([title(row).title, title(row).subtitle] + columns.filter { !$0.isControl }.map { spoken(row, $0.id) })
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+        // A revealed row is selected while its tint shows.
+        let revealed: AccessibilityTraits = reveal?.row == row.id ? .isSelected : []
         if let action = primaryAction(row) {
             Button(action: action.perform, label: content).buttonStyle(.plain)
                 .accessibilityLabel(label).accessibilityHint(action.hint)
+                .accessibilityAddTraits(revealed)
                 .accessibilityIdentifier(rowIdentifier(row))
         } else {
             content()
                 .accessibilityElement(children: .ignore).accessibilityLabel(label)
+                .accessibilityAddTraits(revealed)
                 .accessibilityIdentifier(rowIdentifier(row))
         }
     }

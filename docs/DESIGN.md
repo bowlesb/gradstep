@@ -67,20 +67,23 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     slots show and remembered per place. Navigation never adds a row: it sits at the end of a row the view already
     needs, or floats.
   - *The places menu* (`PlacesMenuButton`; replaces the places capsule that sat in the Wide row): one 44 pt glass circle in
-    the window's **top-right corner, the same spot in every view**, showing the current place's own symbol in accent, so
-    it also says where you are ("Places, Library" to VoiceOver, `places.menu`). Its menu: Feed, Library, Paper (needs a
-    paper), Chat, Snippets with the current one checked, then Search; the rows keep their `tab.*` identifiers. ⌘1…⌘5
-    choose the places with a hardware keyboard. The rightmost slot's row or floating controls end `placesReserve` (52 pt)
-    short of the edge: its ⋯ sits immediately left of the places button, and a companion's ✕ left of its ⋯. Each slot
-    keeps its own ⋯ for its own content (the left list's ⋯ ends the left row). Settings is the last row of every ⋯ (a
-    sheet on iPad in both shapes). No brand row, no gear, no segmented switch.
+    the window's **top-left corner, the same spot in every view** (owner correction, 2026-10-23: "I meant the top left";
+    a list covering the window included), showing the current place's own symbol in accent, so it also says where you
+    are ("Places, Library" to VoiceOver, `places.menu`). Its menu: Feed, Library, Paper (needs a paper), Chat, Snippets
+    with the current one checked, then Search; the rows keep their `tab.*` identifiers. ⌘1…⌘5 choose the places with a
+    hardware keyboard. The leftmost slot's row or floating controls start `placesLeadingReserve` (52 pt) in from the edge,
+    after the button: the Library's search field, the Feed's chips, All chats' search, Collections' search, Contents'
+    tabs, Listen's chips, and the paper's list toggle and ☰ when the paper is leftmost. Each slot keeps its own ⋯ at its
+    own top-right for its own content (the left list's ⋯ ends the left row; the rightmost ⋯ at the window's edge), and a
+    companion's ✕ sits left of its ⋯. Settings is the last row of every ⋯ (a sheet on iPad in both shapes). No brand row,
+    no gear, no segmented switch. Reading mode has no places button.
   - *Rows only where a slot needs one* (`WideBar`, 52 pt: 44 pt controls with 4 pt above and below, the page's background
     and a hairline under it; side-by-side rows share one centre line with the places button): the Library list (search
     field … ⋯; while searching, Cancel and the Library / ML paper search switch under it), the Feed list (topic chips …
     ⋯, as the iPhone's header), All chats (search), a conversation (title, New chat, ⋯; beside the paper: clock · title ·
     ✕ · ⋯), the Snippets list (search, +), a collection (its name … ⋯), Contents (its tabs and ✕). **The paper has no
     row**: glass buttons float over its top corners on the same centre line — the list toggle and ☰ Contents at the
-    left, ⋯ at the right — and the page's own CSS starts its title below them (`topInset`); the text scrolls under them.
+    left (after the places button when the paper is leftmost), ⋯ at the right — and the page's own CSS starts its title below them (`topInset`); the text scrolls under them.
     The figure page, equation view and AI Explainer keep their own bar (Snippet · Chat · AI Explainer, Open in Chat, ✕);
     the Feed's abstract pane has no controls above its content. Reading mode, Find and the rest are rows of ⋯.
   - *Vertical budget (Wide)*: above content, the status bar and at most one 52 pt row (≤ 56 pt, asserted by
@@ -92,13 +95,26 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Two slots* (`TwoSlotLayout`, the one reusable container; at most two columns): it owns the widths, the divider and
     the animated hand-offs (respecting Reduce Motion), and keeps the main view's identity, so a paper keeps its load and
     place whichever side the other slot is on. It knows nothing about papers. The divider is a hairline with a 24 pt
-    hit area and a grabber; a drag shows where it will land and applies when it ends; double-tap resets it; VoiceOver
-    adjusts it in 5% steps and has Reset. Positions are kept on the device as fractions of the width per arrangement
-    (`SlotFractions`; `wide.divider.<arrangement>`), so turning and Stage Manager keep proportions. Every divider
-    starts in the middle (owner, 2026-10-23: one panel splitting into two "should break apart… in the middle").
-    Minimums: Library and Feed list ≥ 280 pt, paper ≥ 420 pt; All chats and Collections ≥ 280, conversation or
-    collection ≥ 320; Contents ≥ 420 each side; paper ≥ 420 beside a companion ≥ 320. Dragging a list more than 40 pt past its minimum collapses it (the paper becomes the
-    Paper place; Contents closes); dragging a companion past its minimum closes it.
+    hit area and a grabber. **A drag is a real drag** (owner, 2026-10-23: "that doesn't feel like a real drag"): the
+    divider and both slots follow the finger on every frame (no preview line), each slot stopping at its minimum; the
+    position is kept when the finger lifts. The paper reflows as it goes and keeps the paragraph at its top, at the same
+    point within it (the reader bridge restores its place on every change of width on iPad, turns included; WebKit has
+    no CSS scroll anchoring). VoiceOver adjusts it in 5% steps and has Reset and Cover. Positions are kept
+    on the device as fractions of the width per arrangement (`SlotFractions`; `wide.divider.<arrangement>`), so turning
+    and Stage Manager keep proportions. Every divider starts in the middle (owner, 2026-10-23: one panel splitting into
+    two "should break apart… in the middle"). Minimums: Library and Feed list ≥ 280 pt, paper ≥ 420 pt; All chats and
+    Collections ≥ 280, conversation or collection ≥ 320; Contents ≥ 420 each side; paper ≥ 420 beside a companion ≥ 320.
+    Dragging a list more than 40 pt past its minimum collapses it (the paper becomes the Paper place; Contents closes);
+    dragging a companion that far past its minimum closes it. While the drag is past that point the closing slot stays
+    at its minimum, dimmed to half, so letting go visibly closes it.
+  - *Covering* (owner, 2026-10-23: "When you double tap, have the list be right over the entire paper, the same way as
+    the iphone, not in the middle"): a double tap on the divider lets the list (or the companion, on the paper's right)
+    cover the whole window; the slot beneath stays loaded at its place, transparent, untouchable and hidden from
+    VoiceOver (the covering slot is modal within the two slots). A small glass handle with a chevron at the far edge
+    (`slots.uncover`; "Show the paper beside") brings the two slots back with a tap or a drag inward, at the kept
+    divider, and so does a second double tap. Picking from the covering list (a paper, an article, a conversation, a
+    collection, the open one again included) splits the slots again, the picked thing on the right. The places button
+    stays in its corner and the list's row starts after it. For this run only: a new launch starts split.
   - *Library* = Library list | paper. The list shows the table with the columns that fit the slot (more as the divider
     moves right; rows at accessibility sizes); the right slot shows the open paper (usually the last one read) or "No
     paper open · Choose a paper to read it here". Picking a paper opens it on the right and the place is still Library
@@ -125,7 +141,14 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Turning or resizing* (rotation, Stage Manager, fold/unfold) keeps the place, the selection, the open paper and its
     place, the open companion and any draft. Tall's Chat about a paper becomes Discuss; Discuss turned upright is the
     Chat tab with Back to the paper; the Library or Feed with a paper beside them upright are those tabs (the paper is the
-    Paper tab), and an explainer beside the paper is the iPhone's sheet.
+    Paper tab), and an explainer beside the paper is the iPhone's sheet. Turned upright on the Library with a paper
+    beside it (owner, 2026-10-23: "make sure that the paper we were just reading appears in the middle of the list, and
+    it's initially highlighted… and then it dims"), the full-screen list (table or rows) scrolls that paper's row to its
+    vertical centre and tints it with the selected-row accent (12%, the Feed's picked-row look), marked selected for
+    VoiceOver; the tint fades on its own as the figure explainer's part outline does (full for 0.9 s, the turn included,
+    then an ease-in fade over `FigureFullscreenStage.fadeDuration`, 1 s; with Reduce Motion it stays as long, then goes at
+    once). The Feed does the same for its picked article. A row not in the list (filtered out, searched past) gets
+    nothing; sideways again, the same paper is on the right (`RowReveal`, `RevealTint`).
   - *Selection actions* stay in the system edit menu next to the selection on every shape (Explain in Chat, Save
     snippet, …); no bar of actions sits over the page.
   - *Not yet*: Settings as Sections | Page (still a sheet); the Mac's own Wide step (its toolbar holds the five places;
@@ -135,7 +158,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Superseded on Wide (2026-10-23)*: the places capsule in the one top row; one row spanning every pane; "Explain"
     covering the paper's slot (explainers are now companions on its right); "the Library and Feed tables are not in the
     container" (they are each place's left slot); Browse as a view of the Paper place with a ✕ on its list (the Library
-    place itself now has the paper on its right).
+    place itself now has the paper on its right); the places button in the top-right corner, with the rightmost slot's
+    row ending short of it; a double tap on the divider returning it to the middle; a divider drag that showed a line
+    and moved the slots only when it ended.
 - **Icons**: the app's own symbols (`GradstepSymbol`; `Assets.xcassets/Symbols`, drawn by `tools/icons`): rounded
   lines like the Nabla mark, each with one amber point — Feed (feed arcs from the point), Library (spines, the
   middle one banded), Paper (page with the reading point), Chat (bubble with · · •), Settings (gear around the

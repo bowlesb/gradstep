@@ -6,8 +6,9 @@ import ScienceReaderCore
 // - Tall (iPhone, iPad upright, Split View halves, narrow windows) is the iPhone app exactly: the places capsule floats at
 //   the bottom and one screen shows at a time.
 // - Wide (iPad sideways; the Mac) gives each place its own two slots, the place's list on the left and what was picked
-//   from it on the right (owner, 2026-10-23). The places are a menu in the window's top-right corner (`PlacesMenuButton`),
-//   beside the rightmost slot's ⋯; navigation never adds a row of its own.
+//   from it on the right (owner, 2026-10-23). The places are a menu in the window's top-left corner (`PlacesMenuButton`;
+//   owner correction, 2026-10-23: "I meant the top left"), before the leftmost slot's controls; navigation never adds a
+//   row of its own.
 // Turning an iPad changes only where the places are and whether a second slot shows.
 
 enum WindowShape {
@@ -22,13 +23,13 @@ enum WindowShape {
 enum WideMetrics {
     /// A Wide row, where a slot has one: 44 pt controls with 4 pt above and below. Floating controls share its centre line.
     static let barHeight: CGFloat = 52
-    /// The room the places button (the window's top-right corner, `PlacesMenuButton`) takes at the end of the rightmost
-    /// slot's row or floating controls: its 44 pt circle and 8 pt before it.
+    /// The room the places button (the window's top-left corner, `PlacesMenuButton`) takes at the start of the leftmost
+    /// slot's row or floating controls: its 44 pt circle and 8 pt after it.
     static let placesReserve: CGFloat = 52
 }
 
 private struct WideBarKey: EnvironmentKey { static let defaultValue = false }
-private struct PlacesReserveKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
+private struct PlacesLeadingReserveKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
 private struct LibrarySidebarKey: EnvironmentKey { static let defaultValue = false }
 
 extension EnvironmentValues {
@@ -38,12 +39,12 @@ extension EnvironmentValues {
         get { self[WideBarKey.self] }
         set { self[WideBarKey.self] = newValue }
     }
-    /// The room left free at the trailing end of this slot's row (or its floating controls) for the places button, which
-    /// sits in the window's top-right corner: `WideMetrics.placesReserve` in the rightmost slot, 0 elsewhere
-    /// (`TwoSlotLayout` clears it for the slot on the left).
-    var placesReserve: CGFloat {
-        get { self[PlacesReserveKey.self] }
-        set { self[PlacesReserveKey.self] = newValue }
+    /// The room left free at the leading end of this slot's row (or its floating controls) for the places button, which
+    /// sits in the window's top-left corner: `WideMetrics.placesReserve` in the leftmost slot (or a slot covering the
+    /// window), 0 elsewhere (`TwoSlotLayout` hands it to whichever slot is on the left).
+    var placesLeadingReserve: CGFloat {
+        get { self[PlacesLeadingReserveKey.self] }
+        set { self[PlacesLeadingReserveKey.self] = newValue }
     }
     /// The Mac's Library beside the paper: its rows, never the full table (audit N8).
     var librarySidebar: Bool {
@@ -66,7 +67,7 @@ enum SlotArrangement: String, CaseIterable {
     case companion
 
     /// The left slot's share of the width to start with: half. One panel splitting into two breaks apart in the middle
-    /// (owner, 2026-10-23); a dragged divider is kept, and a double tap returns it here.
+    /// (owner, 2026-10-23); a dragged divider is kept, and VoiceOver's Reset returns it here.
     var defaultFraction: CGFloat { 0.5 }
     /// The narrowest each slot may be: a list 280 pt (Contents' four tabs and ✕ need 420), the paper 420 pt, a companion
     /// or a conversation 320 pt.
@@ -89,6 +90,15 @@ enum SlotArrangement: String, CaseIterable {
         case .companion: "Paper and companion"
         }
     }
+    /// For the grabber of a slot covering the window: what comes back beside it.
+    var coveredTitle: String {
+        switch self {
+        case .library, .contents, .companion: "the paper"
+        case .feed: "the details"
+        case .chats: "the conversation"
+        case .snippets: "the collection"
+        }
+    }
 }
 
 /// Where each arrangement's divider is, kept on this device (UserDefaults `wide.divider.<arrangement>`).
@@ -109,7 +119,7 @@ enum SlotArrangement: String, CaseIterable {
 
     func fraction(_ arrangement: SlotArrangement) -> CGFloat { values[arrangement] ?? arrangement.defaultFraction }
 
-    /// A new position, or nil for the default (a double tap, VoiceOver's Reset).
+    /// A new position, or nil for the default (VoiceOver's Reset).
     func set(_ fraction: CGFloat?, for arrangement: SlotArrangement) {
         values[arrangement] = fraction
         if let fraction { UserDefaults.standard.set(Double(fraction), forKey: Self.key(arrangement)) }
@@ -157,83 +167,110 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
     @ViewBuilder var main: Main
     @ViewBuilder var otherView: Other
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.placesReserve) private var placesReserve
-    /// While dragging: where the left slot would end (the slots change once, at the end of the drag, so a paper isn't
-    /// reflowed on every frame).
+    /// The room the places button needs at the leading end of the leftmost slot's row (`placesLeadingReserve`).
+    @Environment(\.placesLeadingReserve) private var placesReserve
+    /// While dragging: the left slot's width under the finger (unclamped; the slots clamp it), and where it began.
     @State private var dragLeft: CGFloat?
+    @State private var dragStart: CGFloat?
 
     /// How far past the other slot's minimum a drag must end to close it; short of that the divider stops at the minimum.
     static var collapseSlack: CGFloat { 40 }
 
     /// The left slot's width for an arrangement, a divider position and a window width.
     static func leftWidth(_ arrangement: SlotArrangement, fraction: CGFloat, width: CGFloat) -> CGFloat {
-        let minimums = arrangement.minimums
-        return min(max(minimums.left, width - minimums.right), max(minimums.left, (fraction * width).rounded()))
+        clamped(arrangement, (fraction * width).rounded(), width: width)
     }
 
-    private var leftWidth: CGFloat { Self.leftWidth(arrangement, fraction: SlotFractions.shared.fraction(arrangement), width: width) }
+    /// A left width kept within both slots' minimums.
+    static func clamped(_ arrangement: SlotArrangement, _ left: CGFloat, width: CGFloat) -> CGFloat {
+        let minimums = arrangement.minimums
+        return min(max(minimums.left, width - minimums.right), max(minimums.left, left))
+    }
+
+    private var storedLeft: CGFloat { Self.leftWidth(arrangement, fraction: SlotFractions.shared.fraction(arrangement), width: width) }
 
     var body: some View {
         let side = wide ? other : .none
-        let left = leftWidth
-        // Double tap on the divider: the list (or the companion) covers the whole window, as on iPhone; the main view stays
-        // loaded beneath it, at its place, and a thin grabber at the far edge brings the two slots back.
+        // A real drag (owner, 2026-10-23: "that doesn't feel like a real drag"): both slots follow the finger on every
+        // frame, each stopping at its minimum; past the other slot's minimum (and `collapseSlack`) that slot dims, and
+        // letting go closes it.
+        let left = dragLeft.map { Self.clamped(arrangement, $0, width: width) } ?? storedLeft
+        let closing = dragLeft.map { landing($0, side: side).closes } ?? false
+        // Double tap on the divider: the list (or the companion) covers the whole window, as on iPhone (owner, 2026-10-23);
+        // the main view stays loaded beneath it, at its place, and a grabber at the far edge brings the two slots back.
         let covering = side != .none && SlotFractions.shared.covering.contains(arrangement)
+        // The places button is in the window's top-left corner (owner, 2026-10-23): the leftmost slot's row leaves room.
+        let mainLeads = side != .left && !covering
         HStack(spacing: 0) {
-            if side == .left {
-                Color.clear.frame(width: left)
-                divider(left: left, side: side)
-            }
+            // The list's slot and the divider's hairline: both are drawn above, so the list can cover the window.
+            if side == .left { Color.clear.frame(width: left + 1).accessibilityHidden(true) }
             main
                 .frame(width: side == .right ? left : nil)
                 .frame(maxWidth: side == .right ? nil : .infinity)
-                // The places button sits over the rightmost slot.
-                .environment(\.placesReserve, side == .right || covering ? 0 : placesReserve)
+                .environment(\.placesLeadingReserve, mainLeads ? placesReserve : 0)
+                // Covered: still loaded at its place, but neither seen, read by VoiceOver nor touched. (Its UIKit-hosted
+                // parts, a NavigationStack's pages, don't take SwiftUI's hiding: the covering slot is modal as well.)
+                .opacity(covering ? 0 : 1)
+                .accessibilityElement(children: .contain)
                 .accessibilityHidden(covering)
-            if side == .right {
-                divider(left: left, side: side)
-                Color.clear.frame(maxWidth: .infinity)
-            }
+                .allowsHitTesting(!covering)
+                .accessibilitySortPriority(side == .left ? 0 : 2)
+            // The divider's hairline and the companion's slot (flexible: a container measuring its own width, as the
+            // explainer's does, must be free to grow with the window).
+            if side == .right { Color.clear.frame(minWidth: 1, maxWidth: .infinity).accessibilityHidden(true) }
         }
         .overlay(alignment: side == .right ? .trailing : .leading) {
             if side != .none {
                 otherView
                     .frame(width: covering ? width : (side == .left ? left : max(0, width - left - 1)))
-                    .background(Color(uiColor: .systemBackground))
-                    .environment(\.placesReserve, side == .left && !covering ? 0 : placesReserve)
+                    .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+                    .opacity(closing ? 0.5 : 1)
+                    .environment(\.placesLeadingReserve, mainLeads ? 0 : placesReserve)
                     .overlay(alignment: side == .left ? .trailing : .leading) { if covering { uncoverGrabber(side: side) } }
+                    .accessibilityElement(children: .contain)
+                    // Covering the window, it is all VoiceOver reads of the two slots (the places menu, outside them, stays).
+                    .accessibilityAddTraits(covering ? .isModal : [])
+                    // VoiceOver reads the slots left to right: the list, the divider, then what was picked.
+                    .accessibilitySortPriority(side == .left ? 2 : 0)
                     .transition(.move(edge: side == .left ? .leading : .trailing).combined(with: .opacity))
             }
         }
-        .overlay(alignment: .topLeading) {
-            // Where the divider will land; faint at the edge when the drag closes the other slot.
-            if let dragLeft {
-                let end = landing(dragLeft, side: side)
-                Rectangle().fill(Color.accentColor.opacity(end.closes ? 0.4 : 1)).frame(width: 3)
-                    .offset(x: end.x - 1.5)
-                    .allowsHitTesting(false).accessibilityHidden(true)
+        .overlay(alignment: .leading) {
+            if side != .none && !covering {
+                HStack(spacing: 0) { divider(left: left, side: side) }
+                    .padding(.leading, left)
+                    .accessibilitySortPriority(1)
             }
         }
+        .accessibilityElement(children: .contain)
         .animation(reduceMotion ? nil : .snappy(duration: 0.32), value: side)
         .animation(reduceMotion ? nil : .snappy(duration: 0.32), value: covering)
         .onChange(of: selection) { SlotFractions.shared.uncover(arrangement) }
     }
 
-    /// While the list covers the window: a grabber at its far edge; a tap or a drag inward brings the two slots back.
+    /// While a slot covers the window: a small glass handle at its far edge, its chevron pointing where the other slot
+    /// comes back from; a tap or a drag inward brings the two slots back. Quiet (secondary, half the divider's grabber
+    /// height again), but always there.
     private func uncoverGrabber(side: Side) -> some View {
         ZStack {
-            Color.clear.frame(width: 24).contentShape(Rectangle())
-            Capsule().fill(Color(uiColor: .tertiaryLabel)).frame(width: 5, height: 44)
+            Color.clear.frame(width: 32).contentShape(Rectangle())
+            Image(systemName: side == .left ? "chevron.compact.left" : "chevron.compact.right")
+                .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
+                .frame(width: 20, height: 56)
+                .chromeSurface(Capsule())
                 .hoverEffect(.highlight)
         }
+        .frame(height: 120)
+        .padding(.horizontal, 2)
         .onTapGesture { SlotFractions.shared.uncover(arrangement) }
         .gesture(DragGesture(minimumDistance: 8).onEnded { value in
             if (side == .left && value.translation.width < -20) || (side == .right && value.translation.width > 20) {
                 SlotFractions.shared.uncover(arrangement)
             }
         })
+        .help("Show \(arrangement.coveredTitle) beside")
         .accessibilityElement()
-        .accessibilityLabel(side == .left ? "Show the paper beside the list" : "Show the paper beside")
+        .accessibilityLabel("Show \(arrangement.coveredTitle) beside")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { SlotFractions.shared.uncover(arrangement) }
         .accessibilityIdentifier("slots.uncover")
@@ -246,12 +283,12 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
             if side == .left, proposed < minimums.left - Self.collapseSlack { return (0, true) }
             if side == .right, proposed > width - minimums.right + Self.collapseSlack { return (width, true) }
         }
-        return (min(max(minimums.left, width - minimums.right), max(minimums.left, proposed)), false)
+        return (Self.clamped(arrangement, proposed, width: width), false)
     }
 
     /// The hairline between the slots, with a 24 pt area to drag and a grabber in the middle (as the Mac Reader's,
-    /// ReaderSplit): drag to resize, double-tap to let the list cover the window as on iPhone; VoiceOver adjusts it in
-    /// steps of 5%, can reset it to the middle, and has the covering as an action.
+    /// ReaderSplit): drag to resize (the slots follow the finger), double-tap to let the list cover the window as on
+    /// iPhone; VoiceOver adjusts it in steps of 5%, can reset it to the middle, and has the covering as an action.
     private func divider(left: CGFloat, side: Side) -> some View {
         let fractions = SlotFractions.shared
         let percent = Int((left / max(width, 1) * 100).rounded())
@@ -264,11 +301,21 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
                         .hoverEffect(.highlight)
                 }
                 .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
-                    .onChanged { value in dragLeft = left + value.translation.width }
+                    .onChanged { value in
+                        // Measured from where the drag began, not from the slots as they are now (they follow it).
+                        let start = dragStart ?? left
+                        if dragStart == nil { dragStart = left }
+                        dragLeft = start + value.translation.width
+                    }
                     .onEnded { value in
-                        let end = landing(left + value.translation.width, side: side)
-                        dragLeft = nil
-                        if end.closes { collapse?() } else { fractions.set(end.x / max(width, 1), for: arrangement) }
+                        let end = landing((dragStart ?? left) + value.translation.width, side: side)
+                        // One transaction: the kept fraction takes over from the live width, with no motion.
+                        var transaction = Transaction(); transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            if !end.closes { fractions.set(end.x / max(width, 1), for: arrangement) }
+                            dragLeft = nil; dragStart = nil
+                        }
+                        if end.closes { collapse?() }
                     })
                 // As on iPhone: the list over the whole window (owner, 2026-10-23); the grabber at its edge brings it back.
                 .onTapGesture(count: 2) { fractions.toggleCovering(arrangement) }
@@ -286,20 +333,20 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
                 }
                 .accessibilityIdentifier("slots.divider")
             }
-            .zIndex(1)
     }
 }
 
 /// A slot's row in the Wide shape, only where the slot has controls of its own (owner, 2026-10-23: navigation "never
 /// costs vertical space"). Its grammar is the iPhone's: a field or at most one "where to go" button on the left, the
-/// chat's title in the centre, then a create button where creating is the screen's job and ⋯ last. In the rightmost slot
-/// it ends `placesReserve` short of the edge, where the places button sits. The row shares the page's background and ends
-/// in a hairline; every row has the same height, so side-by-side rows line up on one centre line.
+/// chat's title in the centre, then a create button where creating is the screen's job and ⋯ last. In the leftmost slot
+/// it starts `placesLeadingReserve` in from the edge, after the places button in the window's top-left corner (owner,
+/// 2026-10-23). The row shares the page's background and ends in a hairline; every row has the same height, so
+/// side-by-side rows line up on one centre line.
 struct WideBar<Leading: View, Center: View, Trailing: View>: View {
     @ViewBuilder var leading: Leading
     @ViewBuilder var center: Center
     @ViewBuilder var trailing: Trailing
-    @Environment(\.placesReserve) private var placesReserve
+    @Environment(\.placesLeadingReserve) private var placesReserve
 
     var body: some View {
         WideBarLayout {
@@ -307,7 +354,7 @@ struct WideBar<Leading: View, Center: View, Trailing: View>: View {
             ZStack { center }
             HStack(spacing: 8) { trailing }
         }
-        .padding(.leading, 12).padding(.trailing, 12 + placesReserve)
+        .padding(.leading, 12 + placesReserve).padding(.trailing, 12)
         .frame(maxWidth: .infinity)
         .frame(height: WideMetrics.barHeight)
         .background { Color.chromeBackground.ignoresSafeArea(.container, edges: .top) }
@@ -365,8 +412,9 @@ struct WideBarLayout: Layout {
 // MARK: - Places
 
 /// The places menu (owner, 2026-10-23: "put them in a menu in the right hand side, which is conceptually similar to the
-/// ... menu"; it replaced the places capsule in the Wide row). One 44 pt glass circle in the window's top-right corner,
-/// the same spot in every view, showing the current place's own symbol in accent, so it also says where you are. Its
+/// ... menu"; it replaced the places capsule in the Wide row). One 44 pt glass circle in the window's top-left corner
+/// (owner correction, 2026-10-23: "I thought I asked for an icon in the top left… I meant the top left"), the same spot in
+/// every view, a list covering the window included, showing the current place's own symbol in accent, so it also says where you are. Its
 /// rows: Feed, Library, Paper, Chat, Snippets (the current one checked; Paper needs a paper), then Search. ⌘1…⌘5 choose
 /// the places with a hardware keyboard. Each row keeps its `tab.*` identifier.
 struct PlacesMenuButton: View {
@@ -422,6 +470,90 @@ struct WideSearchField<Field: View>: View {
         field
             .padding(.leading, 10).padding(.trailing, 6).frame(height: DesignMetrics.headerControl)
             .chromeSurface(Capsule())
+    }
+}
+
+// MARK: - Turning upright
+
+/// Turning an iPad from Wide to Tall with a paper beside the Library, or an article picked in the Feed (owner, 2026-10-23:
+/// "make sure that the paper we were just reading appears in the middle of the list, and it's initially highlighted";
+/// "and then it dims, similar to the way the Figure outline dims in the AI Figure Explainer"): the Tall list centres that
+/// row and tints it, and the tint fades away on its own (`RevealTint`). A row not in the list (filtered out, searched
+/// past) gets nothing.
+struct RowReveal: Equatable {
+    let place: ReaderTab
+    /// The list row's id: a Library entry's (`LibraryListEntry.id`), a Feed article's source ID.
+    let rowID: String
+    let token = UUID()
+
+    /// Full strength for the turn's own animation (about half a second), then the figure outline's 0.4 s wait.
+    static var delay: TimeInterval { 0.9 * slow }
+    /// The figure outline's fade (`FigureFullscreenStage.fadeDuration`).
+    static var duration: TimeInterval { FigureFullscreenStage.fadeDuration * slow }
+
+    /// Fixture builds may slow it down to photograph and test it (`--row-reveal-slow=<factor>`).
+    private static var slow: Double {
+        #if DEBUG && FIXTURE_HOST
+        if let value = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--row-reveal-slow=") })
+            .flatMap({ Double($0.dropFirst("--row-reveal-slow=".count)) }) {
+            return min(60, max(1, value))
+        }
+        #endif
+        return 1
+    }
+}
+
+/// A table's revealed row (PaperTable): which row, its reveal, and how to end it once the tint has gone.
+struct TableReveal<ID: Hashable> {
+    let row: ID
+    let reveal: RowReveal
+    let end: () -> Void
+}
+
+extension ReaderModel {
+    /// The Tall list's revealed row for `place` (nil in Wide, where the open paper shows beside the list).
+    func revealedRow(in place: ReaderTab, wide: Bool) -> TableReveal<String>? {
+        guard !wide, let reveal = rowReveal, reveal.place == place else { return nil }
+        return TableReveal(row: reveal.rowID, reveal: reveal) { [weak self] in
+            if self?.rowReveal == reveal { self?.rowReveal = nil }
+        }
+    }
+}
+
+/// The revealed row's tint, the Feed's picked-row look (accent at 12%): full, then after `RowReveal.delay` it fades with
+/// ease-in over `RowReveal.duration`, as the figure outline does (`FigureFullscreenStage`); with Reduce Motion it stays as
+/// long, then goes at once. Then the reveal ends, and the row is no longer marked selected.
+struct RevealTint: View {
+    let reveal: RowReveal
+    let end: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var strength = 1.0
+
+    var body: some View {
+        Color.accentColor.opacity(0.12 * strength)
+            .task(id: reveal.token) {
+                strength = 1
+                try? await Task.sleep(for: .seconds(RowReveal.delay))
+                if reduceMotion { try? await Task.sleep(for: .seconds(RowReveal.duration)); strength = 0 }
+                else {
+                    withAnimation(.easeIn(duration: RowReveal.duration)) { strength = 0 }
+                    try? await Task.sleep(for: .seconds(RowReveal.duration))
+                }
+                if !Task.isCancelled { end() }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// The Tall list scrolls the revealed row to its middle as it appears, and again once the turn has settled.
+    func revealScroll<ID: Hashable>(_ row: ID?, token: UUID?, proxy: ScrollViewProxy) -> some View {
+        task(id: token) {
+            guard let row else { return }
+            proxy.scrollTo(row, anchor: .center)
+            try? await Task.sleep(for: .seconds(0.45))
+            proxy.scrollTo(row, anchor: .center)
+        }
     }
 }
 

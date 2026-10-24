@@ -140,6 +140,7 @@ extension LibraryColumnSettings.WidthClass {
 struct LibraryPaperTable<Top: View>: View {
     @Bindable var model: ReaderModel
     @ViewBuilder var top: Top
+    @Environment(\.wideBar) private var wideBar
 
     var body: some View {
         let items = model.libraryRows.map { LibraryTableItem(entry: $0, facts: model.libraryFacts(for: $0)) }
@@ -175,6 +176,8 @@ struct LibraryPaperTable<Top: View>: View {
                        }
                    },
                    top: { top })
+        // Turned upright with a paper beside the list: its row centred and tinted, the tint fading (owner, 2026-10-23).
+        .revealing(model.revealedRow(in: .library, wide: wideBar))
     }
 
     private var sort: Binding<PaperTableSort<LibrarySearchSort.Field>> {

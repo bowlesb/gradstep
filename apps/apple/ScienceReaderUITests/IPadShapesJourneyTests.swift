@@ -5,8 +5,9 @@ import UIKit
 private enum WideRow { static let half: CGFloat = 26 }
 
 /// One app, two shapes (docs/DESIGN.md › Tall and Wide). An iPad upright is the iPhone app: the places capsule at the
-/// bottom. Turned sideways it is Wide (owner, 2026-10-23): the places are a menu in the window's top-right corner, and each
-/// place owns two slots — its list on the left, what was picked from it on the right, on a draggable divider:
+/// bottom. Turned sideways it is Wide (owner, 2026-10-23): the places are a menu in the window's top-left corner, and each
+/// place owns two slots — its list on the left, what was picked from it on the right, on a draggable divider (a double tap
+/// lets the list cover the window, as on iPhone):
 /// Library | paper, Feed | abstract (or paper), All chats | conversation, Collections | collection. Paper is the paper as
 /// the left primary item (the list toggle), with Contents on its left or a companion on its right (AI Explainer, the
 /// equation view, a figure page, the chat). Navigation never adds a row: rows only where a slot has controls of its own,
@@ -100,6 +101,9 @@ final class IPadShapesJourneyTests: XCTestCase {
     /// Wide's Library: the sample picked in the list, its paper on the right (still the Library place).
     private func openSampleBesideLibrary(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         if app.currentPlace != "Library" { app.show("library") }
+        // A long library (`--long-library-fixture`) has the sample in its middle, below the window's end.
+        let list = app.collectionViews.firstMatch
+        for _ in 0..<8 where !(app.buttons[sampleID].exists && app.buttons[sampleID].isHittable) { list.swipeUp(velocity: .slow) }
         app.buttons[sampleID].tap()
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.staticTexts["An interactive reading sample · 2026"].waitForExistence(timeout: 15), "The paper is ready",
@@ -139,11 +143,39 @@ final class IPadShapesJourneyTests: XCTestCase {
                                  file: file, line: line)
     }
 
-    /// The places menu stays in the window's top-right corner.
+    /// The places menu stays in the window's top-left corner (owner correction, 2026-10-23).
     private func assertPlacesInTheCorner(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let frame = app.placesMenu.frame
-        XCTAssertEqual(frame.maxX, app.frame.maxX - 12, accuracy: 2, "The places menu at the right edge", file: file, line: line)
+        XCTAssertEqual(frame.minX, app.frame.minX + 12, accuracy: 2, "The places menu at the left edge", file: file, line: line)
         XCTAssertLessThan(frame.minY, app.frame.minY + 40, "The places menu at the top", file: file, line: line)
+    }
+
+    /// No control of the leftmost slot's row sits under the places menu (one snapshot).
+    private func assertNothingUnderThePlaces(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let places = app.placesMenu.frame
+        guard let snapshot = try? app.snapshot() else { return XCTFail("A snapshot", file: file, line: line) }
+        var under: [String] = []
+        func visit(_ node: XCUIElementSnapshot) {
+            // (The places menu's own button reports its frame without its identifier.)
+            if [.button, .textField, .searchField, .segmentedControl].contains(node.elementType), node.identifier != "places.menu",
+               node.frame != places, node.frame.width > 0, node.frame.intersects(places.insetBy(dx: 2, dy: 2)) {
+                under.append("\(node.identifier.isEmpty ? node.label : node.identifier) \(node.elementType.rawValue) \(node.frame)")
+            }
+            node.children.forEach(visit)
+        }
+        visit(snapshot)
+        XCTAssertTrue(under.isEmpty, "Under the places menu: \(under)", file: file, line: line)
+    }
+
+    /// A slot's ⋯ at that slot's top-right: here the window's right edge.
+    private func assertAtTheRightEdge(_ control: XCUIElement, _ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(control.frame.maxX, app.frame.maxX - 12, accuracy: 2, "\(control.label) at the right edge", file: file, line: line)
+    }
+
+    /// The leftmost slot's first control starts after the places menu.
+    private func assertAfterThePlaces(_ control: XCUIElement, _ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertGreaterThanOrEqual(control.frame.minX, app.placesMenu.frame.maxX + 4, "\(control.label) after the places menu",
+                                    file: file, line: line)
     }
 
     /// A place straight from the places menu (Chat is the general chat there, whatever paper is open).
@@ -199,7 +231,8 @@ final class IPadShapesJourneyTests: XCTestCase {
                                      app.buttons["Chat options"], app.buttons["chat.close"]], content: web, budget: 1)
         assertPlacesInTheCorner(app)
         XCTAssertLessThan(app.buttons["chat.close"].frame.maxX, app.buttons["Chat options"].frame.minX, "The companion's ✕ before its ⋯")
-        XCTAssertLessThan(app.buttons["Chat options"].frame.maxX, app.placesMenu.frame.minX, "⋯ just left of the places")
+        assertAtTheRightEdge(app.buttons["Chat options"], app)
+        assertAfterThePlaces(app.buttons["paper.contents"], app)
         XCTAssertGreaterThanOrEqual(composer(app).frame.maxY, app.frame.maxY - 90, "The message box at the bottom, nothing under it")
         XCTAssertFalse(app.buttons["Settings"].exists, "No gear: Settings is the last row of ⋯")
         save("\(device)-turn-3-sideways-discuss")
@@ -241,7 +274,8 @@ final class IPadShapesJourneyTests: XCTestCase {
         for control in [search, app.buttons["Chat options"], app.buttons["New chat"]] {
             XCTAssertEqual(control.frame.midY, centre, accuracy: 1.5, "\(control.label) on the row's centre line")
         }
-        XCTAssertLessThan(app.buttons["Chat options"].frame.maxX, app.placesMenu.frame.minX, "⋯ just left of the places")
+        assertAtTheRightEdge(app.buttons["Chat options"], app)
+        assertAfterThePlaces(search, app)
         assertPlacesInTheCorner(app)
         XCTAssertTrue(element("slots.divider", app).exists, "A divider between the slots")
         save("\(device)-view-chats")
@@ -262,6 +296,7 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertFalse(app.buttons["tab.library"].exists, "No capsule: the places are in the menu")
         let corner = app.placesMenu.frame
         assertPlacesInTheCorner(app)
+        assertNothingUnderThePlaces(app)
         app.placesMenu.tap()
         for id in ["feed", "library", "paper", "chat", "notes", "search"] {
             XCTAssertTrue(element("tab.\(id)", app).waitForExistence(timeout: 3), "The menu has \(id)")
@@ -271,13 +306,13 @@ final class IPadShapesJourneyTests: XCTestCase {
         element("tab.feed", app).tap()
         wait("Feed") { app.currentPlace == "Feed" }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.placesMenu.frame, corner, "The same spot")
+        XCTAssertEqual(app.placesMenu.frame, corner, "The same spot"); assertNothingUnderThePlaces(app)
         choose("chat", app)
         wait("Chat") { app.currentPlace == "Chat" }
-        XCTAssertEqual(app.placesMenu.frame, corner, "The same spot")
+        XCTAssertEqual(app.placesMenu.frame, corner, "The same spot"); assertNothingUnderThePlaces(app)
         app.show("notes")
         wait("Snippets") { app.currentPlace == "Snippets" }
-        XCTAssertEqual(app.placesMenu.frame, corner, "The same spot")
+        XCTAssertEqual(app.placesMenu.frame, corner, "The same spot"); assertNothingUnderThePlaces(app)
         // Search: the Library with its field focused.
         _ = app.placeItem("search"); element("tab.search", app).tap()
         wait("Search is the Library's field") { app.currentPlace == "Library" && app.segmentedControls["library.searchScope"].exists }
@@ -305,21 +340,33 @@ final class IPadShapesJourneyTests: XCTestCase {
         let options = app.buttons["Library options"]
         assertOneRow(app, controls: [options], content: app.buttons[sampleID])
         XCTAssertLessThan(options.frame.maxX, app.frame.width * 0.5, "The list's ⋯ ends the list's row")
+        assertAfterThePlaces(element("library.search", app), app)
         save("\(device)-library-empty")
         let web = openSampleBesideLibrary(app)
         XCTAssertEqual(web.frame.minX / app.frame.width, 0.5, accuracy: 0.03, "The list takes about half")
         assertOneRow(app, controls: [app.buttons["paper.listToggle"], app.buttons["paper.contents"], app.buttons["Paper options"]],
                      content: web, budget: 1)
-        XCTAssertLessThan(app.buttons["Paper options"].frame.maxX, app.placesMenu.frame.minX, "The paper's ⋯ just left of the places")
+        assertAtTheRightEdge(app.buttons["Paper options"], app)
+        XCTAssertGreaterThan(app.buttons["paper.listToggle"].frame.minX, web.frame.minX, "The paper's controls in its own slot")
         save("\(device)-library-paper")
 
-        // Drag the divider 160 pt to the right: the list grows.
+        // Drag the divider 160 pt to the right: the list grows with it (both slots follow the finger) and stays there.
         let before = web.frame.minX
         XCTAssertTrue(divider.exists)
         let start = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 160, dy: 0)))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 160, dy: 0)), withVelocity: 300,
+                    thenHoldForDuration: 0.3)
         wait("The divider moved") { abs(web.frame.minX - (before + 160)) < 6 }
+        XCTAssertEqual(divider.frame.midX, web.frame.minX, accuracy: 4, "The divider at the paper's edge")
         save("\(device)-library-divider-dragged")
+        // Dragged past the list's minimum (280 pt) but short of closing it: the list stops at its minimum, the paper stays.
+        let drag = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        drag.press(forDuration: 0.1, thenDragTo: drag.withOffset(CGVector(dx: -(divider.frame.midX - 280 + 20), dy: 0)))
+        wait("The list at its minimum") { abs(web.frame.minX - 281) < 6 }
+        XCTAssertEqual(app.currentPlace, "Library", "Still the Library: the list didn't close")
+        let back = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        back.press(forDuration: 0.1, thenDragTo: back.withOffset(CGVector(dx: before + 160 - divider.frame.midX, dy: 0)))
+        wait("The divider back where it was dragged") { abs(web.frame.minX - (before + 160)) < 6 }
         // Kept by the place: away to Feed and back.
         app.show("feed")
         wait("Feed") { app.currentPlace == "Feed" }
@@ -332,9 +379,50 @@ final class IPadShapesJourneyTests: XCTestCase {
         let kept = element("slots.divider", app)
         XCTAssertTrue(kept.waitForExistence(timeout: 5))
         XCTAssertEqual(kept.frame.midX, before + 160, accuracy: 8, "The divider where it was left")
-        // Double-tap: the default.
+        // Double-tap (owner, 2026-10-23: "have the list be right over the entire paper, the same way as the iphone"): the
+        // list covers the window, the places menu still in its corner; the grabber at the far edge brings the slots back.
         kept.doubleTap()
-        wait("Back to the middle") { abs(kept.frame.midX / app.frame.width - 0.5) < 0.03 }
+        let uncover = element("slots.uncover", app)
+        XCTAssertTrue(uncover.waitForExistence(timeout: 5), "The list covers the window, with a grabber at its edge")
+        wait("No divider while covering") { !kept.exists }
+        assertAtTheRightEdge(app.buttons["Library options"], app)
+        assertPlacesInTheCorner(app)
+        // (XCUITest still lists the covered slot's UIKit-hosted elements; VoiceOver's modal rule is not visible here.)
+        XCTAssertFalse(element("paper.placeholder", app).isHittable, "The right slot beneath the list")
+        XCTAssertGreaterThan(uncover.frame.midX, app.frame.width - 40, "The grabber at the right edge")
+        uncover.tap()
+        wait("The two slots again, at the kept divider") { kept.exists && abs(kept.frame.midX - (before + 160)) < 8 }
+        XCTAssertTrue(element("paper.placeholder", app).exists, "The right slot again")
+    }
+
+    /// The list covering the window (a double tap on the divider) splits again when a paper is picked: the paper on its
+    /// right, the list at the divider's place.
+    func testPickingFromAListCoveringTheWindowSplitsItAgain() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        let app = launch(extra: ["--nothing-open"])
+        turnWide(app)
+        let divider = element("slots.divider", app)
+        XCTAssertTrue(divider.waitForExistence(timeout: 5))
+        divider.doubleTap()
+        let uncover = element("slots.uncover", app)
+        XCTAssertTrue(uncover.waitForExistence(timeout: 5), "The list covers the window")
+        sleep(1)
+        save("\(device)-library-covering")
+        let row = app.buttons[sampleID]
+        assertAtTheRightEdge(app.buttons["Library options"], app)
+        XCTAssertFalse(element("paper.placeholder", app).isHittable, "The right slot beneath the list")
+        row.tap()
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.staticTexts["An interactive reading sample · 2026"].waitForExistence(timeout: 15), "The paper is ready")
+        wait("Split again: the list left, the paper right") { !uncover.exists && divider.exists && web.frame.minX > 200 }
+        XCTAssertEqual(web.frame.minX / app.frame.width, 0.5, accuracy: 0.03, "At the divider's place")
+        XCTAssertLessThanOrEqual(row.frame.maxX, web.frame.minX + 1, "The list left, the paper right")
+        XCTAssertEqual(app.currentPlace, "Library", "Still the Library")
+        // Covering again and picking the same paper again also splits.
+        divider.doubleTap()
+        XCTAssertTrue(uncover.waitForExistence(timeout: 5))
+        row.tap()
+        wait("The same paper picked again: split") { !uncover.exists && divider.exists && web.frame.minX > 200 }
     }
 
     /// Paper as the left primary item: the list toggle hides the list and the same paper, at the same place, is the Paper
@@ -360,6 +448,14 @@ final class IPadShapesJourneyTests: XCTestCase {
         toggle.tap()
         wait("Library | paper") { app.currentPlace == "Library" && app.buttons["Library options"].exists && web.frame.minX > 200 }
         wait("Still the same place") { self.inViewport(self.paragraph(app, startingWith: place), app) }
+        // A live drag (the paper reflowing under the finger) keeps the paragraph at the top of the page.
+        let top = paragraph(app, startingWith: place).frame.minY - web.frame.minY
+        let handle = element("slots.divider", app).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        handle.press(forDuration: 0.1, thenDragTo: handle.withOffset(CGVector(dx: 200, dy: 0)), withVelocity: 200, thenHoldForDuration: 0.3)
+        wait("The paper narrower") { web.frame.minX > app.frame.width * 0.6 }
+        sleep(1)
+        XCTAssertEqual(paragraph(app, startingWith: place).frame.minY - web.frame.minY, top, accuracy: 60,
+                       "The same paragraph at the top of the page after the drag")
         // Dragging the divider past the list's minimum: Paper.
         let divider = element("slots.divider", app)
         let start = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -510,8 +606,10 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertEqual(web.frame.width / app.frame.width, 0.5, accuracy: 0.03, "The paper keeps half")
         let close = app.buttons["sheet.close"]
         XCTAssertTrue(close.waitForExistence(timeout: 5), "The companion's ✕")
-        XCTAssertLessThan(close.frame.maxX, app.placesMenu.frame.minX, "✕ clear of the places menu")
-        XCTAssertTrue(app.placesMenu.isHittable, "The places menu stays usable over the companion")
+        XCTAssertGreaterThan(close.frame.minX, pane.frame.minX, "✕ in the companion's own row")
+        XCTAssertLessThan(app.placesMenu.frame.maxX, web.frame.maxX, "The places menu over the paper's corner, not the companion's")
+        assertAfterThePlaces(app.buttons["paper.listToggle"], app)
+        XCTAssertTrue(app.placesMenu.isHittable, "The places menu stays usable beside the companion")
         sleep(1)
         save("\(device)-paper-figure")
         close.tap()
@@ -568,8 +666,50 @@ final class IPadShapesJourneyTests: XCTestCase {
                        "Picking a row adds nothing")
         XCTAssertGreaterThanOrEqual(title.frame.minX, app.frame.width * 0.5, "The details on the right")
         XCTAssertEqual(row.frame.minX, rowFrame.minX, accuracy: 1, "The list stays where it was")
-        XCTAssertGreaterThan(title.frame.minY, app.placesMenu.frame.maxY, "The title starts below the places menu")
+        XCTAssertGreaterThan(title.frame.minY, app.placesMenu.frame.maxY, "The title starts below the rows")
+        assertNothingUnderThePlaces(app)
         save("\(device)-feed-abstract")
+    }
+
+    // MARK: - Turning upright
+
+    /// The Library with a paper beside it, turned upright (owner, 2026-10-23: "make sure that the paper we were just reading
+    /// appears in the middle of the list, and it's initially highlighted"; "and then it dims"): the full-screen list (its
+    /// rows, then its table) has the paper's row in its middle, tinted and selected, and the tint goes on its own.
+    /// Sideways again, the same paper is on the right. (The tint is slowed for the test with `--row-reveal-slow`.)
+    func testTurningUprightCentresAndHighlightsTheOpenPaper() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tall and Wide on iPad")
+        for layout in ["list", "table"] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = launch(extra: ["--nothing-open", "--long-library-fixture", "--row-reveal-slow=12", "--library-layout=\(layout)"],
+                             library: false)
+            turnWide(app)
+            XCTAssertTrue(element("library.search", app).waitForExistence(timeout: 15), "The library")
+            // The sample is in the middle of the long library: below the window's end at first.
+            let row = layout == "table" ? element("library.table.paper/aaaaaaaa-0000-0000-0000-000000000001", app) : app.buttons[sampleID]
+            let list = app.collectionViews.firstMatch
+            for _ in 0..<8 where !(row.exists && row.isHittable) { list.swipeUp(velocity: .slow) }
+            row.tap()
+            let web = app.webViews.firstMatch
+            XCTAssertTrue(web.staticTexts["An interactive reading sample · 2026"].waitForExistence(timeout: 15), "The paper (\(layout))")
+            wait("Beside the Library") { app.currentPlace == "Library" && web.frame.minX > 200 }
+            XCUIDevice.shared.orientation = .portrait
+            wait("Upright") { app.frame.height > app.frame.width && !app.placesMenu.exists }
+            wait("The Library tab") { app.buttons["tab.library"].isSelected }
+            wait("The paper's row, selected (\(layout))") { row.exists && row.isSelected }
+            sleep(1)
+            let frame = list.frame
+            XCTAssertTrue(row.isHittable, "The row is visible (\(layout))")
+            XCTAssertEqual(row.frame.midY, frame.midY, accuracy: frame.height * 0.12, "The row near the list's middle (\(layout))")
+            save("\(device)-turn-upright-library-reveal-\(layout)")
+            // The tint goes on its own (12 × (0.9 + 1) s here), and the row is no longer selected.
+            wait("The highlight fades away (\(layout))", timeout: 40) { !row.isSelected }
+            // Sideways again: the same paper on the right.
+            turnWide(app)
+            wait("The paper beside the Library again (\(layout))") { app.currentPlace == "Library" && web.exists && web.frame.minX > 200 }
+            XCTAssertTrue(web.staticTexts["An interactive reading sample · 2026"].exists, "The same paper (\(layout))")
+            app.terminate()
+        }
     }
 
     // MARK: - Gallery
@@ -617,7 +757,12 @@ final class IPadShapesJourneyTests: XCTestCase {
             start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 140, dy: 0)))
             sleep(1)
             save("\(prefix)-03-library-divider-dragged")
+            // A double tap: the list covers the window (owner, 2026-10-23); its grabber brings the paper back.
             element("slots.divider", app).doubleTap()
+            _ = element("slots.uncover", app).waitForExistence(timeout: 5)
+            sleep(1)
+            save("\(prefix)-03b-library-covering")
+            element("slots.uncover", app).tap()
             sleep(1)
             // Paper promoted.
             app.buttons["paper.listToggle"].tap()
@@ -668,7 +813,7 @@ final class IPadShapesJourneyTests: XCTestCase {
             save("\(prefix)-11-snippets")
             // Feed with nothing picked, then an article picked.
             app.terminate()
-            app = launch(appearance, extra: ["--nothing-open"])
+            app = launch(appearance, extra: ["--nothing-open", "--long-library-fixture", "--row-reveal-slow=12"], library: false)
             turnWide(app)
             _ = element("paper.placeholder", app).waitForExistence(timeout: 5)
             sleep(1)
@@ -686,6 +831,13 @@ final class IPadShapesJourneyTests: XCTestCase {
             _ = element("feed.abstract.title", app).waitForExistence(timeout: 5)
             sleep(1)
             save("\(prefix)-08-feed-abstract")
+            // The Library with the sample beside it, turned upright: its row centred and tinted (before the tint fades).
+            _ = openSampleBesideLibrary(app)
+            XCUIDevice.shared.orientation = .portrait
+            wait("Upright") { app.frame.height > app.frame.width && !app.placesMenu.exists }
+            sleep(2)
+            save("\(prefix)-13-upright-library-reveal")
+            XCUIDevice.shared.orientation = .landscapeLeft
             app.terminate()
         }
     }

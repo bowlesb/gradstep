@@ -1954,6 +1954,7 @@ Wide shape only (Tall, the Mac and the web unchanged); spec in DESIGN.md › Tal
   positions never jump; a draggable divider everywhere two slots show, remembered per place as a fraction of the width.
 - **Places menu** in the window's top-right corner, always the same spot, showing the current place's symbol; the
   rightmost slot's ⋯ just left of it, a companion's ✕ left of that. ⌘1…⌘5 choose places. Replaces the capsule.
+  *Superseded the same day (below): the places menu is in the top-left corner.*
 - **Rows only where a slot has controls** (lists, a conversation, a collection, Contents); the paper floats its controls
   (list toggle, ☰, ⋯) and has 0 pt of chrome above its page.
 - **Library** = list | paper (placeholder with none); **Paper** = promoted with the list toggle (or dragging the divider
@@ -1963,7 +1964,8 @@ Wide shape only (Tall, the Mac and the web unchanged); spec in DESIGN.md › Tal
   **Snippets** keep their list | detail with the divider. **Search** = the Library with its field focused.
 - Owner, same day: "when going from anything with one panel to two, they should break apart in such a way that the
   divider is actually in the middle" — every arrangement's divider starts at 50% (a dragged one is kept; double-tap
-  returns to the middle).
+  returns to the middle — *superseded below: a double tap lets the list cover the window; VoiceOver's Reset returns
+  the divider to the middle*).
 - Agent choices in this pass (reversible): minimums list 280, paper 420, companion 320 (Contents 420); a drag must end 40 pt past a
   minimum to close a slot; the explainers keep their own sheet bar (Snippet · Chat · AI Explainer, ✕) in the companion
   slot; Listen stays one slot; the collection's name moved from its stream's heading into its row; the Library ⋯ "Show
@@ -1971,3 +1973,38 @@ Wide shape only (Tall, the Mac and the web unchanged); spec in DESIGN.md › Tal
   keeps it as the list toggle's twin.
 - **Supersedes (iPad Wide):** the places capsule in the one top row; "Explain in the paper's slot"; "the Library and Feed
   tables are not in the container"; Browse as Papers | Paper inside the Paper place.
+
+## iPad Wide: owner corrections after TestFlight 88 (owner direction 2026-10-23)
+
+Decided for the iPad's Wide shape (Tall, the Mac and the web unchanged except the turn below); spec in DESIGN.md › Tall
+and Wide:
+
+- **Places menu: top-left (owner correction, 2026-10-23).** "I thought I asked for an icon in the top left that says all
+  the different options, Feed, Library, etc… I meant the top left." The places button sits in the window's top-left
+  corner, the same spot in every Wide view, a list covering the window included; the leftmost slot's row or floating
+  controls start after it (`placesLeadingReserve`): the Library and Feed search and chips, All chats' and Collections'
+  search, Contents' tabs, and the paper's list toggle and ☰ when the paper is leftmost. Each slot's ⋯ stays at that
+  slot's top-right; a companion's ✕ stays left of its ⋯. Reading mode is unchanged (no places button). *Supersedes the
+  top-right corner above.*
+- **A double tap on the divider covers the window, as on iPhone.** "When you double tap, have the list be right over the
+  entire paper, the same way as the iphone, not in the middle of the left and right." The list (or a companion on the
+  right) covers the whole window; the other slot stays loaded at its place beneath it. A small glass handle at the far
+  edge brings the two slots back; picking from the list (the open row again included) splits the slots again with the
+  picked thing on the right. *Supersedes "double-tap returns to the middle"* (VoiceOver's Reset still does).
+- **A real divider drag.** "When I drag to the left or right, currently the line moves initially, and then the page
+  updates only when I drop… that doesn't feel like a real drag." Both slots follow the finger on every frame; the
+  preview line is gone. The position is kept and a slot closes only when the drag ends (past a minimum plus 40 pt);
+  while the drag is that far, the closing slot stays at its minimum and dims to half.
+- **Turning upright keeps the paper in sight.** "If I'm on Library, with a paper to the side, and I flip it, it's
+  slightly confusing that the paper is no longer there. We should make sure that the paper we were just reading appears
+  in the middle of the list, and it's initially highlighted"; then "And then it dims, similar to the way the Figure
+  outline dims in the AI Figure Explainer when looking at subfigure." The Tall list centres that paper's row and tints
+  it, the tint fading on its own with the figure outline's timing. The Feed does the same for its picked article; a row
+  not in the list gets nothing.
+- Agent choices in this pass (reversible): the covering is for this run only (a new launch starts split); the handle is
+  a 20 × 56 pt glass capsule with a compact chevron in secondary colour, vertically centred at the far edge; the tint is
+  the Feed's picked-row accent at 12%, full for 0.9 s (the turn's own animation, then the outline's 0.4 s wait) and then
+  an ease-in fade over `FigureFullscreenStage.fadeDuration` (1 s); a covered slot is transparent and its covering slot
+  is modal for VoiceOver; the paper reflows live while the divider is dragged (no coalescing) and the reader bridge keeps
+  the paragraph at its top on every width change, enabled by the host on iPad only
+  (`__scienceReaderKeepPlaceOnResize`), so the iPhone, the Mac and the browser keep their behaviour.

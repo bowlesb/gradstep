@@ -151,7 +151,10 @@ struct WideSlots: View {
         // The Feed's right slot shows the abstract (or a placeholder) until Read opens the paper there.
         let abstract = model.tab == .feed && !(model.feedReading && model.selectedPaper != nil)
         TwoSlotLayout(width: width, other: other == .chat ? .right : other == .none ? .none : .left,
-                      arrangement: arrangement(other), collapse: collapse(other)) {
+                      arrangement: arrangement(other), collapse: collapse(other),
+                      // A list covering the window gives what it picks its slot again: a paper, or the Feed's article.
+                      selection: other == .feed ? model.feedPickID.map(AnyHashable.init)
+                          : model.selectedPaper.map { AnyHashable($0.id) }) {
             ZStack {
                 PaperView(model: model)
                     .accessibilityHidden(abstract).allowsHitTesting(!abstract)

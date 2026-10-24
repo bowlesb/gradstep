@@ -160,6 +160,9 @@ final class ReaderModel {
     /// paper is open there instead (Read).
     var feedPickID: String?
     var feedReading = false
+    /// iPad turned upright on the Library with a paper beside it, or on the Feed with an article picked: that row, centred
+    /// and tinted in the Tall list until the tint has faded (owner, 2026-10-23; RowReveal).
+    var rowReveal: RowReveal?
     /// Mac: where Settings was opened from (Settings replaces the window's panes there; Done returns).
     @ObservationIgnored var placeBeforeSettings: ReaderTab = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
@@ -1753,6 +1756,8 @@ final class ReaderModel {
                 if ProcessInfo.processInfo.arguments.contains("--feed-fixture") { installFeedFixture() }
                 // Study (2026-10-14): a numbered paper beside the sample, so the fixture transport can tutor.
                 if ProcessInfo.processInfo.arguments.contains("--study-fixture") { try configureStudyFixture() }
+                // A Library taller than the window, the sample in its middle (turning upright, 2026-10-23).
+                if ProcessInfo.processInfo.arguments.contains("--long-library-fixture") { configureLongLibraryFixture() }
             } catch { show(error) }
             return
         }
@@ -3030,6 +3035,8 @@ final class ReaderModel {
         if besideList {
             paperOrigin = tab
             if tab == .feed { feedReading = true; if let source = current.sourceID { feedPickID = source } }
+            // A list covering the window splits again with the paper on its right, the same paper picked again included.
+            SlotFractions.shared.uncover()
         }
         selectedPaper = current; chatPaperID = current.id; returnToChatAvailable = false
         if !besideList { showPaperPlace() }
@@ -3557,6 +3564,8 @@ final class ReaderModel {
             openLocalPaperIfNeeded(userInitiated: true)
         } else { generalChat = true }
         activeConversation = id; tab = .chat
+        // iPad Wide: All chats covering the window splits again, the conversation on its right (the open one too).
+        SlotFractions.shared.uncover()
     }
 
     /// Deleting needs this account's encrypted history on the device (not the signed-out sample or a fixture).
