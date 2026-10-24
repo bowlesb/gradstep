@@ -294,17 +294,30 @@ extension DevicePDFRaster {
 /// The pop-up's zoom: opening framed on the passage, never closer than `maximumFraction` of the view's width for a passage
 /// (a single word doesn't fill the screen), never further out than the whole page.
 public enum PDFPassageZoom {
-    /// The zoom (view points per page point) and the page rectangle to centre, to show `focus` with a margin in `view`.
-    public static func opening(focus: CGRect, page: CGSize, view: CGSize, maximumZoom: CGFloat) -> (zoom: CGFloat, centre: CGPoint) {
+    /// The zoom (view points per page point) and the page point to centre, to show `focus` with a margin in `view`. With
+    /// `blocks` (the passage's block's recorded boxes on this page), the view holds as much of the passage's column across as
+    /// the zoom allows, starting at the column's left edge when the passage still fits: its lines read from their start.
+    public static func opening(focus: CGRect, page: CGSize, view: CGSize, maximumZoom: CGFloat, blocks: [CGRect] = []) -> (zoom: CGFloat, centre: CGPoint) {
         let whole = FigureZoomMath.fitZoom(CGRect(origin: .zero, size: page), in: view)
         guard !focus.isNull, focus.width > 0, focus.height > 0 else { return (whole, CGPoint(x: page.width / 2, y: page.height / 2)) }
-        // A margin of a sixth of the passage's size, at least 24 points of the page, at most the page.
+        // A margin of a sixth of the passage's size, at least 24 points of the page.
         let margin = max(24, min(focus.width, focus.height) / 6)
         var framed = focus.insetBy(dx: -margin, dy: -margin)
         // A narrow passage (a word, a line's end) keeps some of its line in view: at least 45 % of the page's width.
         if framed.width < page.width * 0.45 { framed = framed.insetBy(dx: -(page.width * 0.45 - framed.width) / 2, dy: 0) }
         let zoom = min(maximumZoom, max(whole, FigureZoomMath.fitZoom(framed, in: view)))
-        return (zoom, CGPoint(x: focus.midX, y: focus.midY))
+        var centreX = focus.midX
+        let column = blocks.filter { $0.intersects(focus) }.reduce(CGRect.null) { $0.union($1) }.insetBy(dx: -8, dy: 0)
+        if !column.isNull {
+            let visible = view.width / zoom
+            if visible >= column.width { centreX = column.midX }
+            else {
+                var left = column.minX
+                if focus.maxX + margin > left + visible { left = min(focus.minX - margin, focus.maxX + margin - visible) }
+                centreX = left + visible / 2
+            }
+        }
+        return (zoom, CGPoint(x: centreX, y: focus.midY))
     }
 
     /// The content offset that puts `centre` (page points) in the middle of `view` at `zoom`, kept on the page.

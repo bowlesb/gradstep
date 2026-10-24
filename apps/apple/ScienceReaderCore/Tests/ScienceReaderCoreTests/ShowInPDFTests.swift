@@ -156,6 +156,65 @@ final class ShowInPDFTests: XCTestCase {
         XCTAssertEqual(PDFPassageLocator.locate(PDFPassageQuery(text: "We study preference learning"), pageCount: 2) { glyphs[$0] }?.page, 0)
     }
 
+    /// Opt-in, on a real on-device reading (`SHOW_IN_PDF_READING=<bundle dir>`, `SHOW_IN_PDF_PDF=<its PDF>`; made by
+    /// DevicePDFRouteTool at port revision 11): each paragraph's and list entry's opening words and a passage from its middle,
+    /// as a reader would select them, are found on the PDF with the block's recorded places, and where. Prints the counts.
+    func testEveryBlockOfARealReadingIsFoundOnItsPDF() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let folder = environment["SHOW_IN_PDF_READING"], let pdfPath = environment["SHOW_IN_PDF_PDF"] else {
+            throw XCTSkip("Set SHOW_IN_PDF_READING to an on-device reading's folder and SHOW_IN_PDF_PDF to its PDF")
+        }
+        let root = URL(fileURLWithPath: folder)
+        let provenance = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("provenance.json"))) as? [String: Any])
+        let index = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("reader.json"))) as? [String: Any])
+        let places = DevicePDFReaderProvenance.blocks(provenance["blocks"])
+        let document = try XCTUnwrap(CGPDFDocument(URL(fileURLWithPath: pdfPath) as CFURL))
+        var glyphs: [Int: [DevicePDFGlyph]] = [:]
+        let read = { (page: Int) -> [DevicePDFGlyph] in
+            if let known = glyphs[page] { return known }
+            let found = document.page(at: page + 1).map { DevicePDFTextLayer.glyphs(page: $0) } ?? []
+            glyphs[page] = found; return found
+        }
+        var tally: [String: Int] = [:], misses: [String] = []
+        let blocks = try XCTUnwrap(index["blocks"] as? [[String: Any]])
+        for block in blocks {
+            guard let id = block["id"] as? String, let kind = block["kind"] as? String, ["paragraph", "list", "heading"].contains(kind),
+                  let text = block["text"] as? String, let regions = places[id] else { continue }
+            let words = text.split(separator: " ").filter { $0.allSatisfy { $0.isLetter || $0.isPunctuation } }
+            guard words.count >= 6 else { continue }
+            for (name, slice) in [("start", words.prefix(6)), ("middle", words.dropFirst(words.count / 2).prefix(6))] {
+                let query = PDFPassageQuery(text: slice.joined(separator: " "), regions: regions)
+                let found = PDFPassageLocator.locate(query, pageCount: document.numberOfPages, glyphs: read)
+                let key = "\(name) \(found.map { "\($0.match)" } ?? "none")"
+                tally[key, default: 0] += 1
+                if found?.match == .region || found == nil { misses.append("\(id) \(name): \(slice.joined(separator: " "))") }
+                if let found { XCTAssertTrue(regions.contains { $0.page == found.page }, "\(id) found on a recorded page") }
+            }
+        }
+        print("Show in PDF on \(root.lastPathComponent): \(tally.sorted { $0.key < $1.key })")
+        print(misses.prefix(20).joined(separator: "\n"))
+        // The index's text keeps inline formulas as LaTeX (a selection's text never has them), so a passage with one is found
+        // approximately; the words are what is measured.
+        let total = tally.values.reduce(0, +), exact = tally.filter { $0.key.hasSuffix("words") }.values.reduce(0, +)
+        let near = tally.filter { $0.key.hasSuffix("approximate") }.values.reduce(0, +)
+        XCTAssertGreaterThan(total, 20)
+        XCTAssertGreaterThanOrEqual(Double(exact) / Double(total), 0.7, "most passages found word for word")
+        XCTAssertGreaterThanOrEqual(Double(exact + near) / Double(total), 0.95, "nearly all found by their words")
+        // Without the record (an older reading), the whole document is searched: the same passages, most on the same page.
+        var samePage = 0, searched = 0
+        for block in blocks.prefix(60) {
+            guard let id = block["id"] as? String, block["kind"] as? String == "paragraph", let text = block["text"] as? String,
+                  let regions = places[id] else { continue }
+            let words = text.split(separator: " ")
+            guard words.count >= 10 else { continue }
+            searched += 1
+            let found = PDFPassageLocator.locate(PDFPassageQuery(text: words.prefix(10).joined(separator: " ")), pageCount: document.numberOfPages, glyphs: read)
+            if let found, regions.contains(where: { $0.page == found.page }) { samePage += 1 }
+        }
+        print("Without the record: \(samePage) of \(searched) on the recorded page")
+        XCTAssertGreaterThanOrEqual(Double(samePage), 0.9 * Double(searched))
+    }
+
     // MARK: Provenance
 
     func testBlockAndEquationRowsAreReadFromProvenance() throws {
@@ -224,6 +283,20 @@ final class ShowInPDFTests: XCTestCase {
         let word = CGRect(x: 300, y: 300, width: 20, height: 10)
         XCTAssertEqual(PDFPassageZoom.opening(focus: word, page: page, view: view, maximumZoom: 6).zoom, 390 / (612 * 0.45), accuracy: 1e-9)
         XCTAssertEqual(PDFPassageZoom.opening(focus: word, page: page, view: view, maximumZoom: 1).zoom, 1)
+        // A part of a line in a recorded column (72…540): zoomed as before; the view starts at the column's left edge (less
+        // 8 points) unless the passage would not fit, then ends just past it.
+        let part = CGRect(x: 200, y: 400, width: 120, height: 12)
+        let blocks = [CGRect(x: 72, y: 380, width: 468, height: 200), CGRect(x: 72, y: 700, width: 200, height: 40)]
+        let near = PDFPassageZoom.opening(focus: part, page: page, view: view, maximumZoom: 6, blocks: blocks)
+        let alone = PDFPassageZoom.opening(focus: part, page: page, view: view, maximumZoom: 6)
+        XCTAssertEqual(near.zoom, alone.zoom, accuracy: 1e-9)
+        let visible = 390 / near.zoom
+        XCTAssertEqual(near.centre.x, 320 + 24 - visible / 2, accuracy: 1e-9, "the passage's end in view")
+        let early = PDFPassageZoom.opening(focus: CGRect(x: 80, y: 400, width: 60, height: 12), page: page, view: view, maximumZoom: 6, blocks: blocks)
+        XCTAssertEqual(early.centre.x, 64 + 390 / early.zoom / 2, accuracy: 1e-9, "from the column's left edge")
+        // A view wide enough for the column: centred on it.
+        let wideView = CGSize(width: 1000, height: 700)
+        XCTAssertEqual(PDFPassageZoom.opening(focus: part, page: page, view: wideView, maximumZoom: 1.5, blocks: blocks).centre.x, 306, accuracy: 1e-9)
         // Nothing to frame: the whole page.
         XCTAssertEqual(PDFPassageZoom.opening(focus: .null, page: page, view: view, maximumZoom: 6).zoom, whole, accuracy: 1e-9)
         // The offset centres the passage across; down, the page (598 points tall at this zoom) is shorter than the view,
