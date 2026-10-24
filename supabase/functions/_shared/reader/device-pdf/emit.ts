@@ -6,7 +6,7 @@ import { el, outText, normalizeSpace, type OutNode } from '../html.ts';
 import { LIMITS } from '../profile.ts';
 import { check, CONTROL, excerpt, sha256Hex } from '../util.ts';
 import { pyRound } from './geometry.ts';
-import { MARKER, type LogicalBlock, type Reading } from './convert.ts';
+import { MARKER, type LogicalBlock, type Place, type Reading } from './convert.ts';
 import { CROP_SCALE, DPI, PLACEHOLDER, type DevicePDFHost, type Formula, type ImageRequest } from './types.ts';
 import { decodeBase64 } from './base64.ts';
 import type { ReaderIndex } from '../render.ts';
@@ -19,6 +19,9 @@ export interface Emitted {
    * height], points from the top left of the page as shown (its crop box, turned by its /Rotate), so the apps can zoom
    * out of the crop onto the PDF itself. */
   figureRegions: [string, number, number, number, number, number, number, number][];
+  /** Where each emitted block's text sits in the PDF (port revision 11): [block id, page index, x0, y0, x1, y1], points
+   * from the top left of the page as shown; a block read from several regions has several rows, in reading order. */
+  blockRegions: [string, number, number, number, number, number][];
   degraded: { formulaText: number; figuresScaled: number; figuresOmitted: number; equationLimit: number; imageFailures: number };
 }
 
@@ -103,6 +106,17 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   const blocks: { id: string; kind: string; node: OutNode }[] = [];
   const equations: ReaderIndex['equations'] = [], figures: ReaderIndex['figures'] = [];
   const figureRegions: Emitted['figureRegions'] = [];
+  const blockRegions: Emitted['blockRegions'] = [];
+  const at = (node: OutNode | null, list: readonly Place[] | undefined) => {
+    if (!node || !list) return;
+    const seen = new Set<string>();
+    for (const [page, ...box] of list) {
+      if (!box.every(Number.isFinite) || box[2] <= box[0] || box[3] <= box[1]) continue;
+      const row: Emitted['blockRegions'][number] = [node.attribs.id, page, ...box.map(v => pyRound(v, 1)) as [number, number, number, number]];
+      const key = row.join(',');
+      if (!seen.has(key)) { seen.add(key); blockRegions.push(row); }
+    }
+  };
   let h1: OutNode | null = null, navigable = 0;
   const block = (name: string, kind: string, children: Child[], attrs: Record<string, string> = {}): OutNode => {
     const id = nextID();
@@ -172,15 +186,17 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     switch (lb.kind) {
       case 'heading': {
         const level = lb.level === 1 && !h1 ? 1 : Math.max(2, lb.level);
-        if (level > 1 && navigable >= LIMITS.headings) { const p = withBlock('p', 'paragraph', o => content(lb.marked, o)); if (p) top.push(p); break; }
+        if (level > 1 && navigable >= LIMITS.headings) { const p = withBlock('p', 'paragraph', o => content(lb.marked, o)); at(p, reading.places.get(lb)); if (p) top.push(p); break; }
         const node = withBlock(`h${level}`, 'heading', o => content(lb.marked, o));
         if (!node) break;
+        at(node, reading.places.get(lb));
         if (level === 1) h1 = node; else navigable += 1;
         top.push(node); break;
       }
       case 'paragraph': {
         const role = { authors: 'reader-authors', abstract: 'reader-abstract', footnote: 'reader-footnote', '': '' }[lb.role];
         const node = withBlock('p', 'paragraph', o => content(lb.marked, o), role ? { class: role } : {});
+        at(node, reading.places.get(lb));
         if (node) top.push(node); break;
       }
       case 'equation': {
@@ -188,6 +204,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
         if (!f) break;
         const node = equations.length >= LIMITS.equations ? withBlock('p', 'paragraph', () => [cleanText(f.glyphText)])
           : withBlock('p', 'equation', o => [equation(f, o)]);
+        at(node, reading.places.get(lb));
         if (node) top.push(node); break;
       }
       case 'code': {
@@ -195,11 +212,13 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
         const node = withMath
           ? withBlock('p', 'paragraph', o => lb.lines.flatMap((line, i) => [...(i ? [el('br')] : []), ...content(line, o)]))
           : withBlock('pre', 'code', () => [el('code', {}, [lb.lines.map(line => cleanText(line.replace(MARKER, ''))).join('\n')])]);
+        at(node, reading.places.get(lb));
         if (node) top.push(node); break;
       }
       case 'references': {
         if (!referenceList) { referenceList = el('ul', { class: 'reader-references' }, []); top.push(referenceList); }
-        for (const ref of lb.refs) { const li = withBlock('li', 'list', () => [cleanText(ref)]); if (li) referenceList.children.push(li); }
+        const entryPlaces = reading.referencePlaces.get(lb);
+        lb.refs.forEach((ref, i) => { const li = withBlock('li', 'list', () => [cleanText(ref)]); at(li, entryPlaces?.[i]); if (li) referenceList!.children.push(li); });
         if (!referenceList.children.length) { top.splice(top.indexOf(referenceList), 1); referenceList = null; }
         break;
       }
@@ -209,7 +228,9 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
         // A caption with its math (captionMath) is marked text; its formulas belong to the figure's block.
         const captionContent = (owner: () => string): Child[] => lb.captionMarked !== undefined ? content(lb.captionMarked, owner) : caption ? [caption] : [];
         if (!image) {
-          if (caption) { const p = withBlock('p', 'paragraph', o => captionContent(o), { class: 'reader-caption' }); if (p) top.push(p); }
+          // Shown by its caption: the caption's places (after the figure's own).
+          const captionAt = reading.places.get(lb)?.slice(1);
+          if (caption) { const p = withBlock('p', 'paragraph', o => captionContent(o), { class: 'reader-caption' }); at(p, captionAt?.length ? captionAt : reading.places.get(lb)); if (p) top.push(p); }
           break;
         }
         const traceID = reading.traceFigureBlocks.get(lb);
@@ -224,6 +245,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
         if (!figcaption) equations.length = mark;
         if (figcaption) children.push(figcaption);
         const node = block('figure', 'figure', children, { 'data-reader-figure': id });
+        at(node, reading.places.get(lb));
         figures.push({ id, block_id: id, asset_paths: [image.path], caption: figcaption ? excerpt(normalizeSpace(outText(figcaption)), LIMITS.textBytes) : '', alt });
         const placed = figureRects.get(lb);
         const shown = reading.pages[lb.page];
@@ -241,6 +263,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
           const rows = lb.rows.map(row => el('tr', {}, row.map(cell => el('td', cell.span > 1 ? { colspan: String(Math.min(cell.span, 999)) } : {}, content(cell.marked, o)))));
           return [...(captionChildren.length ? [el('p', { class: 'reader-caption' }, captionChildren)] : []), el('table', {}, [el('tbody', {}, rows)])];
         }, { class: 'reader-table' });
+        at(node, reading.places.get(lb));
         if (node) top.push(node); break;
       }
     }
@@ -261,7 +284,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   blocks.sort((a, b) => order.get(a.node)! - order.get(b.node)!);
   const index: ReaderIndex = { format: 'reader-index-v1', title, headings, equations, figures,
     blocks: blocks.map(b => ({ id: b.id, kind: b.kind, text: excerpt(normalizeSpace(outText(b.node)), LIMITS.textBytes) })) };
-  return { top, index, images, figureRegions, degraded };
+  return { top, index, images, figureRegions, blockRegions, degraded };
 }
 
 /** Width and height from a PNG's IHDR, or null when the bytes are not a PNG. */
