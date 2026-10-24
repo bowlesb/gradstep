@@ -93,6 +93,29 @@ test('the bundle is this reader\'s vocabulary and passes the shared validator', 
     assert.deepEqual([width, height], [pages[pageIndex].width, pages[pageIndex].height], 'the page as shown, in points');
     assert.ok(x0 >= 0 && y0 >= 0 && x1 <= width && y1 <= height);
   }
+  // Where each block's text sits (port revision 11, Show in PDF): rows [block id, page, x0, y0, x1, y1] in points, for
+  // the blocks the reading emitted, each box on its page and holding glyphs whose text is the block's.
+  assert.ok(Array.isArray(provenance.blocks) && provenance.blocks.length > 0);
+  const blockIDs = new Set(index.blocks.map((b: { id: string }) => b.id));
+  const placedIDs = new Set<string>();
+  for (const [id, pageIndex, x0, y0, x1, y1] of provenance.blocks) {
+    assert.ok(blockIDs.has(id), `block ${id} is in the index`);
+    assert.ok(Number.isInteger(pageIndex) && pageIndex >= 0 && pageIndex < pages.length);
+    assert.ok(x1 > x0 && y1 > y0 && x0 >= -1 && y0 >= -1 && x1 <= pages[pageIndex].width + 1 && y1 <= pages[pageIndex].height + 1, `${id}'s box is on its page`);
+    placedIDs.add(id);
+  }
+  // Every paragraph, heading (but the title made from the library's), equation, table and figure has a place.
+  const placedKinds = index.blocks.filter((b: { id: string; kind: string }) => placedIDs.has(b.id)).map((b: { kind: string }) => b.kind);
+  for (const kind of ['paragraph', 'heading', 'equation']) assert.ok(placedKinds.includes(kind), `a ${kind} has a place`);
+  const paragraph = index.blocks.find((b: { kind: string; text: string }) => b.kind === 'paragraph' && b.text.length > 40 && placedIDs.has((b as { id: string }).id));
+  assert.ok(paragraph, 'a placed paragraph');
+  const [, pageIndex, x0, y0, x1, y1] = provenance.blocks.find((row: unknown[]) => row[0] === paragraph.id);
+  const inside = pages[pageIndex].glyphs.text.filter((_: string, i: number) => {
+    const g = pages[pageIndex].glyphs, cx = (g.x0[i] + g.x1[i]) / 2, cy = (g.top[i] + g.bottom[i]) / 2;
+    return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+  }).join('').replace(/\s+/g, '');
+  const words = paragraph.text.split(/\s+/).filter((w: string) => /^[A-Za-z]{4,}$/.test(w)).slice(0, 5);
+  assert.ok(words.length > 0 && words.every((w: string) => inside.includes(w)), `the box holds the paragraph's words: ${words}`);
 });
 
 test('lines: overlap joins scripts to their base; a jump back below the band starts a line', () => {

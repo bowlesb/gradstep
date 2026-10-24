@@ -95,7 +95,14 @@ their LaTeX text (`reader-math-fallback`) and figures are scaled down; the closi
 
 Provenance (`device-pdf-reader-provenance-v1`) carries the PDF's size and digest, the page count, the models and
 their weight digests, the two gates, the converter revision, warnings, the unowned-glyph share, and per equation
-its confidence, whether it rendered, and its source page and box (docs/EQUATION_SOURCE_REGION.md on the desktop).
+its confidence, whether it rendered, and its source page and box (docs/EQUATION_SOURCE_REGION.md on the desktop):
+`equations` rows `[id, confidence, rendered (0/1), page, x0, y0, x1, y1, baseline or -1]`. Since port revision 10,
+`figures` rows `[id, page, x0, y0, x1, y1, page width, page height]` (each shown figure's crop); since port revision 11,
+`blocks` rows `[block id, page, x0, y0, x1, y1]` for every emitted block, one per layout region it was read from, in
+reading order (the union of the region's glyphs, its layout box when it has none; a figure's crop then its captions).
+All boxes are points from the top left of the page as shown (its crop box turned by its /Rotate), the text layer's
+coordinates. The reading never uses them; the apps do (FIGURE_VIEW.md "Zoom out onto the page" and "Show in PDF"). A
+row the app can't read is dropped, never the reading; older readings simply have fewer rows.
 
 ## Known differences from the reference (to report, not to hide)
 
@@ -146,6 +153,13 @@ changed. The compiler freshness check caught the stale embedded bundle before re
 
 Provenance gains `figures`: each shown figure's page, crop and page size in points, so the apps can zoom out of a crop
 onto the PDF on the device (FIGURE_VIEW.md "Zoom out onto the page"). The reading itself is unchanged.
+
+### Port revision 11 — 2026-10-24
+
+Provenance gains `blocks`: where each emitted block's text sits on the PDF, so the apps can show a selected passage on the
+PDF on the device (FIGURE_VIEW.md "Show in PDF"). The reading itself is unchanged (the synthetic reference's trace and the
+bundle tests are equal); the compiled converter and its identity are rebuilt. A parallel converter change (accuracy and
+speed rules) may take a later revision number; the rows are independent of it.
 
 ### Chat and explainers on a model reading — 2026-10-24 (after TestFlight 90)
 

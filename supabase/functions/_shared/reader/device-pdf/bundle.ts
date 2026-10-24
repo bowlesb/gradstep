@@ -128,6 +128,8 @@ function assemble(input: DevicePDFInput, host: DevicePDFHost, reading: Reading, 
     equations: reading.committed.map(id => { const f = formulas.get(id)!; return [id, pyRound(f.confidence, 4), f.rendered ? 1 : 0, f.page, ...f.box.map(v => pyRound(v, 1)), f.baseline === undefined ? -1 : pyRound(f.baseline, 1)]; }),
     // Per figure shown: its id, page and crop in points (the apps zoom out of the crop onto the PDF on the device).
     figures: emitted.figureRegions,
+    // Per block: its id, page and box in points, one row per region it was read from (Show in PDF, port revision 11).
+    blocks: emitted.blockRegions,
   });
   check(provenance.length <= 2 * 1024 * 1024, 'provenance_limit');
   const members = new Map<string, Uint8Array>([['index.html', htmlBytes], ['reader.json', canonicalBytes(index)], ['reader.css', utf8(DEVICE_PDF_CSS)],

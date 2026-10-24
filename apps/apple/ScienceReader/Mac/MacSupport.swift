@@ -303,7 +303,8 @@ private extension UIView {
 /// Explain in Chat and Save snippet (owner, 2026-10-24: "many of the options suck… It needs to be better thought out"); the
 /// system's Look Up, Translate, Search Web, Share, Speak and Writing Tools are removed. A tapped equation opens its own
 /// edit menu beside it: Chat about Equation, Focus (its own view; build 78) and Copy as Text (owner feedback, build 16
-/// #4/#5, replacing the bar that sat under the paper). A reference opens a pull-down menu at the entry.
+/// #4/#5, replacing the bar that sat under the paper). A reference opens a pull-down menu at the entry. An on-device
+/// reading whose PDF is on this device adds Show in PDF last to both menus (FIGURE_VIEW.md "Show in PDF").
 final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     /// The paper's own view (not a figure's): runs a selection action on what is selected when it is chosen.
     var menuAction: ((SelectionAction) -> Void)?
@@ -351,7 +352,7 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     func showFind() { findRequested?() }
     func findNext(backwards: Bool) { findStepped?(backwards) }
 
-    /// Selected text: Copy, then Explain in Chat, then Save snippet; nothing else.
+    /// Selected text: Copy, then Explain in Chat, then Save snippet, then (an on-device reading) Show in PDF; nothing else.
     override func buildMenu(with builder: any UIMenuBuilder) {
         super.buildMenu(with: builder)
         guard builder.system == .context else { return }
@@ -373,6 +374,11 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         if let drawSnippet, Platform.isMac, !hasSelection {
             notes.append(UIAction(title: "Draw snippet", image: UIImage(systemName: "crop"),
                                   identifier: UIAction.Identifier("reader.drawSnippet")) { _ in drawSnippet() })
+        }
+        // Show in PDF (owner, 2026-10-24): the passage on the PDF this on-device reading was made from, last.
+        if let showInPDF, hasSelection || !Platform.isMac {
+            notes.append(UIAction(title: "Show in PDF", image: UIImage(systemName: "doc.viewfinder"),
+                                  identifier: UIAction.Identifier("reader.selection.showInPDF")) { _ in showInPDF() })
         }
         guard !notes.isEmpty, builder.menu(for: Self.notesMenuID) == nil else { return }
         let menu = UIMenu(title: "", identifier: Self.notesMenuID, options: .displayInline, children: notes)
@@ -405,6 +411,10 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     var noteAction: (() -> Void)?
     /// Draw snippet from the context menu (the paper's own view).
     var drawSnippet: (() -> Void)?
+    /// Show in PDF on the selected text, and on a tapped equation (by its ID): only for an on-device reading whose PDF is
+    /// on this device (FIGURE_VIEW.md "Show in PDF"); nil offers no such item.
+    var showInPDF: (() -> Void)?
+    var onShowEquationInPDF: ((String) -> Void)?
     /// Figure pages' views by figure ID, for a figure's Add to note (weak: a page that closes is gone).
     @MainActor static let figurePages = NSMapTable<NSString, ReaderWebView>.strongToWeakObjects()
 
@@ -452,8 +462,8 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         return equationActionsMenu()
     }
 
-    /// Chat about Equation · Focus, then Copy as Text. No Related papers (owner: "find related papers in response to an
-    /// equation just doesn't really make sense"; removed 2026-10-24).
+    /// Chat about Equation · Focus, then Copy as Text, then (an on-device reading) Show in PDF. No Related papers (owner:
+    /// "find related papers in response to an equation just doesn't really make sense"; removed 2026-10-24).
     private func equationActionsMenu() -> UIMenu? {
         guard let equation, let menuAction else { return nil }
         let copyText = UIAction(title: "Copy as Text", image: UIImage(systemName: "textformat"), identifier: UIAction.Identifier("reader.equation.copyText")) { _ in
@@ -468,8 +478,14 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
                 self?.equation = nil; open(equation.equationID)
             })
         }
-        return UIMenu(children: [UIMenu(options: .displayInline, children: actions),
-                                 UIMenu(options: .displayInline, children: [copyText])])
+        var groups = [UIMenu(options: .displayInline, children: actions), UIMenu(options: .displayInline, children: [copyText])]
+        if let show = onShowEquationInPDF {
+            groups.append(UIMenu(options: .displayInline, children: [UIAction(title: "Show in PDF", image: UIImage(systemName: "doc.viewfinder"),
+                                                                               identifier: UIAction.Identifier("reader.equation.showInPDF")) { [weak self] _ in
+                self?.equation = nil; show(equation.equationID)
+            }]))
+        }
+        return UIMenu(children: groups)
     }
 
     /// The system's pull-down menu at `rect` (a context menu's look: a vertical list with symbols), opened by a hidden

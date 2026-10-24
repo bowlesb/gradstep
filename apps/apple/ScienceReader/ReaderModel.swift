@@ -32,6 +32,12 @@ enum SelectionAction: String, CaseIterable {
 }
 enum PaperOfflineStatus: Equatable { case none, available, unavailable }
 
+/// A paper opened from a Library search result whose match was in its text: Find in paper opens with these words.
+struct PendingPaperFind: Equatable {
+    let paperID: UUID
+    let text: String
+}
+
 struct Paper: Identifiable, Sendable {
     let id: UUID
     let title: String
@@ -170,52 +176,58 @@ final class ReaderModel {
     /// Mac: where Settings was opened from (Settings replaces the window's panes there; Done returns).
     @ObservationIgnored var placeBeforeSettings: ReaderTab = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
-    @ObservationIgnored private var deviceTextIndex = DevicePaperTextIndex()
-    @ObservationIgnored private var indexEpoch = UUID()
-    @ObservationIgnored private var warmingTextIndex: Task<Void, Never>?
+    /// The account's encrypted full-text index, kept in step with the library (docs/architecture/NATIVE_LIBRARY_SEARCH.md).
+    @ObservationIgnored let fullTextIndexer = LibraryFullTextIndexer()
+    /// Advances when the full-text index changes, so a current search runs again.
+    @ObservationIgnored private var librarySearchFullTextRevision: UInt64 = 0
+    /// Body snippets of the displayed search results, by row ID (only rows whose match was in the paper's text).
+    private(set) var librarySnippets: [String: FullTextSnippet] = [:]
+    /// Opening a search result with a snippet: its paper opens with Find in paper showing the matched words.
+    var pendingPaperFind: PendingPaperFind?
+
     func forgetIndexedPapers(_ ids: Set<UUID>) {
-        indexEpoch = UUID()
-        warmingTextIndex?.cancel(); warmingTextIndex = nil
-        for id in ids { deviceTextIndex.remove(id) }
+        fullTextIndexer.forgetBodies(Set(ids.map(\.wire)))
         promotedChatContexts = promotedChatContexts.filter { !ids.contains($0.value.origin?.documentID ?? UUID()) }
         librarySearchSourceChanged()
     }
+    /// After a reading is opened or saved here: index it (a saved copy through its store, any other reading directly).
     private func indexPaper(_ paper: Paper) {
-        guard let bundle = paper.readerBundle, deviceTextIndex.entries[paper.id]?.digest != bundle.manifestSHA256 else { return }
-        let epoch = indexEpoch, scope = sessionID
-        Task {
-            let entry = await Task.detached(priority: .utility) {
-                DevicePaperTextIndex.Entry(digest: bundle.manifestSHA256, text: PaperChatContext.text(bundle.index))
-            }.value
-            guard sessionID == scope, indexEpoch == epoch, papers.contains(where: { $0.id == paper.id }) else { return }
-            deviceTextIndex.insert(entry, for: paper.id); librarySearchSourceChanged()
+        if let bundle = paper.readerBundle, paper.sourceID.map({ source in !localReaderRecords.contains { $0.identity.sourceID == source } }) ?? true {
+            fullTextIndexer.indexOpened(group: paper.id.wire, fingerprint: "b:" + bundle.manifestSHA256, index: bundle.index)
         }
+        fullTextIndexer.schedule()
     }
-    /// Rebuild bounded search terms from encrypted installed copies, one at a time. No plaintext index on disk.
-    private func warmTextIndex() {
-        guard warmingTextIndex == nil, !papers.isEmpty, !workOwnership.isActivating else { return }
-        let stores = [localPersistence.localReaderStore, localPersistence.modelReaderStore].compactMap { $0 }
-        guard !stores.isEmpty else { return }
-        let epoch = indexEpoch, scope = sessionID
-        warmingTextIndex = Task(priority: .utility) {
-            defer { if indexEpoch == epoch { warmingTextIndex = nil } }
-            for store in stores {
-                for record in await store.records() {
-                    guard !Task.isCancelled, sessionID == scope, indexEpoch == epoch else { return }
-                    guard let paper = papers.first(where: { $0.sourceID == record.identity.sourceID && $0.sourceRevision == record.identity.revision }),
-                          deviceTextIndex.entries[paper.id] == nil else { continue }
-                    let id = paper.id
-                    let entry = await Task.detached(priority: .utility) { () -> DevicePaperTextIndex.Entry? in
-                        guard let bundle = try? await store.read(record.identity) else { return nil }
-                        return DevicePaperTextIndex.Entry(digest: bundle.manifestSHA256, text: PaperChatContext.text(bundle.index))
-                    }.value
-                    guard !Task.isCancelled, sessionID == scope, indexEpoch == epoch else { return }
-                    if let entry, papers.contains(where: { $0.id == id }), deviceTextIndex.entries[id] == nil {
-                        deviceTextIndex.insert(entry, for: id); librarySearchSourceChanged()
-                    }
-                }
+    /// What the indexer reads at the start of a pass: every paper's metadata with its notes and snippets, and the
+    /// device's saved readings. Strings only; documents and fingerprints are made off the main actor.
+    private func fullTextInputs() -> LibraryFullTextIndexer.Inputs {
+        var inputs = LibraryFullTextIndexer.Inputs()
+        var notesBySource: [String: [String]] = [:]
+        for note in notes.state.notes {
+            for entry in note.entries {
+                guard let source = entry.record.source?.sourceID else { continue }
+                let text = [entry.record.quote ?? "", entry.record.comment].filter { !$0.isEmpty }.joined(separator: "\n")
+                if !text.isEmpty { notesBySource[source, default: []].append(text) }
             }
         }
+        inputs.papers.reserveCapacity(papers.count)
+        for paper in papers {
+            let group = paper.id.wire
+            let tags = LibraryTags.tags(for: paper) + paper.keywords + (paper.sourceReference.map { [$0] } ?? [])
+            inputs.papers.append(.init(group: group, title: paper.title, authors: paper.authors, tags: tags, abstract: paper.abstract,
+                                       notes: paper.sourceID.flatMap { notesBySource[$0]?.joined(separator: "\n\n") } ?? ""))
+            if let sourceID = paper.sourceID {
+                if let revision = paper.sourceRevision { inputs.groupsBySource["\(sourceID)/\(revision)"] = group }
+                else { inputs.groupsBySource[sourceID] = group }
+            }
+        }
+        inputs.stores = [localPersistence.localReaderStore, localPersistence.modelReaderStore].compactMap { $0 }
+        return inputs
+    }
+    /// The index changed: a search being shown runs again (an empty query has nothing to gain).
+    private func fullTextIndexChanged() {
+        librarySearchFullTextRevision &+= 1
+        guard !libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        queueLibrarySearch()
     }
     private(set) var libraryImports: [LibraryImportRecord] = [] {
         didSet {
@@ -944,7 +956,10 @@ final class ReaderModel {
             }
             let summaries = privateState.conversationSummaries()
             if summaries != conversationSummaries { conversationSummaries = summaries }
+            let notesRevision = notes.stateRevision
             notes.update(privateState)
+            // Notes and snippets are indexed with their paper.
+            if notes.stateRevision != notesRevision { fullTextIndexer.schedule() }
         }
     }
     /// All chats' rows: one summary per saved conversation, computed once per history change (one pass over the
@@ -1120,7 +1135,7 @@ final class ReaderModel {
     func refreshLocalRecords() async {
         localReaderRecords = await localPersistence.localReaderStore?.records() ?? []
         await refreshLocalPaperRecords()
-        warmTextIndex()
+        fullTextIndexer.schedule()
     }
     func acceptLocalReaderStoreWrite<Value: Sendable>(_ operation: @escaping @Sendable (DeviceReaderStore) async throws -> Value) throws -> Task<Value, Error> {
         try localPersistence.acceptLocalReaderWrite(operation)
@@ -1221,6 +1236,8 @@ final class ReaderModel {
         self.librarySearchWorker = librarySearchWorker
         if fixtureFailed { error = "The local sign-in fixture couldn’t be prepared." }
         podcasts.host = self
+        fullTextIndexer.inputs = { [weak self] in self?.fullTextInputs() ?? .init() }
+        fullTextIndexer.changed = { [weak self] in self?.fullTextIndexChanged() }
     }
 
     /// The signed-in, activated account's podcast service and local folder; nil before activation or when signed out.
@@ -1244,7 +1261,7 @@ final class ReaderModel {
     private var currentLibrarySearchKey: LibrarySearchKey {
         LibrarySearchKey(sessionID: sessionID, accountID: accountID,
             sourceRevision: librarySearchSourceRevision, query: libraryQuery,
-            sort: librarySort, commandRevision: libraryCommandGeneration)
+            sort: librarySort, commandRevision: libraryCommandGeneration, fullTextRevision: librarySearchFullTextRevision)
     }
 
     /// The displayed rows are still the right set (same session, account and query). A sort
@@ -1267,7 +1284,6 @@ final class ReaderModel {
         // Installing verified bytes changes row presentation, not searchable
         // metadata. Keep the worker's snapshot free of reading bundles.
         let currentIDs = Set(papers.map(\.id))
-        deviceTextIndex.retain(currentIDs)
         if !Set(previous.map(\.id)).subtracting(currentIDs).isEmpty { forgetIndexedPapers(Set(previous.map(\.id)).subtracting(currentIDs)) }
         libraryRowLookup = libraryRowLookup.filter {
             if case .paper(let paper) = $0.value { return currentIDs.contains(paper.id) }
@@ -1290,7 +1306,7 @@ final class ReaderModel {
             old.tags == new.tags && old.archived == new.archived && old.pageCount == new.pageCount && old.sourceURL == new.sourceURL
         }
         if !sameText || librarySearchSourceDirty { librarySearchSourceChanged() }
-        warmTextIndex()
+        if !sameText || previous.count != papers.count { fullTextIndexer.schedule() }
     }
 
     private func librarySearchSourceChanged() {
@@ -1306,6 +1322,7 @@ final class ReaderModel {
         librarySearchTicket = nil
         if !librarySearchKeepsCurrentRows {
             libraryMatchedIDs = []; libraryRows = []; completedLibrarySearchKey = nil
+            if !librarySnippets.isEmpty { librarySnippets = [:] }
         }
         librarySearchPending = true; librarySearchIssue = nil
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
@@ -1319,7 +1336,8 @@ final class ReaderModel {
             self.librarySearchPreparation = nil
             var mayReuse = self.librarySearchKeepsCurrentRows &&
                 self.completedLibrarySearchKey?.sort == self.librarySort &&
-                self.completedLibrarySearchKey?.sourceRevision == self.librarySearchCandidateRevision
+                self.completedLibrarySearchKey?.sourceRevision == self.librarySearchCandidateRevision &&
+                self.completedLibrarySearchKey?.fullTextRevision == self.librarySearchFullTextRevision
             if self.librarySearchSourceDirty { mayReuse = self.prepareLibrarySearchSource() && mayReuse }
             if self.librarySearchKeepsCurrentRows {
                 self.libraryRows = self.libraryMatchedIDs.compactMap { self.libraryRowLookup[$0] }
@@ -1336,7 +1354,7 @@ final class ReaderModel {
                 } else { self.librarySearchCoordinator = LibrarySearchCoordinator(publish: publish) }
             }
             self.librarySearchTicket = self.librarySearchCoordinator?.submit(
-                key: self.currentLibrarySearchKey, candidates: self.librarySearchCandidates)
+                key: self.currentLibrarySearchKey, candidates: self.librarySearchCandidates, fullText: self.fullTextIndexer.store)
         }
     }
 
@@ -1368,9 +1386,9 @@ final class ReaderModel {
         #endif
         var candidates: [LibrarySearchCandidate] = []
         var lookup: [String: LibraryListEntry] = [:]
-        func append(_ row: LibraryListEntry, fields: [String], sequence: Int64, keys: LibrarySortKeys = .init()) {
+        func append(_ row: LibraryListEntry, fields: [String], sequence: Int64, keys: LibrarySortKeys = .init(), fullTextKey: String? = nil) {
             candidates.append(LibrarySearchCandidate(id: row.id, title: row.title,
-                fields: fields, recentSequence: sequence, position: candidates.count, keys: keys))
+                fields: fields, recentSequence: sequence, position: candidates.count, keys: keys, fullTextKey: fullTextKey))
             lookup[row.id] = row
         }
         // Archive changes waiting to sync already apply here, so a swipe hides the row at once.
@@ -1387,8 +1405,8 @@ final class ReaderModel {
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
                                        chats: paperChatCounts[paper.id] ?? 0, tag: tags.first, pages: paper.pageCount,
                                        source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL))
-            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags + (deviceTextIndex.entries[paper.id]?.terms ?? []),
-                   sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys)
+            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags,
+                   sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys, fullTextKey: paper.id.wire)
         }
         for item in libraryImports where catalogContains(catalogKey(item)) {
             let tags = LibraryTags.tags(for: item)
@@ -1434,6 +1452,7 @@ final class ReaderModel {
                 return
             }
             libraryMatchedIDs = result.rowIDs; libraryRows = rows
+            if librarySnippets != result.snippets { librarySnippets = result.snippets }
             completedLibrarySearchKey = result.ticket.key
             librarySearchPending = false; librarySearchIssue = nil
             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
@@ -2121,6 +2140,7 @@ final class ReaderModel {
         guard workOwnership.owns(activation), accountID == device.accountID else { throw BackendError.signInRequired }
         try Task.checkCancellation()
         restoreReadingActivity(reading)
+        fullTextIndexer.attach(persistence.searchIndex)
         self.device = device
         self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local,
                               noteAssets: notesTransportOverride ?? BackendNoteAssets(backend: backend, accountID: device.accountID),
@@ -2255,7 +2275,7 @@ final class ReaderModel {
     private func clearAccountView() {
         localAI.cancelInference()
         contextualChat = nil; contextualComposers = [:]; explainerReturn = nil; presentedExplainer = nil; promotedChatContexts = [:]
-        deviceTextIndex = DevicePaperTextIndex(); indexEpoch = UUID(); warmingTextIndex?.cancel(); warmingTextIndex = nil
+        fullTextIndexer.detach(); librarySnippets = [:]; pendingPaperFind = nil
         pendingAIChoice = nil; pendingLocalAIChoice = nil
         // Before the old writer retires: fence answers and keep their partials.
         retireChatGenerations()
@@ -3021,6 +3041,16 @@ final class ReaderModel {
             }
             else { openLocalPaperIfNeeded() }
         }
+    }
+
+    /// A Library row's tap. With a search whose match was in the paper's text, the paper opens with Find in paper
+    /// showing the matched words; otherwise exactly `select`.
+    func openLibraryResult(_ paper: Paper) {
+        let query = libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty, let text = librarySnippets[LibraryListEntry.paper(paper).id]?.firstMatch, !text.isEmpty {
+            pendingPaperFind = PendingPaperFind(paperID: paper.id, text: String(text.prefix(200)))
+        } else { pendingPaperFind = nil }
+        select(paper)
     }
 
     func select(_ paper: Paper) {
@@ -5531,6 +5561,7 @@ final class ReaderModel {
         let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
             accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
         restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
+        fullTextIndexer.attach(localPersistence.searchIndex)
         // `--nothing-open`: the sample is in the library but no paper is open (Wide's Library placeholder).
         openSample(select: !ProcessInfo.processInfo.arguments.contains("--nothing-open"))
         if let kind = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--chat-paper-navigation-fixture=") }) {
@@ -5794,6 +5825,8 @@ final class ReaderLocalPersistence {
     private(set) var modelReaderStore: DeviceReaderStore?
     /// Device-local reading activity, sealed beside the store under the same local-store key.
     private(set) var readingStore: ReadingActivityStore?
+    /// The library's full-text index, sealed under the same key (docs/architecture/NATIVE_LIBRARY_SEARCH.md).
+    private(set) var searchIndex: FullTextIndexStore?
     private(set) var isActivating = false
     private(set) var isRetired = false
     private var accountID: UUID?
@@ -5883,6 +5916,7 @@ final class ReaderLocalPersistence {
                 modelReaderStore = try? DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-model-readers", isDirectory: true),
                                                           accountID: accountID, localKey: localKey)
             }
+            if searchIndex == nil { searchIndex = await Self.openSearchIndex(url: url, accountID: accountID, localKey: localKey) }
             try Task.checkCancellation()
             guard !isRetired else { throw CancellationError() }
             return store
@@ -5897,7 +5931,17 @@ final class ReaderLocalPersistence {
         modelReaderStore = try? DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-model-readers", isDirectory: true),
                                                   accountID: accountID, localKey: localKey)
         readingStore = try? ReadingActivityStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
+        searchIndex = await Self.openSearchIndex(url: url, accountID: accountID, localKey: localKey)
         return opened
+    }
+
+    /// Opened off the main actor (it reads and decrypts its manifest). A store that can't open leaves search to
+    /// metadata, as before.
+    private static func openSearchIndex(url: URL, accountID: UUID, localKey: Data) async -> FullTextIndexStore? {
+        let directory = url.deletingLastPathComponent().appendingPathComponent("search-index", isDirectory: true)
+        return await Task.detached(priority: .utility) {
+            try? FullTextIndexStore(directory: directory, accountID: accountID, localKey: localKey)
+        }.value
     }
 
     func retire() { isRetired = true }
@@ -5946,6 +5990,7 @@ final class ReaderRetirementQueue {
             if let persistence {
                 await persistence.waitForActivation()
                 await persistence.waitForAcceptedWrites()
+                await persistence.searchIndex?.close()
             }
             if self?.pending?.id == id { self?.pending = nil }
         }

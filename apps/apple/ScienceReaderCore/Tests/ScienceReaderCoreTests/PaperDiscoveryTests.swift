@@ -47,15 +47,4 @@ import Testing
         for name in ["LLMs", " large language models ", "Transformers", "Benchmark"] { #expect(!PaperKeywords.distinctive(name)) }
         #expect(PaperKeywords.allowed("LLM"), "a tag the reader types stays theirs")
     }
-    @Test func textIndexIsBoundedAndIndependentPapersCanBeForgotten() {
-        var index = DevicePaperTextIndex(); let a = UUID(), b = UUID()
-        index.insert(.init(digest: "a", text: "A distinctive superconductor appendix result"), for: a)
-        index.insert(.init(digest: "b", text: "Another paper about robotics"), for: b)
-        #expect(index.entries[a]?.terms.contains("superconductor") == true)
-        index.remove(a); #expect(index.entries[a] == nil); #expect(index.entries[b] != nil)
-        index.retain([]); #expect(index.entries.isEmpty)
-        for n in 0..<205 { index.insert(.init(digest: "\(n)", text: "sample"), for: UUID()) }
-        #expect(index.entries.count == 200)
-        #expect(DevicePaperTextIndex.Entry(digest: "x", text: (0..<20_000).map { "term\($0)" }.joined(separator: " ")).terms.count == 10_000)
-    }
 }

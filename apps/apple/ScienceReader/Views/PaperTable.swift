@@ -1,3 +1,4 @@
+import ScienceReaderCore
 import SwiftUI
 
 // A table of papers drawn by the app (owner request 2026-10-06: "a sane true table view of papers that we can
@@ -239,6 +240,8 @@ struct PaperTableTitle {
     /// lines and the authors' line), so it doesn't grow midway (owner, build 58).
     var reservesSpace = false
     var reservesSubtitleSpace = true
+    /// A Library search matched in the paper's text: one line of it under the title.
+    var snippet: FullTextSnippet? = nil
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -588,6 +591,7 @@ struct PaperTableTitleCell: View {
                 .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace)).truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
+            if let snippet = title.snippet { SearchSnippetLine(snippet: snippet) }
             // A Library row's second line is always the cloud button's height (24 pt), so a row doesn't change height as
             // a paper is added, downloaded and opened (owner, builds 58–59).
             let libraryLine: CGFloat? = title.deviceCopy != nil || title.reservesSpace ? 24 : nil

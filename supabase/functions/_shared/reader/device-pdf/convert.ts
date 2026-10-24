@@ -31,6 +31,12 @@ export type LogicalBlock =
   | { kind: 'figure'; table: boolean; page: number; rect: [number, number, number, number]; caption: string; captionMarked?: Marked }
   | { kind: 'cells'; caption: string; captionMarked?: Marked; rows: { marked: Marked; span: number }[][]; text: string };
 
+/** Where a block's text sits in the PDF (port revision 11): [page (from 0), x0, y0, x1, y1], points from the top left of the
+ * page as shown, the union of one region's glyphs (its layout box when it has none). A block read from several regions (a
+ * paragraph across a column or a page, a figure and its caption) has one per region. The reading never uses them; the apps
+ * do, to show a passage on the PDF ("Show in PDF"). */
+export type Place = [number, number, number, number, number];
+
 export interface TraceIndex {
   format: string; title: string;
   headings: { id: string; level: number; title: string }[];
@@ -49,6 +55,9 @@ export interface Reading {
   tidy: boolean;
   /** The display gate's threshold (input.displayGate, else GATE_DISPLAY). */
   displayGate: number;
+  /** Each block's places in the PDF; a references block has one list per entry (`referencePlaces`). */
+  places: Map<LogicalBlock, Place[]>;
+  referencePlaces: Map<LogicalBlock, Place[][]>;
 }
 
 interface Page { width: number; height: number; imageWidth: number; imageHeight: number; scale: number; glyphs: Glyph[]; detections: PageInput['detections'] }
@@ -116,15 +125,24 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   let headless = false;
   let para: { marked: Marked; text: string; formulas: Formula[]; role: '' | 'abstract' }[] = [];
   let nGlyphs = 0, nUnowned = 0, recognitionFailures = 0;
+  // Places (Show in PDF): the region being read, and those of the paragraph, entries and notes still open.
+  const places = new Map<LogicalBlock, Place[]>(), referencePlaces = new Map<LogicalBlock, Place[][]>();
+  let here: Place | null = null, paraPlaces: Place[] = [], refPlaces: Place[][] = [];
+  const placeOf = (page: number, gl: Glyph[], fallback: Box): Place => {
+    const shown = gl.filter(visible);
+    const [x0, y0, x1, y1] = shown.length ? union(shown) : fallback;
+    return [page, x0, y0, x1, y1];
+  };
+  const placed = (block: LogicalBlock, list: (Place | null)[]) => { places.set(block, list.filter((x): x is Place => x !== null)); return block; };
 
   const flushPara = () => {
     if (!para.length) return;
     const marked = joinLines(para.map(x => x.marked)), text = joinLines(para.map(x => x.text));
     const block: LogicalBlock = { kind: 'paragraph', marked, text, role: para[0].role };
-    blocks.push(block);
+    blocks.push(placed(block, paraPlaces));
     const bid = addTrace('paragraph', text);
     for (const x of para) for (const f of x.formulas) commit(f, bid, 'body');
-    para = [];
+    para = []; paraPlaces = [];
   };
   const continues = (text: string, cls: string, prevCls: string): boolean => {
     if (!para.length || cls !== 'paragraph' || prevCls !== 'paragraph') return false;
@@ -133,17 +151,20 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   };
   const flushRefs = () => {
     const chunks: string[][] = [[]];
-    for (const r of refs) {
+    const chunkPlaces: Place[][][] = [[]];
+    refs.forEach((r, i) => {
       const current = chunks[chunks.length - 1];
-      if (current.length && current.reduce((n, x) => n + utf8(x).length + 1, 0) + utf8(r).length > BLOCK_TEXT_CHUNK) chunks.push([]);
+      if (current.length && current.reduce((n, x) => n + utf8(x).length + 1, 0) + utf8(r).length > BLOCK_TEXT_CHUNK) { chunks.push([]); chunkPlaces.push([]); }
       chunks[chunks.length - 1].push(r);
-    }
-    for (const chunk of chunks) {
-      if (!chunk.length) continue;
-      blocks.push({ kind: 'references', refs: chunk });
+      chunkPlaces[chunkPlaces.length - 1].push(refPlaces[i] ?? []);
+    });
+    chunks.forEach((chunk, i) => {
+      if (!chunk.length) return;
+      const block: LogicalBlock = { kind: 'references', refs: chunk };
+      blocks.push(block); referencePlaces.set(block, chunkPlaces[i]);
       addTrace('list', canonicalText(chunk.join(' ')));
-    }
-    refs = [];
+    });
+    refs = []; refPlaces = [];
   };
   const makeFormula = (gl: Glyph[], page: number, display: boolean, fontSize: number, box?: Box): Formula => {
     const bx = box ?? union(gl);
@@ -246,7 +267,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const spansFor = (line: Glyph[]) => line.length < 2 ? [] : spanCache.get(line) ?? [];
 
     let prevCls = '';
-    const notes: { marked: Marked; text: string; formulas: Formula[] }[] = [];
+    const notes: { marked: Marked; text: string; formulas: Formula[]; place: Place }[] = [];
     if (p === 0 && !title) {
       const first = ordered.find(r => r.cls === 'title');
       if (first) { const tl = owned(first); title = tl.length ? joinLines(linesOf(tl).map(ln => lineText(ln, [])[0])) : ''; }
@@ -275,12 +296,13 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         if (numbered) { f.tag = numbered.tag; f.imageBox = recognised ? r.pt : union(body); }
         // The full stop or comma after a display often falls just outside its box, unowned; the formula keeps it.
         if (input.displayPunctuation) f.trailing = trailingPunctuation(formulaBody, glyphs.filter((_, i) => owner[i] === null));
-        blocks.push({ kind: 'equation', formula: f.id });
+        blocks.push(placed({ kind: 'equation', formula: f.id }, [placeOf(p, body, r.pt)]));
         commit(f, addTrace('equation', PLACEHOLDER), 'environment');
         continue;
       }
       const inside = owned(r);
       if (!inside.length) continue;
+      here = placeOf(p, inside, r.pt);
       // A bibliography without a heading (REVTeX): the layout's reference entries, two or more opening with a label.
       if (input.bibliography && !inReferences && cls === 'bibitem' && linesFor(r).filter(l => BIB_LABEL.test(lineText(l, [])[0])).length >= 2) {
         flushPara(); inReferences = true; headless = true;
@@ -308,7 +330,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       const text = joinLines(texts);
       if (!text || (cls !== 'title' && cls !== 'heading' && (text.match(/[\p{L}\p{N}]/gu) ?? []).length < 2 && !text.includes(PLACEHOLDER))) continue;
       const inner = cls !== 'listing' ? joinLines(parts) : parts.join('\n');
-      if (continues(text, cls, prevCls)) { para.push({ marked: inner, text, formulas: tagFormulas, role: '' }); continue; }
+      if (continues(text, cls, prevCls)) { para.push({ marked: inner, text, formulas: tagFormulas, role: '' }); paraPlaces.push(here); continue; }
       flushPara();
       if (title && cls !== 'title' && canonicalText(text) === canonicalText(title)) continue;
       // The library's title read as a heading when the layout found no title: the reader's h1 is that title already.
@@ -318,14 +340,14 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       if (cls === 'paragraph' && canonicalText(text).toLowerCase() === 'abstract') cls = 'heading';
       if (cls === 'title') {
         if (trace.headings.length && trace.headings[0].level === 1) continue;
-        blocks.push({ kind: 'heading', level: 1, marked: inner, text }); addTrace('heading', text, 1);
+        blocks.push(placed({ kind: 'heading', level: 1, marked: inner, text }, [here])); addTrace('heading', text, 1);
       } else if (cls === 'heading') {
         if (inReferences && refs.length) flushRefs();
         inReferences = /^\s*(\d+\.?\s*)?(references|bibliography|literature cited|works cited)\b/i.test(text); headless = false;
         const level = /^\d+(\.\d+)*\.?\s/.test(text) ? 2 + Math.min(2, (text.trim().split(' ')[0].match(/\./g) ?? []).length) : 2;
-        blocks.push({ kind: 'heading', level, marked: inner, text, trace: addTrace('heading', text, level) });
+        blocks.push(placed({ kind: 'heading', level, marked: inner, text, trace: addTrace('heading', text, level) }, [here]));
       } else if (cls === 'listing') {
-        blocks.push({ kind: 'code', lines: inner.split('\n'), text });
+        blocks.push(placed({ kind: 'code', lines: inner.split('\n'), text }, [here]));
         const bid = addTrace('code', text);
         for (const f of tagFormulas) commit(f, bid, 'body');
       } else if (inReferences && (cls === 'paragraph' || cls === 'bibitem')) {
@@ -337,26 +359,27 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
           // label, after labelled entries, continues the last one.
           if (headless && entries.length && refs.length && !BIB_LABEL.test(entries[0]) && BIB_LABEL.test(refs[refs.length - 1])) {
             refs[refs.length - 1] = joinLines([refs[refs.length - 1], entries.shift()!]);
+            refPlaces[refs.length - 1]?.push(here);
           }
-          refs.push(...entries);
-        } else refs.push(text);
+          refs.push(...entries); refPlaces.push(...entries.map(() => [here!]));
+        } else { refs.push(text); refPlaces.push([here]); }
       } else if (cls === 'footnote') {
-        notes.push({ marked: inner, text, formulas: tagFormulas });
+        notes.push({ marked: inner, text, formulas: tagFormulas, place: here });
         continue; // a footnote at the column's foot does not close the paragraph above it
       } else if (cls === 'authors') {
-        blocks.push({ kind: 'paragraph', marked: inner, text, role: 'authors' }); addTrace('paragraph', text);
+        blocks.push(placed({ kind: 'paragraph', marked: inner, text, role: 'authors' }, [here])); addTrace('paragraph', text);
       } else {
         const abstractHeading = (t: string) => input.headingDupes ? letters(t) === 'abstract' : t === 'Abstract';
         if (cls === 'abstract' && !(trace.headings.length && abstractHeading(trace.headings[trace.headings.length - 1].title))) {
           blocks.push({ kind: 'heading', level: 2, marked: 'Abstract', text: 'Abstract' }); addTrace('heading', 'Abstract', 2);
         }
-        para.push({ marked: inner, text, formulas: tagFormulas, role: cls === 'abstract' ? 'abstract' : '' });
+        para.push({ marked: inner, text, formulas: tagFormulas, role: cls === 'abstract' ? 'abstract' : '' }); paraPlaces.push(here);
         if (cls !== 'paragraph') flushPara();
       }
       prevCls = cls;
     }
     for (const note of notes) {
-      blocks.push({ kind: 'paragraph', marked: note.marked, text: note.text, role: 'footnote' });
+      blocks.push(placed({ kind: 'paragraph', marked: note.marked, text: note.text, role: 'footnote' }, [note.place]));
       const bid = addTrace('paragraph', note.text);
       for (const f of note.formulas) commit(f, bid, 'body');
     }
@@ -381,6 +404,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         return marked;
       }))).filter(Boolean).join(' ') : undefined;
       const kind = r.cls === 'figure' ? 'figure' : 'table';
+      const captionPlaces = (r.captions ?? []).map(c => placeOf(pageIndex, owned(c), c.pt));
       if (kind === 'table') {
         const body = owned(r).filter(visible);
         const cells = cellsFor(r);
@@ -404,14 +428,16 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
             rows.push(tds);
           }
           const text = canonicalText([...(capText ? [capText] : []), ...texts].join(' '));
-          blocks.push({ kind: 'cells', caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}), rows, text });
+          blocks.push(placed({ kind: 'cells', caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}), rows, text },
+            [placeOf(pageIndex, body, r.pt), ...captionPlaces]));
           const bid = addTrace('table', text);
           for (const f of [...capFormulas, ...cellFormulas]) commit(f, bid, 'body');
           return;
         }
       }
       const block: LogicalBlock = { kind: 'figure', table: kind === 'table', page: pageIndex, rect, caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}) };
-      blocks.push(block);
+      // The figure's own crop first (pixels at DPI), then its captions.
+      blocks.push(placed(block, [[pageIndex, rect[0] * 72 / DPI, rect[1] * 72 / DPI, rect[2] * 72 / DPI, rect[3] * 72 / DPI], ...captionPlaces]));
       const bid = addTrace(kind, capText);
       for (const f of capFormulas) commit(f, bid, 'body');
       traceFigureBlocks.set(block, bid);
@@ -421,11 +447,15 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   }
   flushPara();
   if (refs.length) flushRefs();
-  if (input.headingDupes) contentsAsText(blocks, trace);
+  if (input.headingDupes) {
+    const before = [...blocks];
+    contentsAsText(blocks, trace);
+    blocks.forEach((b, i) => { if (b !== before[i] && places.has(before[i])) places.set(b, places.get(before[i])!); });
+  }
   recognisePending();
 
   trace.title = title || input.pdf.name.replace(/\.[^.]*$/, '');
-  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions, tidy: !!input.tidy,
+  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions, tidy: !!input.tidy, places, referencePlaces,
     displayGate: typeof input.displayGate === 'number' && input.displayGate >= 0.5 && input.displayGate <= 1 ? input.displayGate : GATE_DISPLAY,
     unowned: pyRound(nUnowned / Math.max(1, nGlyphs), 4),
     pages: pages.map(pg => ({ width: pg.width, height: pg.height, imageWidth: pg.imageWidth, imageHeight: pg.imageHeight })) };

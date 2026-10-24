@@ -1,6 +1,101 @@
 # Native library search
 
-## Installed-paper body terms (2026-10-18; TestFlight 71 on iOS/iPadOS and Mac)
+## Full-text index (2026-10-24; unreleased, after TestFlight 90)
+
+Replaces the bounded in-memory term set below (owner: *"is it searching full text from all papers instantly?"*).
+Decisions: [DECISIONS.md](../DECISIONS.md) "Library search over every paper's text". Code: `ScienceReaderCore/FullText/`,
+the app's `LibraryFullTextIndexer` and `LibrarySearchEngine.run`.
+
+**What is searched.** Every library paper's title, authors, tags (with its arXiv keywords and source reference),
+abstract and the text of its notes and snippets; and the full text of every reading saved on this device (both device
+stores: arXiv HTML readings and on-device model readings, each store holding up to 128). A paper not downloaded here is
+found by its metadata only: its text is not on the device. A paper opened from a reading outside those stores (the
+sample, an older server reading) is indexed when opened.
+
+**Tokens.** `FullTextTokenizer` (version 1): letters, digits and combining marks; NFKC plus case/diacritic/width
+folding; apostrophes inside words dropped; "." and "," between digits kept ("2106.09685", "0.5"); soft hyphens
+ignored; a hyphenated compound gives its parts consecutive positions and its joined form at the first part's position;
+a light plural stemmer on ASCII words (sses → ss, ies → y, ches/shes/xes/zes → drop "es", s → drop except after s/u/i).
+Words over 64 bytes take a position but are not indexed.
+
+**Query.** `FullTextQuery`: words and `"quoted phrases"` (straight or curly quotes), all required. A hyphenated word
+matches its parts as a phrase or its joined form. The last word while typing (no space after it) also matches the 64
+most frequent indexed words it begins; an unclosed quote's last word likewise. Each clause matches a paper through the
+index or, as before, as a localized substring of one of the row's metadata fields, so results are never fewer than the
+metadata search gave. Imports and queued rows match by substring only, as before.
+
+**Ranking.** BM25 per field (k1 1.2; length normalisation b 0.3 for title/authors/tags, 0.5 abstract/notes, 0.75 body),
+weighted title 6, tags/authors/abstract 3, notes 2, body 1, summed per clause times the clause's IDF over papers; a
+clause matched only by substring adds 1. The score is multiplied by 1 + 0.1 × the paper's place between the oldest and
+newest in the library. Used for the default Recent order (newest first) when there is a query; every other order and
+table column sorts exactly as before. Ties keep recent order.
+
+**Snippets.** For the first 100 result rows whose match was in the paper's text: the densest cluster of matches (most
+distinct clauses within 12 words, then most matches), from about 40 bytes before it to about 160 bytes, whitespace
+collapsed, "…" at cut ends, phrase matches highlighted as one range. The List row shows it as one footnote line under
+the title, secondary, the matched words primary and semibold; the table's title cell likewise. Rows matched only in
+metadata show nothing new. Opening a row with a snippet opens the paper as before and then Find in paper with the first
+highlighted words (the existing `__scienceReaderFind`), the keyboard left down.
+
+**Storage.** `FullTextIndexStore`, one actor per account, in `<account>/search-index/`:
+- `manifest.bin`: format and tokenizer version, segments, and per document its segment, slot, fingerprint and text file.
+- `seg-N.bin`: an immutable segment: documents with per-field position ranges, a sorted term dictionary, postings
+  (document delta, frequency, position deltas, varints). Fields are two positions apart so no phrase spans fields.
+- `txt-ID.bin`: one body's text in 16 KB LZFSE blocks with tokenizer resume points every 32 words.
+
+Each file is AES-GCM sealed with the account's local-store key; associated data binds it to the account and file
+(`science-reader/search-index/{manifest,segment,text}/v1/<account>[/<id>]`). The directory has complete file
+protection and is excluded from backup. Writes are atomic: segment and texts first, then the manifest; unreferenced
+files are removed at open. Decrypted segments exist only in memory, loaded at the first search (or merge) and released
+by `unload()` or sign-out. Account deletion removes the account folder with it.
+
+**Updates.** A paper is two documents, metadata and body, so a tag or note edit reindexes only the small one. A commit
+writes one new segment for its added/replaced documents and drops replaced ones from the manifest; more than 8 segments
+merge the smallest (keeping 4 + the merged one), and a segment more than half out of date is rewritten. The indexer
+runs at utility priority after a library, reading or notes change (coalesced), compares fingerprints (metadata: SHA-256
+of its fields; body: the stored reading's digest), commits metadata changes and removals together, then decrypts each
+new reading once and commits bodies 16 at a time; a running search reruns after each commit. Deleting a downloaded copy
+removes its body at once. Sign-out cancels the indexer and closes the store with the account's other writers. A changed
+version or an unreadable file empties the index; the next pass rebuilds it from the encrypted bundles.
+
+**Reuse.** `FullTextSnapshot.documentFrequency(_:)`, `documentFrequencies()` and `termFrequencies(group:fields:)`
+expose per-paper term counts and document frequencies over the same tokens, for the interest index's full-text TF-IDF
+and later semantic search. Nothing uses them yet.
+
+### Measurements
+
+`swift run -c release FullTextBenchTool <folder of .txt>` (Core) and the opt-in `FullTextBenchTests` (Simulator, with
+`TEST_RUNNER_FULLTEXT_BENCH_CORPUS`) index a synthetic library that repeats 16 real arXiv papers' text (93 KB average,
+rotated paragraphs and 150 paper-specific words each), reopen it and time ten queries (20 runs each after a warm-up).
+The repetition makes common words match most papers, so these are pessimistic for match counts and snippets.
+
+2026-10-24, 2,000 papers (186 MB of text), this M-series Mac (`-c release`) and the iPad Pro 11-inch (M5) Simulator,
+iOS 26.4 (`-O`, whole module):
+
+| | Mac | iPad Simulator |
+|---|---|---|
+| Build (tokenize, seal, write; merges included) | 19.5 s, 9.7 ms/paper | 17.9 s, 8.9 ms/paper |
+| On disk | segments 64.6 MB + texts 79.9 MB = 72 KB/paper | same |
+| Open (manifest) / load all segments | 33 ms / 60 ms | 30 ms / 57–74 ms |
+| Index query, median (p95) | 0.3–3.3 ms (≤ 3.9) | 0.3–4.0 ms (≤ 18) |
+| Snippet, one paper: text not yet read / cached | 0.33 / 0.06 ms | 0.44–0.52 / 0.06 ms |
+| Whole Library search (index + metadata substring + ranking + 100 snippets), median | — | 11–18 ms (max 22) |
+| First search after launch (loads the index) | — | 91 ms |
+
+Index queries: `attention` 0.5 ms, `diffusion model` 0.8, `"language models"` 3.4, `transfo` 0.8, `in-context learning`
+3.4, `state space model` 1.4, a word in no paper 0.05. Phrases cost most (positions are decoded per candidate paper).
+The whole-search median includes the unchanged metadata substring pass over the 2,000 rows (~13 ms with no match) and
+snippets for the first 100 rows (decoded in parallel, texts cached after the first keystroke). Decrypted segments take
+about 32 KB of memory per paper (65 MB at 2,000; 4 MB at 128). The earlier measurements below (4,000-row metadata
+fixture) are unchanged by this work; that fixture has no paper text.
+
+**Limits.** Only text saved on this device is searchable (each reader store holds up to 128 readings). The first search
+after launch decrypts the segments (about 90 ms at 2,000 papers). During the first build, a running search reruns after
+each 16 papers, so results grow while it runs, and a large merge can delay one search by a few hundred milliseconds.
+Rows after the first 100 matches show no snippet. Find in paper searches the page's text for the snippet's words; a
+match the page renders differently (inside an equation) can find nothing there.
+
+## Installed-paper body terms (2026-10-18; TestFlight 71 on iOS/iPadOS and Mac; replaced by the full-text index)
 
 `DevicePaperTextIndex` adds a disposable in-memory term set from installed verified bundles to the existing
 library search worker's snapshot. It bounds each paper at 500,000 text characters/10,000 distinct terms and the

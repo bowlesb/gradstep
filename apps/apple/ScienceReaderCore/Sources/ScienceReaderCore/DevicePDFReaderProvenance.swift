@@ -10,6 +10,23 @@ public struct DevicePDFReaderSource: Equatable, Hashable, Sendable {
     /// Where each figure's crop sits on its page, by figure id (port revision 10); empty for older readings, which then
     /// offer no zoom-out onto the page.
     public var figures: [String: DevicePDFFigureRegion] = [:]
+    /// Where each block's text was read from, by block id, in reading order (port revision 11; Show in PDF): one region per
+    /// layout region the block was read from. Empty for older readings, which search the whole PDF instead.
+    public var blocks: [String: [DevicePDFTextRegion]] = [:]
+    /// Where each equation was read from, by equation id (every revision records it).
+    public var equations: [String: DevicePDFTextRegion] = [:]
+}
+
+/// A rectangle of a PDF page the on-device route read something from (Show in PDF): the page (from 0) and the box in points
+/// from the top left of the page as shown, as the text layer measures it.
+public struct DevicePDFTextRegion: Equatable, Hashable, Sendable {
+    public let page: Int
+    public let x0: Double, y0: Double, x1: Double, y1: Double
+    public init?(page: Int, x0: Double, y0: Double, x1: Double, y1: Double) {
+        guard (0..<100_000).contains(page), [x0, y0, x1, y1].allSatisfy({ $0.isFinite && abs($0) <= 20_000 }), x1 > x0, y1 > y0 else { return nil }
+        self.page = page; self.x0 = x0; self.y0 = y0; self.x1 = x1; self.y1 = y1
+    }
+    public var rect: CGRect { CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0) }
 }
 
 /// A figure's crop on its PDF page (FIGURE_VIEW.md "Zoom out onto the page"): the page (from 0), the crop and the page's
@@ -63,7 +80,8 @@ enum DevicePDFReaderProvenance {
             }
             paper = try DevicePDFPaper(sourceID: id, revision: revision)
         }
-        return DevicePDFReaderSource(pdfSHA256: pdf, paper: paper, figures: figures(root["figures"]))
+        return DevicePDFReaderSource(pdfSHA256: pdf, paper: paper, figures: figures(root["figures"]), blocks: blocks(root["blocks"]),
+                                     equations: equations(root["equations"]))
     }
 
     /// `[id, page, x0, y0, x1, y1, page width, page height]` rows; a row that is not one is left out (its figure simply
@@ -79,5 +97,36 @@ enum DevicePDFReaderProvenance {
             out[id] = region
         }
         return out
+    }
+
+    /// `[block id, page, x0, y0, x1, y1]` rows (port revision 11), several per block in reading order; a row that is not one
+    /// is left out, never the reading.
+    static func blocks(_ value: Any?) -> [String: [DevicePDFTextRegion]] {
+        guard let rows = value as? [[Any]] else { return [:] }
+        var out: [String: [DevicePDFTextRegion]] = [:]
+        for row in rows.prefix(100_000) where row.count == 6 {
+            guard let id = row[0] as? String, (1...128).contains(id.utf8.count), let region = region(row, page: 1) else { continue }
+            out[id, default: []].append(region)
+        }
+        return out
+    }
+
+    /// `[equation id, confidence, rendered, page, x0, y0, x1, y1, baseline]` rows: each equation's source region.
+    static func equations(_ value: Any?) -> [String: DevicePDFTextRegion] {
+        guard let rows = value as? [[Any]] else { return [:] }
+        var out: [String: DevicePDFTextRegion] = [:]
+        for row in rows.prefix(100_000) where row.count == 9 {
+            guard let id = row[0] as? String, (1...128).contains(id.utf8.count), let region = region(row, page: 3) else { continue }
+            out[id] = region
+        }
+        return out
+    }
+
+    /// The page (a whole number) at `page` and the box in the four numbers after it.
+    private static func region(_ row: [Any], page index: Int) -> DevicePDFTextRegion? {
+        guard let page = row[index] as? Int else { return nil }
+        let box = row[(index + 1)...(index + 4)].compactMap { ($0 as? NSNumber).map(\.doubleValue) }
+        guard box.count == 4 else { return nil }
+        return DevicePDFTextRegion(page: page, x0: box[0], y0: box[1], x1: box[2], y1: box[3])
     }
 }
