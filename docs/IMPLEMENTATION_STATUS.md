@@ -1,6 +1,6 @@
 # Implementation status
 
-## TestFlight 91 — 2026-10-24 UTC (iOS uploaded; Mac uploading)
+## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 Release gate on the merged main: `npm test`, `npm run test:imports` 15/15, `swift test` 451 + 66 XCTest, all pass; the
 arXiv compiler is unchanged since 90 (no sweep needed). iOS app 35 MB with the on-device models as the On-Demand
