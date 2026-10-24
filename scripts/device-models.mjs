@@ -4,7 +4,14 @@
 // vocabularies, weight digests) and checks the weights against the committed lock, so a build carries exactly the
 // locked models. The output directory is not committed (hundreds of MB).
 //
+// Since 2026-10-24 the models are a separate download on iPhone and iPad (DEVICE_PDF_ROUTE.md "The models as a
+// download"): the output folder is the pack (an On-Demand Resources tag in the iOS app, inside the app on the Mac), and
+// this script also writes the pack's description, apps/apple/DeviceModelsManifest/device-models-pack.json, which ships
+// inside the app: every file's size and SHA-256 and a version that is the digest of that list. The app installs a
+// download only when every file matches it. The lock stays the single source of truth for which models are built.
+//
 //   node scripts/device-models.mjs [--from ~/gradstep-mac] [--out apps/apple/DeviceModels] [--update-lock]
+//   node scripts/device-models.mjs --describe   (only rewrites the description of an existing output folder)
 //
 // Sources (each a directory under --from):
 // - layout-fcos-v5-coreml (the desktop's port kit, /home/ben/mathpix/data/models; fp16: 91/91 agreement on the Mac)
@@ -20,7 +27,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -28,6 +35,9 @@ const arg = (name, fallback) => { const i = process.argv.indexOf(name); return i
 const FROM = resolve(arg('--from', join(homedir(), 'gradstep-mac')));
 const OUT = resolve(ROOT, arg('--out', 'apps/apple/DeviceModels'));
 const LOCK = join(ROOT, 'apps/apple/device-models.lock.json');
+const MANIFEST = resolve(ROOT, arg('--manifest', 'apps/apple/DeviceModelsManifest/device-models-pack.json'));
+// The On-Demand Resources tag the pack is published under (project.yml `resourceTags`) and the folder it unpacks as.
+const PACK_TAG = 'device-pdf-models';
 
 const SOURCES = {
   layout: { dir: 'layout-fcos-v5-coreml', package: 'layout.mlpackage', compiled: 'DeviceLayout.mlmodelc' },
@@ -38,6 +48,24 @@ const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex'
 const files = dir => readdirSync(dir, { recursive: true }).map(f => join(dir, String(f))).filter(f => statSync(f).isFile()).sort();
 // A package's identity: the digest of its files' digests in path order (weights and spec).
 const packageDigest = dir => createHash('sha256').update(files(dir).map(f => `${f.slice(dir.length)}:${sha(f)}`).join('\n')).digest('hex');
+
+// The pack's description (DevicePDFModelPack.swift): files in path order, version = sha256 of "path\tsize\tsha256\n" lines.
+function describe(lockModels) {
+  const list = files(OUT).filter(f => !f.endsWith('/.DS_Store')).map(f => ({ path: f.slice(OUT.length + 1), size: statSync(f).size, sha256: sha(f) }))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const version = createHash('sha256').update(list.map(f => `${f.path}\t${f.size}\t${f.sha256}\n`).join('')).digest('hex');
+  const pack = { schema: 'gradstep-device-models-pack-v1', version, tag: PACK_TAG, folder: 'DeviceModels',
+    lock: Object.fromEntries(Object.entries(lockModels).map(([role, m]) => [role, m.sha256])), files: list };
+  mkdirSync(dirname(MANIFEST), { recursive: true });
+  writeFileSync(MANIFEST, JSON.stringify(pack, null, 1) + '\n');
+  const bytes = list.reduce((n, f) => n + f.size, 0);
+  console.log(`pack ${version.slice(0, 12)}: ${list.length} files, ${(bytes / 1e6).toFixed(1)} MB; description ${MANIFEST}`);
+}
+if (process.argv.includes('--describe')) {
+  if (!existsSync(join(OUT, 'device-models.json'))) { console.error(`no models in ${OUT}`); process.exit(2); }
+  describe(JSON.parse(readFileSync(LOCK, 'utf8')).models);
+  process.exit(0);
+}
 
 const digests = {};
 for (const [role, s] of Object.entries(SOURCES)) {
@@ -84,3 +112,4 @@ const config = {
 writeFileSync(join(OUT, 'device-models.json'), JSON.stringify(config, null, 1) + '\n');
 const bytes = files(OUT).reduce((n, f) => n + statSync(f).size, 0);
 console.log(`device models ready in ${OUT}: ${(bytes / 1e6).toFixed(1)} MB`);
+describe(JSON.parse(readFileSync(LOCK, 'utf8')).models);

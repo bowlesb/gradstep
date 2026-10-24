@@ -67,11 +67,9 @@ struct DeviceModelSummary: Equatable, Sendable {
 
 /// Loads the models and the converter once per reading and runs the route off the main thread.
 enum DeviceModelEngine {
-    static var modelsDirectory: URL? {
-        guard let url = Bundle.main.resourceURL?.appendingPathComponent("DeviceModels", isDirectory: true),
-              FileManager.default.fileExists(atPath: url.appendingPathComponent("device-models.json").path) else { return nil }
-        return url
-    }
+    /// The models for this run: the verified download (iPhone, iPad), the app's own copy (Mac), or a folder named by
+    /// `GRADSTEP_DEVICE_MODELS` (tests on this Mac); nil until the models are downloaded (DeviceModelAssets).
+    static var modelsDirectory: URL? { DeviceModelAssets.locate()?.directory }
     static var compilerURL: URL? { Bundle.main.url(forResource: "device-pdf-reader", withExtension: "js") }
     /// The converter rules beyond the port kit, each turned on after it was measured against the arXiv HTML of real
     /// papers (docs/reviews/DEVICE_PDF_ROUTE_20261021.md; DevicePDFRoute.Options.rules).
@@ -88,10 +86,17 @@ enum DeviceModelEngine {
     static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners",
                                      "captionMath", "equationNumbers", "mergeDisplays", "bibliography", "venueNotice", "displayPunctuation",
                                      "fontAliases", "wordGaps", "accents", "lineBands"]
-    /// The models and the converter are in this build and the system can run the stateful recogniser.
+    /// The converter is in this build, the models are here or can be downloaded, and the system can run the stateful
+    /// recogniser.
     static var available: Bool {
         guard #available(iOS 18.0, *) else { return false }
-        return modelsDirectory != nil && compilerURL != nil
+        guard compilerURL != nil else { return false }
+        if modelsDirectory != nil { return true }
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
+        return DeviceModelAssets.packDescription != nil
+        #endif
     }
 
     @available(iOS 18.0, *)
@@ -286,6 +291,14 @@ extension ReaderModel {
             selectedPaper = paper; chatPaperID = paper.id; showPaperPlace()
             generalChat = false
         }
+        // The models are a separate download (DEVICE_PDF_ROUTE.md "The models as a download"): offered in the bar where
+        // the reading's progress shows; the reading starts once they are in.
+        if DeviceModelEngine.modelsDirectory == nil {
+            deviceModelDownloadPaperID = paper.id
+            deviceModelDownloadAgain = again
+            return
+        }
+        deviceModelDownloadPaperID = nil
         let started = DeviceModelRun(paperID: paper.id, started: Date()), runID = started.id
         deviceModelRun = started
         // A cancelled reading still unwinding finishes first, so two model loads never overlap in memory.
@@ -355,6 +368,26 @@ extension ReaderModel {
         }
     }
 
+    /// The download bar's Download: the models, then the reading it was offered for (when that paper is still open).
+    func downloadDeviceModelThenRead() {
+        guard let paperID = deviceModelDownloadPaperID else { return }
+        let again = deviceModelDownloadAgain, scope = sessionID
+        Task { [weak self] in
+            guard let self else { return }
+            let ready = await self.deviceModelAssets.ensureDownloaded()
+            guard ready, self.sessionID == scope, self.deviceModelDownloadPaperID == paperID,
+                  let paper = self.selectedPaper, paper.id == paperID else { return }
+            self.deviceModelDownloadPaperID = nil
+            self.readWithDeviceModel(paper, again: again)
+        }
+    }
+
+    /// The download bar's Cancel: stops a download in progress and closes the offer.
+    func dismissDeviceModelDownload() {
+        if case .downloading = deviceModelAssets.state { deviceModelAssets.cancel() }
+        deviceModelDownloadPaperID = nil
+    }
+
     /// The added PDF a local PDF view shows, when the model can read it.
     func modelReadablePaper(for presentation: LocalPaperPresentation) -> Paper? {
         guard let record = localPaperRecords.first(where: { $0.id == presentation.id }),
@@ -401,7 +434,7 @@ extension ReaderModel {
             }
         }
         if let model = error as? DevicePDFModelError {
-            switch model { case .missing: return "The on-device models aren’t in this build."; case .unusable(let what): return "A model couldn’t run on this device (\(what.prefix(80)))." }
+            switch model { case .missing: return "The PDF reading model isn’t on this device yet."; case .unusable(let what): return "A model couldn’t run on this device (\(what.prefix(80)))." }
         }
         if error is ReaderBundleError { return "The on-device model’s reading didn’t pass the reader’s checks." }
         return "The on-device model couldn’t read this paper."

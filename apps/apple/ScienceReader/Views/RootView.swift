@@ -1656,6 +1656,11 @@ struct SettingsView: View {
                             LabelWithInfo(title: "On-device PDF reader", info: "Reads a paper’s PDF on this device with Gradstep’s own models: layout, formulas and text, nothing sent anywhere. It takes minutes and can be wrong; formulas it is unsure of are shown as images of the page. Choose “Read with the on-device model” in a paper’s options, then report what you see.")
                         }
                         .accessibilityIdentifier("settings.deviceModel")
+                        // iPhone and iPad download the models separately (DEVICE_PDF_ROUTE.md "The models as a download");
+                        // the Mac's are inside the app.
+                        if model.deviceModelReader, model.deviceModelAssets.downloadable {
+                            DeviceModelSettingsRow(assets: model.deviceModelAssets)
+                        }
                     } header: { Text("Experimental") }
                 }
                 // Text sizes live where you read and chat (A− / A+ on the paper, the chat's ⋯ menu; owner, build 57).

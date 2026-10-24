@@ -39,8 +39,16 @@ targets:
         buildPhase: resources
       # The on-device PDF route's compiled models (docs/architecture/DEVICE_PDF_ROUTE.md; `node scripts/device-models.mjs`
       # fills it, digests locked by device-models.lock.json). Not committed; the experiment hides itself without them.
+      # A separate download on iPhone and iPad ("The models as a download"): the folder is the On-Demand Resources tag
+      # `device-pdf-models`, hosted by the App Store with the build. Mac Catalyst has no On-Demand Resources
+      # (ENABLE_ON_DEMAND_RESOURCES is off there below), so the Mac app carries the folder as before.
       - path: DeviceModels
         type: folder
+        buildPhase: resources
+        optional: true
+        resourceTags: [device-pdf-models]
+      # What the downloaded pack must be (every file's size and SHA-256; the same script writes it). Inside the app.
+      - path: DeviceModelsManifest
         buildPhase: resources
         optional: true
     # The app's Info.plist is generated from these properties (`xcodegen generate` rewrites ScienceReader/Info.plist).
@@ -105,6 +113,10 @@ targets:
         # The Mac shows the bundle name in the menu bar and Finder; the Swift module keeps its name.
         "PRODUCT_NAME[sdk=macosx*]": Gradstep
         PRODUCT_MODULE_NAME: ScienceReader
+        # On-Demand Resources: the device PDF models (above) on iPhone and iPad; on the Mac the tagged folder is copied
+        # into the app instead.
+        ENABLE_ON_DEMAND_RESOURCES: YES
+        "ENABLE_ON_DEMAND_RESOURCES[sdk=macosx*]": NO
       configs:
         # FIXTURE_HOST: synthetic UI fixtures, only in Debug builds that run on a development host
         # (the Simulator or this Mac), never on a device or in a distributed build.
