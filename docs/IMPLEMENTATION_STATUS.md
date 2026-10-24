@@ -1,5 +1,18 @@
 # Implementation status
 
+## Unreleased (after TestFlight 90)
+
+- **Show in PDF** for on-device readings (branch `worktree-agent-aa0ba2fe38a9c93ff`; owner request 2026-10-24;
+  FIGURE_VIEW.md "Show in PDF", DECISIONS.md): the last item of a text selection's menu and of a tapped equation's menu
+  opens the PDF on this device at the passage, its lines highlighted, framed and zoomable, with previous/next page. Converter
+  **port revision 11** records each block's page and boxes in provenance (`blocks`); the reading is unchanged. Older
+  readings search the whole PDF; no words found shows the block's recorded place; nothing at all says so. arXiv HTML readings
+  unchanged. A passage on part of a line opens readable, from its column's left edge. Verification: `npm test` (fast tier)
+  passes; `swift test` 437 + 50 XCTest (one opt-in skipped) pass; the opt-in real-reading check on 2305.18290v3 (374
+  passages: 293 word for word, 75 approximate, 6 by the block's place, all on a recorded page) and the opt-in journey
+  passed on the iPhone 17 Pro and iPad Pro 13-inch (M5) Simulators; the Mac app builds. Not seen on a device; the slot
+  sheet beside a second slot and the equation menu's entry were not exercised by a journey.
+
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 - **Also in 90:** TestFlight 89's iPad Wide work (places button top-left, a double-tapped divider lets the list cover the

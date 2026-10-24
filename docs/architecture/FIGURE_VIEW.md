@@ -1,5 +1,62 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Show in PDF — 2026-10-24 (apps and converter, branch only; not released)
+
+Owner, 2026-10-24: "it would be neat to somehow have a feature where, wherever you select, it can guess where in the pdf
+that is and show it to you with a pop up that you can zoom around in" — a way to check a doubtful passage of an on-device
+reading against the PDF. Decision record:
+[DECISIONS](../DECISIONS.md#show-in-pdf-for-on-device-readings-owner-request-2026-10-24-agent-decisions-reversible).
+On-device readings only (an arXiv HTML reading has no PDF); everything happens on the device, nothing is sent.
+
+- **Where each block is.** The converter (port revision 11) adds `blocks` to `provenance.json`: `[block id, page (from 0),
+  x0, y0, x1, y1]`, points from the top left of the page as shown, one row per layout region the block was read from (a
+  paragraph across a column or a page has two; a figure its crop then its caption; a table its cells then its caption),
+  for paragraphs, headings, list entries, tables, captions, figures, equations and code. Equations already carried their
+  page and box (`equations`). `DevicePDFReaderProvenance` reads both (a bad row is dropped, never the reading); readings
+  before revision 11 have no `blocks`.
+- **Finding the words** (`PDFPassageLocator` in ScienceReaderCore, tested): the selection's text, folded (Unicode
+  compatibility forms, so ligatures and mathematical letters are plain letters; case and accents dropped; only letters and
+  digits kept, so spacing, punctuation and a hyphen at a line's break vanish), is searched in the PDF's own text layer
+  (`DevicePDFTextLayer`, the glyphs the route reads), folded the same way, on the block's recorded pages. Several exact
+  matches: the one inside the block's boxes, then the one whose surrounding text matches the selection's (the bridge's
+  context), then the page nearest the block's place in the reading. No exact match: an approximate one (six-letter pieces
+  found in order at about the same offsets, at least 45 % of them; a formula or a misread letter in the reading). The
+  matching glyphs become line rectangles.
+- **Fallbacks.** No words found on the recorded pages (a scanned page, text the model misread): the block's recorded boxes
+  on its first page, outlined dashed, with "Where the model read this passage; the exact words weren't found." A reading
+  without block rows: the whole document is searched and the best match taken. Nothing at all: "Not found in the PDF",
+  said plainly, with Browse the PDF. A tapped equation shows its own recorded box ("Where the model read this equation").
+- **The pop-up** (`ShowInPDFView`, `PDFPageScroll`): the page in a zooming, panning view measured in page points, opening
+  framed on the passage (`PDFPassageZoom`: the passage and a margin, at least 45 % of the page's width, at most six times
+  the whole page's zoom), its lines filled in a light yellow and their extent outlined in the accent colour (dashed when
+  approximate). Pinch out to the whole page (the zoom stops there), in to twelve times it; a double tap toggles the whole
+  page and the passage. The top row: "Page 3 of 14" (and the note when not exact), previous and next page (← → on a
+  keyboard), X (Esc). The whole page is drawn once at about twice the screen's pixels for the fitted page
+  (`FigurePageLayout.renderDensity`), and, zoomed past that, only the visible part (with a quarter view of margin) is drawn
+  again at the screen's pixels when the view comes to rest (`DevicePDFRaster.render(_:pixelsPerPoint:region:)`); both
+  are let go when the pop-up closes, with the PDF.
+- **Presentation:** full screen on iPhone and upright iPad (as the AI Explainer covers the page); sideways on iPad, a sheet
+  over the paper's own slot (`slotSheet`), never across both; a sheet on the Mac.
+- **Ways in:** the last item of a text selection's menu (Copy · Explain in Chat · Save snippet · **Show in PDF**,
+  `doc.viewfinder`; the Mac's right-click menu too) and of a tapped equation's (Chat about Equation · Focus · Copy as Text ·
+  **Show in PDF**), only while the reading is an on-device one whose PDF is still on this device. Tables have no tap or
+  long-press entry of their own in the paper; text selected in a table uses its block's place like any other.
+- **Evidence:** `ShowInPDFTests` (Core: folding, a word broken at a line's end, a ligature, a repeated phrase told apart by
+  the block's page and by its box, the approximate match, the fallbacks, a hand-written two-page PDF read by the real text
+  layer, the rows, drawing a part of a page, the opening zoom); `device-pdf.test.ts` (the rows and their boxes hold the
+  block's words); the opt-in `testEveryBlockOfARealReadingIsFoundOnItsPDF` (`SHOW_IN_PDF_READING`, `SHOW_IN_PDF_PDF`) on a
+  revision-11 reading of 2305.18290v3: of 374 six-word passages from 187 paragraphs, list entries and headings (opening and
+  middle), 293 found word for word, 75 approximately (the index's text keeps inline LaTeX, which a selection's text never
+  has), 6 shown by their block's place (LaTeX-heavy or garbled reading text), all on a recorded page; without the record
+  38 of 40 paragraphs found on the same page. Journey: `FigureViewJourneyTests.testShowInPDFOpensASelectedSentenceOnItsPDFPage`
+  (opt-in, the same `TEST_RUNNER_FIGURE_DEVICE_BUNDLE` / `_PDF` as the zoom-out journey, a revision-11 reading of
+  2305.18290v3 made by `DevicePDFRouteTool` with the app's rules): "high level, existing methods ins…" selected, Show in
+  PDF last in the menu, the pop-up on page 2 of 27 with the words highlighted and no note, pinched out to the whole page,
+  next and previous page, X; on iPad also sideways. Passed on the iPhone 17 Pro and iPad Pro 13-inch (M5) Simulators
+  (iOS 26.4). Sideways the paper was alone in the window, so the system's page-sized sheet showed (a slot's sheet needs a
+  second slot beside the paper; not exercised). Screenshots and the reading: `.artifacts/show-in-pdf/`. The Mac app builds;
+  no Mac journey was run. Not tried on a device.
+
 ## Zoom out onto the page — 2026-10-24 (apps, branch `figure-zoom-out`; not released)
 
 Owner, 2026-10-24: "in the on device model, when I click on an AI explainers for a figure, I should be able to zoom out
