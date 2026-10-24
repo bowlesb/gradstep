@@ -16,7 +16,12 @@
   with 100 snippets. Verification: `swift test` 450 + 38 pass (13 new full-text tests); app unit tests for search
   (LibraryFullTextSearch, LibrarySearchCoordinator/Model, PaperTable, LibraryMetadata, OfflineModel) pass;
   WorkflowSafetyTests' `testAskFromBrowseEntersReaderAndKeepsThePaperConversationDraft` fails on iPhone and iPad
-  Simulators (it expects the Mac's `browsing` rule; none of that code changed here); `npm test` passes. Not yet on a device.
+  Simulators (it expects the Mac's `browsing` rule; none of that code changed here); `npm test` passes. UI (iOS 26.4,
+  `-O`): new `LibraryFullTextJourneyTests` (body word → snippet row → paper opens with Find "1 of 2", keyboard down)
+  passes on iPhone 17 Pro and iPad Pro 11-inch; `IPadShapesJourneyTests/testSearchKeepsTheListAfterOpeningAResult` and
+  `PaperToolsTests` find-bar journey pass (the latter 3/3 after one timeout under a machine load average of ~200);
+  `WorkflowJourneyTests` `testSearchOpenReturnNoMatches…` and `testSearchScopeNameFits…` fail at the ML paper search
+  switch on this branch and on the base commit alike. Not yet on a device.
 
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 
