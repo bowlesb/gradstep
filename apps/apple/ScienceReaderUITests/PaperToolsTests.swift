@@ -497,7 +497,7 @@ final class PaperToolsTests: XCTestCase {
         // Browse and the persisted split width; the hidden full-width paper above remains valid in both layouts.
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape again")
-        XCTAssertTrue(app.buttons["tab.search"].waitForExistence(timeout: 5), "The Wide row")
+        XCTAssertTrue(app.placesMenu.waitForExistence(timeout: 5), "The places menu")
 
         // Library ⋯ › Show library beside paper: the library's list as the paper's left panel.
         app.showBrowse()
@@ -507,7 +507,7 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(app.buttons["paper.find"].waitForExistence(timeout: 5))
         app.buttons["paper.find"].tap() // closes the menu
         app.buttons["paper.find.close"].tap()
-        app.buttons["library.panel.close"].tap()
+        app.buttons["paper.listToggle"].tap()
         XCTAssertTrue(wait { app.buttons["Paper options"].isHittable })
         XCTAssertTrue(chatOffered(app), "The chat stays hidden on Paper")
 

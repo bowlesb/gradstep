@@ -1923,13 +1923,15 @@ planned, controlled and well thought out". Decisions, in the owner's order of co
 - **One top row on Wide** ("having two rows is awkward at the top… just one row"), about 52 pt: the five places
   (Feed · Library · Paper · Chat · Snippets, with 🔍 last) and each slot's own where-to-go, create and ⋯. No brand
   row, no gear: Settings is the last row of every ⋯. Bottom: only the chat composer. Search, find, notices and sync
-  status float over content; nothing inserts a row. New features must fit an existing bar or ⋯.
+  status float over content; nothing inserts a row. New features must fit an existing bar or ⋯. *Superseded on the
+  iPad, 2026-10-23 (below): the places are a menu in the top-right corner, and rows exist only where a slot needs one.*
 - **Fewer visible controls** ("hiding more controls behind a menu… not feeling like a MS Word document"). Text size
   stays the iPhone's floating control ("works well").
 - **Two slots, six views** (owner approved "let's start with it"): Read, Browse (Papers | Paper), Navigate
   (Contents | Paper), Explain (explainer in the paper's slot, iPhone look), Discuss (Paper | Chat), Chats (All chats |
   Chat). Actions move between them with content-preserving transitions (Explain → Continue in Chat → Discuss); never
-  a third column. Tall shows the same views one slot at a time.
+  a third column. Tall shows the same views one slot at a time. *Partly superseded on the iPad, 2026-10-23 (below):
+  Explain is a companion on the paper's right, not over its slot; Browse is the Library place itself.*
 - **Search** lives at the top of the left list, like Mail; a result opens on the right and the list stays.
 - **Selection actions** on Wide: a small capsule at the selection (Explain · Save snippet · ⋯) and right-click; the
   web's bottom-centre five-button bar "didn't work well". Tall keeps the iPhone bar.
@@ -1937,3 +1939,33 @@ planned, controlled and well thought out". Decisions, in the owner's order of co
   the long account menu; information dialogs close with ✕, task dialogs have Cancel + verb bottom right.
 - **Order:** iPad first ("the most challenging… has to accommodate both usage patterns"), then web, then Mac.
 - Proposal with drawings: https://claude.ai/artifact/7bkqfqkryuJM5VU7HganDj (private to the owner).
+
+## iPad Wide: a places menu and each place's own two slots (owner direction 2026-10-23; agent's first pass)
+
+Owner: the five places "use space at the top. Lets put them in a menu in the right hand side, which is conceptually
+similar to the ... menu… they never cost vertical space"; "when one is selected, we have custom two panel behavior for
+each of the 5 functionality areas"; Library with a paper on the right "is fine, but you should have the option to adjust
+where exactly in the screen the divider is… you are still technically in 'Library' view"; "'Paper' can also be a left
+primary item… When Paper is a left primary item, the AI explainer and equation explainer can go on the right"; Feed
+presents "the abstract to the right… By default, we present it to the left half of the screen". Decided for the iPad's
+Wide shape only (Tall, the Mac and the web unchanged); spec in DESIGN.md › Tall and Wide:
+
+- **Philosophy:** each place owns one arrangement: its list on the left from the start, what was picked on the right;
+  positions never jump; a draggable divider everywhere two slots show, remembered per place as a fraction of the width.
+- **Places menu** in the window's top-right corner, always the same spot, showing the current place's symbol; the
+  rightmost slot's ⋯ just left of it, a companion's ✕ left of that. ⌘1…⌘5 choose places. Replaces the capsule.
+- **Rows only where a slot has controls** (lists, a conversation, a collection, Contents); the paper floats its controls
+  (list toggle, ☰, ⋯) and has 0 pt of chrome above its page.
+- **Library** = list | paper (placeholder with none); **Paper** = promoted with the list toggle (or dragging the divider
+  past the list's minimum), with Contents on its left or a companion on its right (AI Explainer, equation view, figure
+  page, chat); opening a helper beside the Library or Feed promotes the paper first; never three columns. **Feed** = list
+  (left half) | abstract and details, Read opening the paper there; picking never adds a paper. **Chat** and
+  **Snippets** keep their list | detail with the divider. **Search** = the Library with its field focused.
+- Agent choices in this pass (reversible): defaults Feed 50%, Library 40%, Chats and Snippets 35%, Contents 33%, paper
+  55% beside a companion; minimums list 280, paper 420, companion 320 (Contents 420); a drag must end 40 pt past a
+  minimum to close a slot; the explainers keep their own sheet bar (Snippet · Chat · AI Explainer, ✕) in the companion
+  slot; Listen stays one slot; the collection's name moved from its stream's heading into its row; the Library ⋯ "Show
+  library beside paper" toggle is Mac-only now (the iPad's Library always has the paper beside it), and the paper's ⋯
+  keeps it as the list toggle's twin.
+- **Supersedes (iPad Wide):** the places capsule in the one top row; "Explain in the paper's slot"; "the Library and Feed
+  tables are not in the container"; Browse as Papers | Paper inside the Paper place.

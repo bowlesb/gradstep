@@ -13,7 +13,7 @@ final class ChatHistoryTableTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--chat-history-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sample].waitForExistence(timeout: 15))
-        if app.wideShape { app.wideMode("General Chat").tap() } else { app.show("chat") }
+        if app.wideShape { app.choosePlace("chat") } else { app.show("chat") }
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
         XCTAssertTrue(options(app).waitForExistence(timeout: 5))

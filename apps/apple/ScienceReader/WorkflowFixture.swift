@@ -109,7 +109,8 @@ extension ReaderModel {
             case "feed": tab = .feed
             case "library": tab = .library
             case "paper", "reader": tab = .paper; if chatPaperID != nil { generalChat = false }
-            case "browse": wideList = .papers; tab = .paper
+            // The iPad's Library place is the list with the paper beside it; the Mac's Browse is the list beside Paper.
+            case "browse": if Platform.isMac { wideList = .papers; tab = .paper } else { tab = .library }
             case "navigate": wideList = .contents; tab = .paper
             case "chat": generalChat = true; tab = .chat
             case "notes", "snippets": tab = .notes

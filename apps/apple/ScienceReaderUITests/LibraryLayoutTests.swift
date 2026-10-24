@@ -98,6 +98,14 @@ final class LibraryLayoutTests: XCTestCase {
         choose("Table", in: app, screenshot: "Library options menu (iPad)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
         XCTAssertTrue(cell(attention, in: app).waitForExistence(timeout: 5))
+        // Wide (owner, 2026-10-23): the table is the Library place's left slot, with the columns that fit; dragging the
+        // divider right (as far as the paper's minimum allows) reveals the rest.
+        let divider = app.descendants(matching: .any)["slots.divider"].firstMatch
+        if divider.exists {
+            let grip = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: app.frame.width - divider.frame.midX - 20, dy: 0)))
+            XCTAssertTrue(header("Progress", in: app).waitForExistence(timeout: 5), "A wider list shows more columns")
+        }
         for title in ["Title", "Year", "Tags", "Added", "Opened", "Chats", "Progress"] {
             XCTAssertTrue(header(title, in: app).exists, "Wide iPad shows \(title)")
         }
@@ -145,8 +153,9 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
         cell(sample, in: app).tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.wideMode("Reader").isSelected)
-        app.wideMode("Library").tap()
+        // Wide (owner, 2026-10-23): the paper opens beside the table, still the Library place.
+        XCTAssertEqual(app.currentPlace, "Library")
+        app.show("library")
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
 
         // Portrait (11": 834 pt) keeps the table, without the Tags column.
@@ -369,7 +378,7 @@ final class LibraryLayoutTests: XCTestCase {
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]
         app.launch()
         if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") }
-        else { app.wideMode("Feed").tap() }
+        else { app.show("feed") }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
         app.buttons["Feed options"].tap()
         let viewAs = app.buttons["View as"].firstMatch

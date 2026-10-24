@@ -66,8 +66,6 @@ struct ReaderSplit: View {
                 divider
                 ChatView(model: model).frame(width: chatWidth)
                     .environment(\.chatBesidePaper, true)
-                    // The places capsule is in the paper's share of the top row.
-                    .environment(\.placesInBar, false)
                     .transition(.move(edge: .trailing))
             }
         }
@@ -117,11 +115,9 @@ struct ReaderSplit: View {
     }
 }
 
-/// What a slot of the Wide Paper screen holds (owner, 2026-10-22, "Two slots, a few views").
-enum WidePane: Equatable { case papers, feed, contents, paper, explainer, chat }
-
-/// The list in the left slot beside the paper (ReaderModel.wideList).
-enum WideList: String { case none, papers, feed, contents }
+/// The list in the left slot beside the paper (ReaderModel.wideList): Contents (Navigate, ☰), or on the Mac the library
+/// (Browse). The iPad's Library and Feed are places of their own with the paper on their right (WideSlots).
+enum WideList: String { case none, papers, contents }
 
 private struct SlotPaneKey: EnvironmentKey { static let defaultValue = false }
 
@@ -133,45 +129,83 @@ extension EnvironmentValues {
     }
 }
 
-/// The iPad's Wide Paper screen: two slots at most, each in the iPhone's look, moved between by doing things rather than
-/// choosing a layout. The paper keeps one identity in every view (its place and its load survive Read ↔ Discuss).
-/// - Read: the paper alone, its reading column centred.
-/// - Browse: Papers (the library or search results) | Paper. Navigate: Contents | Paper.
-/// - Discuss: Paper (about 45%) | Chat. ✕ on the chat returns to Read (or the list it replaced).
-/// - Explain: the paper's slot shows the explainer (PaperView › explainerPresentation); the left slot is unchanged.
+/// The iPad's Library, Feed and Paper places on one two-slot container (owner, 2026-10-23: "custom two panel behavior
+/// for each of the 5 functionality areas"), so the paper keeps one identity, its load and its place, whichever of them
+/// shows it:
+/// - Library: the Library list | the open paper (a quiet placeholder with none). Still the Library place.
+/// - Feed: the feed list | the picked article's abstract (FeedAbstractPane), or its paper once Read.
+/// - Paper (promoted with the paper's list toggle, chosen from the places menu, or a helper opened): the paper alone, its
+///   column centred; Contents | Paper (Navigate, ☰); Paper | Chat (Discuss). The paper's other helpers (AI Explainer,
+///   the equation view, a figure page) open on its right from PaperView (explainerPresentation), on the same divider.
+/// The list is on the left from the start, at the divider's place, whether or not something is picked.
 struct WideSlots: View {
     @Bindable var model: ReaderModel
     let width: CGFloat
     /// Shared frames between the slots (the explainer handing its slot to the chat).
     @Namespace private var slots
 
+    private enum Other { case library, feed, contents, chat, none }
+
     var body: some View {
-        let slots = model.wideSlots
-        let side: TwoSlotLayout<PaperView, AnyView>.Side = slots.right == .chat ? .right : (slots.left == nil ? .none : .left)
-        // Contents' row holds its four tabs and ✕, and a figure page's Snippet · Chat · AI Explainer: more room than a list.
-        TwoSlotLayout(width: width, other: side, listWidth: slots.left == .contents ? { min(440, max(420, ($0 * 0.33).rounded())) } : nil) {
-            PaperView(model: model)
+        let other = self.other
+        // The Feed's right slot shows the abstract (or a placeholder) until Read opens the paper there.
+        let abstract = model.tab == .feed && !(model.feedReading && model.selectedPaper != nil)
+        TwoSlotLayout(width: width, other: other == .chat ? .right : other == .none ? .none : .left,
+                      arrangement: arrangement(other), collapse: collapse(other)) {
+            ZStack {
+                PaperView(model: model)
+                    .accessibilityHidden(abstract).allowsHitTesting(!abstract)
+                if abstract { FeedAbstractPane(model: model).transition(.opacity) }
+            }
         } otherView: {
-            other(side == .right ? .chat : (slots.left ?? .paper))
+            view(other)
         }
-        .environment(\.slotNamespace, self.slots)
+        .environment(\.slotNamespace, slots)
     }
 
-    private func other(_ kind: WidePane) -> AnyView {
-        switch kind {
-        case .papers:
-            return AnyView(LibraryView(model: model).environment(\.placesInBar, false).environment(\.librarySidebar, true))
-        case .feed:
-            return AnyView(FeedView(model: model).environment(\.placesInBar, false).environment(\.librarySidebar, true))
+    private var other: Other {
+        switch model.tab {
+        case .library: return .library
+        case .feed: return .feed
+        default:
+            if model.wideDiscuss { return .chat }
+            return model.wideList == .contents ? .contents : .none
+        }
+    }
+
+    private func arrangement(_ other: Other) -> SlotArrangement {
+        switch other {
+        case .library: .library
+        case .feed: .feed
+        case .contents: .contents
+        case .chat, .none: .companion
+        }
+    }
+
+    /// Dragging the divider past the other slot's minimum: a list collapses (the paper beside it becomes the Paper place;
+    /// Contents closes), a chat closes.
+    private func collapse(_ other: Other) -> (() -> Void)? {
+        switch other {
+        case .library: return model.selectedPaper == nil ? nil : { model.promotePaper() }
+        case .feed: return model.feedReading && model.selectedPaper != nil ? { model.promotePaper() } : nil
+        case .contents: return { model.wideList = .none }
+        case .chat: return { model.tab = .paper }
+        case .none: return nil
+        }
+    }
+
+    private func view(_ other: Other) -> AnyView {
+        switch other {
+        case .library: return AnyView(LibraryView(model: model))
+        case .feed: return AnyView(FeedView(model: model))
         case .contents: return AnyView(ContentsPane(model: model))
         case .chat:
             return AnyView(ChatView(model: model)
                 .environment(\.chatBesidePaper, true)
-                .environment(\.placesInBar, false)
                 .environment(\.discussChat, true)
                 // Arriving from an explainer: the explainer's frame becomes the chat's.
-                .modifier(SharedSlotFrame(id: WideSlotTransition.explainerToChat, namespace: self.slots)))
-        case .paper, .explainer: return AnyView(EmptyView())
+                .modifier(SharedSlotFrame(id: WideSlotTransition.explainerToChat, namespace: slots)))
+        case .none: return AnyView(EmptyView())
         }
     }
 }

@@ -38,17 +38,13 @@ struct PodcastListenView: View {
     @Bindable var model: ReaderModel
     @State private var width: CGFloat = 0
     @Environment(\.tabBarReserve) private var tabBarReserve
-    /// The Wide shape: the places capsule and ⋯ in the one top row; the chips lead the content.
+    /// The Wide shape: the chips and ⋯ in one row (the places menu after it).
     @Environment(\.wideBar) private var wideBar
     private var center: PodcastCenter { model.podcasts }
-    private var listShown: Bool {
-        center.catalogState == .loaded && !(center.catalog.isEmpty && center.keptDownloads.isEmpty && center.myEpisodes.isEmpty && center.myRequests.isEmpty)
-    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if wideBar && !listShown { chips.padding(.horizontal, DesignMetrics.margin).padding(.top, 8) }
                 switch center.catalogState {
                 case .idle, .loading:
                     Spacer(); ProgressView("Finding episodes…").accessibilityIdentifier("podcast.loading"); Spacer()
@@ -90,9 +86,6 @@ struct PodcastListenView: View {
 
     private var list: some View {
         List {
-            if wideBar {
-                chips.listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: 0))
-            }
             if let transfer = center.transfer { PodcastTransferBanner(center: center, transfer: transfer).listRowSeparator(.hidden) }
             // Your episodes (owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there
             // for you"): the ones being made, the ones that couldn't be, then the ready ones, newest first.
@@ -131,7 +124,8 @@ struct PodcastListenView: View {
 
     @ViewBuilder private var header: some View {
         if wideBar {
-            WideBar { WidePlacesCapsule(model: model) } trailing: { optionsMenu }
+            // Wide: the iPhone header's grammar in one row, the places menu after it (owner, 2026-10-23).
+            WideBar { chips } trailing: { optionsMenu }
         } else {
             HStack(spacing: 10) {
                 chips

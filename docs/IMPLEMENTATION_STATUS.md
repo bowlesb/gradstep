@@ -57,6 +57,18 @@ Evidence: `npm test` 731 pass, build passes; Playwright desktop/phone on the tou
 Not yet: the Tall/Wide single-row, two-slot layout on the web (iPad first, in a branch); an empty grey strip above the
 figure page's message box.
 
+## iPad Wide: places menu and each place's own two slots — 2026-10-23 (branch `ipad-places-menu`, not merged)
+
+The owner's direction of 2026-10-23 for the iPad sideways (DESIGN.md › Tall and Wide; DECISIONS.md "iPad Wide: a places
+menu…"): the places menu in the top-right corner, Library | paper, Feed | abstract, Paper promoted with the list toggle
+and its companions on its right, draggable remembered dividers, the paper's controls floating. Tall, the Mac and the
+web unchanged. Evidence: Core `swift test` 437 pass; iOS (iPad Pro 13" Simulator) and Mac Catalyst builds;
+`IPadShapesJourneyTests` 13/13 on the iPad Pro 13" Simulator; affected iPad journeys pass (ReaderNavigation tablet
+landscape, ReadingMode 3/3, Notes wide, Passage tablet split, Workflow Browse/Ask and split chat).
+`LibraryLayoutTests/testTableSortsByColumnHeadersAndOpensAPaper` fails on the fixture's tag values ("Preference
+optimization" where it expects "Alignment, RLHF"), not on layout; not yet compared with `main`. Not yet seen by the owner
+on a device. Screenshots: `.artifacts/ipad-places-menu/`.
+
 ## iPad Tall and Wide, second pass — 2026-10-23 UTC (TestFlight 85, iOS and Mac uploaded)
 
 Merged to `main` and uploaded as TestFlight build 85 (iOS and Mac). Gates on the merge: `npm test` passed, import

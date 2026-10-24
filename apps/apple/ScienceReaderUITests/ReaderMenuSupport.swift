@@ -35,18 +35,53 @@ extension XCUIApplication {
     var paperSelectionMenuShown: Bool { editMenuItem("Explain in Chat").exists }
 }
 
-/// The app's places in either shape (docs/DESIGN.md › Tall and Wide, 2026-10-22). The iPhone and iPad share the places
-/// capsule and its `tab.*` buttons: at the bottom in Tall, in the one top row in Wide (iPad sideways), where Chat is the
-/// general chat and a paper's chat sits beside its paper. The Mac's places are the window toolbar's group, which
-/// accessibility reports as check boxes.
+/// The app's places in either shape (docs/DESIGN.md › Tall and Wide). The iPhone and the upright iPad have the places
+/// capsule and its `tab.*` buttons at the bottom. The iPad sideways (Wide, owner 2026-10-23) has the places menu
+/// (`places.menu`) in the window's top-right corner, whose rows keep the `tab.*` identifiers; there Chat is the general chat
+/// and a paper's chat sits beside its paper. The Mac's places are the window toolbar's group, which accessibility reports
+/// as check boxes.
 extension XCUIApplication {
-    /// The Wide shape on iPad (the capsule's Search is only in the top row), or the Mac.
+    /// The Wide shape on iPad (the places menu), or the Mac.
     var wideShape: Bool {
         #if targetEnvironment(macCatalyst)
         return true
         #else
-        return buttons["tab.search"].exists
+        return buttons["places.menu"].exists
         #endif
+    }
+
+    /// The places menu (iPad Wide).
+    var placesMenu: XCUIElement { buttons["places.menu"] }
+
+    /// A place's `tab.*` control: the capsule's button in Tall; in Wide, the places menu's row (the menu is opened first).
+    func placeItem(_ place: String) -> XCUIElement {
+        let item = descendants(matching: .any)["tab.\(place)"].firstMatch
+        #if !targetEnvironment(macCatalyst)
+        if !item.exists, placesMenu.exists {
+            placesMenu.tap()
+            _ = item.waitForExistence(timeout: 3)
+        }
+        #endif
+        return item
+    }
+
+    /// A place chosen directly (the Mac's toolbar check box, the iPad's places menu row, the capsule's button): unlike
+    /// `show("chat")`, Chat here is always the general chat.
+    func choosePlace(_ place: String) {
+        #if targetEnvironment(macCatalyst)
+        let titles = ["feed": "Feed", "library": "Library", "paper": "Paper", "chat": "Chat", "notes": "Snippets"]
+        toolbars.checkBoxes[titles[place] ?? place].tap()
+        #else
+        let item = placeItem(place)
+        XCTAssertTrue(item.waitForExistence(timeout: 3), "The places have \(place)")
+        item.tap()
+        #endif
+    }
+
+    /// The current place, as the places menu says it (iPad Wide): "Places, Library" is "Library".
+    var currentPlace: String? {
+        let label = placesMenu.label
+        return label.hasPrefix("Places, ") ? String(label.dropFirst("Places, ".count)) : nil
     }
 
     func show(_ place: String) {
@@ -69,22 +104,31 @@ extension XCUIApplication {
         default: XCTFail("No place named \(place)")
         }
         #else
-        let tab = buttons["tab.\(place)"]
-        XCTAssertTrue(tab.waitForExistence(timeout: 3), "The places capsule has \(place)")
         if place == "chat", wideShape {
             // Wide: the paper's chat is beside its paper; Chat is the general chat.
-            let paper = buttons["tab.paper"]
-            if paper.isEnabled {
+            let paper = placeItem("paper")
+            if paper.exists, paper.isEnabled {
                 paper.tap()
                 if descendants(matching: .any)["chat.composer"].waitForExistence(timeout: 2) { return }
+            } else if paper.exists {
+                placesMenu.tap()   // Paper unavailable: close the menu before choosing Chat.
             }
         }
+        let tab = placeItem(place)
+        XCTAssertTrue(tab.waitForExistence(timeout: 3), "The places have \(place)")
         tab.tap()
         #endif
     }
 
-    /// Wide: the Library with the paper beside it (Library ⋯ › Show paper beside library, formerly Browse).
+    /// Wide: the Library with the paper beside it. On iPad that is the Library place itself (owner, 2026-10-23); on the
+    /// Mac, Library ⋯ › Show library beside paper (formerly Browse).
     func showBrowse(file: StaticString = #filePath, line: UInt = #line) {
+        #if !targetEnvironment(macCatalyst)
+        if wideShape {
+            if currentPlace != "Library" { show("library") }
+            return
+        }
+        #endif
         // Already there (a paper opened from the Library lands in Browse).
         if segmentedControls["library.searchScope"].exists { return }
         show("library")
@@ -139,7 +183,7 @@ extension XCUIApplication {
         #if targetEnvironment(macCatalyst)
         toolbars.checkBoxes["Library"].tap(); toolbars.checkBoxes["Paper"].tap()
         #else
-        buttons["tab.library"].tap(); buttons["tab.paper"].tap()
+        show("library"); show("paper")
         #endif
     }
 }
@@ -155,7 +199,8 @@ extension XCUIDevice {
 
 extension XCUIApplication {
     /// A place by its title, older names included ("Reader" is Paper, "General Chat" is Chat): the places capsule's button
-    /// on iPhone and iPad, the Mac window toolbar's check box.
+    /// on iPhone and the upright iPad, the Mac window toolbar's check box. On the iPad sideways it is the places menu's row,
+    /// there only while the menu is open: use `show(_:)` to go there and `currentPlace` to ask where you are.
     func wideMode(_ title: String) -> XCUIElement {
         let place: String
         switch title {
@@ -167,7 +212,7 @@ extension XCUIApplication {
         return toolbars.checkBoxes[place]
         #else
         let id = ["Feed": "feed", "Library": "library", "Paper": "paper", "Chat": "chat", "Snippets": "notes"][place] ?? place.lowercased()
-        return buttons["tab.\(id)"]
+        return descendants(matching: .any)["tab.\(id)"].firstMatch
         #endif
     }
 }
