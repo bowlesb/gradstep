@@ -81,7 +81,7 @@ struct ColumnChooserSheet: View {
     /// Chosen columns that scroll sideways at the table's current width.
     let scrolling: Set<String>
     let footer: String
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
 
     var body: some View {
         NavigationStack {

@@ -181,12 +181,9 @@ struct GradstepCommands: Commands {
             Button("Previous Section") { model.stepSection(-1) }.keyboardShortcut(.upArrow, modifiers: [.command, .option])
                 .disabled(model.selectedPaper?.readerBundle == nil)
             Divider()
-            Menu("Ask About Selection") {
-                ForEach(Array(SelectionAction.allCases.enumerated()), id: \.offset) { index, action in
-                    Button(action.menuTitle) { paper?.selection?(action) }
-                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
-                }
-            }.disabled(paper?.selection == nil)
+            // One selection action since Why it matters, Related papers and Add paper went (owner, 2026-10-24): no submenu.
+            Button("Explain Selection in Chat") { paper?.selection?(.define) }
+                .keyboardShortcut("1", modifiers: [.command, .option]).disabled(paper?.selection == nil)
             Button("Ask About This Paper") { model.askAboutSelectedPaper() }
                 .keyboardShortcut("a", modifiers: [.command, .shift]).disabled(model.selectedPaper == nil)
             // Notes: no keyboard shortcut until the existing bindings are audited (NOTES_AND_SNIPPETS.md).

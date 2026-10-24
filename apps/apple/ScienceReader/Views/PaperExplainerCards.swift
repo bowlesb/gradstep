@@ -44,7 +44,7 @@ struct PaperExplainerCards: View {
             }
             if !loading, !explainer.links.isEmpty { diagram }
         }
-        .sheet(isPresented: $showDiagram) {
+        .slotSheet(isPresented: $showDiagram) {
             if let diagram = ChatDiagram(title: "How it fits together", source: explainer.mermaid, messageID: nil) {
                 DiagramSheet(diagram: diagram).macSheetKeys()
             }

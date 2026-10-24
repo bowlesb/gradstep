@@ -12,9 +12,13 @@ enum ReaderTab: String, CaseIterable, Identifiable {
     var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
 }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
-/// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says.
+/// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says. Only `offered` is in
+/// any menu: Why it matters, Related papers and Add paper went (owner, 2026-10-24: "it's just a special case of chat.
+/// Users may have their own phrasing"), and stay here so chats they began keep their titles (ChatTitle).
 enum SelectionAction: String, CaseIterable {
     case define = "Define", relevance = "Relevance", similar = "Similar", ingest = "Ingest"
+    /// What a selection's menus offer (the paper's edit menu, the Mac's right-click and Paper menu).
+    static let offered: [SelectionAction] = [.define]
     var title: String {
         switch self { case .define: "Explain"; case .relevance: "Why it matters"; case .similar: "Related"; case .ingest: "Add paper" }
     }
@@ -602,7 +606,7 @@ final class ReaderModel {
     var libraryLayout = LibraryLayout(saved: UserDefaults.standard.string(forKey: "library.layout")) {
         didSet { UserDefaults.standard.set(libraryLayout.rawValue, forKey: "library.layout") }
     }
-    var feedLayout = FeedLayout(rawValue: UserDefaults.standard.string(forKey: "feed.layout") ?? "") ?? .list {
+    var feedLayout = FeedLayout(saved: UserDefaults.standard.string(forKey: "feed.layout")) {
         didSet { UserDefaults.standard.set(feedLayout.rawValue, forKey: "feed.layout") }
     }
     /// The Feed table's order (not persisted, like the Library's sort).
@@ -756,6 +760,9 @@ final class ReaderModel {
     @ObservationIgnored private var chatProfileFetch: UUID?
     /// Answer options (the chat's ⋯ menu, chat redesign 2026-10-16): shown over the chat.
     var showAnswerOptions = false
+    /// The chat is in a Wide slot on iPad: its consent prompt and answer options cover that slot (ChatView), not the
+    /// window (RootView; owner, 2026-10-24).
+    var chatHostsPrompts = false
     /// Settings › AI chat options: what a new chat starts with (this device only).
     private var savedChatDefaultProfile: ChatProfileChoice? = ReaderModel.storedChatDefault()
     var chatDefaultProfile: ChatProfileChoice {

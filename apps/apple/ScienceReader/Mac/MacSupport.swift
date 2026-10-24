@@ -299,11 +299,11 @@ private extension UIView {
 
 // MARK: - Reader web view
 
-/// The reader's web view. Selected text gets the system edit menu (the context menu on the Mac) with Copy first,
-/// then the selection actions — Explain in Chat, Why it matters, Related papers, Add paper — then the system's
-/// Look Up, Translate, Share… A tapped equation opens the same menu beside it: Copy LaTeX, Copy as text and the
-/// actions (owner feedback, build 16 #4/#5, replacing the bar that sat under the paper), with Focus (its own view; build 78)
-/// right after Chat about Equation.
+/// The reader's web view. Selected text gets the system edit menu (the context menu on the Mac) with three items: Copy,
+/// Explain in Chat and Save snippet (owner, 2026-10-24: "many of the options suck… It needs to be better thought out"); the
+/// system's Look Up, Translate, Search Web, Share, Speak and Writing Tools are removed. A tapped equation opens its own
+/// edit menu beside it: Chat about Equation, Focus (its own view; build 78) and Copy as Text (owner feedback, build 16
+/// #4/#5, replacing the bar that sat under the paper). A reference opens a pull-down menu at the entry.
 final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     /// The paper's own view (not a figure's): runs a selection action on what is selected when it is chosen.
     var menuAction: ((SelectionAction) -> Void)?
@@ -322,33 +322,14 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     private lazy var equationMenu = UIEditMenuInteraction(delegate: self)
     /// The equation whose menu is open: its quote, where it is, its ID in the page, and this presentation's token.
     private var equation: (quote: String, rect: CGRect, equationID: String, id: String)?
-    /// All bibliography actions together (owner, 2026-10-18); iOS edit menus otherwise paginate them.
-    private weak var referenceSheet: UIAlertController?
-    #if targetEnvironment(macCatalyst)
-    private var macMenuButton: ReaderMenuButton?
-    private weak var macMenuSheet: UIAlertController?
-    #endif
+    /// The anchored menu that is open (a reference's; an equation's on the Mac), and its fallback sheet before 17.4.
+    private var menuButton: ReaderMenuButton?
+    private weak var menuSheet: UIAlertController?
 
-    /// Opens every action together: a native action sheet on touch devices, an anchored menu on Mac.
+    /// A reference's actions, all together (owner, 2026-10-18; an edit menu paginated them) in the system's pull-down
+    /// menu at the entry, each with its symbol (owner, 2026-10-24: the action sheet "doesn't follow the native iOS style").
     func presentReferenceMenu(rect: CGRect, actions: [UIMenuElement]) {
-        #if targetEnvironment(macCatalyst)
-        presentMacMenu(UIMenu(children: actions), rect: rect)
-        #else
-        referenceSheet?.dismiss(animated: false)
-        var responder: UIResponder? = self
-        while responder != nil, !(responder is UIViewController) { responder = responder?.next }
-        guard let controller = responder as? UIViewController else { return }
-        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        for case let action as UIAction in actions {
-            sheet.addAction(UIAlertAction(title: action.title, style: .default) { _ in UIControl().sendAction(action) })
-        }
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        let visible = rect.intersection(bounds)
-        sheet.popoverPresentationController?.sourceView = self
-        sheet.popoverPresentationController?.sourceRect = visible.isNull ? CGRect(x: bounds.midX, y: bounds.midY, width: 1, height: 1) : visible
-        referenceSheet = sheet
-        controller.present(sheet, animated: true)
-        #endif
+        presentAnchoredMenu(UIMenu(children: actions), rect: rect, atEntry: !Platform.isMac)
     }
 
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
@@ -363,25 +344,26 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     func showFind() { findRequested?() }
     func findNext(backwards: Bool) { findStepped?(backwards) }
 
-    /// Selected text: the actions right after the system's Copy.
+    /// Selected text: Copy, then Explain in Chat, then Save snippet; nothing else.
     override func buildMenu(with builder: any UIMenuBuilder) {
         super.buildMenu(with: builder)
         guard builder.system == .context else { return }
+        Self.keepOnlyCopy(builder)
         if let menuAction, hasSelection || !Platform.isMac, builder.menu(for: Self.selectionMenuID) == nil {
             let menu = UIMenu(title: "", identifier: Self.selectionMenuID, options: .displayInline,
-                              children: Self.actions(SelectionAction.allCases, run: menuAction))
+                              children: Self.actions(SelectionAction.offered, run: menuAction))
             if builder.menu(for: .standardEdit) != nil { builder.insertSibling(menu, afterMenu: .standardEdit) }
             else { builder.insertChild(menu, atStartOfMenu: .root) }
         }
-        // Notes (NOTES_AND_SNIPPETS.md): after the chat actions and separate from them (no AI, no credits). Add to note
-        // keeps the selection as a quotation; Draw snippet is the contextual way into drawing a box (on the Mac, a
-        // right-click anywhere on the page).
+        // Notes (NOTES_AND_SNIPPETS.md): after the chat action and separate from it (no AI, no credits). Save snippet
+        // keeps the selection as a quotation. Draw snippet is the contextual way into drawing a box where nothing is
+        // selected, a right-click on the Mac (owner, 2026-10-24: not in a text selection's menu; the paper's ⋯ has it).
         var notes: [UIMenuElement] = []
         if let noteAction, hasSelection || !Platform.isMac {
             notes.append(UIAction(title: "Save snippet", image: UIImage(systemName: "note.text.badge.plus"),
                                   identifier: UIAction.Identifier("reader.selection.addToNote")) { _ in noteAction() })
         }
-        if let drawSnippet {
+        if let drawSnippet, Platform.isMac, !hasSelection {
             notes.append(UIAction(title: "Draw snippet", image: UIImage(systemName: "crop"),
                                   identifier: UIAction.Identifier("reader.drawSnippet")) { _ in drawSnippet() })
         }
@@ -390,6 +372,24 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         if builder.menu(for: Self.selectionMenuID) != nil { builder.insertSibling(menu, afterMenu: Self.selectionMenuID) }
         else if builder.menu(for: .standardEdit) != nil { builder.insertSibling(menu, afterMenu: .standardEdit) }
         else { builder.insertChild(menu, atEndOfMenu: .root) }
+    }
+
+    /// The system's part of a selection's menu is Copy alone (owner, 2026-10-24: "translate, related papers on a random
+    /// text selection?"): every other system group (Look Up, Translate, Search Web, Share, Speak, Writing Tools and any
+    /// later addition) goes, and the edit group keeps only Copy. The paper's and the figure pages' views alike.
+    private static func keepOnlyCopy(_ builder: any UIMenuBuilder) {
+        let copy = #selector(UIResponderStandardEditActions.copy(_:))
+        if builder.menu(for: .standardEdit) != nil {
+            builder.replaceChildren(ofMenu: .standardEdit) { children in
+                children.filter { ($0 as? UICommand)?.action == copy }
+            }
+        }
+        builder.replaceChildren(ofMenu: .root) { children in
+            children.filter { child in
+                if let menu = child as? UIMenu { return menu.identifier == .standardEdit }
+                return (child as? UICommand)?.action == copy
+            }
+        }
     }
 
     static let selectionMenuID = UIMenu.Identifier("gradstep.selection")
@@ -417,7 +417,7 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         equation = (quote, rect, equationID, id)
         #if targetEnvironment(macCatalyst)
         if let menu = equationActionsMenu() {
-            presentMacMenu(menu, rect: rect) { [weak self] in
+            presentAnchoredMenu(menu, rect: rect) { [weak self] in
                 guard let self, self.equation?.id == id else { return }
                 self.equation = nil; self.onEquationMenuDismissed?(equationID)
             }
@@ -432,11 +432,8 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
 
     func dismissEquationMenu() {
         equation = nil
-        #if targetEnvironment(macCatalyst)
-        macMenuButton?.contextMenuInteraction?.dismissMenu()
-        macMenuButton?.removeFromSuperview(); macMenuButton = nil
-        macMenuSheet?.dismiss(animated: false); macMenuSheet = nil
-        #else
+        dismissAnchoredMenu()
+        #if !targetEnvironment(macCatalyst)
         equationMenu.dismissMenu()
         #endif
     }
@@ -448,6 +445,8 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         return equationActionsMenu()
     }
 
+    /// Chat about Equation · Focus, then Copy as Text. No Related papers (owner: "find related papers in response to an
+    /// equation just doesn't really make sense"; removed 2026-10-24).
     private func equationActionsMenu() -> UIMenu? {
         guard let equation, let menuAction else { return nil }
         let copyText = UIAction(title: "Copy as Text", image: UIImage(systemName: "textformat"), identifier: UIAction.Identifier("reader.equation.copyText")) { _ in
@@ -457,29 +456,28 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         let run: (SelectionAction) -> Void = { [weak self] action in self?.equation = nil; menuAction(action) }
         var actions: [UIMenuElement] = [UIAction(title: "Chat about Equation", image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
             identifier: UIAction.Identifier("reader.selection.define")) { _ in run(.define) }]
-        actions += Self.actions([.similar], run: run)
         if let open = onOpenEquation {
-            let view = UIAction(title: "Focus", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), identifier: UIAction.Identifier("reader.equation.view")) { [weak self] _ in
+            actions.append(UIAction(title: "Focus", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), identifier: UIAction.Identifier("reader.equation.view")) { [weak self] _ in
                 self?.equation = nil; open(equation.equationID)
-            }
-            actions.insert(view, at: min(1, actions.count))
+            })
         }
         return UIMenu(children: [UIMenu(options: .displayInline, children: actions),
                                  UIMenu(options: .displayInline, children: [copyText])])
     }
 
-    #if targetEnvironment(macCatalyst)
-    // UIEditMenuInteraction explicitly rejects programmatic presentation in the Mac idiom. A menu control's
-    // public primary action presents the same UIMenu beside the clicked equation/reference on Catalyst.
-    private func presentMacMenu(_ menu: UIMenu, rect: CGRect, dismissed: @escaping () -> Void = {}) {
-        macMenuButton?.contextMenuInteraction?.dismissMenu()
-        macMenuButton?.removeFromSuperview()
-        macMenuSheet?.dismiss(animated: false); macMenuSheet = nil
+    /// The system's pull-down menu at `rect` (a context menu's look: a vertical list with symbols), opened by a hidden
+    /// menu button's primary action; a tap outside or a scroll closes it as any menu. UIEditMenuInteraction explicitly
+    /// rejects programmatic presentation in the Mac idiom, so the Mac opens an equation's menu this way too. `atEntry`
+    /// anchors the menu to the whole visible rect (it opens above or below the entry, not over it); otherwise to the
+    /// rect's top centre.
+    private func presentAnchoredMenu(_ menu: UIMenu, rect: CGRect, atEntry: Bool = false, dismissed: @escaping () -> Void = {}) {
+        dismissAnchoredMenu()
         let visible = rect.intersection(bounds)
         let point = visible.isNull ? CGPoint(x: bounds.midX, y: bounds.midY) : CGPoint(x: visible.midX, y: visible.minY)
-        // macOS 14.0–14.3 predates UIControl's programmatic primary action. Keep every action available in a
-        // standard anchored action sheet there, without changing the app's deployment minimum.
-        guard #available(macCatalyst 17.4, *) else {
+        let anchor = atEntry && !visible.isNull ? visible : CGRect(origin: point, size: CGSize(width: 1, height: 1))
+        // iOS 17.0–17.3 and macOS 14.0–14.3 predate UIControl's programmatic primary action. Keep every action available
+        // in a standard anchored action sheet there, without changing the app's deployment minimum.
+        guard #available(iOS 17.4, macCatalyst 17.4, *) else {
             var responder: UIResponder? = self
             while responder != nil, !(responder is UIViewController) { responder = responder?.next }
             guard let controller = responder as? UIViewController else { dismissed(); return }
@@ -497,20 +495,27 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
             append(menu.children)
             sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in dismissed() })
             sheet.popoverPresentationController?.sourceView = self
-            sheet.popoverPresentationController?.sourceRect = CGRect(origin: point, size: CGSize(width: 1, height: 1))
-            macMenuSheet = sheet; controller.present(sheet, animated: true)
+            sheet.popoverPresentationController?.sourceRect = anchor
+            menuSheet = sheet; controller.present(sheet, animated: true)
             return
         }
-        let button = ReaderMenuButton(frame: CGRect(origin: point, size: CGSize(width: 1, height: 1)))
+        let button = ReaderMenuButton(frame: anchor)
+        // Copy first wherever the menu opens (above the entry near the window's end too).
         button.menu = menu; button.showsMenuAsPrimaryAction = true; button.isAccessibilityElement = false
+        button.preferredMenuElementOrder = .fixed
         button.ended = { [weak self, weak button] in
-            guard let self, let button, self.macMenuButton === button else { return }
-            self.macMenuButton = nil; button.removeFromSuperview(); dismissed()
+            guard let self, let button, self.menuButton === button else { return }
+            self.menuButton = nil; button.removeFromSuperview(); dismissed()
         }
-        addSubview(button); macMenuButton = button
+        addSubview(button); menuButton = button
         button.performPrimaryAction()
     }
-    #endif
+
+    private func dismissAnchoredMenu() {
+        menuButton?.contextMenuInteraction?.dismissMenu()
+        menuButton?.removeFromSuperview(); menuButton = nil
+        menuSheet?.dismiss(animated: false); menuSheet = nil
+    }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration) -> CGRect {
         guard let equation, configuration.identifier as? String == equation.id else { return .null }
@@ -530,7 +535,7 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     }
 }
 
-#if targetEnvironment(macCatalyst)
+/// A hidden button whose menu is the anchored menu (ReaderWebView.presentAnchoredMenu); says when the menu has closed.
 private final class ReaderMenuButton: UIButton {
     var ended: (() -> Void)?
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
@@ -540,7 +545,6 @@ private final class ReaderMenuButton: UIButton {
         else { ended?() }
     }
 }
-#endif
 
 // MARK: - Window
 

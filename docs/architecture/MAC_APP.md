@@ -207,7 +207,7 @@ Each item mirrors an on-screen control (header buttons and the "…" menus); not
 | File | Add Paper… ⌘N (sign-in first when signed out), New Chat ⇧⌘N, Close ⌘W |
 | Edit | Find in Paper… ⌘F, Find Next ⌘G, Find Previous ⇧⌘G (paper present in Reader or Browse); Search Library ⌘F elsewhere, ⌥⌘F beside the paper; Search arXiv ⇧⌘F |
 | View | Feed ⌘1, Library ⌘2, Reader ⌘3, Browse ⌘4, General Chat ⌘5; Show/Hide Library Beside Paper ⌃⌘S (Browse ↔ Reader); Library As, Sort Library By, Show in Library, Feed As; paper text ⌘+ / ⌘− / ⌘0; chat text ⌥⌘+ / ⌥⌘−; Refresh ⌘R; All Chats ⇧⌘Y; All Diagrams |
-| Paper | Table of Contents ⌥⌘T, Back to Reading Position ⌘[ (after a citation jump), Ask About Selection › Explain / Why it matters / Related / Add paper (⌥⌘1–4), Ask About This Paper ⇧⌘A |
+| Paper | Table of Contents ⌥⌘T, Back to Reading Position ⌘[ (after a citation jump), Explain Selection in Chat ⌥⌘1 (2026-10-24: Why it matters, Related and Add paper removed), Ask About This Paper ⇧⌘A |
 | Help | Report This Screen…, My Reports, Privacy & Data (gradstep.ai/privacy) |
 
 Catalyst's document items (Duplicate, Move, Rename, Export) and the text Find/Format menus are removed

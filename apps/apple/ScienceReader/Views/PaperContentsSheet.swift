@@ -26,7 +26,7 @@ struct PaperContentsSheet: View {
     /// In a Wide slot (Navigate): ✕ closes the slot rather than a sheet.
     var onClose: (() -> Void)? = nil
     let go: (PaperJumpRequest.Target, String) -> Void
-    @Environment(\.dismiss) private var dismissSheet
+    @SheetDismiss private var dismissSheet
     @Environment(\.slotPane) private var slotPane
     private func dismiss() { if let onClose { onClose() } else { dismissSheet() } }
     @State private var tab: Tab = .contents
@@ -98,7 +98,6 @@ struct PaperContentsSheet: View {
             }
         }
         .presentationDetents([.large])
-        .modifier(ContentsPresentationSize())
     }
 
     @ViewBuilder private var list: some View {
@@ -234,19 +233,6 @@ struct PaperContentsSheet: View {
             if let current { result[block.id] = current }
         }
         return result
-    }
-}
-
-/// iPad's automatic form sizing can ignore the large detent and open a short centered sheet.
-/// A page presentation gives Contents the available reading height, preserving the same sheet and dismissal.
-private struct ContentsPresentationSize: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        #if targetEnvironment(macCatalyst)
-        content
-        #else
-        if #available(iOS 18.0, *) { content.presentationSizing(.page) }
-        else { content }
-        #endif
     }
 }
 

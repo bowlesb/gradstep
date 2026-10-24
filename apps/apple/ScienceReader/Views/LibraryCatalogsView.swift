@@ -95,7 +95,7 @@ struct LibraryCatalogsView: View {
                     }
                 }.disabled(LibraryCatalogBatch.normalizedName(name) == nil)
             }
-            .sheet(item: $deleting) { catalog in LibraryCatalogDeletionView(model: model, catalog: catalog).macSheetKeys() }
+            .appSheet(item: $deleting) { catalog in LibraryCatalogDeletionView(model: model, catalog: catalog).macSheetKeys() }
             .interactiveDismissDisabled(model.catalogBusy)
         }
     }

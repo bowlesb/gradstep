@@ -111,7 +111,7 @@ struct ChatChoiceControls: View {
 /// The chat's Answer options (⋯ › Answer options…): model and length, Use for new chats, About AI chat options.
 struct AnswerOptionsSheet: View {
     @Bindable var model: ReaderModel
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
 
     var body: some View {
         NavigationStack {

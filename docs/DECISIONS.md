@@ -1032,7 +1032,7 @@ time on a second line, and the full status for VoiceOver; a paper merely not dow
 List shows nothing for it. Headers sort (tap again to reverse); when the sorted column doesn't fit, "· Added ⌄"
 beside Title shows the order. Tapping a paper opens it; tapping an import that needs credits opens Get credits;
 long-press and swipe keep the List's actions. Column visibility is no longer customized per column (SwiftUI's
-column customization went with `Table`). Feed: "View as" List (default) / Table in the Feed's "…" menu; columns Title
+column customization went with `Table`). Feed: "View as" List (default; *the Table since 2026-10-24*) / Table in the Feed's "…" menu; columns Title
 (and first author), Topic, Published (month from the arXiv identifier — the server sends only the year) and Add;
 newest first; tapping a row shows its abstract under it; long-press offers Add to library and View on arXiv.
 
@@ -1608,7 +1608,7 @@ it matters" and a paper's own conversations). Details: [chat](architecture/CHAT.
 | Decision | Choice (agent, reversible) |
 |---|---|
 | Equation prompt | **Explain** on a single equation asks "Explain this equation: ‹formula›", then after a blank line "Briefly cover the background needed to read it, its overall message, what each symbol means, and how its notation compares with common ML conventions." (the legacy prompt's four parts, one line). The formula comes first so the saved title (first 100 characters) still holds it: "Explain · ‹formula›"; `ChatTitle` drops the instructions whole or cut. "Single equation" = one closed formula and nothing but punctuation, displayed (`\[…\]`, `$$…$$`, an environment) or inline with a relation (`=`, `<`, `\leq`, `\approx`, …). A lone symbol or expression (`\(\beta\)`) keeps "Explain in plain terms, including any symbols". Explain on a formula in an answer uses the same rule. |
-| Why it matters | `action: "relevance"`: no search tool and no search hold even with search on; the instructions say to use only the paper's own content (legacy: "Using ONLY the paper's content (do NOT search the web)"). The visible prompt is unchanged, so titles are too. Follow-ups in that chat may search. |
+| Why it matters | *Removed from the menus 2026-10-24 (owner: "just a special case of chat"); the server mode stays for older builds and old chats keep their titles.* `action: "relevance"`: no search tool and no search hold even with search on; the instructions say to use only the paper's own content (legacy: "Using ONLY the paper's content (do NOT search the web)"). The visible prompt is unchanged, so titles are too. Follow-ups in that chat may search. |
 | Diagram rules | The legacy Mermaid label rules join the diagram instructions and the tool description (which said "plain Unicode" before; now ASCII). |
 | Where diagrams are checked | **On device**, with the bundled Mermaid 12.1's `parse` in an off-screen web view, before the answer is saved. Server-side was checked and does not fit: Mermaid's parser alone bundles to 5.25 MB minified (esbuild, all diagram types; Mermaid loads them dynamically, so it can't be cut to one type without vendoring internals), over the 5 MB server-side bundling limit our deploys use (`--use-api`) before the chat function's own code; and its flowchart parser needs a DOM (`DOMPurify.addHook is not a function` under Node). |
 | The retry and its cost | One retry per diagram, as a **separate metered request** (`action: "diagram_fix"`): one turn with the title, Mermaid's error (≤ 600 characters) and the source; no paper, conversation or search; only `create_diagram`; 2,000 output tokens. Held under the rate card and settled at actual metered cost. The deterministic test’s 1,400-input/600-output-token example costs 2 credits ($0.0088 provider spend); live repair cost has not been measured. Logged as `chat_answer` with `action: "diagram_fix"`. It cannot share the answer's own hold: the answer is settled before the device sees the diagram, and keeping it open would mean holding the stream for a device round trip. Never unmetered; a reader without credits (or an older server) keeps the original. |
@@ -1684,7 +1684,7 @@ Owner: conversations linked to the passage they came from — the paper ↔ chat
 |---|---|
 | What is saved | A `TextAnchor` on the new conversation's root event: artifact ID, the first block the selection touches (`elementID`), the quote exactly as asked (formulas as their LaTeX), and up to 32 characters of the paper's text before and after it (whitespace collapsed, read by the bridge with the same text rules as selections). No `page`. |
 | Wire format | Unchanged (format 1, no bump). `anchor` has been a `PrivateEvent` field since the first build (`34100c5`), every build decodes it, and the frozen Node ↔ Swift fixture already carries one; builds before this simply never read it. It is inside the encrypted payload, so the service learns nothing new. Older conversations have no anchor; nothing is migrated. |
-| Which actions | Explain, Why it matters, Related and Add paper on a text selection or a tapped formula in the paper. Not: chat-answer quote actions (Ask about this, Explain, Define — the text is the answer's, not the paper's), Ask about this paper, or a reference's "Ask in chat". Selection actions always start a new conversation, so continuing one adds nothing. |
+| Which actions | Explain, Why it matters, Related and Add paper on a text selection or a tapped formula in the paper (*since 2026-10-24 Explain only; the others are in no menu*). Not: chat-answer quote actions (Ask about this, Explain, Define — the text is the answer's, not the paper's), Ask about this paper, or a reference's "Ask in chat". Selection actions always start a new conversation, so continuing one adds nothing. |
 | Go to passage | In the chat's title menu and its "…" menu, and on an All chats row (long-press, and a VoiceOver action), for anchored chats whose paper is in the library. Opens the paper if needed, keeps the conversation as the chat's, waits for the reader like a contents jump, centers the passage and tints it for ~2.6 s, and offers the citation **Back** to where reading left off. Unlike a citation peek, the passage then becomes the remembered reading place (as a contents jump does). A request not applied within a minute is dropped. |
 | Finding it | Same artifact: the exact quote, preferring its block. Otherwise, or if that fails, the legacy cascade: exact quote → collapsed whitespace → the quote's first line and its 80/60/40/25-character openings (≥ 20 characters) → the text between the saved prefix and suffix (each ≥ 8 characters, within max(400, 2 × quote) characters). Several matches: the one in the anchored block (same artifact only), then the one with matching context. Nothing: "Couldn't find the passage this chat came from. The paper may have changed since." A paper no longer in the library: "The paper this chat came from isn't in your library." |
 | Marks | CSS custom highlights (no element added, so selection, citations, figures and reading positions are untouched): a 2 pt accent underline at 50 % (55 % lighter in dark mode). A formula, which is drawn rather than text, gets a line under it (inline) or a bar beside it (display). Marks use exact and collapsed-whitespace matches only, including anchors from an earlier conversion of the same paper. |
@@ -2030,3 +2030,48 @@ and Wide:
   is modal for VoiceOver; the paper reflows live while the divider is dragged (no coalescing) and the reader bridge keeps
   the paragraph at its top on every width change, enabled by the host on iPad only
   (`__scienceReaderKeepPlaceOnResize`), so the iPhone, the Mac and the browser keep their behaviour.
+
+## Menus, explainers and prompts on iPad: owner feedback on TestFlight 88 (owner direction 2026-10-24)
+
+Owner, from the iPad on TestFlight 88. Decided for every shape unless noted; spec in DESIGN.md › Tall and Wide (Selection
+actions, Prompts as on iPhone), Contents discovery and Tables:
+
+- **Upright, the explainers cover the page as on iPhone.** "I was just using the vertical view on iPad and I noticed the
+  AI explainer doesn't cover the whole page. Please make it like iPhone no need for a UX difference there." In Tall on iPad
+  the AI Explainer, the equation view and a figure page are the iPhone's sheet scaled up to the window (it was the small
+  centred form sheet); sideways they stay beside the paper. A turn moves an open one between the two.
+- **Why it matters goes.** "I think the why it matters button should go, it's just a special case of chat. Users may have
+  their own phrasing etc." It is in no menu (the paper's edit menu, the Mac's right-click and Paper menu). Chats it began
+  keep their titles ("Why it matters · …", `ChatTitle`), the stored raw value "Relevance" still decodes, and the server's
+  `relevance` mode stays for older builds.
+- **A text selection's menu is Copy · Explain in Chat · Save snippet.** "iPad for non reference hold with options, it's a
+  long horizontal list, many of the options suck, it's a bad experience. translate, related papers on a random text
+  selection? It needs to be better thought out." Earlier: "find related papers in response to an equation just doesn't
+  really make sense." The system's Look Up, Translate, Search Web, Share, Speak, Writing Tools and any later system
+  addition go (only the system's Copy is kept); Related papers and Add paper go from text selections and equations
+  (adding a paper stays on a reference's menu; related papers are a question for the chat, in the reader's own words,
+  as Why it matters). Draw snippet stays only where nothing is selected (the paper's ⋯; the Mac's right-click on the
+  page). The equation menu is Chat about Equation · Focus · Copy as Text. Figure pages' selections get the same
+  trimming. `SelectionAction.similar` and `.ingest` stay for stored chats only. The Mac's "Ask About Selection" submenu
+  became one item, Explain Selection in Chat (⌥⌘1). *Supersedes "Why it matters" in the chat-quality table and "Which
+  actions" in Passage-linked conversations; the browser reader (paused) still offers them.*
+- **A reference's menu is the native one.** "the list of options when clicking on references doesn't follow the native
+  iOS style." The action sheet (plain text rows, Cancel) is replaced by the system's pull-down menu at the entry with each
+  action's symbol (Copy, Open on arXiv, Add to library, Discuss in chat), the Mac's way already; Copy stays first wherever
+  the menu opens. Before iOS 17.4 (no programmatic menu) the action sheet remains.
+- **The Feed opens as a table, like the Library.** "Why is the feed default view not a table like the library." Only an
+  explicit List stays the List; accessibility text sizes show rows; Wide's picking (abstract on the right) works the same
+  from the table. *Supersedes "View as List (default)" in Library and Feed table layouts.*
+- **Prompts as on iPhone, never a centred card over two slots.** "In the ai explainer it again put the prompt in the
+  middle of the screen over the two left and right underneath please fix that, make the UX same as iPhone find all
+  instances where this guidance applies and fix it." In Wide, a prompt raised from a slot covers that slot only, rising
+  from its bottom edge with the iPhone sheet's grabber, corners and detents; the other slot stays usable (`slotSheet`).
+  App-level sheets, and every sheet upright, use the iPhone's sheet scaled up (`appSheet`): the window's width upright,
+  a page sideways. System alerts and anchored confirmation dialogs and popovers stay the system's.
+- Agent choices (reversible): the slot's sheet closes with its own Cancel/✕, a drag on its grabber (not the whole sheet,
+  so its lists keep scrolling), a tap on the dimmed slot or VoiceOver's escape; it dims the slot 18%; its large detent
+  leaves 10 pt above as on iPhone; a sheet that asks not to be swiped away (unsaved text, the chat's consent) ignores the
+  drag and the tap. A slot's sheet becomes the system's on a turn to Tall (and back). The chat's consent and answer
+  options cover the chat's slot whenever the chat is in one (RootView shows them otherwise). Full-screen covers (a
+  figure image, a snippet at full size) and share sheets are unchanged. Fixture runs still reset the Feed to the List
+  unless `--feed-layout=` names one, as the Library's do, so existing journeys keep their rows.

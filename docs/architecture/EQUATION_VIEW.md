@@ -120,7 +120,7 @@ the chat."
 
 ## Where it opens
 
-Tapping an equation already selects it and offers Chat about Equation, Why it matters, Related papers. **Focus**
+Tapping an equation already selects it and offers Chat about Equation, Focus and Copy as Text (on Apple since 2026-10-24: no Why it matters or Related papers; the browser, paused, still offers them). **Focus**
 (`arrow.up.left.and.arrow.down.right` on Apple; owner, build 78: "Let's change AI explainer to Focus. Because in the
 first view you can see the equation up large which is helpful. In the next screen we should not necessarily assume they
 need an AI explainer"; it was **AI Explainer** from build 62, and **Equation** before that) sits right after Chat about

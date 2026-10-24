@@ -52,12 +52,12 @@ struct PaperExplainView: View {
             }
         }
         .onDisappear { session?.stop(); if let chatToken { model.endContextualChat(chatToken) } }
-        .sheet(isPresented: $choosingAI) {
+        .slotSheet(isPresented: $choosingAI) {
             AIChoiceView(model: model, chat: true, needsVision: false) { _ in session?.explain() }
         }
-        .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
+        .slotSheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
             CloudConsentContent(accept: { session?.acceptConsent() }, decline: { session?.declineConsent() })
-                .presentationDetents([.large]).macSheetKeys()
+                .sheetDetent(.large).macSheetKeys()
         }
     }
 

@@ -291,7 +291,7 @@ struct EquationView: View {
             if equations.isEmpty { equations = await PaperContentsSheet.equations(in: context.bundle) }
         }
         .onDisappear { session?.stop(); if let chatToken { model.endContextualChat(chatToken) } }
-        .sheet(isPresented: $choosingAI) {
+        .slotSheet(isPresented: $choosingAI) {
             AIChoiceView(model: model, chat: true, needsVision: false) { id in
                 model.localAIModelID = id
                 guard let context = session?.context else { return }
@@ -300,9 +300,9 @@ struct EquationView: View {
                 session = opened; opened.start(); opened.explain()
             }
         }
-        .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
+        .slotSheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
             CloudConsentContent(accept: { session?.acceptConsent() }, decline: { session?.declineConsent() })
-                .presentationDetents([.large])
+                .sheetDetent(.large)
                 .macSheetKeys()
         }
     }
@@ -857,14 +857,14 @@ struct ContextualChatComposer: View {
         .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 6)
         .background(.regularMaterial)
         .onChange(of: focusRequest) { _, _ in focused = true }
-        .sheet(isPresented: $choosing) {
+        .slotSheet(isPresented: $choosing) {
             AIChoiceView(model: model, chat: true, needsVision: needsVision) { id in
                 model.localAIModelID = id; modelChanged()
             }
         }
-        .sheet(item: Binding(get: { model.ownsContextualChat(token) ? model.chatConsentPrompt : nil }, set: { next in
+        .slotSheet(item: Binding(get: { model.ownsContextualChat(token) ? model.chatConsentPrompt : nil }, set: { next in
             if model.ownsContextualChat(token), next == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
-        })) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
+        }), interactiveDismissDisabled: true) { prompt in ChatConsentView(model: model, prompt: prompt).macSheetKeys(enabled: false) }
     }
     private func send() {
         guard let token else { return }

@@ -84,9 +84,11 @@ struct RootView: View {
         // open over the screen (SettingsPresentation.swift).
         .sharedPresentations(model, host: .root)
         .infoBubbleDimming()
-        .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
-        .sheet(isPresented: $model.showAnswerOptions) { AnswerOptionsSheet(model: model).macSheetKeys() }
-        .sheet(item: $model.localPaperPresentation) { presentation in
+        .appSheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
+        .appSheet(isPresented: Binding(get: { model.showAnswerOptions && !model.chatHostsPrompts }, set: { model.showAnswerOptions = $0 })) {
+            AnswerOptionsSheet(model: model).macSheetKeys()
+        }
+        .appSheet(item: $model.localPaperPresentation) { presentation in
             LocalPDFReaderView(presentation: presentation, readWithModel: model.modelReadablePaper(for: presentation).map { paper in { model.readWithDeviceModel(paper) } },
                                model: model)
                 .macSheetKeys()
@@ -96,14 +98,14 @@ struct RootView: View {
             Text("Your account and its data were deleted from our servers and this device.")
         }
         .modifier(PodcastPresenter(model: model))
-        .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
+        .appSheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .modifier(PDFUploadPresenter(model: model))
         .modifier(DeviceApprovalBanner(model: model))
-        .sheet(item: $model.tagEditor) { request in
+        .appSheet(item: $model.tagEditor) { request in
             if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper, keyword: request.keyword) }
         }
         // Settings over the current screen (phone width): the last section of every top-right menu; Done returns here.
-        .sheet(isPresented: $model.settingsPresented) {
+        .appSheet(isPresented: $model.settingsPresented) {
             SettingsView(model: model, dismissSettings: { model.closeSettings() })
                 .sharedPresentations(model, host: .settings)
                 .macSheetKeys()
@@ -158,8 +160,8 @@ struct RootView: View {
 
     /// A system dismissal counts as declining that captured question only.
     private var consentPresentation: Binding<ChatConsentPrompt?> {
-        Binding(get: { model.hasContextualChat ? nil : model.chatConsentPrompt }, set: { value in
-            if !model.hasContextualChat, value == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
+        Binding(get: { model.hasContextualChat || model.chatHostsPrompts ? nil : model.chatConsentPrompt }, set: { value in
+            if !model.hasContextualChat, !model.chatHostsPrompts, value == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
         })
     }
 
@@ -378,7 +380,7 @@ struct LibraryView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
             // iPad and Mac: drop PDFs on the Library to add them (docs/architecture/PDF_UPLOADS.md).
             .acceptsDroppedPDFs(model: model)
-            .sheet(isPresented: $showColumns) {
+            .slotSheet(isPresented: $showColumns) {
                 LibraryColumnsSheet(model: model, tableWidth: max(0, containerWidth - 2 * DesignMetrics.margin))
             }
             // Owner decision (2026-10-05, build 8 follow-up): one header row instead of the navigation
@@ -397,9 +399,9 @@ struct LibraryView: View {
             .onChange(of: MacCommandRequests.shared.librarySearch, initial: true) { _, request in
                 if request != nil { MacCommandRequests.shared.librarySearch = nil; searchFocused = true }
             }
-            .sheet(isPresented: $model.showImport) { ImportPaperView(model: model) }
-            .sheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model).macSheetKeys() }
-            .sheet(isPresented: $model.showCatalogs) { LibraryCatalogsView(model: model).macSheetKeys() }
+            .appSheet(isPresented: $model.showImport) { ImportPaperView(model: model) }
+            .appSheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model).macSheetKeys() }
+            .appSheet(isPresented: $model.showCatalogs) { LibraryCatalogsView(model: model).macSheetKeys() }
         }
     }
 
@@ -992,7 +994,7 @@ struct FeedView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .sheet(isPresented: $showColumns) { feedColumnsSheet }
+            .slotSheet(isPresented: $showColumns) { feedColumnsSheet }
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
     }
@@ -1107,6 +1109,14 @@ struct ChatView: View {
     @State private var renaming: UUID?
     /// The Wide shape (WideShape.swift): the chat's share of the one top row replaces the navigation bar.
     @Environment(\.wideBar) private var wideBar
+    /// The slot the chat is in (Wide on iPad, two slots showing): its prompts cover it (SlotSheet.swift).
+    @Environment(\.slotSheetCenter) private var slotSheets
+    /// The consent prompt, while the chat is in a slot (RootView shows it otherwise). Closing it declines.
+    private var slotConsent: Binding<ChatConsentPrompt?> {
+        Binding(get: { slotSheets != nil && !model.hasContextualChat ? model.chatConsentPrompt : nil }, set: { value in
+            if !model.hasContextualChat, value == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
+        })
+    }
     var body: some View {
         NavigationStack {
             GeometryReader { available in
@@ -1138,6 +1148,16 @@ struct ChatView: View {
             .tabBarSpace(fade: false)
             .task(id: model.isSignedIn) { model.refreshChatProfiles() }
             .renameConversationAlert(model: model, conversation: $renaming)
+            // In a Wide slot the chat's own prompts cover the chat, as on iPhone (owner, 2026-10-24); elsewhere RootView
+            // shows them.
+            .slotSheet(item: slotConsent, interactiveDismissDisabled: true) { prompt in
+                ChatConsentView(model: model, prompt: prompt).macSheetKeys(enabled: false)
+            }
+            .slotSheet(isPresented: Binding(get: { slotSheets != nil && model.showAnswerOptions }, set: { model.showAnswerOptions = $0 })) {
+                AnswerOptionsSheet(model: model).macSheetKeys()
+            }
+            .onChange(of: slotSheets != nil, initial: true) { _, inSlot in model.chatHostsPrompts = inSlot }
+            .onDisappear { model.chatHostsPrompts = false }
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
             .navigationBarHiddenInWide(wideBar)
             .toolbar {
@@ -1713,7 +1733,7 @@ struct SettingsView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
-                .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model).macSheetKeys() }
+                .appSheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model).macSheetKeys() }
                 .onChange(of: model.readerSessionID) { _, _ in showDeleteAccount = false }
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance(); await model.refreshStoreSummary() } }
                 .task { await model.refreshKeptExplanations() }
