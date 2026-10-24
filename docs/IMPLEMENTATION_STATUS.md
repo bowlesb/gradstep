@@ -12,6 +12,19 @@
   passages: 293 word for word, 75 approximate, 6 by the block's place, all on a recorded page) and the opt-in journey
   passed on the iPhone 17 Pro and iPad Pro 13-inch (M5) Simulators; the Mac app builds. Not seen on a device; the slot
   sheet beside a second slot and the equation menu's entry were not exercised by a journey.
+- **Feed grouped by why** (branch `worktree-agent-ac55b186b5ae6f69c`; owner decision 2026-10-24, DECISIONS.md, PERSONALIZED_FEED.md
+  "Client presentation"): the Table has a **Why** column ("Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao",
+  "Popular ▲ 48", "Category: cs.CL", "Explore"; full sentence for VoiceOver and as the Mac tooltip), on by default
+  where papers have reasons, sortable by group; the title's second line drops the reason while it shows. The List
+  groups For you into sections (one per tag, Like papers you added, From authors you read, Popular this week, By
+  category, Something different) with counts, the server's order within; rows drop what the header says. Category
+  chips (no reasons) look as before. On iPhone in portrait Why now sits beside the title and Popularity scrolls in.
+  App-only; no server change (For you already returns up to 50). Verification: `npm test` (fast tier) passes;
+  `swift test` 437 + 57 XCTest (one skipped) pass, including 7 new `FeedWhyTests`; `FeedPersonalizationTests` and
+  `PaperTableTests` pass; `FeedForYouTests` (7, including the new grouped List, Why column and sideways-iPad tests)
+  pass on the iPhone 17 Pro and iPad Pro 13-inch (M5) Simulators, `ResilienceJourneyTests` feed refresh and
+  `TableColumnsTests` feed columns on iPhone; the Mac Catalyst app builds (not run). Before/after screenshots in
+  `.artifacts/feed-why/`. Not seen on a device or with a real 50-paper For you list.
 
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 

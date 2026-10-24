@@ -321,8 +321,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   reading every chosen column, its action button a separate one. At accessibility text sizes the screen's rows
   replace the table. All chats (`Views/ChatHistoryView.swift`) is the same pattern for conversations: one-line
   question with a muted second line, ~52 pt rows (7 pt vertical padding), Last read rightmost, a search field and
-  filter chips above. Library adds an optional Venue column; Feed offers Topic, Published, Authors, arXiv ID and
-  Abstract with a Hide papers in my library filter; All chats also offers Topics, Kind and Answer length (latest
+  filter chips above. Library adds an optional Venue column; Feed offers Why (For you and topics: why it is suggested,
+  sortable by group; owner, 2026-10-24), Popularity, Topics, Published, Authors, arXiv ID and Abstract with a Hide papers
+  in my library filter, and its List groups For you into sections by why; All chats also offers Topics, Kind and Answer length (latest
   answer's full word count). Column choices are saved separately for phone and larger screens. Feed does not offer
   updated/relevance columns until those values exist in its discovery response.
 - **Filters**: quick filters are `ChipButton`s in one horizontally scrolling row that scrolls away with the rows

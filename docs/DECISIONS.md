@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Feed grouped by why: a Why column and sectioned List (owner decision 2026-10-24)
+
+The agent proposed grouping the Feed by why each paper is recommended. Owner: *"Let's try having a column in Table for
+the reason and having grouped lists in list view."* Only these two changes are approved: the List/Table choice stays
+on every platform, the chip keeps the name "For you" and all chips stay. Design: [Personalized feed › Client
+presentation](architecture/PERSONALIZED_FEED.md#client-presentation-grouped-by-why-owner-2026-10-24).
+
+| Decision | Choice |
+|---|---|
+| Table | A **Why** column (symbol + "Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao", "Popular ▲ 48" / "Trending", "Category: cs.CL", "Explore"; full sentence for VoiceOver and as the Mac tooltip). On by default, shown only when a row has a reason; sortable by group (tags, like papers, authors, popular, category, explore) keeping the server's order within each. While shown, the title's second line drops the reason. |
+| List | Sections in that order, one per tag, with name and count; the server's order within; rows drop what the header says and keep the anchor ("By Tri Dao"). One section only (category chips; a topic whose papers share a kind): no headers, as before. |
+| Agent choices (reversible) | Two or more one-paper tags share one "Your tags" section; no other merging. Hugging Face upvotes (`trending`) are "Popular ▲ n", several readers (`popular`) "Trending", both under "Popular this week". The column is 120 pt, first after the title. Grouping is in the app; no server change (For you already returns up to 50 papers). |
+
 ## Heading formulas as characters; bracketed addresses stay (fresh-paper sweep, 2026-10-24; agent decisions, reversible)
 
 The sweep before TestFlight 90 failed VLA-Δ (2610.21306v1). Reader revision 24; details in
