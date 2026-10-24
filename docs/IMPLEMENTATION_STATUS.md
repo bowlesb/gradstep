@@ -6,6 +6,13 @@
   no empty lines under it (2610.28711v1, 2610.14162v1); multi-line diagram labels drawn line by line without phantom
   struts (2610.14162v1 Figure 3). 125-paper replay and a fresh 60-paper sweep: no new failures; iPad screenshots in
   `.artifacts/reader-fixes-90/`. Saved papers need Update this paper.
+- Reader **revision 24** (branch `reader-header-90`, fresh-paper sweep fail on VLA-Δ 2610.21306v1, also in revision 22):
+  a formula in a title or heading that Unicode spells is text, so titles and Contents read "VLA-Δ", "τ²-bench", "λ < 1",
+  "FID ↓" instead of "VLA- \Delta :" (a fraction or a script Unicode lacks stays math); an affiliation keeps its
+  bracketed web address ("Zhejiang University (zju.edu.cn)") instead of "()" plus a line per author, brackets emptied by
+  a dropped e-mail go, a repeated project page is listed once and an icon-only link (ORCID) leaves no empty line. Fresh
+  60-paper sweep and 125-paper cached replay: 0 fail, findings otherwise unchanged. The Library row's title is the
+  catalog's (`$\Delta$` as arXiv writes it), not the reader's; unchanged.
 
 
 ## New AI gateway key, iPad Wide places — 2026-10-24 UTC (TestFlight 88, iOS and Mac uploaded)

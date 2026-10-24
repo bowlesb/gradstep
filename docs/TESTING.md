@@ -1,5 +1,11 @@
 # Fast and slow tests
 
+## Heading formulas and affiliation addresses (reader revision 24) — October 24
+
+Fast (in `npm test`): `tests/backend/arxiv-html.test.ts` ("a formula in a title or heading that Unicode spells", "an
+affiliation keeps its bracketed web address"; both fail on revision 23). Slow, opt-in: the fresh-paper sweep and its
+cached replay (`node scripts/reader-sweep.mjs --replay=<report>`), which flagged 2610.21306v1.
+
 ## List markers and diagram labels (reader revision 23) — October 23
 
 Fast (in `npm test`): `tests/backend/arxiv-html.test.ts` ("one marker, the paper's own label", "drawn line by line").

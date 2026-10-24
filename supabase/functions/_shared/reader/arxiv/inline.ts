@@ -2,15 +2,16 @@
 import { el, elements, normalizeSpace, textContent, type DomNode } from '../html.ts';
 import { check } from '../util.ts';
 import { active, bind, children, has, type ArxivContext, type Child } from './context.ts';
-import { equation } from './math.ts';
+import { equation, mathAsText } from './math.ts';
 import { figureImage } from './figures.ts';
 
 // A size or style command LaTeXML left in running text ("\\scriptsize①" in 2610.14075's Figure 1 caption, build 42:
 // "I see \\scriptsize") is no word of the paper.
 export const LEAKED_MACRO = /\\(?:scriptsize|footnotesize|small|tiny|large|Large|LARGE|huge|Huge|normalsize|bfseries|itshape|rmfamily|sffamily|ttfamily|bf|it|rm|sf|tt|em|centering|raggedright|raggedleft|noindent|boldmath|unboldmath|relax)(?![A-Za-z])\s?/g;
 /** Running text in the reader's phrasing vocabulary: emphasis, links (in-page ones resolved at the end), notes,
- * equations, and graphics only inside a figure. */
-export function inline(cx: ArxivContext, n: DomNode, owner: string, inAnchor = false, forceDisplay = false): Child[] {
+ * equations, and graphics only inside a figure. In a heading (`asText`), a formula Unicode spells exactly is text
+ * (math.ts `mathAsText`), so the heading's index text, its title in Contents and the page's, has no LaTeX in it. */
+export function inline(cx: ArxivContext, n: DomNode, owner: string, inAnchor = false, forceDisplay = false, asText = false): Child[] {
   if (n.type === 'text') return [n.data.replace(LEAKED_MACRO, '')];
   // A citation LaTeXML could not resolve prints as a bold "?" (2610.18683: "(?)", "(??)"): left out and counted;
   // the parentheses around it go too (`tidyPunctuation`).
@@ -19,7 +20,11 @@ export function inline(cx: ArxivContext, n: DomNode, owner: string, inAnchor = f
   check(n.type === 'tag' || active.has(n.name), 'arxiv_node');
   if (active.has(n.name)) return [];
   bind(cx, n, owner);
-  if (n.name === 'math') return [equation(cx, n, owner, forceDisplay)];
+  if (n.name === 'math') {
+    const text = asText && !cx.usedMath.has(n) ? mathAsText(n) : null;
+    if (text) { cx.usedMath.add(n); return text; }
+    return [equation(cx, n, owner, forceDisplay)];
+  }
   if (['svg', 'img', 'object'].includes(n.name) && cx.figureImages.has(owner)) return [figureImage(cx, n, owner, true)];
   // A graphic inside running text outside a figure (an affiliation logo, an inline TikZ mark): the reader has no
   // inline-image vocabulary there, so it is left out and counted in the closing note rather than refusing the paper.
@@ -35,11 +40,11 @@ export function inline(cx: ArxivContext, n: DomNode, owner: string, inAnchor = f
     for (const x of elements(n, x => x !== n && (has(x, 'ltx_note_mark') || has(x, 'ltx_note_type'))))
       for (const m of elements(x, y => y.name === 'math')) cx.skippedMath.add(m);
     const body = (content ? children(content) : children(n).filter(x => !has(x, 'ltx_note_mark')))
-      .filter(x => !(x.type === 'tag' && (has(x, 'ltx_note_mark') || has(x, 'ltx_note_type')))).flatMap(x => inline(cx, x, owner, inAnchor, forceDisplay));
+      .filter(x => !(x.type === 'tag' && (has(x, 'ltx_note_mark') || has(x, 'ltx_note_type')))).flatMap(x => inline(cx, x, owner, inAnchor, forceDisplay, asText));
     const markText = mark ? normalizeSpace(textContent(mark)) : '';
     return markText ? [el('sup', {}, [markText]), ' ', ...body] : body;
   }
-  const content = () => children(n).flatMap(c => inline(cx, c, owner, inAnchor || n.name === 'a', forceDisplay));
+  const content = () => children(n).flatMap(c => inline(cx, c, owner, inAnchor || n.name === 'a', forceDisplay, asText));
   if (n.name === 'br') return [el('br')];
   if (n.name === 'a') {
     if (inAnchor) return content();
