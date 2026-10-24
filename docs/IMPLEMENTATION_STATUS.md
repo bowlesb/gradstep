@@ -32,6 +32,27 @@
   `PaperToolsTests` find-bar journey pass (the latter 3/3 after one timeout under a machine load average of ~200);
   `WorkflowJourneyTests` `testSearchOpenReturnNoMatches…` and `testSearchScopeNameFits…` fail at the ML paper search
   switch on this branch and on the base commit alike. Not yet on a device.
+- **TestFlight 90 follow-ups** (branch `worktree-agent-adc76ef2c76c020c8`): the built-in sample paper names today's menus
+  (Copy · Explain in Chat · Save snippet; Chat about Equation · Focus · Copy as Text; a reference's menu), its bundle
+  regenerated as `8ffacaf4…` and pinned in `ReaderBundleLoader`. iPad Wide: the Feed's A− / A+ is the first row of the
+  Feed's ⋯ instead of floating over the list (Tall unchanged). iPad and Mac: a tapped author (Find papers by …) and a
+  passage with several chats (Chats about this passage) open the system's pull-down menu at what was tapped, as a
+  reference's does, never a centred dialog; the iPhone keeps its action sheets. On-device model readings of an arXiv
+  paper get the paper AI Explainer, figure and equation explainers and paper chat from the reading's own numbered text
+  (same membership and request as the HTML reading; no PDF upload, no server change); a reading of another revision and a
+  PDF the reader added still have none (DEVICE_PDF_ROUTE.md). Flaky ⌘1 check: on the Simulator the first hardware key
+  event of a launch never runs a SwiftUI keyboard shortcut (3/3 launches; typed letters arrive); the journey now types a
+  letter into the search field first (4/4, and in the full run). Stale tests fixed (they failed on main too, the app is
+  as designed): the two ML paper search journeys wait for its idle state "Search by title, author or topic" (since
+  2026-10-18), and `testAskFromBrowse…` sets up the iPad's Browse (the Library place with the paper beside it) on iOS.
+  Verification (iOS 26.4 Simulators, a machine load average of 200–650 from other sessions): `npm test` passes;
+  `swift test` 451 + 50 XCTest (one opt-in skipped) pass, including the new model-reading context test; reader renderer
+  23/23; iPad Pro 13-inch IPadShapesJourneyTests 15/15 (one launch timeout under load passed on rerun; ⌘1 passed),
+  MenusJourneyTests 8/8 plus the new author test (iPad and iPhone 17 Pro), MenusJourneyTests text selection on iPhone,
+  WorkflowJourneyTests' two search journeys (iPhone; the first also iPad), WorkflowSafetyTests 29/29 (iPad),
+  PaperWebViewTests' contents-selection test and PodcastTransportTests on the new sample. Not run: a journey for Chats
+  about this passage (no fixture with two chats on one passage; it shares the author's menu code), the Mac app, and a
+  real model reading's explainer (no on-device reading in the Simulator fixtures). Not yet on a device.
 
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 

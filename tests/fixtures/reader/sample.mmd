@@ -8,7 +8,7 @@ An interactive reading sample · 2026
 
 A useful first pass identifies the problem, the proposed method, and the evidence. Separate the authors’ claims from the measurements that support them. Mark passages that depend on assumptions you want to revisit.
 
-Select a few words in this paragraph. The reader offers **Define**, **Relevance**, **Similar**, and **Ingest**, keeping the passage connected to a paper conversation.
+Select a few words in this paragraph. The reader offers **Copy**, **Explain in Chat**, and **Save snippet**; a chat started from the passage stays connected to it.
 
 An input $x_i$ and a prediction $\hat{y}_i$ are small parts of a larger argument. Seeing $x_i$ again should preserve the same meaning while giving each occurrence its own reading anchor. The literal price \$5 and the code `$not_math$` are not equations.
 
@@ -20,7 +20,7 @@ Scaled dot-product attention turns compatibility scores between queries and keys
 \operatorname{Attention}(Q,K,V)=\operatorname{softmax}\!\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}}\right)V
 \end{equation}
 
-The normalization in Equation \eqref{eq:attention} matters because the scale of raw compatibility scores changes with the key dimension. A contextual explanation should connect the equation to its surrounding argument.
+The normalization in Equation \eqref{eq:attention} matters because the scale of raw compatibility scores changes with the key dimension. A contextual explanation should connect the equation to its surrounding argument. Tap the equation for **Chat about Equation**, **Focus**, or **Copy as Text**.
 
 ![Queries and keys produce attention weights; those weights combine values into an output.](assets/attention.png "Figure 1. A simplified attention data flow. Queries and keys are shown above values; both paths meet at the output. Tap the figure to inspect it, then return to the same place in the paper.")
 
@@ -64,7 +64,7 @@ $$
 
 ## 4. Follow the references
 
-Follow relevant source papers without losing your current reading position. Eligible shared conversions can be reused, while your conversations and personal annotations remain private.
+Follow relevant source papers without losing your current reading position. Tapping a reference opens its menu: copy it, open it on arXiv, add it to your library, or discuss it in chat. Eligible shared conversions can be reused, while your conversations and personal annotations remain private.
 
 **Offline check.** This document, its equations, and its figure are bundled with the app. They require no network connection.
 

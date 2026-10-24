@@ -7,7 +7,7 @@ import WebKit
 enum ReaderBundleLoader {
     // The sample is authored fixture data. Its trusted digest is compiled into
     // the app, never read from the unverified manifest it authenticates.
-    static let sampleManifestSHA256 = "4851d8173451955cc36a455dc5d5fe0992a156d186c09f6fb291e05b4935f0b4"
+    static let sampleManifestSHA256 = "8ffacaf42984d832e16807d11a46f7e522f06398218d77a49748558e734771b0"
     private static let sampleResult: Result<VerifiedReaderBundle, Error> = Result {
         guard let resources = Bundle.main.resourceURL else { throw ReaderBundleError.invalidResource }
         return try load(directory: resources.appendingPathComponent("ReaderSamples/" + sampleManifestSHA256),

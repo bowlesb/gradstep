@@ -136,6 +136,10 @@ public struct VerifiedReaderBundle: Sendable {
         guard manifest.source.kind == "device-pdf", let data = contents[manifest.source.provenancePath] else { return nil }
         return try? DevicePDFReaderProvenance.validate(data, manifest: manifest)
     }
+    /// The arXiv paper and revision whose PDF the on-device model read; nil for a PDF the reader added and every other kind.
+    public var devicePDFArxivSource: ArxivReaderSource? {
+        devicePDFSource?.paper.flatMap { try? ArxivReaderSource(sourceID: $0.sourceID, revision: $0.revision) }
+    }
     public var entryURL: URL { resourceURL(path: manifest.entrypoint) }
     private func resourceURL(path: String) -> URL {
         // All caller-visible member paths have already passed the ASCII policy.

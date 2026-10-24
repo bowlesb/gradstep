@@ -4311,9 +4311,13 @@ final class ReaderModel {
                                  pdfPage: paths.count == 1 ? figurePDFPage(bundle: bundle, figureID: figureID) : nil)
     }
 
+    /// Readings whose verified text is the paper's for its chat and explainers: the arXiv HTML reading and the on-device
+    /// model's reading of the same arXiv revision's PDF (LocalPaperChatContext checks the revision; text only, no PDF).
+    static let paperTextKinds: Set<String> = ["arxiv-html", "device-pdf"]
+
     private func figureLocalContext(_ paper: Paper, bundle: VerifiedReaderBundle) -> LocalPaperChatContext? {
         if let membership = paper.sourceMembership { return try? LocalPaperChatContext(reference: membership, bundle: bundle) }
-        guard let source = paper.legacyArxivSource, bundle.manifest.source.kind == "arxiv-html",
+        guard let source = paper.legacyArxivSource, Self.paperTextKinds.contains(bundle.manifest.source.kind),
               let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }),
               let reference = try? SourcePaperReference(membershipID: item.id, sourceID: source.sourceID, revision: source.revision) else { return nil }
         return try? LocalPaperChatContext(reference: reference, bundle: bundle)
@@ -4815,7 +4819,7 @@ final class ReaderModel {
     private func legacyChatContext(for turn: ChatAnswerTurn) -> (context: LocalPaperChatContext, bundle: VerifiedReaderBundle)? {
         guard turn.paperReference == nil, let documentID = turn.documentID,
               let paper = papers.first(where: { $0.id == documentID }) ?? (selectedPaper?.id == documentID ? selectedPaper : nil),
-              let source = paper.legacyArxivSource, let bundle = paper.readerBundle, bundle.manifest.source.kind == "arxiv-html",
+              let source = paper.legacyArxivSource, let bundle = paper.readerBundle, Self.paperTextKinds.contains(bundle.manifest.source.kind),
               let item = completeLibrary?.items.first(where: { $0.documentID == documentID && $0.visible }),
               let reference = try? SourcePaperReference(membershipID: item.id, sourceID: source.sourceID, revision: source.revision),
               let context = try? LocalPaperChatContext(reference: reference, bundle: bundle) else { return nil }

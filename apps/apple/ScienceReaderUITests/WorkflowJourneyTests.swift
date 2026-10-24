@@ -151,7 +151,9 @@ final class WorkflowJourneyTests: XCTestCase {
         if !scope.buttons["ML paper search"].exists { search.tap() }
         XCTAssertTrue(scope.buttons["ML paper search"].waitForExistence(timeout: 5))
         scope.buttons["ML paper search"].tap()
-        XCTAssertTrue(app.staticTexts["Find papers"].waitForExistence(timeout: 5))
+        // ML paper search's own starting state (DiscoveryList, `discover.idle`; it replaced the "Find papers" empty library
+        // on 2026-10-18).
+        XCTAssertTrue(app.staticTexts["Search by title, author or topic"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[sampleID].exists, "External search must never relabel local rows")
         scope.buttons["Library"].tap()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
@@ -172,7 +174,7 @@ final class WorkflowJourneyTests: XCTestCase {
             XCTAssertLessThanOrEqual(scope.frame.maxX, app.windows.firstMatch.frame.maxX)
             capture(app, "Search switch, \(size.rawValue)")
             external.tap()
-            XCTAssertTrue(app.staticTexts["Find papers"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.staticTexts["Search by title, author or topic"].waitForExistence(timeout: 5))
             capture(app, "ML paper search, \(size.rawValue)")
             app.terminate()
         }

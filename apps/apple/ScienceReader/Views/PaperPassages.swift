@@ -92,13 +92,33 @@ extension PaperWebView.Coordinator {
     }
 
     /// A tap on marked text: the conversations marked there (the bridge checks the point is on the mark's text).
-    func receiveMarks(_ body: [String: Any]) {
+    func receiveMarks(_ body: [String: Any], in web: WKWebView?) {
         guard ready, parent.figureID == nil, let bundle = parent.bundle, body["manifest_sha256"] as? String == bundle.manifestSHA256,
               let values = body["ids"] as? [String], (1...20).contains(values.count) else { return }
         let known = Set(parent.marks.map(\.conversationID))
         let ids = values.compactMap(UUID.init(uuidString:)).filter(known.contains)
         guard ids.count == values.count, Set(ids).count == ids.count else { return }
-        parent.onMarks(ids)
+        // Several chats there, on iPad and the Mac: the system's pull-down menu at the passage (no prompt centred over the
+        // page or both slots, owner 2026-10-24). One chat opens directly; the iPhone keeps its action sheet.
+        if ids.count > 1, let web = web as? ReaderWebView, let rect = Self.choiceAnchor(body, in: web) {
+            let open = parent.onOpenMark
+            web.presentChoiceMenu(title: "Chats about this passage", rect: rect, actions: ids.map { id in
+                UIAction(title: parent.markChoiceTitle(id, ids), image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { _ in open(id) }
+            })
+        } else {
+            parent.onMarks(ids)
+        }
+    }
+
+    /// Where a tap's choice opens (`rect` of an author or marks message, in the page's viewport): iPad and the Mac only,
+    /// nil on iPhone or without a usable box (the action sheet asks instead).
+    static func choiceAnchor(_ body: [String: Any], in web: WKWebView) -> CGRect? {
+        guard UIDevice.current.userInterfaceIdiom != .phone, let rect = body["rect"] as? [String: Double] else { return nil }
+        let values = ["x", "y", "width", "height"].map { rect[$0] ?? .nan }
+        guard values.allSatisfy(\.isFinite) else { return nil }
+        let box = CGRect(x: values[0], y: values[1], width: max(1, values[2]), height: max(1, values[3]))
+            .intersection(CGRect(origin: .zero, size: web.bounds.size))
+        return box.isNull || box.isEmpty ? nil : box
     }
 }
 

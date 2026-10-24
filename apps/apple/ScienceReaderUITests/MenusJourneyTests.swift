@@ -402,6 +402,51 @@ final class MenusJourneyTests: XCTestCase {
         wait("The entry is quoted in the message box") { (composer.value as? String)?.hasPrefix("About “A. Chowdhery") == true }
     }
 
+    /// Owner, 2026-10-24: on iPad no prompt may sit centred over both slots or the middle of the screen. A tapped author's
+    /// choice is the system's pull-down menu at the name on iPad (sideways, beside the Library, and upright); the iPhone
+    /// keeps its action sheet. Choosing it searches for the author's papers in the Library.
+    func testATappedAuthorOffersItsSearchAtTheName() throws {
+        let (app, web) = launchStudyPaper()
+        let ipad = UIDevice.current.userInterfaceIdiom == .pad
+        let author = web.buttons["More papers by A. Author"].firstMatch
+        let find = app.editMenuItem("Find papers by A. Author")
+        func open() {
+            wait("The author's name") { author.exists && author.isHittable }
+            author.tap()
+            XCTAssertTrue(find.waitForExistence(timeout: 5), "The author's choice")
+        }
+        open()
+        if ipad {
+            XCTAssertFalse(app.sheets.firstMatch.exists, "Not an action sheet")
+            XCTAssertFalse(app.buttons["Cancel"].exists, "Not an action sheet")
+            XCTAssertLessThan(abs(find.frame.minY - author.frame.maxY), 120, "At the name (\(find.frame) under \(author.frame))")
+            save("ipad-tall-author-menu")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+            XCTAssertTrue(find.waitForNonExistence(timeout: 5), "A tap outside closes the menu")
+            // Sideways, the paper beside the Library: the menu opens at the name in the paper's slot, not over both slots.
+            turnWide(app)
+            app.show("library")
+            let row = app.buttons["paper.58000000-0000-4000-8000-000000000003"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8)); row.tap()
+            wait("The paper on the right", timeout: 15) { web.exists && web.frame.minX > app.frame.width * 0.3 }
+            open()
+            // Anchored at the name in the paper's slot (a name near the divider lets the menu overhang it, as a reference's
+            // does), never centred in the window over both slots.
+            XCTAssertTrue(find.frame.maxX > author.frame.minX && find.frame.minX < author.frame.maxX,
+                          "Over the name (\(find.frame), name \(author.frame))")
+            XCTAssertGreaterThan(find.frame.midX, web.frame.minX, "Its centre in the paper's slot (\(find.frame), paper \(web.frame))")
+            XCTAssertLessThan(abs(find.frame.minY - author.frame.maxY), 120, "At the name")
+            save("ipad-wide-author-menu")
+        } else {
+            XCTAssertTrue(app.buttons["Cancel"].exists || app.sheets.firstMatch.exists, "The iPhone's action sheet, as before")
+            save("iphone-author-sheet")
+        }
+        find.tap()
+        wait("The Library searches for the author's papers") {
+            ipad && app.placesMenu.exists ? app.currentPlace == "Library" : app.buttons["tab.library"].isSelected
+        }
+    }
+
     // MARK: - Feed
 
     /// Owner, 2026-10-24: "Why is the feed default view not a table like the library." With no saved choice the Feed is

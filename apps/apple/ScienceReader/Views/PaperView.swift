@@ -846,6 +846,9 @@ struct PaperView: View {
         hooked.citationDismissID = citationDismissID
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
         hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
+        hooked.onFindAuthor = { name in if model.readerDocumentScope == scope { model.searchPapers("author:" + name) } }
+        hooked.markChoiceTitle = { id, ids in model.passageChoiceTitle(id, among: ids) }
+        hooked.onOpenMark = { id in if model.readerDocumentScope == scope { model.openConversation(id) } }
         // A keyword chip opens the keyword editor (the build-69 UX), with that keyword's searches at its top (build 78).
         hooked.onTag = { name in
             if model.readerDocumentScope == scope, let paper = model.selectedPaper { model.editTags(for: paper, keyword: name) }
@@ -1133,7 +1136,10 @@ struct PaperWebView: UIViewRepresentable {
     var onTags: () -> Void = {}
     var onContentsGesture: () -> Void = {}
     var paperAuthors: [String] = []
+    /// A tapped author on iPhone (its action sheet asks first).
     var onAuthor: (String) -> Void = { _ in }
+    /// Find papers by a tapped author, chosen in the menu at the name (iPad and the Mac).
+    var onFindAuthor: (String) -> Void = { _ in }
     /// One of `paperTags`, tapped (only these exact names can leave the page).
     var onTag: (String) -> Void = { _ in }
     /// A new value returns from a citation jump to the reading position.
@@ -1161,6 +1167,10 @@ struct PaperWebView: UIViewRepresentable {
     /// Passages with conversations, underlined; a tap on one reports its conversations (PaperPassages.swift).
     var marks: [PaperMark] = []
     var onMarks: ([UUID]) -> Void = { _ in }
+    /// The name of a marked passage's chat among several, for the menu at the passage (iPad and the Mac).
+    var markChoiceTitle: (UUID, [UUID]) -> String = { _, _ in "" }
+    /// One of several chats on a marked passage, chosen in the menu at the passage.
+    var onOpenMark: (UUID) -> Void = { _ in }
     /// Go to passage, applied once the reader is ready; reports whether the passage was found.
     var passage: PaperPassageRequest? = nil
     var onPassage: (UUID, Bool) -> Void = { _, _ in }
@@ -1416,7 +1426,15 @@ struct PaperWebView: UIViewRepresentable {
                 parent.onCitation(citationActive, citationActive ? String(origin.prefix(48)) : "")
             case "author":
                 guard ready, parent.figureID == nil, let name = body["name"] as? String, parent.paperAuthors.contains(name) else { return }
-                parent.onAuthor(name)
+                // iPad and the Mac: the system's pull-down menu at the name, as a reference's (no prompt centred over the page
+                // or both slots); the iPhone keeps its action sheet.
+                if let web = message.webView as? ReaderWebView, let rect = Self.choiceAnchor(body, in: web) {
+                    let find = parent.onFindAuthor
+                    web.presentChoiceMenu(title: name, rect: rect, actions: [
+                        UIAction(title: "Find papers by \(name)", image: UIImage(systemName: "magnifyingglass")) { _ in find(name) }])
+                } else {
+                    parent.onAuthor(name)
+                }
             case "tags":
                 guard ready, parent.figureID == nil else { return }
                 parent.onTags()
@@ -1447,7 +1465,7 @@ struct PaperWebView: UIViewRepresentable {
                 guard ready, parent.figureID == nil, let bundle = parent.bundle,
                       let reference = ReaderFigureReference(message: body, bundle: bundle) else { return }
                 parent.onFigureReference(reference)
-            case "marks": receiveMarks(body)
+            case "marks": receiveMarks(body, in: message.webView)
             default: break
             }
         }

@@ -1182,6 +1182,8 @@ final class PaperWebViewTests: XCTestCase {
         let contents = "Contents\n1 Start with the question ..... 1\n2 Read the equations in context ..... 2\n3 Check the evaluation ..... 4\n"
             + "4 Follow the references ..... 5\nReferences ..... 6"
         XCTAssertTrue(html.contains(paragraph))
+        // The block's identifier carries the source's digest, so it is read from the bundle rather than written here.
+        let blockID = try XCTUnwrap(sample.index.blocks.first { $0.text.hasPrefix("A useful first pass") }).id
         let bundle = try replacingHTML(in: sample, with: html.replacingOccurrences(of: paragraph, with: contents))
         let harness = try Harness(bundle: bundle)
         defer { harness.close() }
@@ -1189,19 +1191,19 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertFalse(harness.failed)
         let web = try XCTUnwrap(harness.web)
         let linked = try await script(web, """
-            return [...document.querySelectorAll('#b-51ef8c310855-5 > .sr-toc-link')].map(row => row.getAttribute('aria-label'));
+            return [...document.querySelectorAll('#\(blockID) > .sr-toc-link')].map(row => row.getAttribute('aria-label'));
             """) as? [String]
         XCTAssertEqual(linked, ["1 Start with the question, page 1", "2 Read the equations in context, page 2", "3 Check the evaluation, page 4",
                                 "4 Follow the references, page 5", "References, page 6"])
         XCTAssertEqual(harness.headings.map(\.id), bundle.index.headings.map(\.id), "The app's Contents list is unchanged")
         _ = try await script(web, """
-            const range = document.createRange(); range.selectNodeContents(document.getElementById('b-51ef8c310855-5'));
+            const range = document.createRange(); range.selectNodeContents(document.getElementById('\(blockID)'));
             const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
             """)
         await fulfillment(of: [harness.selected], timeout: 5)
         let quote = try XCTUnwrap(harness.selection).resolvedQuote(in: bundle)
         XCTAssertEqual(quote, contents, "The quote is the block's own text, leaders included")
-        XCTAssertEqual(Set(try XCTUnwrap(harness.selection).parts.map(\.blockID)), ["b-51ef8c310855-5"])
+        XCTAssertEqual(Set(try XCTUnwrap(harness.selection).parts.map(\.blockID)), [blockID])
     }
 
     /// Evidence screenshots, not part of the regular suite: a real paper's contents list (light and dark), after following

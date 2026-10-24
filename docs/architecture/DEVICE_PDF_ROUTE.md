@@ -161,6 +161,15 @@ PDF on the device (FIGURE_VIEW.md "Show in PDF"). The reading itself is unchange
 bundle tests are equal); the compiled converter and its identity are rebuilt. A parallel converter change (accuracy and
 speed rules) may take a later revision number; the rows are independent of it.
 
+### Chat and explainers on a model reading — 2026-10-24 (after TestFlight 90)
+
+A model reading of an arXiv paper's PDF is that paper's text for its chat and the paper, figure and equation explainers,
+as the HTML reading is: `LocalPaperChatContext` accepts a `device-pdf` bundle whose provenance names the same arXiv id
+and revision as the library membership, and sends the reading's own numbered index (`reader-local-context-v2`) with
+its manifest and PDF digests. Text only, the request the HTML reading sends; no PDF leaves the device and the server is
+unchanged (it authorizes the membership as before). A reading of another revision, and a PDF the reader added
+(`local:` id, no arXiv membership), still have no cloud explainer: the server's local context is arXiv-only.
+
 ## Development after the port kit — port revision 5, 2026-10-21
 
 Owner, 2026-10-21: keep developing the on-device route (too slow, not accurate enough); Mathpix is not built. Measured
