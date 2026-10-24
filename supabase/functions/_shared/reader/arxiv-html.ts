@@ -42,7 +42,7 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * that Unicode spells is text, so the title's index text has no macro ("VLA-Δ", not "VLA- \Delta "), and an affiliation
  * keeps its bracketed web address instead of an empty "()", 2610.21306v1 on the fresh-paper sweep), so a device
  * re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 24;
+export const ARXIV_RENDERER_REVISION = 25;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

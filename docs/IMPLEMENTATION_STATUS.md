@@ -1,5 +1,25 @@
 # Implementation status
 
+## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
+
+Owner feedback on 91 (iPhone screenshot, 2610.29989v1 "Looking Ahead…"): Figure 1 read "This figure couldn’t be shown
+here; the PDF has it." The figure is an SVG with two embedded PNG panels, and the device's SVG admission allowed only
+vector elements. **Reader revision 25** admits `<image>` with a base64 PNG/JPEG the shared inspector reads (sizes as a
+standalone image; type must match the bytes); links, nested SVG and unreadable bytes are still refused. Verified:
+reader-device-compile in Chromium and WebKit draws the figure with its panels (24 of 24 images, was 23 + 1 note);
+2610.28711v1 likewise; tests/backend/arxiv-unshown-figures.test.ts covers the rule; `npm test` passes. Known: 2312.14235v1
+(≈90 MB of images) closes the headless browser in reader-device-compile on revisions 24 and 25 alike (the harness passes
+every image through one page.evaluate); not looked at further.
+
+Owner request: "if you double tap … you should see what section you are in because the part you were reading is
+highlighted". Contents (the sheet double tap opens, and Navigate's Contents slot on iPad) now marks the section being
+read — accent title, a bar at its edge, a tinted row, "Reading" for VoiceOver — and opens scrolled to it. The row is the
+last Contents heading at or before the page's reported position (`ReaderModel.readingHeadingID`, set with reading
+mode's section). UI test `PaperToolsTests.testContentsMarksTheSectionBeingRead` (iPhone 17 Pro Simulator) passes, with
+`testContentsShowSectionLevels`, `testContentsOpensAtFullHeightAndRemembersDoubleTapDiscovery` and
+`testContentsTabsListFiguresTablesAndEquations` (its X assertion was stale since build 78 removed the figure page's X on
+iPhone/iPad; now Mac-only).
+
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 Release gate on the merged main: `npm test`, `npm run test:imports` 15/15, `swift test` 451 + 66 XCTest, all pass; the

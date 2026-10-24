@@ -1049,6 +1049,9 @@ final class ReaderModel {
     private(set) var signInProviders: [String] = []
     var isBusy = false
     var headings: [PaperHeading] = []
+    /// The Contents row being read (the last heading of `headings` at or before the page's position), marked when
+    /// Contents opens; nil before the first one.
+    var readingHeadingID: String?
     @ObservationIgnored var paperLocations: [String: PaperReadingLocation] = [:]
     var paperJump: PaperJumpRequest?
     var selectedQuote = ""

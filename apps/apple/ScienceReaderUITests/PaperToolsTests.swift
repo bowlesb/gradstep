@@ -261,6 +261,36 @@ final class PaperToolsTests: XCTestCase {
         #endif
     }
 
+    /// TestFlight 91 (owner): "if you double tap … you should see what section you are in because the part you were
+    /// reading is highlighted". Deep in the paper, Contents opens with the section being read marked and in view; the
+    /// mark follows the reading.
+    func testContentsMarksTheSectionBeingRead() throws {
+        let app = openSample(appearance: "dark")
+        let web = app.webViews.firstMatch
+        func openContents() -> XCUIElement {
+            app.buttons["Table of contents"].tap()
+            XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+            return app.buttons["contents.reading"]
+        }
+        func close() { app.buttons["sheet.close"].tap(); XCTAssertTrue(app.contentsTabs.waitForNonExistence(timeout: 5)) }
+        for _ in 0..<3 { web.swipeUp() }
+        let first = openContents()
+        XCTAssertTrue(first.waitForExistence(timeout: 3), "The section being read is marked")
+        XCTAssertTrue(first.isHittable, "and in view")
+        XCTAssertTrue((first.value as? String ?? "").contains("Reading"))
+        capture(app, "Contents: the section being read")
+        let firstTitle = first.label
+        close()
+        for _ in 0..<8 { web.swipeUp(velocity: .fast) }
+        let later = openContents()
+        XCTAssertTrue(later.waitForExistence(timeout: 3) && later.isHittable)
+        XCTAssertNotEqual(later.label, firstTitle, "The mark follows the reading")
+        XCTAssertEqual(app.buttons.matching(identifier: "contents.reading").count, 1, "One section is marked")
+        capture(app, "Contents: further on")
+        later.tap()
+        XCTAssertTrue(app.contentsTabs.waitForNonExistence(timeout: 5), "A marked row still goes to its section")
+    }
+
     /// Contents with Figures, Tables and Equations tabs (owner, build 59): Contents first; each list's rows go into
     /// the paper with Back.
     func testContentsTabsListFiguresTablesAndEquations() throws {
@@ -286,7 +316,10 @@ final class PaperToolsTests: XCTestCase {
         figure.tap()
         // The figure's page: its top row (DESIGN.md "Sheet top row"), no title (the caption names it).
         XCTAssertTrue(app.buttons["figures.showInPaper"].waitForExistence(timeout: 5))
+        // Build 78: Snippet, Chat and AI Explainer in words, no X on iPhone and iPad (the sheet swipes away); the Mac keeps one.
+        #if targetEnvironment(macCatalyst)
         XCTAssertTrue(app.buttons["sheet.close"].exists)
+        #endif
         capture(app, "A figure from Contents")
         app.sheetBack(from: "Figure 1")
         // The same tiles as the gallery, from the list; the page's own glass Back and X.

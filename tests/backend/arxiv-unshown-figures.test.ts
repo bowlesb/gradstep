@@ -165,6 +165,21 @@ test('an SVG id given twice: kept on its first element when nothing refers to it
   assert.throws(() => svgImage(svg(`<style>#layer_1{fill:red}</style>${layers}`)), /svg_id/);
 });
 
+test('an SVG with a PNG or JPEG inside it keeps the picture; any other image source is still refused (2610.29989)', () => {
+  const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
+  const pngBytes = new Uint8Array(readFileSync(new URL('../fixtures/reader/assets/attention.png', import.meta.url)));
+  const panel = (href: string) => svg(`<image x="1" y="1" width="8" height="8" xlink:href="${href}"/>`, 'xmlns:xlink="http://www.w3.org/1999/xlink" width="20pt" height="10pt"');
+  // LaTeXML's PDF-to-SVG output breaks the base64 after the comma.
+  const kept = svgImage(panel(`data:image/png;base64,\n${b64(pngBytes)}`));
+  assert.match(decodeUTF8(kept.bytes), /<image [^>]*xlink:href="data:image\/png;base64,/);
+  assert.ok(svgImage(panel(`data:image/jpeg;base64,${b64(raw)}`)).width > 0);
+  assert.throws(() => svgImage(panel('https://arxiv.org/html/2610.29989v1/x1.png')), /svg_resource/);
+  assert.throws(() => svgImage(panel('x1.png')), /svg_resource/);
+  assert.throws(() => svgImage(panel(`data:image/svg+xml;base64,${b64(svg('<path d="M0 0H1"/>'))}`)), /svg_resource/);
+  assert.throws(() => svgImage(panel(`data:image/jpeg;base64,${b64(pngBytes)}`)), /svg_resource/, 'the bytes must be what the type says');
+  assert.throws(() => svgImage(panel('data:image/png;base64,AAAA')), /./, 'bytes the inspector cannot read');
+});
+
 test('an SVG too large to draw at twice its size is drawn at the largest size allowed (2610.16784)', () => {
   const small = svgImage(svg('<path d="M0 0H1"/>', 'width="300" height="200"'));
   assert.deepEqual([small.width, small.height], [600, 400], 'within the limits: twice its size, as before');

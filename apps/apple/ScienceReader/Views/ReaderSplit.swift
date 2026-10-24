@@ -219,7 +219,7 @@ struct WideSlots: View {
 private struct ContentsPane: View {
     @Bindable var model: ReaderModel
     var body: some View {
-        PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize,
+        PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, current: model.readingHeadingID, baseFontSize: model.paperFontSize,
                            report: { ReportPresenter.present(model, sheet: "Contents") },
                            onClose: { model.wideList = .none }) { target, id in
             if let key = model.readingLocationKey { model.paperJump = PaperJumpRequest(locationKey: key, headingID: id, target: target) }

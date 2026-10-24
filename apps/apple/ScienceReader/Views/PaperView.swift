@@ -477,7 +477,7 @@ struct PaperView: View {
             }
         }
         .slotSheet(isPresented: $showContents, onDismiss: applyFigureOutcome) {
-                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize,
+                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, current: model.readingHeadingID, baseFontSize: model.paperFontSize,
                                    report: { ReportPresenter.present(model, sheet: "Contents") }) { target, id in
                     // The jump goes at the tap, while the sheet slides away (owner, build 78: "it gives me a delay before
                     // navigating"; waiting for onDismiss cost the whole dismiss animation). The page under the sheet keeps

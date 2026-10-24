@@ -20,6 +20,9 @@ struct PaperContentsSheet: View {
 
     let headings: [PaperHeading]
     let bundle: VerifiedReaderBundle?
+    /// The heading being read: its row is marked and Contents opens on it (owner, TestFlight 91: "you should see what
+    /// section you are in because the part you were reading is highlighted").
+    var current: String? = nil
     var baseFontSize: Double = 17
     /// Report this screen, as the last row of each list (the tabs fill the top row on a phone; there is no ⋯ there).
     var report: (() -> Void)? = nil
@@ -104,15 +107,25 @@ struct PaperContentsSheet: View {
         switch tab {
         case .contents:
             let nested = headings.contains { $0.depth > 0 }
-            List {
-                ForEach(headings) { heading in
-                    Button { go(.heading, heading.id) } label: { ContentsEntry(title: heading.title, detail: nil, strong: nested && heading.depth == 0) }
-                        .accessibilityValue(nested ? "Level \(heading.depth + 1)" : "")
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(headings) { heading in
+                        let reading = heading.id == current
+                        Button { go(.heading, heading.id) } label: {
+                            ContentsEntry(title: heading.title, detail: nil, strong: nested && heading.depth == 0, reading: reading)
+                        }
+                        .accessibilityValue([nested ? "Level \(heading.depth + 1)" : "", reading ? "Reading" : ""].filter { !$0.isEmpty }.joined(separator: ", "))
                         .padding(.leading, CGFloat(heading.depth) * indent)
+                        .listRowBackground(reading ? Color.accentColor.opacity(0.14) : nil)
+                        .id(heading.id)
+                        .accessibilityIdentifier(reading ? "contents.reading" : "")
+                    }
+                    reportRow
                 }
-                reportRow
+                .listStyle(.plain)
+                // Opens on the section being read, in the middle where the list is long enough.
+                .onAppear { if let current { proxy.scrollTo(current, anchor: .center) } }
             }
-            .listStyle(.plain)
             .overlay { if headings.isEmpty { ContentUnavailableView("No sections", systemImage: "list.bullet.indent") } }
             .accessibilityIdentifier("contents.list.contents")
         case .figures, .tables:
@@ -253,9 +266,12 @@ private struct ContentsEntry: View {
     let title: String
     let detail: String?
     var strong = false
+    /// The section being read: a bar at its leading edge and the title in the accent colour.
+    var reading = false
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(strong ? .body.weight(.semibold) : .body).multilineTextAlignment(.leading)
+            let name = Text(title).font(strong || reading ? .body.weight(.semibold) : .body).multilineTextAlignment(.leading)
+            if reading { name.foregroundStyle(Color.accentColor) } else { name }
             if let detail {
                 Text(detail).font(.subheadline)
                     .foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
@@ -263,6 +279,9 @@ private struct ContentsEntry: View {
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            if reading { Capsule().fill(Color.accentColor).frame(width: 3).padding(.vertical, 2).offset(x: -10) }
+        }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

@@ -104,8 +104,13 @@ extension ReaderModel {
     func noteReadingPosition(_ location: PaperReadingLocation, paperID: UUID) {
         guard let index = location.blockIndex, let paper = selectedPaper, paper.id == paperID else { return }
         readingState.block = (paperID, index)
-        let title = ReadingSections.current(readingSections(for: paper), block: index)?.title
+        let sections = readingSections(for: paper)
+        let title = ReadingSections.current(sections, block: index)?.title
         if readingSectionTitle != title { readingSectionTitle = title }
+        // Contents leaves out the title and Abstract: its row is the last of its own headings at or before here.
+        let listed = Set(headings.map(\.id))
+        let heading = ReadingSections.current(sections.filter { listed.contains($0.id) }, block: index)?.id
+        if readingHeadingID != heading { readingHeadingID = heading }
     }
 
     /// J / K (and Paper › Next Section on the Mac): the next or previous section from the one being read.

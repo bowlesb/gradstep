@@ -35,6 +35,14 @@ function png(width: number, height: number, pixels: Uint8ClampedArray): Uint8Arr
   check(output.length <= LIMITS.memberBytes, 'image_limit'); return output;
 }
 
+/** An SVG `<image>`'s source: a base64 PNG or JPEG in the picture itself, never a link or another picture. */
+function embeddedImage(href: string): void {
+  const m = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=\s]*)$/.exec(href);
+  check(m, 'svg_resource');
+  const bytes = decode64(m[2].replace(/\s+/g, ''), LIMITS.memberBytes);
+  check(inspectImage(bytes, { side: 16_384, pixels: 80_000_000 }).mediaType === `image/${m[1]}`, 'svg_resource');
+}
+
 /** SVG is rasterized only after rejecting every executable/external resource.
  * It is decoded as an image under a no-network host CSP, never inserted into DOM. */
 export function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height: number } {
@@ -47,7 +55,7 @@ export function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number;
   const root = doc.documentElement;
   check(root.localName === 'svg' && !doc.querySelector('parsererror'), 'svg_invalid');
   const allowed = new Set(['svg','g','defs','path','rect','circle','ellipse','line','polyline','polygon','text','tspan','textPath','use',
-    'symbol','clipPath','mask','linearGradient','radialGradient','stop','pattern','title','desc','style','metadata']);
+    'symbol','clipPath','mask','linearGradient','radialGradient','stop','pattern','title','desc','style','metadata','image']);
   const ids = new Set<string>(), duplicates = new Set<string>(), fragments = new Set<string>(), styles: string[] = []; let count = 0;
   const safeCSS = (css: string) => {
     check(!/[@\\<>]|expression\s*\(|(?:https?|data|javascript):/i.test(css), 'svg_style');
@@ -68,6 +76,10 @@ export function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number;
       if (attr.name === 'data-text') { node.removeAttribute(attr.name); continue; }
       check(!/^on/i.test(attr.localName) && !['base','src'].includes(attr.localName), 'svg_attribute');
       if (attr.name === 'xmlns' || attr.name === 'xmlns:xlink') continue;
+      // A picture with a photo or screenshot in it (2610.29989's overview: two PNG panels inside the vector drawing) keeps
+      // it when the bytes are there: a PNG or JPEG the shared inspector reads, within the sizes a figure's own image may
+      // have. Any other image source is still refused.
+      if (attr.localName === 'href' && node.localName === 'image') { embeddedImage(attr.value); continue; }
       if (attr.localName === 'href') { check(/^#[A-Za-z_][A-Za-z0-9_.:-]*$/.test(attr.value), 'svg_resource'); fragments.add(attr.value.slice(1)); }
       else safeCSS(attr.value);
     }
