@@ -49,3 +49,33 @@ history. Registry merges last-writer-wins per topic ID with an (epoch, device) t
 1. Design approved. 2. Device-only signals (reading depth, snippets, chats) count, on the user's devices only.
 3. Start step 1 now with no AI spend; name the map in November (October's provider budget is at 82%).
 4. The chart goes at the top of Library › All, collapsible, slices filter.
+
+## Step 2 results (2026-10-24, offline, `tools/interest-eval/topic_rule2.py` and `terms.py`)
+
+Owner, 2026-10-24: if a reader clearly follows sparse attention, calling the interest "attention" or "transformers"
+is not helpful; "agents" is fine for a passive interest. Asked whether TF-IDF can find the terms unique to a paper and
+evolve over time.
+
+- **Specificity-first topic rule.** Deepest node first: a map node becomes a topic once ≥ 3 of the reader's papers in it
+  are not already claimed by a narrower topic; unclaimed papers rise to the parent; a top-level node keeps its rest as
+  a broad topic only when ≥ 3 remain. The narrowest grouping the library supports wins, so a sparse-attention reader
+  gets "sparse attention" (a ~30-paper leaf in this pool) and a passive agents reader gets "agents". On the owner's 62
+  papers: 14 topics, among them multi-agent interaction (lift 30), parameter-efficient fine-tuning (5.5), hybrid /
+  recurrent architectures (KV-cache node, 4.7) and reasoning-trace distillation, where step 1 showed only broad areas.
+- **"Other" folded.** A paper outside every topic joins the topic holding its nearest paper when cos ≥ 0.86
+  (gte-small); the rest is labelled by its top-level areas ("control · robot · motion (2)"). Other fell from 19 % to
+  11 %. Two papers in a small, high-lift leaf are listed as *emerging* and become a topic at the third.
+- **Term layer (TF-IDF family, no ML training).** Candidates are 1–3-grams in ≥ 3 corpus papers. A phrase must be a
+  *concept*: its embedding closer to the papers that use it than to the corpus as a whole (+0.02; "speculative
+  decoding" +0.058, "kv cache" +0.037, filler such as "natively" −0.002 or "comparable quality" −0.054 is dropped).
+  Three rankings: per paper, TF-IDF with IDF from the public pool, re-ranked by closeness to the paper; per library,
+  weighted log-odds with an informative Dirichlet prior against the pool (robust at small counts, where raw TF-IDF
+  crowns one-off terms); per topic, the same log-odds re-ranked by closeness to the topic. The term layer catches
+  interests that clusters split: parameter-efficient fine-tuning spans 4 of the owner's papers in 3 clusters.
+- **Evolving.** All statistics are sums, so adding or removing a paper is exact and cheap; IDF / background counts come
+  from the public pool and shift as fields move (a phrase that becomes common stops being distinctive); recency weights
+  decay older papers. On the device this runs on full text (the paper body is local), with document frequencies
+  shipped from the server's public pool — no private text leaves the device.
+- **Open.** Topic names from c-TF-IDF and log-odds are still rough on 3–4-paper topics ("word, transformer");
+  LLM naming of map nodes (November budget) fixes the node half, noun-phrase candidates the term half. Some broad
+  "rest" topics are grab-bags; a coherence test (mean pairwise similarity of the topic's papers) should demote them.
