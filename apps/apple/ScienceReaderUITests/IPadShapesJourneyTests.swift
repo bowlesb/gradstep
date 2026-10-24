@@ -411,6 +411,77 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertTrue(element("paper.placeholder", app).exists, "The right slot again")
     }
 
+    /// The Library's and the Feed's tables while the divider narrows their slot (owner, 2026-10-24: "the column of the
+    /// titles gets over the left side of the screen when using real time live update … using the vertical divider slider
+    /// to the left"). The divider is dragged left slowly in steps, the finger held at each, down to the list's minimum, then
+    /// back. XCUITest can't look while the finger is down, so the table is checked each time it rests (each step is the
+    /// same live drag); PaperTableWidthTests checks every few points of a drag in a hosted table.
+    func testTablesStayInsideTheirSlotWhileTheDividerNarrowsThem() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        let app = launch(extra: ["--nothing-open", "--library-layout=table", "--feed-layout=table"], library: false)
+        turnWide(app)
+        for (place, table) in [("library", "library.table"), ("feed", "feed.table")] {
+            if app.currentPlace?.lowercased() != place { app.show(place) }
+            let title = element("\(table).header.title", app)
+            XCTAssertTrue(title.waitForExistence(timeout: 15), "The \(place) table")
+            let divider = element("slots.divider", app)
+            XCTAssertTrue(divider.waitForExistence(timeout: 5))
+            let minimum: CGFloat = 281   // the list's 280 pt and the hairline
+            save("\(device)-\(place)-table-divider-start")
+            assertTableInsideItsSlot(table, divider: divider, app, "\(place) at rest")
+            var step = 0
+            while divider.frame.midX > minimum + 2, step < 12 {
+                step += 1
+                let from = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                // The last step goes past the minimum: the list stops there (nothing is open, so it doesn't close).
+                let distance = min(90, divider.frame.midX - minimum + 30)
+                from.press(forDuration: 0.2, thenDragTo: from.withOffset(CGVector(dx: -distance, dy: 0)), withVelocity: 60,
+                           thenHoldForDuration: 1.0)
+                sleep(1)
+                save("\(device)-\(place)-table-divider-step\(step)")
+                assertTableInsideItsSlot(table, divider: divider, app, "\(place) step \(step)")
+            }
+            XCTAssertEqual(divider.frame.midX, minimum, accuracy: 3, "The \(place) list at its minimum")
+            // And back to the middle, widening it again.
+            let back = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            back.press(forDuration: 0.2, thenDragTo: back.withOffset(CGVector(dx: app.frame.width / 2 - divider.frame.midX, dy: 0)),
+                       withVelocity: 120, thenHoldForDuration: 0.5)
+            sleep(1)
+            save("\(device)-\(place)-table-divider-back")
+            assertTableInsideItsSlot(table, divider: divider, app, "\(place) back in the middle")
+        }
+    }
+
+    /// The table's title header and its rows' titles (the row itself when every column fits) inside the list's slot: from
+    /// the window's left edge to the divider. (Columns scrolling sideways may run under the region's clip, so only the
+    /// title column is measured.)
+    private func assertTableInsideItsSlot(_ table: String, divider: XCUIElement, _ app: XCUIApplication, _ moment: String,
+                                          file: StaticString = #filePath, line: UInt = #line) {
+        guard let snapshot = try? app.snapshot() else { return XCTFail("A snapshot", file: file, line: line) }
+        let edge = divider.frame.midX, left = app.frame.minX
+        var titles: [(String, CGRect)] = []
+        func visit(_ node: XCUIElementSnapshot) {
+            let id = node.identifier
+            if id == "\(table).header.title" || (id.hasPrefix("\(table).") && !id.hasPrefix("\(table).header.")
+                                                  && id != "\(table).sortIndicator" && id != table),
+               node.frame.height > 0 {
+                titles.append((id, node.frame))
+            }
+            node.children.forEach(visit)
+        }
+        visit(snapshot)
+        XCTAssertTrue(titles.contains { $0.0 == "\(table).header.title" }, "The title header (\(moment))", file: file, line: line)
+        XCTAssertGreaterThan(titles.count, 1, "Rows (\(moment))", file: file, line: line)
+        for (id, frame) in titles where frame.maxY > app.frame.minY && frame.minY < app.frame.maxY {
+            // The title header sits inside the row's margin; a row reports its whole cell, from the slot's edge.
+            let start = id == "\(table).header.title" ? left + 8 : left - 0.5
+            XCTAssertGreaterThanOrEqual(frame.minX, start, "\(id) starts inside the window's left edge: \(frame) (\(moment))",
+                                        file: file, line: line)
+            XCTAssertLessThanOrEqual(frame.maxX, edge + 1, "\(id) ends before the divider at \(edge): \(frame) (\(moment))",
+                                     file: file, line: line)
+        }
+    }
+
     /// The list covering the window (a double tap on the divider) splits again when a paper is picked: the paper on its
     /// right, the list at the divider's place.
     func testPickingFromAListCoveringTheWindowSplitsItAgain() throws {

@@ -152,6 +152,17 @@ struct TableArrangement: Equatable {
     }
 }
 
+extension View {
+    /// Takes exactly the width it is offered and reports it, whatever its content's width (content wider than that runs
+    /// off the trailing side). A flexible frame with no minimum (`.frame(maxWidth: .infinity)`) instead takes its
+    /// content's width when that is wider, so a measurement of content laid out from an earlier measurement can never
+    /// shrink: the table's columns stayed at the old width while the divider narrowed its slot (2026-10-24).
+    func offeredWidth(_ action: @escaping (CGFloat) -> Void) -> some View {
+        frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { action($0) }
+    }
+}
+
 /// How far a table's columns have scrolled sideways. Only the views that move read it, so a scroll doesn't redraw the
 /// table.
 @MainActor @Observable final class TableScrollState {
@@ -352,7 +363,9 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                             if arrangement.usesColumnRegion { scrollingRow(row, arrangement) } else { rowView(row, visible: visible) }
                             detail(row, visibleIDs)
                         }
-                        .frame(minHeight: 44)
+                        // Exactly the row's width, from its leading edge: while a narrowing slot is measured (one layout
+                        // pass), columns laid out for the wider slot run off its trailing side, never its leading one.
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .listRowInsets(Self.rowInsets)
                         .listRowBackground(rowBackgroundView(row))
                         .onHover { inside in
@@ -441,8 +454,10 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        // The columns come from the width the List offers the header (the row inside its margins), never from the
+        // header's own content, which was laid out for the previous width (owner, 2026-10-24: narrowing the slot with the
+        // divider left the table at its old width, centred past the slot's left edge).
+        .offeredWidth { width = $0 }
         .padding(.vertical, 2)
         .listRowInsets(EdgeInsets(top: 0, leading: DesignMetrics.margin, bottom: 0, trailing: DesignMetrics.margin))
         .background(Color(uiColor: .systemBackground))

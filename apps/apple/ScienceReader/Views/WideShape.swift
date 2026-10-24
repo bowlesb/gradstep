@@ -205,8 +205,10 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
             // The list's slot and the divider's hairline: both are drawn above, so the list can cover the window.
             if side == .left { Color.clear.frame(width: left + 1).accessibilityHidden(true) }
             main
-                .frame(width: side == .right ? left : nil)
-                .frame(maxWidth: side == .right ? nil : .infinity)
+                // Exactly its slot, from the slot's leading edge, and nothing drawn past its sides (SlotClip).
+                .frame(width: side == .right ? left : nil, alignment: .leading)
+                .frame(minWidth: side == .right ? nil : 0, maxWidth: side == .right ? nil : .infinity, alignment: .leading)
+                .modifier(SlotClip())
                 .environment(\.placesLeadingReserve, mainLeads ? placesReserve : 0)
                 // Its prompts cover this slot only while two show (owner, 2026-10-24; SlotSheet.swift).
                 .modifier(SlotSheetHost(active: side != .none))
@@ -224,7 +226,8 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
         .overlay(alignment: side == .right ? .trailing : .leading) {
             if side != .none {
                 otherView
-                    .frame(width: covering ? width : (side == .left ? left : max(0, width - left - 1)))
+                    .frame(width: covering ? width : (side == .left ? left : max(0, width - left - 1)), alignment: .leading)
+                    .modifier(SlotClip())
                     .modifier(SlotSheetHost(active: true))
                     .background(Color(uiColor: .systemBackground).ignoresSafeArea())
                     .opacity(closing ? 0.5 : 1)
@@ -336,6 +339,21 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
                 }
                 .accessibilityIdentifier("slots.divider")
             }
+    }
+}
+
+/// A slot draws nothing past its sides (owner, 2026-10-24: a table "gets over the left side of the screen" while the
+/// divider narrowed its slot): content wider than the slot starts at the slot's leading edge and is cut at both of its
+/// sides, so it never covers the other slot or runs off the window. Only the sides: the clip reaches far above and below,
+/// so a row's background and a list's content still run under the status bar and the home indicator. Menus, popovers,
+/// context-menu previews and alerts are drawn in their own windows; the slot's sheets (`SlotSheetHost`) are outside it.
+struct SlotClip: ViewModifier {
+    /// Beyond the status bar, the home indicator and a docked player.
+    private static let reach: CGFloat = 400
+
+    func body(content: Content) -> some View {
+        // A plain rectangle (the cheapest clip), made taller than the slot and laid out as before.
+        content.padding(.vertical, Self.reach).clipped().padding(.vertical, -Self.reach)
     }
 }
 

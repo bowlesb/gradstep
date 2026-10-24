@@ -63,6 +63,25 @@
   PaperWebViewTests' contents-selection test and PodcastTransportTests on the new sample. Not run: a journey for Chats
   about this passage (no fixture with two chats on one passage; it shares the author's menu code), the Mac app, and a
   real model reading's explainer (no on-device reading in the Simulator fixtures). Not yet on a device.
+- **iPad Wide: a table no longer spills past the screen's left edge while the divider narrows it** (branch
+  `worktree-agent-a6be7aa186da05692`; owner report 2026-10-24). Cause: `PaperTable` measured its row width on the header
+  through `.frame(maxWidth: .infinity)`, which takes its content's width when that is wider; with the sideways-scrolling
+  arrangement every header column has a fixed width, so the measurement could never shrink. The rows kept the old
+  width and were centred in their cells, so the title column ran off the slot's (the screen's) left edge, and stayed
+  there after the finger lifted. Fix: the width comes from `offeredWidth` (`.frame(minWidth: 0, maxWidth: .infinity,
+  alignment: .leading)`), always the width the List offers; rows take exactly their width from the leading edge.
+  Safety net: `TwoSlotLayout`'s slots align to their leading edge and clip at their sides only (`SlotClip`; content still
+  runs under the status bar and home indicator; menus, popovers and slot sheets are outside it); the Mac's `ReaderSplit`
+  panes align to their leading edge. Verification (iPad Pro 11-inch (M5) Simulator, iOS 26.4): new hosting test
+  `PaperTableWidthTests` (a scrolling table narrowed 12 pt at a time from 760 to 280 pt and back, a jump, and the width
+  source) failed before (rows 868 pt wide at x = −284 in a 300 pt slot) and passes; the new journey
+  `IPadShapesJourneyTests/testTablesStayInsideTheirSlotWhileTheDividerNarrowsThem` (Library and Feed tables, the divider
+  dragged slowly left in held steps to 280 pt and back) failed before (Title header at x = −29 after the first step) and
+  passes; IPadShapesJourneyTests 16/16; PaperTableTests 24/24 (`testFiltersAndTagsNarrowTheLibraryAndItsSearch` fails on
+  a second run on the same Simulator: it leaves `library.filter` saved, unrelated); `npm test` and `swift test` (451 + 50
+  XCTest) pass. XCUITest can't look while the finger is down, so mid-drag frames are covered by the hosting test, which
+  also checks the leading edge one frame after each step. Screenshots: `.artifacts/divider-overflow/{before,after}/`.
+  Not seen on a device; the Mac app was not built.
 
 ### Interest index, step 2: server layer — 2026-10-24 UTC (staging; serving `staff`; no client uses it yet)
 

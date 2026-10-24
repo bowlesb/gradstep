@@ -60,11 +60,13 @@ struct ReaderSplit: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            PaperView(model: model).frame(maxWidth: .infinity)
+            // Each pane exactly its width, from its leading edge (as TwoSlotLayout's slots): wider content never pushes
+            // the panes apart or spills over the divider; the split clips at the window's edges.
+            PaperView(model: model).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 .environment(\.readerChatColumn, true)
             if !model.readerChatHidden {
                 divider
-                ChatView(model: model).frame(width: chatWidth)
+                ChatView(model: model).frame(width: chatWidth, alignment: .leading)
                     .environment(\.chatBesidePaper, true)
                     .transition(.move(edge: .trailing))
             }
