@@ -1,4 +1,4 @@
-# Interest index (proposal, 2026-10-24, awaiting owner decision)
+# Interest index (approved 2026-10-24; step 1 under way)
 
 Owner, 2026-10-24: "one of the most important new features needs to be about maintaining a better nuanced and
 personalized understanding of what the user has in their library … topics … unique to them … not things like Machine
@@ -37,7 +37,15 @@ or recommendations are not proposed (revocable terms; per-user calls would send 
    owner) — no AI spend. 2. Server layer. 3. Device layer + Library chart + keywords + sync. 4. Feed in sections.
 5. Web when web work resumes.
 
-## Open decisions for the owner
+## Sync
 
-Approve the design; device-only signals yes/no; start step 1 (naming spend in November unless October's budget is
-raised); chart placement (top of Library › All, collapsible, slices filter — or elsewhere).
+Recomputed identically on each device: counts and topic IDs (library, fingerprints and map are shared). Synced as an
+E2EE blob/events (< 100 KB): chosen topics with user names and hidden flags; the Feed feedback log (grow-only set by
+event UUID); per-paper interest weights, which carry device-only reading depth to other devices without syncing reading
+history. Registry merges last-writer-wins per topic ID with an (epoch, device) tie-break.
+
+## Owner decisions (2026-10-24: "All your questions sound fine")
+
+1. Design approved. 2. Device-only signals (reading depth, snippets, chats) count, on the user's devices only.
+3. Start step 1 now with no AI spend; name the map in November (October's provider budget is at 82%).
+4. The chart goes at the top of Library › All, collapsible, slices filter.
