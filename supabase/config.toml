@@ -113,6 +113,11 @@ verify_jwt = false
 # before the append-only evidence RPC. Browser preflights carry no token.
 verify_jwt = false
 
+[functions.interest-index]
+# Interest index delivery (docs/architecture/INTEREST_INDEX.md): the manifest and immutable artifacts. Auth.getUser inside
+# the handler, as recommend; browser preflights carry no token.
+verify_jwt = false
+
 [functions.recommend]
 # AI recommendations (docs/architecture/AI_RECOMMENDATIONS.md). Auth.getUser inside the handler before the body is read,
 # as add-paper; browser preflights carry no token.

@@ -12,7 +12,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 BIN = pg_bin()
 # The fixture modules (tests/database/*.py) read the same directory.
 os.environ['SCIENCE_READER_PG_BIN'] = str(BIN)
-BASE = ['-h', '127.0.0.1', '-p', '55431']
+# SCIENCE_READER_PG_PORT selects another disposable loopback server (for example a PostgreSQL 17 cluster with pgvector,
+# which migration 0152 needs; docs/TESTING.md). The concurrency modules keep their own 55431 guard.
+PORT = os.environ.get('SCIENCE_READER_PG_PORT', '55431')
+if not PORT.isdigit():
+    raise SystemExit('SCIENCE_READER_PG_PORT must be a port number')
+BASE = ['-h', '127.0.0.1', '-p', PORT]
 # Every operation targets the disposable loopback fixture. Inherited libpq
 # services/options/users must not redirect or alter that authority.
 for key in list(os.environ):
@@ -107,7 +112,14 @@ parser.add_argument('--recommendations-only', action='store_true', help='Run the
 parser.add_argument('--account-usage-only', action='store_true', help='Run the Your AI usage fixture (migration 0144) only.')
 parser.add_argument('--general-only', action='store_true', help='Run only the general suites against the current schema.')
 parser.add_argument('--pricing-only', action='store_true', help='Run the free AI pool, pricing, switches and spend alert fixtures (migration 0150) only.')
+parser.add_argument('--interest-only', action='store_true', help='Run the interest index fixture (migration 0152) only.')
 args = parser.parse_args()
+# Migration 0152 enables pgvector: the server must offer it (docs/TESTING.md).
+_vector = subprocess.run([str(BIN / 'psql'), *BASE, '-X', '-At', '-d', 'postgres', '-c',
+                          "select count(*) from pg_available_extensions where name='vector'"], capture_output=True, text=True)
+if _vector.returncode == 0 and _vector.stdout.strip() == '0':
+    raise SystemExit('The test server lacks pgvector (migration 0152): use PostgreSQL 17 with pgvector, e.g. Homebrew '
+                     'postgresql@17 + pgvector, via SCIENCE_READER_PG_BIN and SCIENCE_READER_PG_PORT (docs/TESTING.md).')
 # Review 2026-10-21 (docs/reviews/WEB_SERVER_REVIEW_20261021.md): spending, budget and reconciliation fixes, in
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
 # OpenRouter-only reporting (0140) and the owner's per-account costs (0141) follow them (owner, 2026-10-21).
@@ -144,6 +156,9 @@ if args.general_only:
 if args.pricing_only:
     phase([*all_migrations, ROOT / 'tests/database/free_ai_and_spend.sql'], ['free_ai_pool_concurrency'])
     raise SystemExit(0)
+if args.interest_only:
+    phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/interest_index.sql'], [])
+    raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/beta_admission_revocation.sql'], [])
     raise SystemExit(0)
@@ -177,7 +192,7 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 
 # Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
 # function's anon/authenticated reach. First in its phase, before any fixture creates objects.
-phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql', ROOT / 'tests/database/interest_index.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.

@@ -43,8 +43,12 @@ def secrets():
 def context():
     """The build context: the worker directory plus the shared pipeline modules (no tests, no apps)."""
     target = Path(tempfile.mkdtemp(prefix='gradstep-pipeline-'))
-    for name in ['Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts', 'podcast-run.ts', 'podcast-encode.ts']:
+    for name in ['Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts', 'podcast-run.ts', 'podcast-encode.ts',
+                 'interest-run.ts', 'interest-embed.ts']:
         shutil.copy(ROOT / 'services/pipeline-worker' / name, target / name)
+    # The interest index's tokenizer vocabulary (gte-small); the ONNX model itself is fetched by the Dockerfile, pinned by SHA-256.
+    (target / 'model').mkdir()
+    shutil.copy(ROOT / 'services/pipeline-worker/model/vocab.txt', target / 'model/vocab.txt')
     shutil.copytree(ROOT / 'supabase/functions/_shared', target / 'supabase/functions/_shared',
                     ignore=shutil.ignore_patterns('node_modules', '*.test.ts'))
     return target
@@ -164,7 +168,7 @@ def upload_secrets(project, env, account):
     return ','.join(mapping)
 
 
-def deploy(project, region, *, deferred=False):
+def deploy(project, region, *, deferred=False, remote_build=False):
     READINESS.require_scope(project, region)
     # An ordinary deployment must never implicitly clear a maintenance barrier.
     # Unknown older revisions also require the reviewed deferred cutover path.
@@ -185,9 +189,17 @@ def deploy(project, region, *, deferred=False):
         gcloud('artifacts', 'repositories', 'create', repository, '--project', project, '--location', region, '--repository-format', 'docker', capture=True)
     tag = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     image = f'{region}-docker.pkg.dev/{project}/{repository}/{SERVICE}:{tag}-{int(time.time())}'
-    gcloud('auth', 'configure-docker', f'{region}-docker.pkg.dev', '--quiet', capture=True)
-    subprocess.run(['docker', 'build', '--platform', 'linux/amd64', '-t', image, str(context())], check=True)
-    subprocess.run(['docker', 'push', image], check=True)
+    if remote_build:
+        # Cloud Build (amd64 workers, BuildKit for the Dockerfile's pinned ADD --checksum) when local Docker is unusable;
+        # it pushes the same image tag. Inside Cloud Build's free monthly minutes for a build of this size.
+        directory = context()
+        (directory / 'cloudbuild.json').write_text(json.dumps({'steps': [{'name': 'gcr.io/cloud-builders/docker', 'env': ['DOCKER_BUILDKIT=1'],
+            'args': ['build', '--platform', 'linux/amd64', '-t', image, '.']}], 'images': [image]}))
+        gcloud('builds', 'submit', str(directory), '--project', project, '--region', region, '--config', str(directory / 'cloudbuild.json'), '--quiet')
+    else:
+        gcloud('auth', 'configure-docker', f'{region}-docker.pkg.dev', '--quiet', capture=True)
+        subprocess.run(['docker', 'build', '--platform', 'linux/amd64', '-t', image, str(context())], check=True)
+        subprocess.run(['docker', 'push', image], check=True)
     gcloud(*deployment_args(project, region, image, account, mapping, deferred=deferred))
     service = describe_service(project, region)
     policy = deployment_policy(service)
@@ -241,6 +253,7 @@ def main(argv=None):
     parser.add_argument('command', choices=['build', 'run', 'deploy', 'cutover', 'retry-failed', 'readiness', 'activate'])
     parser.add_argument('--project'); parser.add_argument('--region', default='us-west1'); parser.add_argument('--url'); parser.add_argument('--label')
     parser.add_argument('--skip-checks', action='store_true', help='Do not run workflow checks after deploy/cutover')
+    parser.add_argument('--remote-build', action='store_true', help='deploy: build the image with Cloud Build instead of local Docker')
     parser.add_argument('--defer-activation', action='store_true', help='Deploy in maintenance without retry/checks; cutover only changes the URL to the maintenance worker')
     parser.add_argument('--expected-revision', help='Exact paused revision to inspect/activate')
     parser.add_argument('--evidence', type=Path, help='Scoped operator drain-evidence manifest; required for activate')
@@ -266,7 +279,7 @@ def main(argv=None):
         else: print(encoded, end='')
     elif args.command == 'deploy':
         if not args.project: parser.error('--project is required')
-        label = deploy(args.project, args.region, deferred=args.defer_activation)
+        label = deploy(args.project, args.region, deferred=args.defer_activation, **({"remote_build": True} if args.remote_build else {}))
         if args.defer_activation:
             print('Activation deferred: no retry or workflow checks; old invocations still require independent termination evidence')
         else:

@@ -84,7 +84,8 @@
     "podcast-member",
     "note-assets",
     "recommend",
-    "feed-refresh"
+    "feed-refresh",
+    "interest-index"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,

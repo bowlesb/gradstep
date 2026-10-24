@@ -98,8 +98,12 @@ class PipelineDeploymentTests(unittest.TestCase):
             root = Path(directory)
             worker = root / 'services/pipeline-worker'; worker.mkdir(parents=True)
             shared = root / 'supabase/functions/_shared'; shared.mkdir(parents=True)
-            for name in ('Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts', 'podcast-run.ts', 'podcast-encode.ts'):
+            for name in ('Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts', 'podcast-run.ts', 'podcast-encode.ts',
+                         'interest-run.ts', 'interest-embed.ts'):
                 (worker / name).write_text('fixture')
+            (worker / 'model').mkdir()
+            (worker / 'model/vocab.txt').write_text('fixture')
+            (worker / 'model/gte-small.onnx').write_text('a local model must not ship; the Dockerfile fetches it by checksum')
             (shared / 'metadata-pipeline.ts').write_text('fixture')
             (shared / 'private.test.ts').write_text('test must not ship')
             (root / '.env.staging').write_text('secret-fixture')
@@ -107,10 +111,12 @@ class PipelineDeploymentTests(unittest.TestCase):
             with mock.patch.object(DEPLOY, 'ROOT', root), mock.patch.object(DEPLOY.tempfile, 'mkdtemp', return_value=str(target)):
                 self.assertEqual(DEPLOY.context(), target)
             self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()),
-                             ['Dockerfile', 'package-lock.json', 'package.json', 'podcast-encode.ts', 'podcast-run.ts', 'run.ts', 'server.ts',
-                              'supabase/functions/_shared/metadata-pipeline.ts'])
+                             ['Dockerfile', 'interest-embed.ts', 'interest-run.ts', 'model/vocab.txt', 'package-lock.json', 'package.json',
+                              'podcast-encode.ts', 'podcast-run.ts', 'run.ts', 'server.ts', 'supabase/functions/_shared/metadata-pipeline.ts'])
             docker = (ROOT / 'services/pipeline-worker/Dockerfile').read_text()
-            self.assertIn('COPY server.ts run.ts podcast-run.ts podcast-encode.ts ./services/pipeline-worker/', docker)
+            self.assertIn('COPY server.ts run.ts podcast-run.ts podcast-encode.ts interest-run.ts interest-embed.ts ./services/pipeline-worker/', docker)
+            # The interest index model: fetched at build time, pinned by SHA-256 (docs/architecture/INTEREST_INDEX.md).
+            self.assertIn('ADD --checksum=sha256:398a29991324e0b383afa13375d681ced3079c83e097fb1ebd9290d7498523b3', docker)
 
     def test_no_direct_provider_identity_or_key_reaches_the_worker(self):
         # Owner, 2026-10-21: OpenRouter exclusively. Speech no longer has a Vertex identity; no direct key is accepted.

@@ -208,6 +208,18 @@ export interface Health {
   recommendations?: { enabled: boolean; daily_runs: number;
     last_24h: { runs: number; papers_added: number; charged: number; failed: number; running: number; accounts: number };
     last_30d: { runs: number; papers_added: number; charged: number; failed: number; accounts: number } };
+  /** Migration 0152: the interest index (fingerprints, map, artifacts; docs/architecture/INTEREST_INDEX.md). Absent on older servers. */
+  interest_index?: {
+    enabled: boolean; serving: 'off' | 'staff' | 'all'; model_version: string;
+    corpus: { pool_in_window: number; embedded: number; pending: number; failed: number; catalog: number; catalog_embedded: number;
+      oldest_pending: string | null; embedded_24h: number; failed_24h: number };
+    last_run: { started_at: string; finished_at: string | null; state: string; error_code: string | null } | null;
+    map: { version: number; kind: string; published_at: string; corpus_papers: number; nodes: Record<string, number>;
+      leaf_sizes: { min: number; median: number; max: number };
+      stats: { cohesion?: number; levels?: Record<string, { kept_share: number | null }> } } | null;
+    artifacts: { map_bytes: number | null; terms_bytes: number | null; shards: number; shard_bytes: number };
+    delivery: { requests_24h: number; accounts_24h: number };
+    attention: { kind: string; papers?: number; kept_share?: number; published_at?: string }[] };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

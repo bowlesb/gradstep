@@ -2090,7 +2090,7 @@ actions, Prompts as on iPhone), Contents discovery and Tables:
   figure image, a snippet at full size) and share sheets are unchanged. Fixture runs still reset the Feed to the List
   unless `--feed-layout=` names one, as the Library's do, so existing journeys keep their rows.
 
-## Interest index server layer (agent design 2026-10-24; Phase B awaits the owner's go-ahead)
+## Interest index server layer (agent design 2026-10-24; Phase B built on staging the same day)
 
 Design: [architecture/INTEREST_INDEX.md](architecture/INTEREST_INDEX.md), under the approved
 [proposal](proposals/INTEREST_INDEX.md). Nothing is built or deployed. Agent choices, reversible until Phase B ships:
@@ -2108,3 +2108,15 @@ Design: [architecture/INTEREST_INDEX.md](architecture/INTEREST_INDEX.md), under 
   the Edge function `interest-index`. Library fingerprints come only from the caller's own membership
   (`v1_interest_library_fingerprints`). Bulk download is used instead of a k-anonymous fetch.
 - **Cost and AI.** No LLM calls until November's naming. Cost is $0 fixed and about $0.05–0.50 a month in usage.
+
+**Interim decisions by the lead (coordinating agent), 2026-10-24; the owner can revisit them.** Recorded at the lead's
+request when it gave the go-ahead for Phase B (staging only):
+
+1. **Corpus window: 180 days.** Storage stays well within the plan (about 430 MB at steady state).
+2. **Rebuild cadence: every two weeks until the corpus reaches about 50,000 papers, then weekly**, always warm-started.
+   The successor map is kept so that topic IDs synced to devices migrate cleanly (`interest_policy.rebuild_days_growing`
+   14, `rebuild_days` 7, `weekly_after_papers` 50,000).
+3. **Privacy notice:** the wording in [architecture/INTEREST_INDEX.md](architecture/INTEREST_INDEX.md) §5 stays marked
+   "owner approval needed before public release". It does not block staging.
+4. **Local database tests:** PostgreSQL 17 with pgvector from Homebrew is acceptable (docs/TESTING.md). TextBrain's
+   tool folder is untouched.

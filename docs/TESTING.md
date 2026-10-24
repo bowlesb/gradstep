@@ -430,6 +430,19 @@ SQL_ASCII and migration 032's collation fails) and start it with a short socket 
 path exceeds the macOS socket limit). Post-cutover tests such as `tests/database/chat_follow_up_quotes.sql` run in the
 final phase with migration 058 and later.
 
+**pgvector (migration 0152, interest index).** The migration enables `vector`, so the database suite needs a server that
+offers pgvector; the portable PostgreSQL 18.4 build has none and the harness now stops with that instruction. Use
+Homebrew's `postgresql@17` and `pgvector` (staging runs PostgreSQL 17 with pgvector 0.8.2):
+`initdb -A trust -E UTF8 --locale=C -D <dir>`, start it on another loopback port with `-c unix_socket_directories=''`,
+then `SCIENCE_READER_PG_BIN=/opt/homebrew/opt/postgresql@17/bin SCIENCE_READER_PG_PORT=<port> python3
+scripts/test-database.py --interest-only` (or the full suite). The Python concurrency modules keep their own 55431 guard.
+
+**Interest index, slow and opt-in.** `INTEREST_MODEL_PATH=<Xenova/gte-small@5927d17 onnx/model.onnx> node --test
+tests/interest/embed-parity.test.ts` (after `npm ci` in `services/pipeline-worker`) checks the worker's embedder against
+the step-1 reference vectors (cos ≥ 0.9999) and that padding never changes a fingerprint. The fast tier covers the
+tokenizer (exact Hugging Face ids, padding off), n-gram counts (exactly scikit-learn), the codecs, the map build and the
+delivery handler (`tests/backend/interest-*.test.ts`).
+
 Since 2026-10-21 (review D5) `tests/database/bootstrap.sql` reproduces Supabase's project defaults (every new `public`
 table, sequence and function granted to `anon`, `authenticated` and `service_role`), and `default_privileges.sql` runs
 first in the final phase: no public function executable by `anon`, `authenticated` only on `v<n>_…` RPCs and

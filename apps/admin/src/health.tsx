@@ -84,7 +84,8 @@ export function Health({ load, budget, reloadKey, days, onDays }: {
             <Stat label="Chat answers" value={data.use.chat_answers.toLocaleString()} note={plural(data.use.chatting_accounts, 'account')} />
             <Stat label="Podcasts started" value={data.use.podcasts_started.toLocaleString()} />
             {data.recommendations && <Stat label="Recommendations" value={data.recommendations.last_30d.runs.toLocaleString()}
-              note={`Last 30 days: ${plural(data.recommendations.last_30d.papers_added, 'paper')} added, ${data.recommendations.last_30d.charged} charged, ${data.recommendations.last_30d.failed} failed; ${data.recommendations.last_24h.runs} in 24 h${data.recommendations.enabled ? '' : ' (switched off)'}`} />}</div>
+              note={`Last 30 days: ${plural(data.recommendations.last_30d.papers_added, 'paper')} added, ${data.recommendations.last_30d.charged} charged, ${data.recommendations.last_30d.failed} failed; ${data.recommendations.last_24h.runs} in 24 h${data.recommendations.enabled ? '' : ' (switched off)'}`} />}
+            {data.interest_index && <InterestStat index={data.interest_index} />}</div>
           <DailyBars name="Use per day" compact days={view.people} series={[
             { key: 'papers', tone: 'p50', label: 'papers added', values: data.use.daily.map(d => d.papers) },
             { key: 'chats', tone: 'p-deepseek', label: 'chat answers', values: data.use.daily.map(d => d.chats) },
@@ -237,10 +238,37 @@ function derive(data: HealthData, budget: Budget | null) {
   const deletions = data.account_deletions;
   if (deletions && deletions.stalled > 0) attention.push({ tone: 'warning', text: `${plural(deletions.stalled, 'account deletion has', 'account deletions have')} not finished more than 30 days after the account closed${deletions.top_code ? ` (most often “${codeName(deletions.top_code)}”)` : ''}. Personal data or files remain; check worker_account_deletion_status.` });
   if (data.reliability.reports_open) attention.push({ tone: 'info', text: `${plural(data.reliability.reports_open, 'support report is', 'support reports are')} open.` });
+  // Interest index (migration 0152): a backlog, failures, a stale map, failed or blocked rebuilds, model mismatch.
+  for (const item of data.interest_index?.attention ?? []) attention.push({ tone: 'warning', text: interestAttention(item) });
   const errorTotals = new Map<string, number>();
   for (const day of data.providers?.daily ?? []) for (const [p, n] of Object.entries(day.by_provider)) errorTotals.set(p, (errorTotals.get(p) ?? 0) + n.failed + n.throttled);
   const errorProviders = [...errorTotals].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([p]) => p);
   return { people: data.people.daily, forecast, perActive, perActiveMonth, cacheShare: cacheTotal ? cache.read_tokens / cacheTotal : null, providers, errorProviders, attention };
+}
+
+type InterestIndex = NonNullable<HealthData['interest_index']>;
+
+function interestAttention(item: InterestIndex['attention'][number]): string {
+  switch (item.kind) {
+    case 'interest_backlog': return `Interest index: ${plural(item.papers ?? 0, 'paper has', 'papers have')} waited more than 24 hours to be embedded.`;
+    case 'interest_failures': return `Interest index: ${plural(item.papers ?? 0, 'paper')} failed to embed in the last 24 hours.`;
+    case 'interest_map_stale': return `Interest index: the topic map has not been rebuilt on schedule (last ${item.published_at ? new Date(item.published_at).toLocaleDateString() : 'unknown'}).`;
+    case 'interest_rebuild_failed': return 'Interest index: the last two map builds failed; the previous map keeps serving.';
+    case 'interest_stability_blocked': return 'Interest index: a map build changed too many topic IDs and was not published (worker_interest_set_policy can allow it).';
+    case 'interest_stability_low': return `Interest index: the last map build kept only ${percent(item.kept_share ?? 0)} of topic IDs.`;
+    case 'interest_model_mismatch': return 'Interest index: the worker refused to embed because its model does not match the policy.';
+    default: return `Interest index: ${humanize(item.kind)}.`;
+  }
+}
+
+function InterestStat({ index }: { index: InterestIndex }) {
+  const c = index.corpus, map = index.map;
+  const value = map ? `Map v${map.version}` : index.enabled ? 'Building' : 'Off';
+  const note = [`${c.embedded.toLocaleString()} papers embedded, ${c.pending.toLocaleString()} waiting`,
+    map ? `${(map.nodes['3'] ?? 0).toLocaleString()} topics, built ${new Date(map.published_at).toLocaleDateString()}` : null,
+    `${plural(index.delivery.accounts_24h, 'account')} downloaded in 24 h`, index.serving === 'off' ? 'not served' : `served to ${index.serving}`]
+    .filter(Boolean).join('; ');
+  return <Stat label="Interest index" value={value} note={note} />;
 }
 
 function Attention({ items }: { items: Item[] }) {
