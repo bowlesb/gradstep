@@ -442,7 +442,9 @@ final class MenusJourneyTests: XCTestCase {
             save("iphone-author-sheet")
         }
         find.tap()
-        wait("The Library searches for the author's papers") { app.currentPlace == "Library" || app.buttons["tab.library"].isSelected }
+        wait("The Library searches for the author's papers") {
+            ipad && app.placesMenu.exists ? app.currentPlace == "Library" : app.buttons["tab.library"].isSelected
+        }
     }
 
     // MARK: - Feed
