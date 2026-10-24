@@ -29,6 +29,16 @@ deletion is unfinished (personal rows, a linked login or files left), the ones t
 back-off, and the stalled ones (over 30 days after closing), with the oldest closing date and the commonest failure
 code; Attention names a stall ([PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#account-deletion-implemented-2026-10-05)).
 
+**Added 2026-10-24 (migration 0152, [INTEREST_INDEX.md](INTEREST_INDEX.md)).** `admin_health_extra` carries
+`interest_index` (`app_private.interest_health()`): papers embedded, pending and failed (pool and catalog), the last
+run, the published map (version, kind, age, nodes per level, leaf sizes, kept share, cohesion), artifact sizes and
+24-hour delivery counts from the rate windows (requests and distinct accounts, never which ones). "What people do" shows
+an Interest index figure, and Attention names a backlog (≥ 50 papers waiting over 24 hours), embedding failures, a map
+not rebuilt on schedule, two failed builds in a row, a build blocked by the stability gate, a kept share under 85 % and
+a model mismatch; since migration 0153 also a wake-up with no heartbeat for an hour (pg_cron), a post no run claimed
+within 30 minutes (pg_net or the worker) and two or more failed builds in a row (retrying with back-off); the map counts
+as stale after rebuild_days + 2 days. The free workflow check `interest.health` mirrors these items.
+
 What the server cannot see is said on the page, not guessed: reading happens on the device (the arXiv HTML is fetched
 and compiled there), so a reader's preparation failures reach the owner through TestFlight and support reports only.
 Counting them would need a new, consented device report; that is a separate decision.

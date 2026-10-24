@@ -60,17 +60,25 @@ export function runPodcastInWorker(): Promise<RunResult> {
   return runInWorker({ url: new URL('./podcast-run.ts', import.meta.url) });
 }
 
+/** The interest index entry point (docs/architecture/INTEREST_INDEX.md): embeddings, shards and map builds. */
+export function runInterestInWorker(): Promise<RunResult> {
+  return runInWorker({ url: new URL('./interest-run.ts', import.meta.url) });
+}
+
 /** One independent handler per server; one in-flight run per instance and entry point.
- * POST /podcast runs at most one bounded podcast job; any other POST runs the paper pipeline. */
+ * POST /podcast runs at most one bounded podcast job; POST /interest one interest index run; any other POST runs
+ * the paper pipeline. */
 export function createHandler(run: () => Promise<RunResult> = runInWorker,
-  options: { maintenance?: boolean; revision?: string | null; podcast?: () => Promise<RunResult> } = {}) {
+  options: { maintenance?: boolean; revision?: string | null; podcast?: () => Promise<RunResult>; interest?: () => Promise<RunResult> } = {}) {
   // A deployment must explicitly activate this revision. An absent or misspelled
   // setting fails closed, before any thread, deletion sweep, tag or import work.
   const maintenance = options.maintenance ?? process.env.PIPELINE_MAINTENANCE !== 'false';
   const suppliedRevision = options.revision ?? process.env.K_REVISION ?? null;
   const revision = suppliedRevision && /^[a-z][a-z0-9-]{0,62}$/.test(suppliedRevision) ? suppliedRevision : null;
   const podcast = options.podcast ?? runPodcastInWorker;
-  let running: Promise<RunResult> | null = null, runningPodcast: Promise<RunResult> | null = null;
+  const interest = options.interest ?? runInterestInWorker;
+  let running: Promise<RunResult> | null = null, runningPodcast: Promise<RunResult> | null = null,
+    runningInterest: Promise<RunResult> | null = null;
   return async function handle(request: IncomingMessage, response: ServerResponse, secret = process.env.PIPELINE_SECRET): Promise<void> {
     const send = (status: number, body: unknown) => {
       response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -94,6 +102,20 @@ export function createHandler(run: () => Promise<RunResult> = runInWorker,
         log('podcast_run_failed', { code });
         send(code === 'run_timeout' ? 504 : 500, { code: 'run_failed' });
       } finally { runningPodcast = null; }
+      return;
+    }
+    if (request.url === '/interest') {
+      if (runningInterest) return send(202, { accepted: true, busy: true });
+      runningInterest = Promise.resolve().then(interest);
+      try {
+        const result = await runningInterest;
+        log('interest_run_finished', { processed: result.processed, ms: result.ms });
+        send(200, { accepted: true, processed: result.processed });
+      } catch (error) {
+        const code = error instanceof RunFailure ? error.code : 'worker_failed';
+        log('interest_run_failed', { code });
+        send(code === 'run_timeout' ? 504 : 500, { code: 'run_failed' });
+      } finally { runningInterest = null; }
       return;
     }
     if (running) return send(202, { accepted: true, busy: true });

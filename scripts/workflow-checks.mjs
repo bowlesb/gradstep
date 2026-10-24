@@ -624,6 +624,17 @@ check('pdf.device-only', {title:'The server refuses PDF upload intents',suites:A
 // check, so the scheduled run emails the owner (migration 060 readback; no customer data). Every model call goes through
 // OpenRouter (owner 2026-10-21): attempts of retired direct providers are legacy history (migration 0140), reported in
 // the message with the ceilings they still hold, never a failure and never dropped from the month's figures.
+// Interest index (migration 0152, docs/architecture/INTEREST_INDEX.md): free, read-only. Mirrors Health's attention items.
+check('interest.health', { title: 'Interest index: embeddings current, map on schedule, no blocked or failed builds', suites: ALL, timeout: 30 }, async () => {
+  let h;
+  try { h = await rpc('worker_interest_status', {}, { service: true }); }
+  catch (e) { if (e.status === 404) return skip('server predates migration 0152'); throw e; }
+  if (!h.enabled) return skip(`interest index switched off (serving ${h.serving})`);
+  const c = h.corpus, m = h.map;
+  const summary = `${c.embedded} embedded, ${c.pending} pending, ${c.failed} failed; ${m ? `map v${m.version} (${m.nodes?.['3'] ?? 0} leaves) built ${m.published_at}` : 'no map yet'}; ${h.artifacts?.shards ?? 0} shard(s); serving ${h.serving}`;
+  return h.attention?.length ? fail(`${summary}; attention: ${h.attention.map(a => a.kind).join(', ')}`) : pass(summary);
+});
+
 check('budget.health', {title:'Platform budget is enabled, under 80 %, without aged liability, with next month ready',suites:ALL,timeout:30},async()=>{
  const h=await rpc('worker_budget_health',{},{service:true});
  if(!h||h.missing)return fail('No platform budget row for this month: every paid request would be refused');
