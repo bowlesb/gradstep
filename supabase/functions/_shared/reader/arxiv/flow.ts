@@ -118,7 +118,22 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
       // A figure inside an item (PaLM's first figure) becomes its own block after the list; the item keeps its words.
       const holdsFigure = (c: DomNode) => c.name === 'figure' || elements(c, x => x !== c && x.name === 'figure').length > 0;
       const figures = children(item).filter(holdsFigure);
-      list.children.push(block(cx, item, 'li', 'list', id => children(item).filter(c => !holdsFigure(c)).flatMap(c => tabular ? tableContents(cx, c, id) : inline(cx, c, id))));
+      // LaTeXML writes each item's label as text (`span.ltx_tag_item`: "•", "–", "1.", "(ii)", "a.") and turns the
+      // browser's marker off; read as text it sat beside the reader's own marker ("• • Chuanmeng Bian", build 88,
+      // 2610.28711v1 and 2610.14162v1). The paper's label is the item's one marker, as device-PDF lists keep theirs
+      // (`reader-marker` in a `reader-custom-marker` item); an item without one keeps the list's own. A numbered
+      // reference's "[12]" (`ltx_tag_bibitem`) is its marker the same way.
+      const first = children(item).find(c => c.type !== 'comment' && !(c.type === 'text' && !c.data.trim()));
+      const tag = first?.type === 'tag' && (has(first, 'ltx_tag_item') || has(first, 'ltx_tag_bibitem')) ? first : undefined;
+      const label = tag ? itemLabel(cx, tag) : '';
+      list.children.push(block(cx, item, 'li', 'list', id => {
+        if (tag) walk(tag, c => { if (c.attribs?.id) bind(cx, c, id); });
+        const content = children(item).filter(c => c !== tag && !holdsFigure(c)).flatMap(c => tabular ? tableContents(cx, c, id) : inline(cx, c, id));
+        // An item's paragraph ends in the line breaks of its `div` and `p`: two empty lines under every one-line item.
+        const words = trimBreaks(content);
+        // The space keeps the label a word of its own in the index, Copy and chat ("• Chuanmeng Bian").
+        return label ? [el('span', { class: 'reader-marker' }, [label + ' ']), ...words] : words;
+      }, label ? { class: 'reader-custom-marker' } : {}));
       pending.push(...figures);
     }
     // Compiled after every item so the index order matches the page (a block is numbered when it is made).
@@ -150,9 +165,30 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
   } else if (n.name === 'hr') output = [el('hr')];
   else if (['article', 'section', 'div', 'header', 'footer', 'aside'].includes(n.name)) output = children(n).flatMap(c => flow(cx, c));
   else if (n.name === 'img' || n.name === 'object' || n.name === 'svg') output = [imageFigure(cx, n)];
-  else output = [block(cx, n, 'p', 'paragraph', id => inline(cx, n, id))];
+  // Anything else (a description list) reads as one paragraph, without the empty lines its last `p` and `div` close with.
+  else output = [block(cx, n, 'p', 'paragraph', id => trimBreaks(inline(cx, n, id)))];
   if (cx.blocks.length > before && n.attribs?.id && !cx.aliases.has(n.attribs.id)) bind(cx, n, cx.blocks[before].id);
   return recovered.length ? [...recovered, ...output] : output;
+}
+
+/** A list item's own label as plain text: a math label reads as its symbol ("∙" for `$\bullet$`, not its TeX) and is
+ * accounted, not indexed; a graphic label (an icon) is left out and counted, and the list's marker stands in. */
+function itemLabel(cx: ArxivContext, tag: DomNode): string {
+  for (const m of elements(tag, c => c.name === 'math')) cx.skippedMath.add(m);
+  cx.omittedGraphics += elements(tag, c => ['svg', 'img', 'object'].includes(c.name)).length;
+  const text = (n: DomNode): string => n.type === 'text' ? n.data
+    : n.type !== 'tag' || ['annotation', 'annotation-xml', 'svg', 'img', 'object'].includes(n.name) || active.has(n.name) ? ''
+      : children(n).map(text).join('');
+  return normalizeSpace(text(tag));
+}
+
+/** Content without the line breaks and blank text at its ends (a `p` or `div` read inline closes with a `br`). */
+function trimBreaks(parts: Child[]): Child[] {
+  const blank = (c: Child | undefined) => c !== undefined && (typeof c === 'string' ? !c.trim() : c.name === 'br');
+  let start = 0, end = parts.length;
+  while (start < end && blank(parts[start])) start += 1;
+  while (end > start && blank(parts[end - 1])) end -= 1;
+  return parts.slice(start, end);
 }
 
 /** A figure whose nested panels each hold a picture and no table of text, with one caption of its own. */

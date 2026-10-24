@@ -292,4 +292,63 @@ final class ReaderNavigationTests: XCTestCase {
         app.buttons["Done"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5))
     }
+
+    /// Build 88 reports (reader revision 23), photographed in the real reader from bundles compiled on this Mac
+    /// (`node scripts/reader-device-compile.mjs --ids=2610.28711v1,2610.14162v1 --out=<dir>`): Qwen-Audio's author list
+    /// (one marker per name, no empty line under it) and Next-Concept Modeling's contributions and Figure 3 (step boxes
+    /// with their words inside). Opt-in: `TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`, `TEST_RUNNER_READER_SHOT_NAME=<prefix>`,
+    /// `TEST_RUNNER_GS_SCREENSHOT_DIR=<folder>`.
+    func testBuild88ListsAndPictureLabelsDark() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let bundles = environment["READER_SHOT_BUNDLES"], !bundles.isEmpty else {
+            throw XCTSkip("Set TEST_RUNNER_READER_SHOT_BUNDLES to a folder of compiled 2610.28711v1 and 2610.14162v1 bundles")
+        }
+        let prefix = environment["READER_SHOT_NAME"] ?? "reader"
+        func capture(_ name: String) {
+            let shot = XCUIScreen.main.screenshot()
+            let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            if let folder = environment["GS_SCREENSHOT_DIR"] {
+                try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(prefix)-\(name).png"))
+            }
+        }
+        func open(_ key: String, heading: String) -> (XCUIApplication, XCUIElement) {
+            let app = XCUIApplication()
+            app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
+                                   "--figure-fixture-bundle=\(bundles)/\(key)", "-appearance", "dark"]
+            app.launch()
+            XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
+            app.show("paper")
+            let web = app.webViews.firstMatch
+            XCTAssertTrue(web.waitForExistence(timeout: 20), "the real paper opens")
+            XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 20))
+            app.buttons["Table of contents"].tap()
+            let list = app.descendants(matching: .any)["contents.list.contents"]
+            XCTAssertTrue(list.waitForExistence(timeout: 5))
+            let row = list.buttons.matching(NSPredicate(format: "label CONTAINS %@", heading)).firstMatch
+            let bottom = app.windows.firstMatch.frame.maxY - 140
+            for _ in 0..<15 where !(row.exists && row.isHittable && row.frame.maxY < bottom) {
+                list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+                    .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            }
+            row.tapWhenSettled()
+            XCTAssertTrue(list.waitForNonExistence(timeout: 5), "a Contents row closes Contents")
+            sleep(2)
+            return (app, web)
+        }
+        XCUIDevice.shared.portraitWhereSupported()
+        _ = open("2610.28711v1", heading: "Alphabetical Order")
+        capture("authors-list")
+        // Figure 3 sits right above section 2: from its heading, back up (held drags, no fling) until the heading is at
+        // the bottom of the page, as in the owner's screenshot.
+        let (app, web) = open("2610.14162v1", heading: "Background")
+        let heading = web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Background & Related")).firstMatch
+        for _ in 0..<12 where !(heading.exists && heading.frame.minY > web.frame.minY + web.frame.height * 0.8) {
+            web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                .press(forDuration: 0.1, thenDragTo: web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+                       withVelocity: .slow, thenHoldForDuration: 0.4)
+        }
+        sleep(1)
+        capture("figure3")
+        app.terminate()
+    }
 }

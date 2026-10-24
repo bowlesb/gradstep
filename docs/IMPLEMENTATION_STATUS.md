@@ -1,5 +1,11 @@
 # Implementation status
 
+## TestFlight 90 (pending)
+
+- Reader **revision 23** (branch `reader-fixes-90`, build 88 reports): one list marker per item, the paper's own label, with
+  no empty lines under it (2610.28711v1, 2610.14162v1); multi-line diagram labels drawn line by line without phantom
+  struts (2610.14162v1 Figure 3). 125-paper replay and a fresh 60-paper sweep: no new failures; iPad screenshots in
+  `.artifacts/reader-fixes-90/`. Saved papers need Update this paper.
 
 
 ## New AI gateway key, iPad Wide places — 2026-10-24 UTC (TestFlight 88, iOS and Mac uploaded)

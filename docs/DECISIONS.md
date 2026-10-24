@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-22 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## List markers are the paper's own; diagram labels keep their lines (owner reports build 88, 2026-10-23; agent decisions, reversible)
+
+Owner, TestFlight 88 on iPad: *"Authors list badly fmt"* (2610.28711v1) and *"Garbled figure text"* (2610.14162v1
+Figure 3). Reader revision 23; details in [HTML_FIRST_READER](architecture/HTML_FIRST_READER.md) "List markers and
+diagram labels".
+
+| Decision | Choice |
+|---|---|
+| One marker per list item | The paper's own label ("•", "–", "(ii)", "a.", a reference's "[12]") is the marker and the list's CSS marker is off, as device-PDF lists already did; the label hangs in the indent. An item without a label keeps the list's marker. |
+| Item spacing | No empty lines under an item; paragraphs inside one item stay apart. |
+| Diagram labels | A label of several lines is drawn line by line (wrapped to its minipage); `\phantom` text is not drawn. Not a degrade case: arXiv's own page reads, so the reader draws it rather than replacing it with a note. |
+
 ## Paper AI Explainer: one Key concepts card, the same cards in Chat (owner feedback build 82, 2026-10-22; agent decisions, reversible)
 
 Owner, on TestFlight 82: *"Key ideas and concepts seems like two versions of the same thing and could be combined"*,
