@@ -234,6 +234,8 @@ struct FeedTable: View {
                        }
                        FeedColdStartNote(model: model)
                    })
+        // Turned upright with an article picked: its row centred and tinted, the tint fading (owner, 2026-10-23).
+        .revealing(model.revealedRow(in: .feed, wide: pick != nil))
     }
 
     @ViewBuilder private func cell(_ result: DiscoveryResult, column: FeedTableColumn?) -> some View {

@@ -70,6 +70,22 @@ Evidence: `npm test` 731 pass, build passes; Playwright desktop/phone on the tou
 Not yet: the Tall/Wide single-row, two-slot layout on the web (iPad first, in a branch); an empty grey strip above the
 figure page's message box.
 
+## iPad Wide: owner corrections after TestFlight 88 — 2026-10-23 (branch `ipad-slots-2`, not merged)
+
+DECISIONS.md "iPad Wide: owner corrections after TestFlight 88"; DESIGN.md › Tall and Wide. The places button in the
+window's top-left corner (the leftmost slot's row starts after it); a double tap on the divider lets the list (or the
+companion) cover the window, with a grabber at the far edge, and picking from it splits again; the divider drag is live
+(both slots follow the finger, the closing slot dims past its minimum), and on iPad the paper keeps the paragraph at its
+top through every width change; turned upright, the Library's open paper (or the Feed's picked article) is centred in the
+Tall list and tinted, the tint fading like the figure outline. Evidence: Core `swift test` 437 (Swift Testing) + 33
+(XCTest) pass; iOS (iPad Pro 13" Simulator) and Mac Catalyst builds; `IPadShapesJourneyTests` 15/15 on the iPad Pro 13"
+(M5) Simulator after a Simulator reboot (⌘1 in the places test failed twice on a stale Simulator, then passed);
+`ReadingModeTests` and `PaperPassageTests` (reader bridge) pass; the turning test then passed for both the List and the
+Table. Live drag on the Simulator: the paper reflows each frame at about 45–55 fps with two or three hitches of up to
+~150 ms a second, the same paragraph kept at the top. Not measured on a device; VoiceOver's reading of a covered slot not
+checked with VoiceOver itself (XCUITest still lists the covered slot's UIKit-hosted elements). Screenshots:
+`.artifacts/ipad-slots-2/`.
+
 ## iPad Wide: places menu and each place's own two slots — 2026-10-23 (branch `ipad-places-menu`, not merged)
 
 The owner's direction of 2026-10-23 for the iPad sideways (DESIGN.md › Tall and Wide; DECISIONS.md "iPad Wide: a places

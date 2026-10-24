@@ -196,7 +196,7 @@ struct ReadingModeView: View {
                     ChatView(model: model)
                         .environment(\.chatBesidePaper, true)
                         // No places in reading mode: nothing sits at the row's end.
-                        .environment(\.placesReserve, 0)
+                        .environment(\.placesLeadingReserve, 0)
                         .frame(width: chatWidth)
                         .background(Color(uiColor: .systemBackground))
                         .overlay(alignment: .leading) { Divider() }

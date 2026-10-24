@@ -27,6 +27,22 @@ extension ReaderModel {
         }
     }
 
+    /// `--long-library-fixture` (owner, 2026-10-23: turning upright centres the open paper's row): 40 more papers around
+    /// the sample, the Library in title order, so the sample ("Reading machine learning papers") sits in the middle of a list
+    /// taller than the window.
+    func configureLongLibraryFixture() {
+        func paper(_ n: Int, _ title: String) -> Paper {
+            var paper = Paper(id: UUID(uuidString: String(format: "dddddddd-0000-0000-0000-%012ld", n))!, title: title,
+                              authors: "Fixture Author", year: 2020 + n % 6, abstract: "", keywords: ["cs.LG"], fileURL: nil, artifactID: nil)
+            paper.canReadStructured = false
+            return paper
+        }
+        let before = (1...20).map { paper($0, String(format: "Field notes on optimisation %02d", $0)) }
+        let after = (21...40).map { paper($0, String(format: "Topic survey %02d", $0 - 20)) }
+        papers += before + after
+        librarySort = .title
+    }
+
     /// Study (2026-10-14): a paper numbered on this device, so "Study this paper" is offered and the fixture transport
     /// tutors. The shared arXiv HTML fixture (tests/fixtures/reader-arxiv/package.json) as a membership of this library.
     func configureStudyFixture() throws {

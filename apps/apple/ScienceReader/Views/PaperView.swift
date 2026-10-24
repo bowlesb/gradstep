@@ -195,8 +195,8 @@ struct PaperView: View {
     @Environment(\.readingModeActive) private var readingActive
     /// The Wide shape (WideShape.swift): the paper's floating controls replace the navigation bar.
     @Environment(\.wideBar) private var wideBar
-    /// The room at the right for the places menu, when the paper is the rightmost slot.
-    @Environment(\.placesReserve) private var placesReserve
+    /// The room at the left for the places menu, when the paper is the leftmost slot (owner, 2026-10-23: the top left).
+    @Environment(\.placesLeadingReserve) private var placesReserve
     /// Wide's floating controls show unless reading mode or drawing a snippet has the top (its Cancel takes the system bar).
     private var wideRow: Bool { wideBar && !readingActive && model.notes.capturing != .paper }
 
@@ -998,8 +998,8 @@ struct PaperView: View {
 
     /// Wide: the paper has no row (owner, 2026-10-23: navigation "never costs vertical space"). Its few controls float in
     /// glass over its top corners, on the rows' centre line, as on iPhone; the page starts below them (`topInset`) and
-    /// scrolls under them. At the left the list toggle and ☰ Contents, at the right ⋯, with the places menu after it at the
-    /// window's corner when the paper is the rightmost slot. The paper's title is its own heading. Reading mode and Show
+    /// scrolls under them. At the left the list toggle and ☰ Contents (after the places menu in the window's top-left corner
+    /// when the paper is the leftmost slot), at the right ⋯. The paper's title is its own heading. Reading mode and Show
     /// chat are rows of ⋯ (owner, 2026-10-22).
     private var floatingControls: some View {
         HStack(spacing: 8) {
@@ -1015,7 +1015,7 @@ struct PaperView: View {
             Menu { paperMenuContent } label: { HeaderButtonLabel(systemImage: "ellipsis") }
                 .buttonStyle(.plain).accessibilityLabel("Paper options")
         }
-        .padding(.leading, 12).padding(.trailing, 12 + placesReserve)
+        .padding(.leading, 12 + placesReserve).padding(.trailing, 12)
         .frame(height: WideMetrics.barHeight)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         // Reading mode's ⇧⌘R with a hardware keyboard (the system bar's button carried it).
@@ -1412,9 +1412,12 @@ struct PaperWebView: UIViewRepresentable {
             if let saved = parent.location {
                 location = ["block": saved.blockIndex ?? -1, "fraction": saved.blockFraction, "y": saved.scrollY] as [String: Any]
             } else { location = NSNull() }
-            let arguments: [String: Any] = ["size": parent.fontSize, "location": location]
+            // iPad: a width change (the Wide divider dragged live, a turn) keeps the paragraph at the top (owner, 2026-10-23).
+            let keepPlace = UIDevice.current.userInterfaceIdiom == .pad && !Platform.isMac
+            let arguments: [String: Any] = ["size": parent.fontSize, "location": location, "keepPlace": keepPlace]
             webView.callAsyncJavaScript("""
                 document.documentElement.style.fontSize = size + 'px';
+                window.__scienceReaderKeepPlaceOnResize = keepPlace;
                 await window.__scienceReaderReady;
                 await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
                 window.__scienceReaderFit?.();

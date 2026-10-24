@@ -187,6 +187,10 @@ struct RootView: View {
     /// and how many slots show (docs/DESIGN.md › Tall and Wide): the place, its selection, the paper and its place, an
     /// open companion, the open chat and its draft stay as they were.
     private func shapeChanged(toWide wide: Bool) {
+        // Upright, the Library (or the Feed) is the iPhone's full-screen list: the paper that was beside it (or the article
+        // picked) is centred there and tinted, the tint fading on its own (owner, 2026-10-23). Sideways again, the same
+        // paper is on the right (the selection never changed).
+        model.rowReveal = wide ? nil : uprightReveal
         // An open chat stays open (the Chat tab in Tall, the card over the paper in Wide), with its draft; the paper keeps
         // its place. Nothing else changes.
         model.compactLayout = !wide
@@ -194,6 +198,21 @@ struct RootView: View {
         if wide, model.tab == .chat, !model.generalChat { model.readerChatHidden = false }
         // iPad Settings is a sheet in both shapes; a Mac-style Settings place never shows in Tall.
         if !wide, model.tab == .settings { model.tab = model.placeBeforeSettings; model.settingsPresented = true }
+    }
+
+    /// Turning upright from the Library with a paper beside it, or the Feed with an article picked: that row, when the
+    /// list being shown has it (not filtered out or searched past).
+    private var uprightReveal: RowReveal? {
+        guard !Platform.isMac, !model.compactLayout else { return nil }
+        if model.tab == .library, let paper = model.selectedPaper {
+            let row = model.libraryRows.first { if case .paper(let shown) = $0 { shown.id == paper.id } else { false } }
+            return row.map { RowReveal(place: .library, rowID: $0.id) }
+        }
+        if model.tab == .feed, !model.podcasts.listenSelected, let pick = model.feedPickID,
+           model.shownFeedResults.contains(where: { $0.sourceID == pick }) {
+            return RowReveal(place: .feed, rowID: pick)
+        }
+        return nil
     }
 
     /// iPad Wide's Library, Feed (but Listen, a list of its own) and Paper places: one container (WideSlots).
@@ -244,7 +263,8 @@ struct RootView: View {
                 case .chat:
                     // Chats (iPad Wide): your conversations beside the open one, like Messages.
                     if Platform.isMac { ChatView(model: model) } else {
-                        TwoSlotLayout(width: width, other: .left, arrangement: .chats) {
+                        TwoSlotLayout(width: width, other: .left, arrangement: .chats,
+                                      selection: model.activeConversation.map(AnyHashable.init)) {
                             ChatView(model: model).environment(\.chatsList, true)
                         } otherView: {
                             ChatHistoryView(model: model, embedded: true)
@@ -263,13 +283,13 @@ struct RootView: View {
         }
         .environment(\.wideReader, true)
         .environment(\.wideBar, !Platform.isMac)
-        // The places menu in the window's top-right corner (owner, 2026-10-23), the same spot in every view: the rightmost
-        // slot's row or floating controls end short of it. The Mac's places are its toolbar's.
-        .environment(\.placesReserve, placesShown ? WideMetrics.placesReserve : 0)
-        .overlay(alignment: .topTrailing) {
+        // The places menu in the window's top-left corner (owner correction, 2026-10-23: "I meant the top left"), the same
+        // spot in every view: the leftmost slot's row or floating controls start after it. The Mac's places are its toolbar's.
+        .environment(\.placesLeadingReserve, placesShown ? WideMetrics.placesReserve : 0)
+        .overlay(alignment: .topLeading) {
             if placesShown {
                 PlacesMenuButton(model: model)
-                    .padding(.top, (WideMetrics.barHeight - DesignMetrics.headerControl) / 2).padding(.trailing, 12)
+                    .padding(.top, (WideMetrics.barHeight - DesignMetrics.headerControl) / 2).padding(.leading, 12)
             }
         }
         // A narrow window (an iPad split) has no reading mode: it ends rather than hide everything.
@@ -465,8 +485,8 @@ struct LibraryView: View {
     }
 
     /// Wide: the Library place's left slot (owner, 2026-10-23: the list on the left, the paper on the right). Its row: the
-    /// search field (as on iPhone), then ⋯ (Cancel while searching, or Esc); the places menu sits over the paper's slot. While
-    /// searching, the Library / ML paper search switch under the row, like Mail.
+    /// places menu (the window's top-left corner), the search field (as on iPhone), then ⋯ (Cancel while searching, or
+    /// Esc). While searching, the Library / ML paper search switch under the row, like Mail.
     private var wideHeader: some View {
         VStack(spacing: 0) {
             libraryRow
@@ -639,6 +659,9 @@ struct LibraryView: View {
 
     /// The List layout (also the table's form at accessibility text sizes), with the same filters.
     private func libraryList() -> some View {
+        // Turned upright with a paper beside the list: its row centred and tinted, the tint fading (owner, 2026-10-23).
+        let reveal = model.revealedRow(in: .library, wide: wideBar)
+        return ScrollViewReader { proxy in
         List {
             banners(inset: false).listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
@@ -661,6 +684,7 @@ struct LibraryView: View {
                                  showAbstract: model.showAbstracts, showTopics: model.showTopics)
                     }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(reveal?.row == entry.id ? .isSelected : [])
                         .accessibilityIdentifier("paper.\(paper.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
                         // The cloud symbol's tap: download without opening (as the table's), beside the row's button.
@@ -702,11 +726,14 @@ struct LibraryView: View {
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
                 }
             }.listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
+                .listRowBackground(reveal.flatMap { $0.row == entry.id ? RevealTint(reveal: $0.reveal, end: $0.end) : nil })
                 .macRowHover()
             }
         }.listStyle(.plain).refreshable { await model.refreshLibrary() }
             .readableScrollColumn(width: containerWidth)
             .overlay(alignment: .top) { updatingIndicator }
+            .revealScroll(reveal?.row, token: reveal?.reveal.token, proxy: proxy)
+        }
     }
 }
 
@@ -871,7 +898,11 @@ struct FeedView: View {
     /// right space is used specifically for the abstract and other details").
     private var pick: ((DiscoveryResult) -> Void)? {
         guard wideBar else { return nil }
-        return { result in model.feedPickID = result.sourceID; model.feedReading = false }
+        return { result in
+            model.feedPickID = result.sourceID; model.feedReading = false
+            // The list covering the window splits again, the details on its right (the same row again too).
+            SlotFractions.shared.uncover()
+        }
     }
     var body: some View {
         NavigationStack {
@@ -906,6 +937,10 @@ struct FeedView: View {
                         }
                         FeedTable(model: model, issue: $issue, pick: pick).refreshable { model.loadFeed() }
                     } else {
+                        // Turned upright with an article picked: its row centred and tinted, the tint fading (owner,
+                        // 2026-10-23).
+                        let reveal = model.revealedRow(in: .feed, wide: wideBar)
+                        ScrollViewReader { proxy in
                         List {
                             if let issue {
                                 StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
@@ -916,13 +951,18 @@ struct FeedView: View {
                             FeedColdStartNote(model: model)
                             ForEach(model.shownFeedResults) { result in
                                 let picked = pick != nil && model.feedPickID == result.sourceID
+                                let revealed = reveal?.row == result.id
                                 DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, pick: pick.map { pick in { pick(result) } })
                                     .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
-                                    .listRowBackground(picked ? Color.accentColor.opacity(0.12) : nil)
+                                    .listRowBackground(revealed ? reveal.map { AnyView(RevealTint(reveal: $0.reveal, end: $0.end)) }
+                                                       : picked ? AnyView(Color.accentColor.opacity(0.12)) : nil)
+                                    .accessibilityAddTraits(revealed ? .isSelected : [])
                             }
                         }
                         .listStyle(.plain).refreshable { model.loadFeed() }
                         .readableScrollColumn(width: width)
+                        .revealScroll(reveal?.row, token: reveal?.reveal.token, proxy: proxy)
+                        }
                     }
                 }
             }
@@ -1188,7 +1228,7 @@ struct ChatView: View {
     }
 
     /// Wide: the conversation's row. Beside the paper (Discuss): All chats · title ⌄ · ✕ · ⋯ (New chat in ⋯). The Chat
-    /// place, beside All chats: the title on the left, then New chat · ⋯. The places menu follows at the window's corner.
+    /// place, beside All chats: the title on the left, then New chat · ⋯.
     private var wideRow: some View {
         WideBar {
             if chatsList {

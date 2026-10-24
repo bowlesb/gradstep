@@ -1488,6 +1488,20 @@
     positionTimer = setTimeout(() => {positionTimer=null;postPosition();},120);
   },{passive:true});
   window.addEventListener('scrollend',() => {if (!config?.figure_id) postPosition();});
+  // A new width (the iPad's divider dragged, the window turned or resized) reflows the text: the paragraph at the top
+  // stays at the top, at the same point within it (owner, 2026-10-23: the divider is "a real drag"; WebKit has no CSS
+  // scroll anchoring). The place is noted once a frame while scrolling and put back on each change of width. Only where
+  // the host asks for it (`__scienceReaderKeepPlaceOnResize`, the iPad app); elsewhere a resize is left as it was.
+  let widthAnchor = null, anchorFrame = 0, anchorWidth = window.innerWidth;
+  window.addEventListener('scroll', () => {
+    if (anchorFrame || !window.__scienceReaderKeepPlaceOnResize) return;
+    anchorFrame = requestAnimationFrame(() => { anchorFrame = 0; widthAnchor = window.__scienceReaderLocation(); });
+  }, {passive: true});
+  window.addEventListener('resize', () => {
+    if (window.innerWidth === anchorWidth) return;   // a height change (a keyboard, a bar) keeps its own behaviour
+    anchorWidth = window.innerWidth;
+    if (window.__scienceReaderKeepPlaceOnResize && widthAnchor && widthAnchor.y > 0) window.__scienceReaderRestore(widthAnchor);
+  });
 
   function selectionParts() {
     const selection = window.getSelection();
