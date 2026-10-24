@@ -1,4 +1,4 @@
-# Interest index (approved 2026-10-24; step 1 under way)
+# Interest index (approved 2026-10-24; step 1 done)
 
 Owner, 2026-10-24: "one of the most important new features needs to be about maintaining a better nuanced and
 personalized understanding of what the user has in their library … topics … unique to them … not things like Machine
@@ -49,3 +49,14 @@ history. Registry merges last-writer-wins per topic ID with an (epoch, device) t
 1. Design approved. 2. Device-only signals (reading depth, snippets, chats) count, on the user's devices only.
 3. Start step 1 now with no AI spend; name the map in November (October's provider budget is at 82%).
 4. The chart goes at the top of Library › All, collapsible, slices filter.
+
+## Step 1 result (2026-10-24; branch `interest-eval`, report `.artifacts/interest-eval/REPORT.md`)
+
+Data: the owner's library is 62 papers (in `library_v4_entries`, added 10-19…10-24); the Feed pool held 9,890 papers.
+Leave-one-out ranking (kNN-3): gte-small AUC 0.756, bge-small 0.754, SPECTER2+proximity 0.733 — differences within
+noise; R@50 ≈ 2–5% (random 0.5%). Held-out papers from topics with ≥3 other papers: AUC 0.83 (43% in top 10%); from
+small topics 0.61 — supports topic sections plus exploration. **Model: gte-small** (fastest, smallest, portable).
+EmbeddingGemma skipped (gated), voyage skipped (no paid calls). Topic selection: the proposed descent rule rarely
+descends on a 62-paper library; a relaxed rule (≥25% of parent mass, >1.5× lift) and comparing against all descendants
+surfaces niches (multi-agent interaction, KV-cache compression, RAG evidence). Unnamed (TF-IDF) labels are bland; LLM
+naming stays planned for November.
