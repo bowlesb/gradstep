@@ -98,6 +98,14 @@ final class LibraryLayoutTests: XCTestCase {
         choose("Table", in: app, screenshot: "Library options menu (iPad)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
         XCTAssertTrue(cell(attention, in: app).waitForExistence(timeout: 5))
+        // Wide (owner, 2026-10-23): the table is the Library place's left slot, with the columns that fit; dragging the
+        // divider right (as far as the paper's minimum allows) reveals the rest.
+        let divider = app.descendants(matching: .any)["slots.divider"].firstMatch
+        if divider.exists {
+            let grip = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: app.frame.width - divider.frame.midX - 20, dy: 0)))
+            XCTAssertTrue(header("Progress", in: app).waitForExistence(timeout: 5), "A wider list shows more columns")
+        }
         for title in ["Title", "Year", "Tags", "Added", "Opened", "Chats", "Progress"] {
             XCTAssertTrue(header(title, in: app).exists, "Wide iPad shows \(title)")
         }
