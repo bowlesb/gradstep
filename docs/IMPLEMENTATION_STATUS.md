@@ -1,5 +1,46 @@
 # Implementation status
 
+## Unreleased (after TestFlight 90)
+
+### Interest index, step 2: server layer — 2026-10-24 UTC (staging; serving `staff`; no client uses it yet)
+
+Design and as-built record: [architecture/INTEREST_INDEX.md](architecture/INTEREST_INDEX.md). Lead's interim decisions
+(180-day corpus, rebuild every two weeks until about 50k papers then weekly, due-based with back-off, privacy line
+pending owner approval, Homebrew PostgreSQL 17 + pgvector for local tests) are in DECISIONS.md.
+
+- **Staging:**
+  - Migrations 0152 (pgvector, fingerprints, map, term vectors, artifacts, RPCs, the pool-ingest hook, cron, health)
+    and 0153 (due-based rebuild: weekend 06:00–10:00 UTC window or 24 hours overdue; back-off 10 min / 1 h / 6 h;
+    kick heartbeat), each after an encrypted backup.
+  - Edge function `interest-index`, and worker revision `gradstep-pipeline-00054-m9n` (`POST /interest`, gte-small
+    fp32 ONNX baked in by checksum, built with Cloud Build).
+- **Backfill:** 9,970 papers (9,890 pool, 80 catalog) embedded, 0 failed. Map version 1 published at 16:34 UTC:
+  20 / 68 / 246 nodes, cohesion 0.9214; 56,972 phrases; map 143 KB, terms 285 KB, 3 shards (8,230 papers, 2.6 MB).
+  Cloud Run 3,965 instance-seconds in all (≈ $0.12 list, inside the free tier). Database 81 MB. AI spend $0.
+- **End to end with two synthetic tester accounts (deleted afterwards):**
+  - Not served without the role (404 / `interest_unavailable`). With it, the manifest is 200 and every artifact matches
+    its SHA-256 and ETag (304 on `If-None-Match`) and decodes.
+  - The library RPC returns exactly the caller's own papers, with q8 fingerprints, leaves and terms. It omits another
+    reader's paper and a catalog-only paper (no oracle).
+  - Anonymous RPC 401; tables not exposed.
+  - Workflow check `interest.health` passes; `budget.health` still fails on the existing 83 % of October's $40.
+- **Tests:**
+  - `npm test` passes, with new `tests/backend/interest-*.test.ts`: tokenizer equal to Hugging Face on 81 fixtures with
+    padding off, n-grams equal to scikit-learn, codecs, map build, delivery and job guards.
+  - The database fixtures `interest_index.sql` and `interest_rebuild_due.sql` pass on PostgreSQL 17 + pgvector. They
+    cover RLS and grants, sync rules, the no-oracle RPC, publish and the stability gate, a missed window, two failures
+    then success, a weekday 24 hours overdue, heartbeat and an unreachable worker.
+  - The slow embedder parity test passes (20 reference vectors at cos ≥ 0.9999).
+- **Testing change:** the database suite now needs pgvector (`SCIENCE_READER_PG_BIN`, new `SCIENCE_READER_PG_PORT`;
+  docs/TESTING.md). The shared portable PostgreSQL 18.4 server on 55431 has none, so the full suite stops there with
+  instructions.
+- **Not done or known:**
+  - The admin site was not redeployed: the Health card is built and type-checks, and the database side is live.
+  - ONNX Runtime's native telemetry logs that uploads are unavailable (no CA bundle in the image); an explicit disable
+    is a follow-up.
+  - No device or browser consumes the index (step 3).
+  - The privacy-notice line needs owner approval before `serving='all'`.
+
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 - **Also in 90:** TestFlight 89's iPad Wide work (places button top-left, a double-tapped divider lets the list cover the

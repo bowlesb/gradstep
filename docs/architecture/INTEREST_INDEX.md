@@ -1,6 +1,6 @@
 # Interest index: server layer (step 2)
 
-Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00053-6rf`,
+Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00054-m9n`,
 Edge function `interest-index`; serving `staff`). Evidence and as-built differences are in
 [Phase B as built](#phase-b-as-built-staging-2026-10-24). The lead's interim decisions are recorded in
 [DECISIONS.md](../DECISIONS.md#interest-index-server-layer-agent-design-2026-10-24-phase-b-built-on-staging-the-same-day).
@@ -473,7 +473,79 @@ Slow, opt-in (`docs/TESTING.md`):
 
 ## Phase B as built (staging, 2026-10-24)
 
-PLACEHOLDER_AS_BUILT
+**Deployed (staging, 2026-10-24 UTC).**
+
+- Migrations `202610240152_interest_index.sql` (about 14:45 UTC) and `202610240153_interest_due_rebuild.sql` (about 15:16 UTC), each after
+  an encrypted backup (`.artifacts/backups/20261024T143919Z-46df24ca16bc`, `20261024T151459Z-be593323ef99`).
+  pgvector 0.8.2 is enabled in `extensions`.
+- Edge function `interest-index` (in `infra/staging.json`, `verify_jwt = false`, auth in the handler).
+- Worker revisions `gradstep-pipeline-00053-6rf`, then `00054-m9n` (commit `63602b24`). Both were built with Cloud Build
+  (`deploy-pipeline-worker.py deploy --remote-build`, new) because the local Colima Docker VM hit I/O errors with the
+  Mac's disk full. The image fetches the model by checksum at build time.
+- Policy `enabled=true`, `serving='staff'`.
+
+**Measured on staging.**
+
+| What | Result |
+|---|---|
+| Backfill | 9,970 papers embedded: 9,890 pool + 80 catalog-only, 0 failed, 0 failed runs. Five runs from 14:59 to 16:29 UTC |
+| Embedding speed (Cloud Run, 1 vCPU, fp32, including RPCs) | ≈ 2.8 papers/s (2,208 per 780 s run). Runs start about 20 minutes apart (lease plus the 10-minute kick) |
+| First map (version 1, cold) | One run of 287 s: 56,972 phrases embedded (≈ 230/s), k-means, terms, artifacts. 20 / 68 / 246 nodes; leaf cohesion 0.9214 (scikit-learn cold build on the same pool: 0.9222) |
+| Term statistics | 56,972 phrases, 10,387–10,691 passing the concept filter (18 %); the artifact is 285 KB |
+| Map artifact | 143 KB (334 nodes) |
+| Shards | 3 shards, 8,230 papers in the 14-day window, 2.6 MB |
+| Database | 81 MB for the interest tables (estimate was ≈ 55 MB; term vectors and TOASTed text are larger than estimated) |
+| Cloud Run usage, backfill plus first build | 3,965 instance-seconds ≈ 3,965 vCPU-s and 7,930 GiB-s ≈ $0.12 at list price, inside the free tier |
+| Provider (AI) spend | $0 |
+
+Example leaves (c-TF-IDF terms): "reasoning · cot · chain-of-thought · answer" (91 papers), "regret · bandits · bounds ·
+sqrt", "agents · execution · agentic · tool", "inverse · posterior · sampling · diffusion". The phrases with the highest
+conceptness include "quantum machine learning", "radiology reports", "backdoor attacks" and "quadrotor".
+
+**End-to-end delivery check** (two synthetic `@example.invalid` accounts with the tester role, deleted afterwards
+through `account-delete`; script in the session scratchpad):
+
+- Before the role: the manifest answered 404 and the RPC `interest_unavailable`. With it, the manifest answered 200
+  (`private, max-age=600`; map version 1, 3 shards, the model block).
+- Every artifact downloaded with its SHA-256 matching the manifest and its ETag. `If-None-Match` answered 304. Each
+  decoded: map 20 / 68 / 246 nodes with centroids, terms 56,972 phrases, shards 8,230 papers.
+- Account A (1706.03762 from the catalog and one pool paper) received exactly its two papers: q8 fingerprints, leaves
+  and top terms. For 1706.03762 the terms were "translation, encoder decoder, attention mechanisms, convolutional neural
+  networks, transformer". Account B received only 2305.18290.
+- When A asked for B's paper, a catalog-only paper and its own, it got only its own paper (no oracle).
+- Anonymous RPC: 401. The `app_private` tables are not exposed (406).
+- Workflow checks: `interest.health` and `config.edge-functions` (19 active) pass. `budget.health` fails on the existing
+  83 % of October's $40, which this work does not change.
+
+**Local evidence.**
+
+- `npm test` passes in full.
+- `scripts/test-database.py --interest-only` passes on PostgreSQL 17 + pgvector: migrations through 0153,
+  `default_privileges`, `interest_index.sql` and `interest_rebuild_due.sql`.
+- The slow embedder parity test (`tests/interest/embed-parity.test.ts`) passed with the fp32 model: 20 reference vectors
+  at cos ≥ 0.9999, and padding in a batch changes nothing.
+- A local end-to-end run (real migrations and `job.ts` over psql, 3,000 pool papers) covered backfill, a cold build, an
+  incremental batch with leaves and terms, and a forced warm rebuild: leaf IDs kept 98.6 %, only new phrases embedded.
+
+**Differences from the design.**
+
+- Term statistics live only in the terms artifact (the worker reads it back); there is no `interest_terms` table.
+  Phrase embeddings are kept in `interest_term_vectors` (int8).
+- The pool-ingest hook is a statement trigger on `feed_papers` that calls the debounced `interest_kick`.
+- The tokenizer is a dependency-free WordPiece implementation, equal to Hugging Face on all 81 fixtures, so there is no
+  `@huggingface/tokenizers`.
+- `/health` is unchanged; the readiness tooling compares it exactly.
+
+**Known limits and follow-ups.**
+
+- ONNX Runtime 1.30's native telemetry module logs "No readable CA bundle was found; telemetry HTTPS uploads will be
+  unavailable" when the model loads. The image has no CA bundle, so it cannot upload, and the JS egress guard covers
+  only `fetch`. Disabling it explicitly, or proving no attempt with egress logs, is a follow-up.
+- Backfill throughput is bounded by the 20-minute run spacing. A self-kick at release would roughly halve a future
+  full re-embedding; it is not needed for the daily ≈ 750 papers.
+- The admin Health card is built and type-checks, but the admin site was not redeployed (the database side, including
+  Attention items, is live through `v1_admin_health`).
+- No client uses the index yet (step 3). The privacy line in §5 needs owner approval before public release.
 
 ## Decisions taken for Phase B (lead's interim decisions; the owner can revisit)
 

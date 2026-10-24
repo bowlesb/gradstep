@@ -2120,3 +2120,7 @@ request when it gave the go-ahead for Phase B (staging only):
    "owner approval needed before public release". It does not block staging.
 4. **Local database tests:** PostgreSQL 17 with pgvector from Homebrew is acceptable (docs/TESTING.md). TextBrain's
    tool folder is untouched.
+5. **Rebuilds are due-based, never one missable slot** (lead, prompted by an owner question): due once the map is
+   rebuild_days old; started in the weekend 06:00–10:00 UTC window, or at the next 10-minute tick once 24 hours overdue;
+   failed, blocked or killed builds retry after 10 minutes, 1 hour, then 6 hours; Health names a missing kick heartbeat
+   (1 hour), a post no run claims (30 minutes) and a map older than rebuild_days + 2 days (migration 0153).
