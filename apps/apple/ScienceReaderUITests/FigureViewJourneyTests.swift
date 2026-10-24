@@ -659,6 +659,120 @@ final class FigureViewJourneyTests: XCTestCase {
         #endif
     }
 
+    /// Show in PDF (owner, 2026-10-24: "wherever you select, it can guess where in the pdf that is and show it to you with a pop
+    /// up that you can zoom around in"; FIGURE_VIEW.md "Show in PDF"). The same real on-device reading as above, made at port
+    /// revision 11 or later (its provenance records each block's place): a sentence of the paragraph opening "At a high level"
+    /// (page 2 of 2305.18290v3) is selected, the selection menu's last item is Show in PDF, and the pop-up opens on page 2
+    /// with the words highlighted; out to the whole page, the next and previous pages, and the X; on iPad, sideways too.
+    /// `TEST_RUNNER_SHOW_IN_PDF_PAGE` names another expected page (from 1) for another paper; `GS_SCREENSHOT_DIR` keeps the
+    /// screenshots.
+    func testShowInPDFOpensASelectedSentenceOnItsPDFPage() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let bundle = environment["FIGURE_DEVICE_BUNDLE"], !bundle.isEmpty, let pdf = environment["FIGURE_DEVICE_PDF"], !pdf.isEmpty else {
+            throw XCTSkip("Set TEST_RUNNER_FIGURE_DEVICE_BUNDLE to an on-device reading and TEST_RUNNER_FIGURE_DEVICE_PDF to its PDF")
+        }
+        let opening = environment["SHOW_IN_PDF_TEXT"] ?? "At a high level", expected = Int(environment["SHOW_IN_PDF_PAGE"] ?? "2") ?? 2
+        let device = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        func save(_ name: String) {
+            let shot = XCUIScreen.main.screenshot()
+            let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            if let directory = environment["GS_SCREENSHOT_DIR"], !directory.isEmpty {
+                try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+                try? shot.pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(device)-\(name).png"))
+            }
+        }
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
+                               "--figure-fixture-bundle=\(bundle)", "--figure-fixture-pdf=\(pdf)", "-appearance", "light"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
+        app.show("paper")
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 20), "the model's reading opens")
+        XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 20))
+
+        // The paragraph, scrolled into the middle of the page; a long press on its third word ("high") selects it; its end
+        // handle, dragged down a line, selects the sentence's opening words ("high level, existing methods instill the desired
+        // behaviors"). Where the handle isn't where this expects (another text size), the word alone.
+        let paragraph = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", opening)).firstMatch
+        func selectAndOpenMenu() -> XCUIElement {
+            for _ in 0..<12 where !(paragraph.exists && paragraph.isHittable && paragraph.frame.minY > web.frame.minY + 120 && paragraph.frame.minY < web.frame.midY) {
+                if paragraph.exists && paragraph.frame.minY < web.frame.minY + 120 {
+                    web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).press(forDuration: 0.05, thenDragTo: web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+                } else { web.swipeUp(velocity: .slow) }
+            }
+            XCTAssertTrue(paragraph.waitForExistence(timeout: 5) && paragraph.isHittable, "the paragraph opening \"\(opening)\"")
+            let origin = web.coordinate(withNormalizedOffset: .zero)
+            let x = paragraph.frame.minX - web.frame.minX, y = paragraph.frame.minY - web.frame.minY
+            let word = origin.withOffset(CGVector(dx: x + 50, dy: y + 10))
+            word.press(forDuration: 1.0)
+            _ = app.editMenuItem("Copy").waitForExistence(timeout: 5)
+            let handle = origin.withOffset(CGVector(dx: x + 67, dy: y + 27))
+            handle.press(forDuration: 0.3, thenDragTo: handle.withOffset(CGVector(dx: min(200, web.frame.width - x - 120), dy: 27)),
+                         withVelocity: 200, thenHoldForDuration: 0.3)
+            let show = app.revealEditMenuItem("Show in PDF", timeout: 3)
+            if show.exists { return show }
+            word.press(forDuration: 1.0)
+            return app.revealEditMenuItem("Show in PDF")
+        }
+        let show = selectAndOpenMenu()
+        XCTAssertTrue(show.waitForExistence(timeout: 5), "Show in PDF is in the selection menu")
+        XCTAssertTrue(app.editMenuItem("Save snippet").exists || app.editMenuItem("Explain in Chat").exists, "the other actions stay")
+        save("1-selection-menu")
+        show.tap()
+
+        // The pop-up: the passage's page, framed on it, the words highlighted.
+        let page = app.descendants(matching: .any)["showInPDF.page"], title = app.staticTexts["showInPDF.title"]
+        XCTAssertTrue(page.waitForExistence(timeout: 20), "the PDF page shows")
+        XCTAssertTrue(wait(10) { title.label.hasPrefix("Page \(expected) of ") }, "on page \(expected): \(title.label)")
+        XCTAssertTrue(page.label.contains("the passage highlighted"), "the words found: \(page.label)")
+        XCTAssertFalse(app.staticTexts["showInPDF.note"].exists, "found word for word, so no note")
+        XCTAssertTrue(wait(10) { ((page.value as? String) ?? "").contains("drawn") }, "the page is drawn")
+        XCTAssertFalse(((page.value as? String) ?? "").contains("whole page"), "opened zoomed on the passage: \(page.value ?? "")")
+        sleep(1); save("2-opened-on-the-passage")
+        #if !targetEnvironment(macCatalyst)
+        // A pinch outwards: the whole page.
+        page.pinch(withScale: 0.3, velocity: -2)
+        if !wait(5, { ((page.value as? String) ?? "").contains("whole page") }) { page.doubleTap() }
+        XCTAssertTrue(wait(5) { ((page.value as? String) ?? "").contains("whole page") }, "out to the whole page: \(page.value ?? "")")
+        sleep(1); save("3-the-whole-page")
+        #endif
+        // The next page and back.
+        app.buttons["showInPDF.next"].tap()
+        XCTAssertTrue(wait(5) { title.label.hasPrefix("Page \(expected + 1) of ") }, "the next page: \(title.label)")
+        XCTAssertTrue(wait(10) { ((page.value as? String) ?? "").contains("drawn") })
+        app.buttons["showInPDF.previous"].tap()
+        XCTAssertTrue(wait(5) { title.label.hasPrefix("Page \(expected) of ") })
+        app.buttons["showInPDF.close"].tap()
+        XCTAssertTrue(wait(5) { !page.exists }, "the X closes it")
+        XCTAssertTrue(web.isHittable, "back on the reading")
+
+        #if !targetEnvironment(macCatalyst)
+        // Sideways on iPad (Wide): over the paper's own slot, never across the window when another slot shows beside it.
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(3)
+        let wide = selectAndOpenMenu()
+        XCTAssertTrue(wide.waitForExistence(timeout: 5), "Show in PDF sideways")
+        wide.tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 20))
+        XCTAssertTrue(wait(10) { title.label.hasPrefix("Page \(expected) of ") }, "on page \(expected) sideways: \(title.label)")
+        XCTAssertTrue(wait(10) { ((page.value as? String) ?? "").contains("drawn") })
+        let slot = app.descendants(matching: .any)["slot.sheet"]
+        if slot.exists {
+            XCTAssertLessThan(slot.frame.width, app.frame.width - 100, "the paper's slot, not the window")
+            XCTAssertTrue(slot.frame.insetBy(dx: -1, dy: -1).contains(page.frame), "the page inside the slot's sheet")
+        } else {
+            XCTContext.runActivity(named: "Wide with the paper alone: the system sheet") { _ in }
+        }
+        sleep(1); save("4-sideways")
+        app.buttons["showInPDF.close"].tap()
+        XCTAssertTrue(wait(5) { !page.exists })
+        XCUIDevice.shared.orientation = .portrait
+        #endif
+    }
+
     /// Report this screen on the sheets that had no "…" (where the builds 66–76 feedback was given), with the app's own
     /// snapshot, returning to the same sheet; the two explain actions are peers and a table's says "Chat about Table".
     func testReportThisScreenFromContentsAndAFigurePage() throws {
