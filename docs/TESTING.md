@@ -1,5 +1,13 @@
 # Fast and slow tests
 
+## List markers and diagram labels (reader revision 23) — October 23
+
+Fast (in `npm test`): `tests/backend/arxiv-html.test.ts` ("one marker, the paper's own label", "drawn line by line").
+Slow, opt-in: compile `node scripts/reader-device-compile.mjs --ids=2610.28711v1,2610.14162v1 --out=<dir>`, then the iPad
+journey `-only-testing:ScienceReaderUITests/ReaderNavigationTests/testBuild88ListsAndPictureLabelsDark` with
+`TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`, `TEST_RUNNER_READER_SHOT_NAME=<prefix>` and `TEST_RUNNER_GS_SCREENSHOT_DIR`
+(skipped without the bundles). Screenshots under `.artifacts/reader-fixes-90/`.
+
 ## Download your assets — October 22
 
 Fast (in `npm test`): browser `tests/assets-export.test.ts` (writes `tests/fixtures/assets-export/assets-export-v1.json`

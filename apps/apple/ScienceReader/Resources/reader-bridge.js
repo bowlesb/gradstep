@@ -1148,6 +1148,11 @@
       // Generative Retrieval"): the bundle's reader.css gives h2 2em and h3–h6 1.6em; here 1.4em and 1.25em, about a
       // quarter less, for every paper already prepared too (the compiler's own CSS, and so its revision, is unchanged).
       'h2{margin-top:1.4em}h3,h4,h5,h6{margin-top:1.25em}',
+      // A list item's own label (the paper's "•", "–", "(ii)", "a."; reader revision 23) hangs in the list's indent where
+      // the list's marker would be, so a long item's lines align under its first; a label wider than the indent pushes
+      // only its first line.
+      'li.reader-custom-marker>.reader-marker:first-child{display:inline-block;min-width:1.5em;margin:0 0 0 -1.5em;padding-right:.45em;text-align:right}'
+        + '[data-sr-abstract-list]>li>.reader-marker:first-child{display:none}',
       // Tags: small quiet chips under the paper line; the whole row is one tap target (padding) that opens Edit tags.
       '.sr-paper-tags{display:block;margin:1.5em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
       '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',

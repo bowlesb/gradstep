@@ -222,6 +222,87 @@ test('pgfplots labels in a flipped picture read upright, rotated ticks included,
  assert.ok(/<text [^>]*stroke="none"/.test(xml));
 });
 
+// Authored reductions of LaTeXML's itemize/enumerate markup (build 88: 2610.28711v1 §7's authors, 2610.14162v1's
+// contributions): each item carries its label as `span.ltx_tag_item` and its words in `div.ltx_para > p.ltx_p`.
+const ltxItem=(id:string,label:string,words:string)=>`<li id="${id}" class="ltx_item" style="list-style-type:none;"><span class="ltx_tag ltx_tag_item">${label}</span> \n`
+ +`<div id="${id}.p1" class="ltx_para ltx_noindent">\n<p id="${id}.p1.1" class="ltx_p">${words}</p>\n</div></li>\n`;
+test('a list item shows one marker, the paper\'s own label, without empty lines under it (build 88, 2610.28711v1, 2610.14162v1)',()=>{
+ const bullet='<math id="S2.I1.i1.m1" alttext="\\bullet" display="inline"><semantics><mo>∙</mo><annotation encoding="application/x-tex">\\bullet</annotation></semantics></math>';
+ const lists=source.replace('<ol><li>First item</li><li>Second item</li></ol>',
+  `<ul id="S7.I1" class="ltx_itemize">${ltxItem('S7.I1.i1','•','Chuanmeng Bian')}${ltxItem('S7.I1.i2','•','Daren Chen')}</ul>`
+  +`<ol id="S1.I3" class="ltx_enumerate">${ltxItem('S1.I3.i1','(i)','<span class="ltx_text ltx_font_bold">Fast inference.</span> Fewer steps.')}`
+  +`${ltxItem('S1.I3.i2','(ii)','Lower budgets.')}</ol>`
+  +`<ul id="S2.I1" class="ltx_itemize"><li id="S2.I1.i1" class="ltx_item" style="list-style-type:none;"><span class="ltx_tag ltx_tag_item">${bullet}</span> \n`
+  +'<div class="ltx_para"><p class="ltx_p">A math bullet.</p>\n<p class="ltx_p">A second paragraph.</p></div></li></ul>'
+  +'<ul class="ltx_itemize"><li class="ltx_item">No label of its own.</li></ul>'
+  +'<dl class="ltx_description"><dt class="ltx_item"><span class="ltx_tag ltx_tag_item"><span class="ltx_text ltx_font_bold">Term:</span></span></dt>'
+  +'<dd class="ltx_item"><div class="ltx_para"><p class="ltx_p">its description.</p></div></dd></dl>');
+ const bundle=build(lists),checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ const items=[...html.matchAll(/<li\b([^>]*)>([\s\S]*?)<\/li>/g)];
+ const named=(text:string)=>items.find(([, , body])=>body.includes(text))!;
+ for (const [text,label] of [['Chuanmeng Bian','•'],['Daren Chen','•'],['Fewer steps','(i)'],['Lower budgets','(ii)'],['A math bullet','∙']] as const) {
+  const [, attrs, body]=named(text);
+  assert.match(attrs,/class="reader-custom-marker"/,`${text}: the list's own marker is off`);
+  assert.ok(body.startsWith(`<span class="reader-marker">${label} </span>`),`${text}: one marker, the paper's: ${body.slice(0,90)}`);
+  assert.equal(body.split(label).length-1,1,`${text}: the label once`);
+  assert.doesNotMatch(body,/(<br>|\s)$/,`${text}: no empty line under the item`);
+ }
+ // Paragraphs inside one item stay apart; an item without a label keeps the list's marker.
+ assert.match(named('A math bullet')[2],/A math bullet\.<br>\s*A second paragraph\.$/);
+ const [, plainAttrs, plainBody]=named('No label of its own.');
+ assert.doesNotMatch(plainAttrs,/reader-custom-marker/); assert.equal(plainBody,'No label of its own.');
+ // A description list is one paragraph, its terms inline, without empty lines at its end.
+ assert.match(html,/<p [^>]*data-reader-kind="paragraph"[^>]*><strong>Term:<\/strong>\s*its description\.<\/p>/);
+ // The index reads each label as a word of its own; the math label is accounted for, not an equation.
+ const listed=checked.index.blocks.filter(b=>b.kind==='list').map(b=>b.text);
+ for (const text of ['• Chuanmeng Bian','• Daren Chen','(i) Fast inference. Fewer steps.','(ii) Lower budgets.'])
+  assert.ok(listed.includes(text),`${text} in ${JSON.stringify(listed)}`);
+ assert.ok(!checked.index.equations.some(e=>e.latex==='\\bullet'));
+ // A numbered reference's "[1]" is its marker the same way (no list bullet beside it).
+ const cited=build(source.replace('<li id="bib1">[1] Author.','<li id="bib1" class="ltx_bibitem"><span class="ltx_tag ltx_tag_bibitem">[1]</span>\n<span class="ltx_bibblock">Author.'));
+ assert.match(new TextDecoder().decode(cited.members.get('index.html')),/<li class="reader-custom-marker"[^>]*><span class="reader-marker">\[1\] <\/span>\s*Author\./);
+});
+
+test('a picture\'s labels of several lines are drawn line by line in their box, without phantom struts (build 88, 2610.14162v1 Figure 3)',()=>{
+ // Authored reduction of the step boxes: a 10pt minipage label 7.68em wide with two paragraphs, each green word after a
+ // `\phantom{Ag}` strut LaTeXML keeps as hidden text, beside a one-line "Step 1" label.
+ const phantom='<span class="ltx_text ltx_phantom"><span style="visibility:hidden">Ag</span></span>';
+ const steps=`<figure id="S1.F3" class="ltx_figure"><svg id="S1.F3.pic2" class="ltx_picture" height="160" overflow="visible" version="1.1" viewBox="0 0 130 160" width="130">`
+  +'<g fill="#000000" stroke="#000000" transform="translate(0,160) matrix(1 0 0 -1 0 0)"><path style="fill:none" d="M 1 0 L 1 -124 L 120 -124 L 120 0 Z"></path>'
+  +'<g transform="matrix(1.0 0.0 0.0 1.0 7.76 -18.5)"><foreignObject style="font-size:11pt;" height="12.3" overflow="visible" transform="matrix(1 0 0 -1 0 9.61)" width="41.57">'
+  +'<span class="ltx_foreignobject_container"><span class="ltx_foreignobject_content"><span class="ltx_text ltx_font_sansserif ltx_font_bold">Step 1</span></span></span></foreignObject></g>'
+  +'<g transform="matrix(1.0 0.0 0.0 1.0 7.76 -97.36)"><foreignObject style="font-size:10pt;" height="125.84" overflow="visible" transform="matrix(1 0 0 -1 0 66.38)" width="106.27">'
+  +'<span class="ltx_foreignobject_container"><span class="ltx_foreignobject_content">\n<span class="ltx_inline-block ltx_minipage ltx_align_middle" style="width:7.68em;">\n'
+  +`<span class="ltx_p ltx_align_left">${phantom}<span class="ltx_text">However,</span></span>\n`
+  +`<span class="ltx_p ltx_align_left"><span class="ltx_text">it </span>${phantom}<span class="ltx_text">is</span><span class="ltx_text"> a important </span>${phantom}<span class="ltx_text">to</span>`
+  +'<span class="ltx_text"> the the the </span><span class="ltx_text ltx_font_bold">and</span><span class="ltx_text"> the.</span></span>\n</span></span></span></foreignObject></g>'
+  +'</g></svg><figcaption class="ltx_caption">Figure 3: NCM generation trajectory.</figcaption></figure>';
+ const xml=arxivInlineImages(fragment(steps),url).get('#S1.F3.pic2')!;
+ assert.doesNotMatch(xml,/Ag/,'a phantom strut is never drawn');
+ assert.ok(!xml.includes('foreignObject')&&!xml.includes('<span'),'SVG text only');
+ const texts=textMatrices(xml);
+ // The one-line label is unchanged: centred in its box.
+ assert.match(xml,/<text dominant-baseline="central" font-size="14.67" stroke="none" text-anchor="middle" x="20.785" y="6.15">Step 1<\/text>/);
+ // The minipage reads in lines from its top-left corner, each within its 7.68em (102.4 px) at half an em a letter and a
+ // quarter for a space.
+ const lines=[...xml.matchAll(/<text font-size="13.33" stroke="none" text-anchor="start" x="0" y="([\d.]+)">([\s\S]*?)<\/text>/g)]
+  .map(([, y, body])=>({y:Number(y),text:body.replace(/<[^>]+>/g,'')}));
+ assert.deepEqual(lines.map(l=>l.text),['However,','it is a','important to the','the the and the.']);
+ assert.ok(lines.every((l,i)=>i===0||l.y>lines[i-1].y),'top to bottom');
+ assert.ok(lines.every(l=>(l.text.replace(/ /g,'').length*0.5+(l.text.split(' ').length-1)*0.25)*13.33<=102.4+1),'each line within the minipage');
+ assert.match(xml,/<tspan font-weight="bold"> and<\/tspan>/,'bold words stay bold');
+ for (const {text,m} of texts) assert.ok(m[0]*m[3]-m[1]*m[2]>0,`"${text}" is drawn mirrored`);
+ // Rows of a tabular in a label are lines of their own, their cells side by side.
+ const tabular='<figure id="S1.F4" class="ltx_figure"><svg id="S1.F4.pic1" class="ltx_picture" height="40" overflow="visible" version="1.1" viewBox="0 0 300 40" width="300">'
+  +'<g><foreignObject style="font-size:10pt;" height="40" overflow="visible" width="300"><span class="ltx_foreignobject_container"><span class="ltx_foreignobject_content">'
+  +'<span class="ltx_tabular"><span class="ltx_tbody"><span class="ltx_tr"><span class="ltx_td"><span class="ltx_text ltx_font_bold">German:</span></span><span class="ltx_td">Es besteht</span></span>'
+  +'<span class="ltx_tr"><span class="ltx_td"><span class="ltx_text ltx_font_bold">Reference:</span></span><span class="ltx_td">However</span></span></span></span>'
+  +'</span></span></foreignObject></g></svg><figcaption class="ltx_caption">Figure 4: Rows.</figcaption></figure>';
+ const rows=arxivInlineImages(fragment(tabular),url).get('#S1.F4.pic1')!;
+ assert.deepEqual([...rows.matchAll(/<text [^>]*>([\s\S]*?)<\/text>/g)].map(([, body])=>body.replace(/<[^>]+>/g,'')),['German: Es besteht','Reference: However']);
+});
+
 test('a table inside inline blocks (resizebox) reads as a table block (KAN, 2404.19756)',()=>{
  const wrapped=source.replace('<p id="p1">','<div class="ltx_inline-block ltx_align_center"><span class="ltx_transformed_outer"><span class="ltx_transformed_inner"><table class="ltx_tabular"><tr><td>Layer</td><td>Width</td></tr></table></span></span></div><p id="p1">');
  const bundle=build(wrapped),checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);

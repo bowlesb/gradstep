@@ -392,7 +392,10 @@ now reads them all, and says in the paper what it left out:
 - **TikZ pictures** (`svg.ltx_picture`) draw their labels as `foreignObject` HTML, which the device SVG admission
   refuses. A lone picture whose labels hold text (a framed "Finding" box) reads as paragraphs with the frame left
   out and counted; a picture inside a figure keeps its labels as centred SVG `<text>` (best-effort placement). Math
-  inside a picture counts as carried by it, not as a missing equation.
+  inside a picture counts as carried by it, not as a missing equation. Since revision 23 (build 88, 2610.14162v1
+  Figure 3) a label of several lines (paragraphs, table rows, `\\`) is drawn line by line, a minipage's from its
+  top-left corner wrapped to its width at an estimated half an em a letter, and `\phantom` struts are not drawn. Text
+  that overflows a box overflows as in arXiv's own page (LaTeXML's box sizes, not the reader's).
 - When anything was left out the paper ends with one paragraph: "Note: arXiv's HTML conversion of this version
   left out N unsupported commands and M inline graphics. The PDF is complete."
 - **Asset planning is the compile.** `arxivHTMLAssets` and `arxivInlineImages` now come from a dry compile, so what
@@ -587,6 +590,19 @@ Revision 20 closes the full-corpus admission regression from the affiliation lay
 `\ddagger` formulas must stay in the rendered tree with their equation IDs, and inline contact text stays intact.
 The three failing real sources (2610.16794v1, 2610.20584v1, 2610.20592v1) pass full device preparation after the
 fix; all 123 cached sweep sources have zero failures. Revision 19 was a browser-only checkpoint.
+
+### List markers and diagram labels, revision 23
+
+Build 88 (2610.28711v1's author list, 2610.14162v1's contributions): LaTeXML writes each item's label as text
+(`span.ltx_tag_item`; a numbered reference's `ltx_tag_bibitem`) and turns the browser's marker off, so the reader showed
+its own bullet beside the paper's, and the item's `div.ltx_para > p` closed with two line breaks (about 90 pt per
+one-line name). The paper's label is now the item's one marker, the same `li.reader-custom-marker > span.reader-marker`
+vocabulary device-PDF lists use (`arxiv/flow.ts`); a math label reads as its symbol and is accounted, a graphic label is
+counted and the list's own marker stands in. An item's (and a description list's) leading and trailing breaks go;
+breaks between paragraphs inside an item stay. The bridge hangs the label in the list's indent (right-aligned in
+1.5 em; a wider label pushes only its first line) and hides it in a one-item abstract list. Figure 3 of 2610.14162v1
+was an adaptation fault, not arXiv's: arXiv's own page shows the step texts (overflowing their boxes, as LaTeXML sized
+them); the reader drew every label as one centred line with the `\phantom{Ag}` struts as text. See the TikZ bullet above.
 
 ### Encoded image total, revision 21
 
