@@ -24,6 +24,20 @@ diagram labels".
 | Item spacing | No empty lines under an item; paragraphs inside one item stay apart. |
 | Diagram labels | A label of several lines is drawn line by line (wrapped to its minipage); `\phantom` text is not drawn. Not a degrade case: arXiv's own page reads, so the reader draws it rather than replacing it with a note. |
 
+## Figures of on-device readings zoom out onto the PDF page (owner request 2026-10-24; agent decisions, reversible)
+
+Owner: *"in the on device model, when I click on an AI explainers for a figure, I should be able to zoom out around it and
+see the actual pdf, that would compensate for an inadequate crop"*.
+
+| Decision | Choice |
+|---|---|
+| Data | The converter records each shown figure's page and crop in points, with the page's size (provenance `figures`, port revision 10). Readings made before have none and zoom as before; so do arXiv HTML readings. |
+| Gesture | The figure opens full screen at the crop exactly as before. Pinching out past the whole figure shows the PDF page around it (from the PDF on this device, drawn then and released on close), the crop faintly outlined in the parts' outline colour. Zoom stops at the whole page; the page pans; a double tap returns to the crop. A pinch outwards on the explainer's card, or on the figure page, opens straight onto the page. |
+| Discoverability | One small round control in the full-screen top row, next to the X ("Show the whole page" / "Back to the figure"), also VoiceOver actions. No new chrome on the card or the figure page. |
+| Neighbouring page | Not built (optional in the request): the zoom stops at the page's edge. |
+
+Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Zoom out onto the page".
+
 ## Paper AI Explainer: one Key concepts card, the same cards in Chat (owner feedback build 82, 2026-10-22; agent decisions, reversible)
 
 Owner, on TestFlight 82: *"Key ideas and concepts seems like two versions of the same thing and could be combined"*,

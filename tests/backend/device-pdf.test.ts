@@ -49,7 +49,8 @@ test('the synthetic paper reads exactly as the Python reference read it', () => 
 
 test('the bundle is this reader\'s vocabulary and passes the shared validator', () => {
   const pages = syntheticPaper();
-  const bundle = composeDevicePDFReader(input(pages.length, { title: 'Catalog title', paper: { source_id: '2610.00001', revision: 2 } }), host(pages));
+  const h = host(pages);
+  const bundle = composeDevicePDFReader(input(pages.length, { title: 'Catalog title', paper: { source_id: '2610.00001', revision: 2 } }), h);
   const manifest = JSON.parse(decoder.decode(bundle.manifestBytes));
   assert.equal(manifest.renderer.id, 'gradstep-device-pdf-mathml-v1');
   assert.deepEqual(manifest.source, { kind: 'device-pdf', sha256: input(1).pdf.sha256, provenance_path: 'provenance.json' });
@@ -78,6 +79,20 @@ test('the bundle is this reader\'s vocabulary and passes the shared validator', 
   assert.equal(provenance.adapter.build_sha256, manifest.renderer.build_sha256);
   assert.equal(provenance.equations.length, index.equations.length);
   assert.ok(index.equations.every((e: { latex: string }) => e.latex.length > 0));
+  // Each figure's crop on its page in points (port revision 10): the apps zoom out of the crop onto the PDF. The image is
+  // exactly the rectangle the host was asked to cut, at its dpi.
+  assert.equal(provenance.figures.length, index.figures.length);
+  assert.ok(index.figures.length > 0);
+  const figureRequests = h.log.images.filter(r => !r.clean);
+  for (const [id, pageIndex, x0, y0, x1, y1, width, height] of provenance.figures) {
+    assert.ok(index.figures.some((f: { id: string }) => f.id === id), `figure ${id} is in the index`);
+    const request = figureRequests.find(r => r.page === pageIndex);
+    assert.ok(request, `the figure was cut from page ${pageIndex}`);
+    const k = 72 / request.dpi;
+    assert.deepEqual([x0, y0, x1, y1].map(v => Math.round(v * 10)), request.rect.map(v => Math.round(v * k * 10)));
+    assert.deepEqual([width, height], [pages[pageIndex].width, pages[pageIndex].height], 'the page as shown, in points');
+    assert.ok(x0 >= 0 && y0 >= 0 && x1 <= width && y1 <= height);
+  }
 });
 
 test('lines: overlap joins scripts to their base; a jump back below the band starts a line', () => {

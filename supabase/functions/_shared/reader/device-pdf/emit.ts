@@ -15,6 +15,10 @@ type Child = OutNode | string;
 export interface EmittedImage { path: string; bytes: Uint8Array; width: number; height: number }
 export interface Emitted {
   top: OutNode[]; index: ReaderIndex; images: Map<string, EmittedImage>;
+  /** Each shown figure's crop on its page (port revision 10): [figure id, page index, x0, y0, x1, y1, page width, page
+   * height], points from the top left of the page as shown (its crop box, turned by its /Rotate), so the apps can zoom
+   * out of the crop onto the PDF itself. */
+  figureRegions: [string, number, number, number, number, number, number, number][];
   degraded: { formulaText: number; figuresScaled: number; figuresOmitted: number; equationLimit: number; imageFailures: number };
 }
 
@@ -59,6 +63,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
 
   // Figures and image tables first, in document order: the paper's own pictures matter more than formula crops.
   const figureImages = new Map<LogicalBlock, EmittedImage | null>();
+  const figureRects = new Map<LogicalBlock, [number, number, number, number]>();
   for (const block of reading.blocks) {
     if (block.kind !== 'figure') continue;
     const [x0, y0, x1, y1] = block.rect, area = (x1 - x0) * (y1 - y0);
@@ -70,6 +75,9 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     const image = fetchImage({ page: block.page, dpi: DPI * f, rect });
     if (!image) degraded.figuresOmitted += 1;
     figureImages.set(block, image);
+    // The image is exactly this rectangle of the page at DPI × f: in points, it is where the crop sits on the page.
+    const k = 72 / (DPI * f);
+    figureRects.set(block, [rect[0] * k, rect[1] * k, rect[2] * k, rect[3] * k]);
   }
   // Formula images for every formula that does not render, while the budget lasts. Each crop is cleaned (owner, build
   // 62: "an outline clean step where excess pixels around the edge are cleaned and then with margin"): the cut tails of
@@ -94,6 +102,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   const top: OutNode[] = [];
   const blocks: { id: string; kind: string; node: OutNode }[] = [];
   const equations: ReaderIndex['equations'] = [], figures: ReaderIndex['figures'] = [];
+  const figureRegions: Emitted['figureRegions'] = [];
   let h1: OutNode | null = null, navigable = 0;
   const block = (name: string, kind: string, children: Child[], attrs: Record<string, string> = {}): OutNode => {
     const id = nextID();
@@ -216,6 +225,12 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
         if (figcaption) children.push(figcaption);
         const node = block('figure', 'figure', children, { 'data-reader-figure': id });
         figures.push({ id, block_id: id, asset_paths: [image.path], caption: figcaption ? excerpt(normalizeSpace(outText(figcaption)), LIMITS.textBytes) : '', alt });
+        const placed = figureRects.get(lb);
+        const shown = reading.pages[lb.page];
+        if (placed && shown) {
+          const [x0, y0, x1, y1] = placed.map(v => pyRound(v, 2));
+          figureRegions.push([id, lb.page, x0, y0, x1, y1, pyRound(shown.width, 2), pyRound(shown.height, 2)]);
+        }
         top.push(node); break;
       }
       case 'cells': {
@@ -246,7 +261,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   blocks.sort((a, b) => order.get(a.node)! - order.get(b.node)!);
   const index: ReaderIndex = { format: 'reader-index-v1', title, headings, equations, figures,
     blocks: blocks.map(b => ({ id: b.id, kind: b.kind, text: excerpt(normalizeSpace(outText(b.node)), LIMITS.textBytes) })) };
-  return { top, index, images, degraded };
+  return { top, index, images, figureRegions, degraded };
 }
 
 /** Width and height from a PNG's IHDR, or null when the bytes are not a PNG. */

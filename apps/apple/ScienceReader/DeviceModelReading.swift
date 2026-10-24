@@ -174,6 +174,23 @@ extension ReaderModel {
         return localPaperRecords.first { $0.identity.sourceID == source.sourceID && $0.identity.revision == source.revision }
             ?? localPaperRecords.first { $0.identity.sourceID == source.sourceID }
     }
+    /// The PDF page an on-device reading cut this figure from, when that PDF is on this device (FIGURE_VIEW.md "Zoom out
+    /// onto the page"): the reading's own record of the crop, and the PDF found by its digest. Nil for any other reading,
+    /// for one made before the crops were recorded (port revision 10), and when the PDF has been removed.
+    func figurePDFPage(bundle: VerifiedReaderBundle, figureID: String) -> FigurePDFPage? {
+        guard bundle.manifest.source.kind == "device-pdf", let source = bundle.devicePDFSource, let region = source.figures[figureID] else { return nil }
+        #if DEBUG && FIXTURE_HOST
+        // `--figure-fixture-pdf=<path>`: the PDF a fixture reading was made from, read from this Mac.
+        if let path = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--figure-fixture-pdf=") })?.dropFirst("--figure-fixture-pdf=".count) {
+            let url = URL(fileURLWithPath: String(path))
+            return FigurePDFPage(region: region) { try Data(contentsOf: url) }
+        }
+        #endif
+        guard let record = localPaperRecords.first(where: { $0.identity.sha256.hex == source.pdfSHA256 }),
+              let store = localPersistence.localPaperStore else { return nil }
+        let identity = record.identity
+        return FigurePDFPage(region: region) { try await store.read(identity) }
+    }
     var deviceModelAvailable: Bool { deviceModelReader && DeviceModelEngine.available }
     /// Whether "Read with the on-device model" applies to this paper now.
     func canReadWithDeviceModel(_ paper: Paper) -> Bool {
