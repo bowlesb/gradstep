@@ -582,18 +582,23 @@ struct LibraryView: View {
                 }.accessibilityIdentifier("library.add")
             }
             Section {
-                // Wide: the catalog choice lives here (the list's row holds only its search field and ⋯).
+                // Wide: the catalog choice lives here (the list's row holds only its search field and ⋯), one row with
+                // managing them inside it rather than a second folder row beside it (owner, 2026-10-24).
                 if wideBar && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default") {
                     Menu {
                         Picker("Catalog", selection: Binding(get: { model.currentCatalog.id }, set: { model.selectCatalog($0) })) {
                             ForEach(model.libraryCatalogs.catalogs) { Text($0.name).tag($0.id) }
                         }.pickerStyle(.inline)
+                        Section {
+                            MenuRow("Manage Catalogs…", systemImage: "folder.badge.gearshape") { model.showCatalogs = true }
+                        }
                     } label: {
                         Label { Text("Catalog"); Text(model.currentCatalog.name) } icon: { menuIcon("folder") }
                     }
                     .accessibilityIdentifier("library.catalog")
+                } else {
+                    MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
                 }
-                MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
                 RecommendCatalogMenu(model: model)
             }
             Section {
