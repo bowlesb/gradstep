@@ -34,8 +34,9 @@ or recommendations are not proposed (revocable terms; per-user calls would send 
 ## Plan
 
 1. Offline evaluation on the owner's staging library (hold-out ranking in the 25k pool; trial topic map shown to the
-   owner) — no AI spend. 2. Server layer. 3. Device layer + Library chart + keywords + sync. 4. Feed in sections.
-5. Web when web work resumes.
+   owner) — no AI spend. 2. Server layer (design written 2026-10-24, awaiting the owner's go-ahead for Phase B:
+   [architecture/INTEREST_INDEX.md](../architecture/INTEREST_INDEX.md)). 3. Device layer + Library chart + keywords +
+   sync. 4. Feed in sections. 5. Web when web work resumes.
 
 ## Sync
 

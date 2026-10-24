@@ -2089,3 +2089,22 @@ actions, Prompts as on iPhone), Contents discovery and Tables:
   options cover the chat's slot whenever the chat is in one (RootView shows them otherwise). Full-screen covers (a
   figure image, a snippet at full size) and share sheets are unchanged. Fixture runs still reset the Feed to the List
   unless `--feed-layout=` names one, as the Library's do, so existing journeys keep their rows.
+
+## Interest index server layer (agent design 2026-10-24; Phase B awaits the owner's go-ahead)
+
+Design: [architecture/INTEREST_INDEX.md](architecture/INTEREST_INDEX.md), under the approved
+[proposal](proposals/INTEREST_INDEX.md). Nothing is built or deployed. Agent choices, reversible until Phase B ships:
+
+- **Model and runtime.** gte-small fp32 ONNX in the existing Cloud Run worker (Node, `onnxruntime-node`), baked into
+  the image and checked by SHA-256. It is identical to the step-1 vectors (min cos 1.0000); int8 was rejected (top-10
+  neighbour agreement 0.92). The tokenizer's padding must be off.
+- **Storage.** pgvector `halfvec(384)`; the migration enables the extension. No ANN index.
+- **Public corpus.** The Feed pool, kept 180 days. Catalog papers are embedded but never shape any shared artifact,
+  because the catalog is the union of readers' libraries.
+- **Map rebuild.** Weekly and warm-started, with split at 2× and merge below ¼. An ID is kept at Jaccard ≥ 0.5 and
+  cos ≥ 0.9, with a 0.05 drift cap; successors are recorded. Measured: cold rebuilds keep 10 % of leaf IDs, warm ones
+  keep 98 % at steady-state turnover.
+- **Delivery.** Term statistics, the map and pool fingerprint shards are database-held immutable artifacts served by
+  the Edge function `interest-index`. Library fingerprints come only from the caller's own membership
+  (`v1_interest_library_fingerprints`). Bulk download is used instead of a k-anonymous fetch.
+- **Cost and AI.** No LLM calls until November's naming. Cost is $0 fixed and about $0.05–0.50 a month in usage.
