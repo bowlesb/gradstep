@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 11;
+export const DEVICE_PDF_PORT_REVISION = 12;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -42,8 +42,9 @@ export interface PageInput {
   detections: { cls: string; score: number; box: number[] }[];
 }
 export interface TagLine { x: number[]; font: number[]; cls: number[]; char: number[] }
-/** `display`: the formula is a display (the host groups crops of like length into its batches). */
-export interface RecogniseRequest { page: number; rect: [number, number, number, number]; display?: boolean }
+/** `display`: the formula is a display (the host groups crops of like length into its batches). `cost`: the formula's glyph
+ * count, which predicts the length of its reading better than the crop's width (the host batches like costs together). */
+export interface RecogniseRequest { page: number; rect: [number, number, number, number]; display?: boolean; cost?: number }
 /** `clean` (formula crops only): the formula's font size and the margin kept around its ink, in pixels at `dpi`; the host
  * drops the cut tails of neighbouring lines, trims to the ink and adds the margin (DevicePDFRaster.cleanFormula). */
 export interface ImageRequest { page: number; dpi: number; rect: [number, number, number, number]; clean?: { em: number; margin: number } }
@@ -125,6 +126,22 @@ export interface DevicePDFInput {
   lineBands?: boolean;
   /** The display gate's threshold (second-lowest token probability) instead of GATE_DISPLAY; 0.5 to 1. */
   displayGate?: number;
+  /** A formula whose glyphs repeat an earlier formula's exactly (characters, fonts, sizes, places within its box) takes
+   * that formula's recognition instead of being recognised again (speed; convert.formulaSignature). */
+  reuseRecognitions?: boolean;
+  /** Displays the layout read as lines of a paragraph (numbered at the right margin, or indented on both sides and nearly
+   * all math) become display regions (convert.displayLines). */
+  displayLines?: boolean;
+  /** A recognition under the confidence gate is typeset when its letters and digits are the PDF's own glyphs (the same
+   * characters, as many of each) and its confidence is at least this (0 to 1; math.glyphsAgree). */
+  verifyGlyphs?: boolean | number;
+  /** Ligature glyphs (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ) written as their letters in text (geometry.lineText). */
+  ligatures?: boolean;
+  /** A hyphen at a line's end is kept when the paper shows it is the word's own ("three-dimensional"), dropped when it is
+   * TeX's hyphenation (geometry.joinLines). */
+  compounds?: boolean;
+  /** A glyph returning to the left below its line's own text starts a new line, whatever its scripts widened (linesOf). */
+  lineReturns?: boolean;
 }
 
 export interface Formula {
@@ -136,6 +153,10 @@ export interface Formula {
   latex: string; confidence: number; probs?: number[]; recognised: boolean;
   /** Written from the text layer (transcribe.ts), not read by the recogniser. */
   transcribed?: boolean;
+  /** The glyphs' signature (reuseRecognitions): equal signatures crop to the same picture. */
+  signature?: string;
+  /** The characters of its glyphs on the page (verifyGlyphs). */
+  glyphTexts?: string[];
   rendered: boolean; mathml?: unknown; image?: { path: string; width: number; height: number };
   /** A display's equation number, read from the text layer (equationNumbers) and left out of `box`. */
   tag?: string;

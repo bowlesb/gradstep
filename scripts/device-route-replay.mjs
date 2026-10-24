@@ -9,7 +9,7 @@
 //                            (a rule that changes crops, replayed with and without it from two real runs)
 //   then: node scripts/device-route-accuracy.mjs score --variant <new variant>
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, gunzipSync } from 'node:zlib';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,13 +34,15 @@ function png(width, height, shade) {
 }
 
 let n = 0;
-for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record.json'))).sort()) {
+// A record may be kept gzipped (record.json.gz) to save disk.
+const recordAt = dir => existsSync(join(dir, 'record.json')) ? JSON.parse(readFileSync(join(dir, 'record.json'), 'utf8'))
+  : existsSync(join(dir, 'record.json.gz')) ? JSON.parse(gunzipSync(readFileSync(join(dir, 'record.json.gz'))).toString('utf8')) : null;
+for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record.json')) || existsSync(join(FROM, k, 'record.json.gz'))).sort()) {
   if (only.length && !only.includes(key)) continue;
-  const record = JSON.parse(readFileSync(join(FROM, key, 'record.json'), 'utf8'));
+  const record = recordAt(join(FROM, key));
   for (const other of (arg('--also', '') ?? '').split(',').filter(Boolean)) {
-    const path = join(ROOT, '.artifacts/device-route/accuracy', other, key, 'record.json');
-    if (!existsSync(path)) continue;
-    const more = JSON.parse(readFileSync(path, 'utf8'));
+    const more = recordAt(join(ROOT, '.artifacts/device-route/accuracy', other, key));
+    if (!more) continue;
     record.tags = [...more.tags, ...record.tags]; record.recognitions = [...more.recognitions, ...record.recognitions]; // the record's own win
   }
   let distinct = 0;
@@ -49,6 +51,8 @@ for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record
     return { png: png(w, h, 200 + (distinct++ % 50)).toString('base64'), width: w, height: h, ...(r.clean ? { rect: r.rect } : {}) };
   });
   const started = Date.now();
+  // The crops the converter asks the recogniser for (a speed rule changes how many).
+  let crops = 0; const recognise = host.recognise; host.recognise = c => { crops += c.length; return recognise(c); };
   // --set name=json: an input option for this replay (`--set transcribe=true --set frontMatter=true`); the library's
   // authors come from the corpus's meta.json when the record has none.
   const overrides = {};
@@ -61,11 +65,12 @@ for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, 'index.html'), bundle.members.get('index.html'));
   writeFileSync(join(out, 'reader.json'), bundle.members.get('reader.json'));
+  if (bundle.members.has('provenance.json')) writeFileSync(join(out, 'provenance.json'), bundle.members.get('provenance.json'));
   writeFileSync(join(out, 'index.json'), JSON.stringify(bundle.trace));
   // The source run's timings stay (the replay has no models); the replay's own seconds are noted beside them.
   const source = JSON.parse(readFileSync(join(FROM, key, 'conversion.json'), 'utf8'));
   writeFileSync(join(out, 'conversion.json'), JSON.stringify({ ...bundle.summary, host_seconds: source.host_seconds, model_load_seconds: source.model_load_seconds,
-    replay: { from: arg('--from'), seconds: (Date.now() - started) / 1000, misses: host.misses } }, null, 1));
+    replay: { from: arg('--from'), seconds: (Date.now() - started) / 1000, misses: host.misses, crops } }, null, 1));
   if (host.misses.tags || host.misses.crops) console.log(`${key}: replay misses ${JSON.stringify(host.misses)}`);
   n += 1;
 }

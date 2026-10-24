@@ -16,7 +16,16 @@ export function centreIn(g: Glyph, box: readonly number[]): boolean {
 
 let lineBands = false;
 /** The converter's `lineBands` rule for the lines read after this call (one conversion at a time, as `read` runs). */
-export function useLineBands(on: boolean): void { lineBands = on; }
+export function useLineBands(on: boolean, returns = false): void { lineBands = on; lineReturns = returns; }
+/** lineReturns rule (2026-10-24): a glyph that returns to the left starts a new line when it sits below the line's own
+ * text (the bottom of the line's first glyph), not only below the band its scripts have widened: "tion, the system
+ * requires (|S_T⟩_{n_s} …" and the next line "footprint evaluates to:" were one line, letters interleaved. */
+let lineReturns = false;
+/** Ligatures (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ, ﬅ, ﬆ) written as their letters in the text (ligatures rule): the text layer names the glyph, the
+ * reader, search and copied text want the letters. */
+let ligatures = false;
+export function useLigatures(on: boolean): void { ligatures = on; }
+const LIGATURES: Record<string, string> = { '\uFB00': 'ff', '\uFB01': 'fi', '\uFB02': 'fl', '\uFB03': 'ffi', '\uFB04': 'ffl', '\uFB05': 'st', '\uFB06': 'st' };
 
 /** Lines in stream order: a glyph joins the current line when its vertical extent overlaps the line's band;
  * a new line starts without overlap, or when x jumps back by more than two glyph sizes below the band. With
@@ -25,17 +34,17 @@ export function useLineBands(on: boolean): void { lineBands = on; }
  * longer joins the lines: in JMLR's venue PDFs, and some arXiv ones, two lines were read as one, letters interleaved). */
 export function linesOf(glyphs: readonly Glyph[]): Glyph[][] {
   const lines: Glyph[][] = [];
-  let cur: Glyph[] = [], top = 0, bottom = 0;
+  let cur: Glyph[] = [], top = 0, bottom = 0, own = 0;
   for (const g of glyphs) {
     if (cur.length) {
       const shared = Math.min(g.bottom, bottom) - Math.max(g.top, top), band = bottom - top, centre = (g.top + g.bottom) / 2;
       const overlap = lineBands ? centre >= top - 0.35 * band && centre <= bottom + 0.35 * band : shared > 0;
       const back = g.x0 < cur[cur.length - 1].x0 - 2.0 * Math.max(g.size, 1.0);
-      if (!overlap || (back && g.top > bottom - 1.0)) { lines.push(cur); cur = []; }
+      if (!overlap || (back && (g.top > bottom - 1.0 || (lineReturns && g.top > own - 1.0)))) { lines.push(cur); cur = []; }
     }
     // With lineBands only a glyph mostly inside the band (two thirds of the shorter) widens it: a script, an accent, a
     // lowered delimiter or a box reaching the next line joins the line without making it two lines tall.
-    if (!cur.length) { top = g.top; bottom = g.bottom; }
+    if (!cur.length) { top = g.top; bottom = g.bottom; own = g.bottom; }
     else if (!lineBands || Math.min(g.bottom, bottom) - Math.max(g.top, top) >= (2 / 3) * Math.min(g.bottom - g.top, bottom - top)) {
       top = Math.min(top, g.top); bottom = Math.max(bottom, g.bottom);
     }
@@ -94,7 +103,7 @@ export function lineText(line: readonly Glyph[], spans: readonly [number, number
     const em = i && proseEm < wordGap && /^[\p{L}\p{N}(“‘]$/u.test(gl.text) && prose(gl) && prose(line[order[i - 1]]) ? proseEm : wordGap;
     if (i && gl.x0 - line[order[i - 1]].x1 > em * Math.max(gl.size, 1.0)) parts.push(' ');
     const k = inSpan.get(g);
-    if (k === undefined) { parts.push(gl.text); lastSpan = -1; }
+    if (k === undefined) { parts.push(ligatures && LIGATURES[gl.text] ? LIGATURES[gl.text] : gl.text); lastSpan = -1; }
     else {
       formulas[k].push(gl);
       if (k !== lastSpan) { parts.push(PLACEHOLDER); lastSpan = k; }
@@ -135,11 +144,35 @@ export function startsLower(text: string): boolean {
   const ch = [...text.slice(0, 2)][0] ?? '';
   return /^\p{Lowercase}$/u.test(ch);
 }
+/** The paper's hyphenated pairs ("three-dimensional") seen within a line (compounds rule). */
+let compounds: Set<string> | null = null;
+export function useCompounds(pairs: Set<string> | null): void { compounds = pairs; }
+/** The hyphenated pairs of a paper's lines (their text as read, before lines are joined; a line's last word, which may be
+ * broken, left out). */
+export function hyphenatedPairs(lines: readonly string[]): Set<string> {
+  const pairs = new Set<string>();
+  for (const ln of lines) {
+    for (const m of ln.replace(/\p{L}+-\s*$/u, '').toLowerCase().matchAll(/\p{L}+(?:-\p{L}+)+/gu)) {
+      const parts = m[0].split('-');
+      for (let i = 0; i + 1 < parts.length; i++) pairs.add(`${parts[i]}-${parts[i + 1]}`);
+    }
+  }
+  return pairs;
+}
+/** A line broken at a hyphen: the word's own hyphen (a compound, "three-" "dimensional") stays when the paper prints the
+ * same pair hyphenated within a line elsewhere; otherwise it is TeX's hyphenation ("deriva-" "tion") and goes, as the
+ * reference does. (Halves that are both words are no evidence: TeX breaks "end-points" and "over-head" too.) */
+function keepsHyphen(left: string, right: string): boolean {
+  return !!compounds && compounds.has(`${left.toLowerCase()}-${right.toLowerCase()}`);
+}
 export function joinLines(lines: readonly string[]): string {
   let text = '';
   for (const ln of lines) {
     if (!ln) continue;
-    if (text.endsWith('-') && startsLower(ln)) text = text.slice(0, -1) + ln;
+    if (text.endsWith('-') && startsLower(ln)) {
+      const left = /(\p{L}+)-$/u.exec(text)?.[1], right = /^(\p{L}+)/u.exec(ln)?.[1];
+      text = left && right && keepsHyphen(left, right) ? text + ln : text.slice(0, -1) + ln;
+    }
     else text = text ? `${text} ${ln}` : ln;
   }
   return text;

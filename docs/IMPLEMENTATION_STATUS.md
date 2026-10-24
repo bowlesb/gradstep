@@ -127,6 +127,23 @@ pending owner approval, Homebrew PostgreSQL 17 + pgvector for local tests) are i
   `TableColumnsTests` feed columns on iPhone; the Mac Catalyst app builds (not run). Before/after screenshots in
   `.artifacts/feed-why/`. Not seen on a device or with a real 50-paper For you list.
 
+## On-device PDF route: weakness explorer, glyph-verified formulas, line returns — 2026-10-24 (local source; not released)
+
+Owner, 2026-10-24: a tool to clarify the route's weaknesses, and a faster, more accurate route. Full numbers:
+[review](reviews/DEVICE_PDF_WEAKNESSES_20261024.md); design: [DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md#weakness-explorer-and-port-revision-11--2026-10-24).
+
+- **Weakness explorer** (`scripts/device-route-weaknesses.mjs`): 35-category error taxonomy with stage attribution, impact per
+  10 pages, worst examples as page crops beside both readings, per-page stage timings, `--baseline`. Before (83 papers,
+  2,140 pages): inline math missed 2.59, inline boundaries 2.41, displays left as images 1.81 (1,835 of 2,281 read right but
+  held back by the gate), text missing 1.74, inline typeset wrong 1.56.
+- **Converter port revision 12** (merged after Show in PDF's revision 11), on in the app: `verifyGlyphs` (displays typeset 43 % → 81 % test, 25 % → 61 % venue;
+  scored typeset precision 0.976 → 0.958 test, 0.816 → 0.778 venue), `lineReturns` (text F1 +0.003 to +0.006, whole blocks
+  +0.005 to +0.013, inline found and right up), `ligatures`, `compounds`, `reuseRecognitions` (18–27 % fewer recogniser
+  crops). `displayLines` built, off. Total impact 19.8 → 17.0 per 10 pages. Host: per-page timings; recogniser batches by
+  the formula's glyph count. No wall-time gain measurable on the loaded Mac (interleaved A/B ×1.04).
+- Evidence: `npm test` passes; `swift test` 437 + 38 XCTest pass. Not verified: any iPhone (paused), the Simulator journey,
+  timing on a quiet machine. Needs a TestFlight build to reach the app.
+
 ## TestFlight 90 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 - **Also in 90:** TestFlight 89's iPad Wide work (places button top-left, a double-tapped divider lets the list cover the

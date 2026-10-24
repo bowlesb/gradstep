@@ -83,9 +83,17 @@ enum DeviceModelEngine {
     /// first-page notice dropped (`venueNotice`); a display's full stop kept (`displayPunctuation`); unknown fonts read as
     /// the ones they stand for (`fontAliases`); justified lines' narrow word gaps (`wordGaps`); TeX's text accents
     /// (`accents`); lines that do not merge through a script's box (`lineBands`). The display gate stays at 0.95.
+    /// On (2026-10-24, docs/reviews/DEVICE_PDF_WEAKNESSES_20261024.md): a formula under the gate is typeset when its
+    /// letters, digits, accents and operators are the page's own glyphs (`verifyGlyphs`, confidence 0.5 and up); a formula
+    /// whose glyphs repeat an earlier one's takes its reading (`reuseRecognitions`, speed); ligatures as letters
+    /// (`ligatures`); a compound's hyphen at a line's end kept when the paper prints the pair hyphenated (`compounds`); a
+    /// glyph returning to the left below its line's own text starts a new line (`lineReturns`). Off: `displayLines` (a
+    /// numbered display the layout read as a paragraph's line becomes a display; +0.01 displays found on all three corpora,
+    /// but their typeset precision 0.004–0.006 lower).
     static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners",
                                      "captionMath", "equationNumbers", "mergeDisplays", "bibliography", "venueNotice", "displayPunctuation",
-                                     "fontAliases", "wordGaps", "accents", "lineBands"]
+                                     "fontAliases", "wordGaps", "accents", "lineBands", "verifyGlyphs", "reuseRecognitions", "ligatures",
+                                     "compounds", "lineReturns"]
     /// The converter is in this build, the models are here or can be downloaded, and the system can run the stateful
     /// recogniser.
     static var available: Bool {

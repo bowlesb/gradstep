@@ -122,6 +122,8 @@ function runRoute() {
 // ---- score ---------------------------------------------------------------------------------------------------------
 const { parseHTML } = await import(`${ROOT}/supabase/functions/_shared/reader/html.ts`);
 let temml = null;
+/** The scorer's Temml, for other tools that score with these functions (scripts/device-route-weaknesses.mjs). */
+export async function loadScorer() { temml ??= (await import('temml')).default; }
 const MATH_LEAVES = new Set(['mi', 'mn', 'mo', 'mtext', 'ms']);
 /** Glyph content of a formula: its MathML leaves, NFKC-folded (math italic 𝑥 → x), without spacing or invisible operators. */
 function leafText(node) {
@@ -137,7 +139,7 @@ function leafText(node) {
 const foldLeaves = s => s.normalize('NFKC').replace(/[\u0305\u00af\u203e]/g, '\u0304').replace(/[\s⁡-⁤​︎️]/g, '').replace(/∥/g, '‖').replace(/[−–]/g, '-').replace(/[′’]/g, "'").replace(/[∣]/g, '|').replace(/[⋅·]/g, '⋅');
 const { tidyLatex } = await import(`${ROOT}/supabase/functions/_shared/reader/device-pdf/math.ts`);
 /** The glyphs a recognition would show (as read, else tidied as the converter tidies it); '' when Temml refuses both. */
-function texLeaves(latex, display) {
+export function texLeaves(latex, display) {
   if (!latex) return '';
   for (const tex of [latex, tidyLatex(latex)]) {
     try { return leafText(parseHTML(temml.renderToString(tex, { displayMode: display, throwOnError: true, xml: true, trust: false }), true)); }
@@ -146,7 +148,7 @@ function texLeaves(latex, display) {
   return '';
 }
 // LaTeX normalisation: the desktop's scorer (gradstep/eval/equations.py `normalize`), ported.
-function normalizeTeX(tex) {
+export function normalizeTeX(tex) {
   let t = String(tex ?? '').trim();
   for (const [a, b] of [['\\[', '\\]'], ['$$', '$$'], ['\\(', '\\)'], ['$', '$']]) if (t.startsWith(a) && t.endsWith(b) && t.length >= a.length + b.length) { t = t.slice(a.length, t.length - b.length).trim(); break; }
   t = t.replace(/\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle|nonumber|notag|allowbreak|limits|nolimits|label\{[^}]*\})(?![a-zA-Z])/g, '');
@@ -166,7 +168,7 @@ function normalizeTeX(tex) {
   for (let prev = null; prev !== t;) { prev = t; t = t.replace(/\{([A-Za-z0-9()[\]|])\}/g, '$1'); }
   return t.replace(/[.,;]+$/, '');
 }
-function editDistance(a, b) {
+export function editDistance(a, b) {
   if (a === b) return 0; if (!a.length || !b.length) return Math.max(a.length, b.length);
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
