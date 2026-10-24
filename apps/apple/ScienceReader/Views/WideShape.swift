@@ -436,6 +436,11 @@ struct PlacesMenuButton: View {
                 // Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"): the Library place
                 // with its field focused.
                 MenuRow("Search", systemImage: "magnifyingglass") { model.searchFromPlaces() }.accessibilityIdentifier("tab.search")
+                // Settings under Search, and in no ⋯ menu in this shape (owner, 2026-10-24; SettingsMenuSection).
+                Button { model.openSettings(afterMenu: true) } label: {
+                    Label { Text("Settings") } icon: { menuIcon(GradstepSymbol.settings) }
+                }
+                .accessibilityIdentifier("menu.settings")
             }
         } label: {
             Image(current.icon)

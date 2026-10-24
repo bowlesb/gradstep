@@ -234,7 +234,7 @@ final class IPadShapesJourneyTests: XCTestCase {
         assertAtTheRightEdge(app.buttons["Chat options"], app)
         assertAfterThePlaces(app.buttons["paper.contents"], app)
         XCTAssertGreaterThanOrEqual(composer(app).frame.maxY, app.frame.maxY - 90, "The message box at the bottom, nothing under it")
-        XCTAssertFalse(app.buttons["Settings"].exists, "No gear: Settings is the last row of ⋯")
+        XCTAssertFalse(app.buttons["Settings"].exists, "No gear: Settings is in the places menu")
         save("\(device)-turn-3-sideways-discuss")
 
         // Upright again: Discuss is the Chat tab, with its draft and Back to the paper, which kept its place.
@@ -302,11 +302,18 @@ final class IPadShapesJourneyTests: XCTestCase {
             XCTAssertTrue(element("tab.\(id)", app).waitForExistence(timeout: 3), "The menu has \(id)")
         }
         XCTAssertFalse(element("tab.paper", app).isEnabled, "Paper needs a paper")
+        XCTAssertTrue(app.buttons["menu.settings"].exists, "Settings is in the places menu")
+        XCTAssertGreaterThan(app.buttons["menu.settings"].frame.minY, element("tab.search", app).frame.minY, "Settings under Search")
         save("\(device)-places-menu")
         element("tab.feed", app).tap()
         wait("Feed") { app.currentPlace == "Feed" }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.placesMenu.frame, corner, "The same spot"); assertNothingUnderThePlaces(app)
+        app.buttons["Feed options"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Report this screen"].firstMatch.waitForExistence(timeout: 3), "The ⋯ menu is open")
+        XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in a ⋯ menu here: it is in the places menu")
+        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+        wait("The ⋯ menu closed") { !app.descendants(matching: .any)["Report this screen"].firstMatch.exists }
         choose("chat", app)
         wait("Chat") { app.currentPlace == "Chat" }
         XCTAssertEqual(app.placesMenu.frame, corner, "The same spot"); assertNothingUnderThePlaces(app)

@@ -149,6 +149,15 @@ extension XCUIApplication {
 
     /// Settings from the current screen's ⋯ menu (its last section), over that screen.
     func openSettingsFromMenu(file: StaticString = #filePath, line: UInt = #line) {
+        // iPad Wide: Settings is in the places menu under Search, in no ⋯ menu (owner, 2026-10-24).
+        let places = buttons["places.menu"]
+        if places.exists && places.isHittable {
+            places.tap()
+            let settings = buttons["menu.settings"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 5), "Settings is in the places menu", file: file, line: line)
+            settings.tap()
+            return
+        }
         let options = screenOptions
         XCTAssertTrue(options.waitForExistence(timeout: 5), "The screen has a ⋯ menu", file: file, line: line)
         options.tap()

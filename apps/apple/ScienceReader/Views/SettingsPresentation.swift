@@ -5,17 +5,21 @@ import SwiftUI
 // Settings over the current screen; Done returns to exactly where the reader was. Report this screen stays just above
 // it, in the same order everywhere.
 
-/// The last section of every screen's ⋯ menu.
+/// The last section of every screen's ⋯ menu. Not in the iPad's Wide shape, where Settings is in the places menu under
+/// Search instead (owner, 2026-10-24).
 struct SettingsMenuSection: View {
     let model: ReaderModel
     /// Run before Settings opens (a screen that must first let go of the keyboard).
     var before: () -> Void = {}
+    @Environment(\.wideBar) private var wideBar
     var body: some View {
-        Section {
-            Button { before(); model.openSettings(afterMenu: true) } label: {
-                Label { Text("Settings") } icon: { menuIcon(GradstepSymbol.settings) }
+        if !wideBar {
+            Section {
+                Button { before(); model.openSettings(afterMenu: true) } label: {
+                    Label { Text("Settings") } icon: { menuIcon(GradstepSymbol.settings) }
+                }
+                .accessibilityIdentifier("menu.settings")
             }
-            .accessibilityIdentifier("menu.settings")
         }
     }
 }
