@@ -94,10 +94,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     place whichever side the other slot is on. It knows nothing about papers. The divider is a hairline with a 24 pt
     hit area and a grabber; a drag shows where it will land and applies when it ends; double-tap resets it; VoiceOver
     adjusts it in 5% steps and has Reset. Positions are kept on the device as fractions of the width per arrangement
-    (`SlotFractions`; `wide.divider.<arrangement>`), so turning and Stage Manager keep proportions. Defaults and
-    minimums: Library list 40% (list ≥ 280 pt, paper ≥ 420 pt), Feed 50% (same minimums), All chats 35% and Collections
-    35% (list ≥ 280, conversation or collection ≥ 320), Contents 33% (≥ 420 each side), paper | companion 55% | 45%
-    (paper ≥ 420, companion ≥ 320). Dragging a list more than 40 pt past its minimum collapses it (the paper becomes the
+    (`SlotFractions`; `wide.divider.<arrangement>`), so turning and Stage Manager keep proportions. Every divider
+    starts in the middle (owner, 2026-10-23: one panel splitting into two "should break apart… in the middle").
+    Minimums: Library and Feed list ≥ 280 pt, paper ≥ 420 pt; All chats and Collections ≥ 280, conversation or
+    collection ≥ 320; Contents ≥ 420 each side; paper ≥ 420 beside a companion ≥ 320. Dragging a list more than 40 pt past its minimum collapses it (the paper becomes the
     Paper place; Contents closes); dragging a companion past its minimum closes it.
   - *Library* = Library list | paper. The list shows the table with the columns that fit the slot (more as the divider
     moves right; rows at accessibility sizes); the right slot shows the open paper (usually the last one read) or "No

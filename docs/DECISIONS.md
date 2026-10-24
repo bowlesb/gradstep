@@ -1961,8 +1961,10 @@ Wide shape only (Tall, the Mac and the web unchanged); spec in DESIGN.md › Tal
   page, chat); opening a helper beside the Library or Feed promotes the paper first; never three columns. **Feed** = list
   (left half) | abstract and details, Read opening the paper there; picking never adds a paper. **Chat** and
   **Snippets** keep their list | detail with the divider. **Search** = the Library with its field focused.
-- Agent choices in this pass (reversible): defaults Feed 50%, Library 40%, Chats and Snippets 35%, Contents 33%, paper
-  55% beside a companion; minimums list 280, paper 420, companion 320 (Contents 420); a drag must end 40 pt past a
+- Owner, same day: "when going from anything with one panel to two, they should break apart in such a way that the
+  divider is actually in the middle" — every arrangement's divider starts at 50% (a dragged one is kept; double-tap
+  returns to the middle).
+- Agent choices in this pass (reversible): minimums list 280, paper 420, companion 320 (Contents 420); a drag must end 40 pt past a
   minimum to close a slot; the explainers keep their own sheet bar (Snippet · Chat · AI Explainer, ✕) in the companion
   slot; Listen stays one slot; the collection's name moved from its stream's heading into its row; the Library ⋯ "Show
   library beside paper" toggle is Mac-only now (the iPad's Library always has the paper beside it), and the paper's ⋯

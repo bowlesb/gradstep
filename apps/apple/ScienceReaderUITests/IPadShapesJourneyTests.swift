@@ -192,7 +192,7 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertEqual(app.currentPlace, "Paper", "A paper's chat is the Paper place")
         XCTAssertTrue(composer(app).waitForExistence(timeout: 8))
         XCTAssertLessThanOrEqual(web.frame.maxX, composer(app).frame.minX + 1, "Discuss: the paper left, the chat right")
-        XCTAssertEqual(web.frame.width / app.frame.width, 0.55, accuracy: 0.03, "The paper's slot is about 55%")
+        XCTAssertEqual(web.frame.width / app.frame.width, 0.5, accuracy: 0.03, "The paper's slot is about half")
         XCTAssertEqual(composerText(app), draft, "The unsent question came with the chat")
         wait("The same place in the paper (\(place))") { self.inViewport(self.paragraph(app, startingWith: place), app) }
         assertOneRow(app, controls: [app.buttons["paper.contents"], app.buttons["Paper options"], app.buttons["chat.history"],
@@ -300,14 +300,14 @@ final class IPadShapesJourneyTests: XCTestCase {
         let placeholder = element("paper.placeholder", app)
         XCTAssertTrue(placeholder.waitForExistence(timeout: 5), "Nothing open: a quiet placeholder on the right")
         let divider = element("slots.divider", app)
-        XCTAssertEqual(divider.frame.midX / app.frame.width, 0.4, accuracy: 0.03, "The list on the left from the start, 40%")
+        XCTAssertEqual(divider.frame.midX / app.frame.width, 0.5, accuracy: 0.03, "The list on the left from the start, half")
         XCTAssertLessThan(app.buttons[sampleID].frame.maxX, placeholder.frame.minX, "The placeholder on the right")
         let options = app.buttons["Library options"]
         assertOneRow(app, controls: [options], content: app.buttons[sampleID])
         XCTAssertLessThan(options.frame.maxX, app.frame.width * 0.5, "The list's ⋯ ends the list's row")
         save("\(device)-library-empty")
         let web = openSampleBesideLibrary(app)
-        XCTAssertEqual(web.frame.minX / app.frame.width, 0.4, accuracy: 0.03, "The list takes about 40%")
+        XCTAssertEqual(web.frame.minX / app.frame.width, 0.5, accuracy: 0.03, "The list takes about half")
         assertOneRow(app, controls: [app.buttons["paper.listToggle"], app.buttons["paper.contents"], app.buttons["Paper options"]],
                      content: web, budget: 1)
         XCTAssertLessThan(app.buttons["Paper options"].frame.maxX, app.placesMenu.frame.minX, "The paper's ⋯ just left of the places")
@@ -334,7 +334,7 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertEqual(kept.frame.midX, before + 160, accuracy: 8, "The divider where it was left")
         // Double-tap: the default.
         kept.doubleTap()
-        wait("Back to 40%") { abs(kept.frame.midX / app.frame.width - 0.4) < 0.03 }
+        wait("Back to the middle") { abs(kept.frame.midX / app.frame.width - 0.5) < 0.03 }
     }
 
     /// Paper as the left primary item: the list toggle hides the list and the same paper, at the same place, is the Paper
@@ -507,7 +507,7 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertTrue(pane.waitForExistence(timeout: 5), "The figure's page in the companion slot")
         wait("Paper | figure page") { app.currentPlace == "Paper" && web.frame.minX < 2 && web.frame.maxX <= pane.frame.minX + 1 }
         XCTAssertFalse(app.buttons["Library options"].exists, "The list slid away: never three columns")
-        XCTAssertEqual(web.frame.width / app.frame.width, 0.55, accuracy: 0.03, "The paper keeps 55%")
+        XCTAssertEqual(web.frame.width / app.frame.width, 0.5, accuracy: 0.03, "The paper keeps half")
         let close = app.buttons["sheet.close"]
         XCTAssertTrue(close.waitForExistence(timeout: 5), "The companion's ✕")
         XCTAssertLessThan(close.frame.maxX, app.placesMenu.frame.minX, "✕ clear of the places menu")

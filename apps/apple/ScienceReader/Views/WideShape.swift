@@ -65,16 +65,9 @@ enum SlotArrangement: String, CaseIterable {
     /// Paper | its companion: AI Explainer, the equation view, a figure page or the chat (Discuss).
     case companion
 
-    /// The left slot's share of the width to start with.
-    var defaultFraction: CGFloat {
-        switch self {
-        case .feed: 0.5
-        case .library: 0.4
-        case .chats, .snippets: 0.35
-        case .contents: 0.33
-        case .companion: 0.55
-        }
-    }
+    /// The left slot's share of the width to start with: half. One panel splitting into two breaks apart in the middle
+    /// (owner, 2026-10-23); a dragged divider is kept, and a double tap returns it here.
+    var defaultFraction: CGFloat { 0.5 }
     /// The narrowest each slot may be: a list 280 pt (Contents' four tabs and ✕ need 420), the paper 420 pt, a companion
     /// or a conversation 320 pt.
     var minimums: (left: CGFloat, right: CGFloat) {
