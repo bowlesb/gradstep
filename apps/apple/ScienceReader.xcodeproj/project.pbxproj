@@ -22,6 +22,7 @@
 		055BD8597D634AC7BC088828 /* DeviceApprovalUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6C432D10E7A818EB678B82 /* DeviceApprovalUITests.swift */; };
 		05C1840B75E4F7FD19F2DAA4 /* MacDeviceApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5F4E6CBB5AD352295A3CB7 /* MacDeviceApproval.swift */; };
 		05D3963E0D263F96C37BA633 /* device-pdf-reader-build.json in Resources */ = {isa = PBXBuildFile; fileRef = 96D7AA42FAB83BD059F58F6E /* device-pdf-reader-build.json */; };
+		062F1C305B915AA069C32247 /* DeviceModelAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1869B664CC29F10D16D9FA2C /* DeviceModelAssets.swift */; };
 		06C148F4B85AC3C857E3D9A7 /* FigureExplainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D559F3BAEB8250366D6DB730 /* FigureExplainView.swift */; };
 		086EAA3B2420BFC1EEC6E444 /* WorkflowJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF06459C158D4A571E6BDFA /* WorkflowJourneyTests.swift */; };
 		089080735756416C307BE2EB /* ChatHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4551E5342A018E7288BEA10 /* ChatHistoryView.swift */; };
@@ -171,9 +172,11 @@
 		5DCF9FFAE2A85DDF6BC8A844 /* FeedAbstractPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFB1E9BD1AD659373CFCEE39 /* FeedAbstractPane.swift */; };
 		5E34F54C8D91D6A0EACB9286 /* DurableDraftIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93B8F1B47F8271E60FC2ADBE /* DurableDraftIntegrationTests.swift */; };
 		5F9F67BCEEDCA5151271C981 /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2673CB0144CC1585AD755137 /* ReportsView.swift */; };
+		611DCCEE94C4C3EF076EC818 /* DeviceModelAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1869B664CC29F10D16D9FA2C /* DeviceModelAssets.swift */; };
 		61230986E123312383912C9C /* LibraryV5Fixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B744FF4DF8FEBDBABCDA50 /* LibraryV5Fixture.swift */; };
 		62FE989A1DF369A6A671793F /* NotesJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F0C69593AE41ADF9E2DA1C /* NotesJourneyTests.swift */; };
 		636E276907B007836AA6EE4A /* ChatHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4551E5342A018E7288BEA10 /* ChatHistoryView.swift */; };
+		63B77EAC38454D76954AC198 /* device-models-pack.json in Resources */ = {isa = PBXBuildFile; fileRef = E6C7A091F0BCDEEB558021C1 /* device-models-pack.json */; };
 		63E220AFACB68A9715F0949F /* NotesCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5167525F7197BB95EABDEE30 /* NotesCenter.swift */; };
 		644622E1D3FD4B5CA5445C1F /* ImportProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3D1F438A38856740453FBC /* ImportProgress.swift */; };
 		644F9E5CFBCE827770184441 /* arxiv-reader-build.json in Resources */ = {isa = PBXBuildFile; fileRef = 949BE04F759150C11854B343 /* arxiv-reader-build.json */; };
@@ -259,7 +262,7 @@
 		95D81C5717F57CC6BE141ABC /* GoogleSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8970BBF3454BEE534D3E1521 /* GoogleSans-Medium.ttf */; };
 		968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AE39314F13A59D175222F59 /* KeychainVault.swift */; };
 		96C43050DED48EC7BEB952A9 /* LibrarySearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AC968DB8F9AD4321F50917 /* LibrarySearchCoordinator.swift */; };
-		97B2BB5D51B54CAC6FAAFED8 /* DeviceModels in Resources */ = {isa = PBXBuildFile; fileRef = 9DA4A9C7D8638C328B8B88FD /* DeviceModels */; };
+		97B2BB5D51B54CAC6FAAFED8 /* DeviceModels in Resources */ = {isa = PBXBuildFile; fileRef = 9DA4A9C7D8638C328B8B88FD /* DeviceModels */; settings = {ASSET_TAGS = ("device-pdf-models", ); }; };
 		98CFE0EEB90B4563024DC537 /* DiscoveryOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5AD3A4689C5A15EE40F6A5 /* DiscoveryOrder.swift */; };
 		991B5FB4670E45FD7B16AC0B /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 73C48F72EBEC7F248AD25F9F /* SwiftMath */; };
 		993F679D09AA229BFB861BCD /* PaperExplainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FEF3354ADE114A6C750A5A /* PaperExplainView.swift */; };
@@ -482,6 +485,7 @@
 		1504498C714EEB16B0AD7E1F /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		15A673F3AA84CC3B1DD4AF84 /* SettingsPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPresentation.swift; sourceTree = "<group>"; };
 		16BB0761CB97647F552ADC5A /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
+		1869B664CC29F10D16D9FA2C /* DeviceModelAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceModelAssets.swift; sourceTree = "<group>"; };
 		18AFED85CC085152AD2629AC /* ChatRichTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRichTextView.swift; sourceTree = "<group>"; };
 		18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotCapture.swift; sourceTree = "<group>"; };
 		1A1E290E8D6AED2828F07B94 /* PaperAdding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperAdding.swift; sourceTree = "<group>"; };
@@ -694,6 +698,7 @@
 		E5FA8F3CB6F8807D5768936D /* AdvancedPaperSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedPaperSearch.swift; sourceTree = "<group>"; };
 		E617F5CD2460736D3FF9755B /* ImportProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportProgressTests.swift; sourceTree = "<group>"; };
 		E61EED8F75AB3E87D3E66455 /* ReaderMenuSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMenuSupport.swift; sourceTree = "<group>"; };
+		E6C7A091F0BCDEEB558021C1 /* device-models-pack.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "device-models-pack.json"; sourceTree = "<group>"; };
 		E8A6B1A1F8242C01BAF00A77 /* LibraryCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogTests.swift; sourceTree = "<group>"; };
 		E8BF1134D558E9ADE7645070 /* ReadingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingMode.swift; sourceTree = "<group>"; };
 		E979FBCA88803BD6673C9BF8 /* DeviceModelJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceModelJourneyTests.swift; sourceTree = "<group>"; };
@@ -759,6 +764,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		05B0EC5430584A1459D1A7D1 /* DeviceModelsManifest */ = {
+			isa = PBXGroup;
+			children = (
+				E6C7A091F0BCDEEB558021C1 /* device-models-pack.json */,
+			);
+			path = DeviceModelsManifest;
+			sourceTree = "<group>";
+		};
 		05CEE2511F485568067D94C4 /* Services */ = {
 			isa = PBXGroup;
 			children = (
@@ -885,6 +898,7 @@
 				2BBFCB36E3CEBE37461F8C45 /* AIUsageFixture.swift */,
 				2D4BEDE817F71094F5708F59 /* ChatFixtureTransport.swift */,
 				54956F7DE7838B0E820D3145 /* ChatHistoryFixture.swift */,
+				1869B664CC29F10D16D9FA2C /* DeviceModelAssets.swift */,
 				EDA405B1BC529221D0FEDDF3 /* DeviceModelReading.swift */,
 				03742A4949DCA5611E5FF883 /* Info.plist */,
 				D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */,
@@ -1075,6 +1089,7 @@
 			children = (
 				9DA4A9C7D8638C328B8B88FD /* DeviceModels */,
 				5E4F6BB85A59AE725A6D50B0 /* Config */,
+				05B0EC5430584A1459D1A7D1 /* DeviceModelsManifest */,
 				7468672D22A1BFF78DA4BEC7 /* Packages */,
 				422E8CE016CACAC572D599FD /* ScienceReader */,
 				79C8BD4691AD6B299D891FEF /* ScienceReaderTests */,
@@ -1286,6 +1301,9 @@
 						ProvisioningStyle = Automatic;
 					};
 				};
+				knownAssetTags = (
+					"device-pdf-models",
+				);
 			};
 			buildConfigurationList = DB19DFAD96B66CA35CAF754D /* Build configuration list for PBXProject "ScienceReader" */;
 			developmentRegion = en;
@@ -1332,6 +1350,7 @@
 				6CAD50EA5192DD1B3B222BBD /* arxiv-reader.js in Resources */,
 				BF1D1943F199775327CA41C6 /* arxiv-source-metadata.js in Resources */,
 				C69CE00EADC49BC6CEDEDEC4 /* chat-starters.json in Resources */,
+				63B77EAC38454D76954AC198 /* device-models-pack.json in Resources */,
 				F14B8927AC0E80050C752F7D /* device-pdf-reader-build.json in Resources */,
 				AAB5E62EE5D45DCA5A63C92A /* device-pdf-reader.js in Resources */,
 				A6BB44F761C01BB08AC74553 /* mermaid.min.js in Resources */,
@@ -1409,6 +1428,7 @@
 				B205221947AC74D62553E0C7 /* DeviceApprovalViews.swift in Sources */,
 				3B2BDB42B4CF1A60038BAB85 /* DeviceApprover.swift in Sources */,
 				FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */,
+				062F1C305B915AA069C32247 /* DeviceModelAssets.swift in Sources */,
 				358D1B912CC0FAEC50B2D28D /* DeviceModelReading.swift in Sources */,
 				C4403351D7A198F206DC72EC /* DeviceModelViews.swift in Sources */,
 				A8F4D610BC3F49B09DECF111 /* DevicePDFFetcher.swift in Sources */,
@@ -1687,6 +1707,7 @@
 				3B2C11614452FA53057A0BB0 /* DeviceApprovalViews.swift in Sources */,
 				5640E172B5DE308CAD25908B /* DeviceApprover.swift in Sources */,
 				D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */,
+				611DCCEE94C4C3EF076EC818 /* DeviceModelAssets.swift in Sources */,
 				BBEDFC71B3662A5B04825DD3 /* DeviceModelReading.swift in Sources */,
 				432CE9EACE625CCD83C0C421 /* DeviceModelViews.swift in Sources */,
 				1905A9A122A45D5D6979982D /* DevicePDFFetcher.swift in Sources */,
@@ -2008,6 +2029,8 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/ScienceReader-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
+				ENABLE_ON_DEMAND_RESOURCES = YES;
+				"ENABLE_ON_DEMAND_RESOURCES[sdk=macosx*]" = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ScienceReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2075,6 +2098,8 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/ScienceReader-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
+				ENABLE_ON_DEMAND_RESOURCES = YES;
+				"ENABLE_ON_DEMAND_RESOURCES[sdk=macosx*]" = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ScienceReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2182,6 +2207,8 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/ScienceReader-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
+				ENABLE_ON_DEMAND_RESOURCES = YES;
+				"ENABLE_ON_DEMAND_RESOURCES[sdk=macosx*]" = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ScienceReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

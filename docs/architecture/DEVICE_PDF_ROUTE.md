@@ -18,8 +18,83 @@ first-class path (owner direction, 2026-10-13), the PDF never leaves the device,
 | CLI (macOS) | `ScienceReaderCore` executable `DevicePDFRoute` | `DevicePDFRoute <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js> [--trace]` writes the bundle and, with `--trace`, the Python-shaped `index.json` the desktop's `bundle_conformance.py` reads | Fixture conformance, timings per stage |
 | App | `ScienceReader` | Settings › Experimental; "Read with the on-device model" on a paper whose PDF is on the device; progress by stage; the result opens in the same reader with a banner (model-read, report a problem, back to the HTML version) | Simulator journey with a fixture PDF |
 | Text recognition (Swift, since 2026-10-23) | `DevicePDFOCR.swift` | A page whose text layer is empty (a scan) or unreadable (codes without a Unicode mapping, letters that are no words) gets its glyphs from Vision's on-device text recogniser on the 150 dpi render (each word's characters spread over its box, font `GradstepOCR`); `Options.ocrFallback` (on), the tool's `--no-ocr` | `DevicePDFOCRTests`; scanned copies of arXiv papers scored against their HTML |
-| Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`); since 2026-10-23 with a 512-token cache | The script's digest check; the app hides the experiment when they are absent |
+| Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`); since 2026-10-23 with a 512-token cache. Since 2026-10-24 a separate download on iPhone and iPad (below) | The script's digest check; the app hides the experiment when the build has neither the models nor their description |
 | Evaluation (Mac) | `scripts/device-route-accuracy.mjs`, `scripts/device-route-replay.mjs` | Fresh arXiv papers (PDF + the exact revision's HTML) scored against the app's own arXiv HTML reading; `--record` runs replayed through the converter in Node to try rule changes in seconds | [Review 2026-10-21](../reviews/DEVICE_PDF_ROUTE_20261021.md) |
+
+## The models as a download — 2026-10-24
+
+Owner: *"We should make the on device model a separate download, instead of in the app, can we do that"*. The models
+were 365 MB of the app (TestFlight builds measured 382 MB; this Mac's unsigned Internal device build 447.6 MB, of which
+DeviceModels 364.6 MB). Decision and alternatives: [DECISIONS](../DECISIONS.md) "The on-device PDF model is a separate
+download".
+
+**Packaging.** `node scripts/device-models.mjs` still compiles the locked exports into `apps/apple/DeviceModels` (the
+pack) and now also writes `apps/apple/DeviceModelsManifest/device-models-pack.json` (both untracked):
+
+```
+{ schema: "gradstep-device-models-pack-v1", version: sha256("<path>\t<size>\t<sha256>\n" for each file in path order),
+  tag: "device-pdf-models", folder: "DeviceModels", lock: { role: package sha256 from device-models.lock.json },
+  files: [{ path, size, sha256 }] }
+```
+
+In the iOS target the `DeviceModels` folder carries the On-Demand Resources tag `device-pdf-models` (`project.yml`
+`resourceTags`; `ENABLE_ON_DEMAND_RESOURCES` YES for iOS, NO for Mac Catalyst), so Xcode builds it into one asset pack
+beside the app (`OnDemandResources.plist` maps the tag to it) and `xcodebuild -exportArchive` uploads it with the build;
+the App Store and TestFlight host it. The description is an ordinary resource inside the app. The Mac app (no On-Demand
+Resources on macOS; `NSBundleResourceRequest` ignores Mac Catalyst) copies the tagged folder into the app as before.
+`node scripts/check-device-model-pack.mjs <archive>` (run by `upload-testflight.sh` before the upload) checks that the
+iOS app has the description and not the models, that the tag maps to an asset pack, and that the asset pack's every file
+has the described size and SHA-256, and that the description's lock digests are `device-models.lock.json`'s;
+`--mac <archive>` checks the Mac app's own copy. The lock remains the single source of truth: a new export still
+reaches the app only through `device-models.mjs` and a lock update, and any changed file is a new pack version.
+
+**On the device** (`ScienceReaderCore/DevicePDF/DevicePDFModelPack.swift`, app `DeviceModelAssets.swift`):
+
+- *Locating* (`DevicePDFModelLocator`): a folder named by `GRADSTEP_DEVICE_MODELS` (tests and tools; for app-hosted tests
+  `TEST_RUNNER_GRADSTEP_DEVICE_MODELS`), else the verified download of this build's version in
+  `Application Support/DevicePDFModels/<version>/` (excluded from backup), else the models inside the app (the Mac, or a
+  build with On-Demand Resources off), else none: the experiment stays offered and asks for the download.
+- *Downloading*: `NSBundleResourceRequest(tags: ["device-pdf-models"])`, urgent when the reader asked; progress from its
+  `Progress` (the first 90 % of the bar), then every described file is copied to a staging folder and the copy's size and
+  SHA-256 are checked (the last 10 %); `.mlpackage` folders, if a pack ever carries them, are compiled on the device to the
+  `.mlmodelc` of the same name; a `.verified` marker naming the version is written last and the folder renamed into
+  place, so a copy cut short or a mismatched file is never used (nothing else in the pack is copied). Then the request
+  ends and the tag's preservation priority drops to 0 so the system can purge its own copy. The copy-and-check runs under
+  a background task assertion.
+- *Updates*: a build with a new description is a new version; at launch the old version is removed (it can't be used with
+  the new converter) and, for a reader who had downloaded before, the new one downloads by itself at the first network
+  answer that is not cellular or Low Data Mode; otherwise the offer appears where it is used.
+- *Removing*: Settings › Experimental › On-device PDF model › Remove deletes every version and stops automatic updates.
+
+**Interface** (owner: minimal screens, controls where used). "Read with the on-device model" without the models shows,
+in the bar where the reading's progress shows, "Download PDF reading model (about 365 MB)" with Cancel and, on cellular,
+"Wi-Fi is better for a download this size"; during the download its percentage, a progress bar and Cancel; a failure says
+why with Try Again. When the models are in, the reading starts by itself. Settings › Experimental has one row under the
+toggle: "On-device PDF model — Downloaded · 364.6 MB" with Remove, "Not downloaded · about 365 MB" with Download, or
+"Downloading · n %" with Cancel; the row is not shown on the Mac.
+
+**Verified** (2026-10-24, this Mac, iPhone 17 Simulator on iOS 26.4): the journey `DeviceModelJourneyTests` taps "Read
+with the on-device model" on a build without the models, gets the offer, downloads the asset pack through the
+Simulator's On-Demand Resources service from the build folder, installs version `37bc13a456de` into Application Support
+(excluded from backup) and reads the fixture paper; Settings then says "Downloaded · 364.6 MB" and Remove takes it away.
+Of nine runs, five passed end to end (four through the download, one with the models already in; the last on the final
+code after rebooting the Simulator); four failed at an assertion on the web view's text, two of them before the on-device
+model was touched, while other agents' Simulators ran, with the reading on screen in the captured screenshots (the
+known stale-Simulator flake). App-hosted `DeviceModelRouteTests` passes with `TEST_RUNNER_GRADSTEP_DEVICE_MODELS`. Size: the unsigned Internal device build is 83.6 MB (447.6 MB
+before), the asset pack 364.6 MB; `check-device-model-pack.mjs` passes on that build and on the Mac Catalyst build, which
+still carries the models. Core unit
+tests (`DevicePDFModelPackTests`): the description and its version, refused descriptions, install and verification,
+tampered and missing files, a model update and removal of the old version, removal, on-device compilation of a package,
+the locator's order. **Not verified until a TestFlight build:** the App Store's hosting of the asset pack for TestFlight
+(forum reports from 2020 describe ODR failures in TestFlight that Apple fixed server-side), real download speed, whether
+the system keeps downloading while the app is in the background (ODR downloads are made by a system service; the request
+is kept and the install finishes under a background task), the owner's iPad on iPadOS 18.7.8, and cellular behaviour.
+
+**Later: Background Assets.** Apple deprecates On-Demand Resources as of iOS 27 and recommends Apple-hosted Background
+Assets (`AssetPackManager`, iOS/iPadOS/Mac Catalyst 26+, packs made with `xcrun ba-package` and uploaded apart from the
+build). It needs a downloader-extension target and an App Group shared with the app, which the developer account does
+not have yet. When it does, add a second source for the same pack on 26+ (the description, verification, store and
+interface stay as they are) and keep On-Demand Resources below 26.
 
 ## The contract between the host and the converter
 

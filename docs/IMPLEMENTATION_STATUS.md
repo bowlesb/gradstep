@@ -2,6 +2,16 @@
 
 ## Unreleased (after TestFlight 90)
 
+- **The on-device PDF model is a separate download** on iPhone and iPad (owner request 2026-10-24; DECISIONS.md,
+  DEVICE_PDF_ROUTE.md "The models as a download"): an On-Demand Resources tag hosted by the App Store with the build,
+  checked file by file against `device-models-pack.json` (written by `scripts/device-models.mjs` from the locked exports)
+  and kept in Application Support, excluded from backup. Offered where it is used ("Download PDF reading model (about
+  365 MB)", then the reading starts); one Settings row (Downloaded with Remove, Not downloaded with Download). The Mac app
+  keeps the models inside the app. iOS app built on this Mac (Internal, unsigned, device): 83.6 MB, was 447.6 MB; the asset pack beside it is 364.6 MB.
+  Verification: `npm test` (fast) and `swift test` (437 + 59 XCTest, one opt-in skipped) pass; the journey downloads the
+  pack in the iPhone 17 Simulator (iOS 26.4) and reads the fixture paper. Not verified until TestFlight: App Store hosting
+  of the pack, real download times, background behaviour, the iPad on iPadOS 18.7.8.
+
 - **Show in PDF** for on-device readings (branch `worktree-agent-aa0ba2fe38a9c93ff`; owner request 2026-10-24;
   FIGURE_VIEW.md "Show in PDF", DECISIONS.md): the last item of a text selection's menu and of a tapped equation's menu
   opens the PDF on this device at the passage, its lines highlighted, framed and zoomable, with previous/next page. Converter

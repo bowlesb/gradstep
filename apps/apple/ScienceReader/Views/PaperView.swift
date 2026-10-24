@@ -327,6 +327,10 @@ struct PaperView: View {
                         // Wide: below the floating controls.
                         if let run = model.deviceModelRun, run.paperID == paper.id {
                             DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() }.padding(.top, wideRow ? WideMetrics.barHeight : 0)
+                        } else if model.deviceModelDownloadPaperID == paper.id {
+                            DeviceModelDownloadBar(assets: model.deviceModelAssets, download: { model.downloadDeviceModelThenRead() },
+                                                   cancel: { model.dismissDeviceModelDownload() })
+                                .padding(.top, wideRow ? WideMetrics.barHeight : 0)
                         } else if let issue = model.deviceModelIssue {
                             DeviceModelIssueBar(issue: issue) { model.deviceModelIssue = nil }.padding(.top, wideRow ? WideMetrics.barHeight : 0)
                         } else if model.isModelReading(paper), !readerFailed {
@@ -364,6 +368,12 @@ struct PaperView: View {
                 } else if let selected = model.selectedPaper {
                     if let run = model.deviceModelRun, run.paperID == selected.id {
                         VStack { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() }.frame(maxWidth: 520); Spacer() }
+                    } else if model.deviceModelDownloadPaperID == selected.id {
+                        VStack {
+                            DeviceModelDownloadBar(assets: model.deviceModelAssets, download: { model.downloadDeviceModelThenRead() },
+                                                   cancel: { model.dismissDeviceModelDownload() }).frame(maxWidth: 520)
+                            Spacer()
+                        }
                     } else if model.openingPaperID == model.selectedPaper?.id {
                         // One fraction, two words (owner, 2026-10-15): "Downloading… 37%", then "Preparing… 94%".
                         if let fraction = model.openingProgress {

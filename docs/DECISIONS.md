@@ -20,6 +20,24 @@ launch, with no phrases, ranking or snippets. Details and measurements:
 | Opening a result | Opens the paper as before; if the row had a snippet, Find in paper opens with the matched words searched and the keyboard down. |
 | Reuse | `FullTextSnapshot.documentFrequency`, `documentFrequencies()` and `termFrequencies(group:fields:)` give the interest index's TF-IDF its counts; not used yet. |
 
+## The on-device PDF model is a separate download (owner request 2026-10-24; agent decisions, reversible)
+
+Owner: *"We should make the on device model a separate download, instead of in the app, can we do that"*. The models
+were 365 MB of the 382 MB iOS app (recogniser 285 MB, layout 62 MB, tagger 0.7 MB, vocabularies), for an opt-in
+experiment most readers never use. Details: [DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md) "The models as a
+download".
+
+| Decision | Choice |
+|---|---|
+| Mechanism, iPhone and iPad | **On-Demand Resources** (one tag, `device-pdf-models`): Apple-hosted, no egress cost, uploaded inside the build by the existing `xcodebuild -exportArchive` upload, works on every OS the app supports (iOS 17+, so the owner's iPad on iPadOS 18.7.8 and iPhones on 26/27). Apple calls it legacy and deprecates it as of iOS/iPadOS 27 ("support will be removed in future releases"); it still works there. |
+| Why not Apple-hosted Background Assets now | `AssetPackManager` needs iOS/iPadOS/Mac Catalyst **26**, so it cannot serve the iPad on 18.7.8 alone, and it needs a downloader-extension target (new App ID and profile) sharing an **App Group** with the app. The App Group `group.com.sciencereader.ios` does not exist in the developer account (Apple's API can't create it; the Share extension waits on the same step). Packs are also uploaded separately from builds (Transporter, `altool --upload-asset-pack` or the App Store Connect API) and processed before TestFlight uses them. It is the planned successor: when the App Group and an extension App ID exist, or ODR stops working, add Background Assets on 26+ and keep ODR below 26 until the deployment target reaches 26. The pack format, verification and install below do not change. |
+| Why not self-hosting | 365 MB per device per model version. 100 readers: 37 GB a version, inside Supabase's 250 GB included egress (shared with everything else). 1,000 readers: 365 GB a version, about $10 over; the models changed twice this week (10-21, 10-23), and four versions a month at 1,000 readers is about 1.46 TB, about $109, more than the whole $100 budget. It would also need a public bucket or signed URLs and a CDN we don't use. Rejected while an Apple-hosted path exists. |
+| Mac | Keeps the models inside the app. On-Demand Resources don't exist on macOS and `NSBundleResourceRequest` ignores Mac Catalyst apps; Background Assets is blocked by the same App Group step. The Mac has the disk and is where the model runs fastest; ODR is turned off for Mac Catalyst builds so the tagged folder is copied in as before. |
+| One pack, not split | The layout model alone (62 MB) only gives the reading with every formula as a page image, which is what the route already does when the recogniser can't load; the recogniser is the point of the route. One pack; a split stays possible (a second tag) if it ever earns its keep. |
+| Integrity | `scripts/device-models.mjs` checks the exports against `device-models.lock.json` (still the single source of truth) and writes `device-models-pack.json` into the app: every file's size and SHA-256 and a version (the digest of that list). The app copies the downloaded files to Application Support (excluded from backup), checks each copy, and marks the version installed only when all match; nothing else from the pack is used. A pack that arrives as `.mlpackage` is compiled on the device. |
+| Updates | A new lock (any changed file) is a new version: the old one is removed at launch (it can't be used with the new converter), and the new one downloads by itself on Wi-Fi for a reader who had downloaded before; on cellular the offer shows where it is used. |
+| Where the controls are | The paper's "Read with the on-device model" offers "Download PDF reading model (about 365 MB)" in the bar where the reading's progress shows, with progress, a Wi-Fi note on cellular, Cancel, then continues into the reading. Settings › Experimental gets one row, "On-device PDF model": Downloaded (size) with Remove, or Not downloaded with Download. |
+
 ## Heading formulas as characters; bracketed addresses stay (fresh-paper sweep, 2026-10-24; agent decisions, reversible)
 
 The sweep before TestFlight 90 failed VLA-Δ (2610.21306v1). Reader revision 24; details in

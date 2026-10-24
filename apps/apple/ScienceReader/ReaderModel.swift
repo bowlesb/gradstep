@@ -318,6 +318,11 @@ final class ReaderModel {
     var deviceModelReader = UserDefaults.standard.object(forKey: "reader.deviceModel") as? Bool ?? true { didSet { UserDefaults.standard.set(deviceModelReader, forKey: "reader.deviceModel") } }
     /// A reading by the on-device model in progress (one at a time).
     var deviceModelRun: DeviceModelRun? = nil
+    /// The models' download, offered for this paper in the bar where a reading's progress shows (the models are a
+    /// separate download on iPhone and iPad; DEVICE_PDF_ROUTE.md "The models as a download").
+    var deviceModelDownloadPaperID: UUID? = nil
+    @ObservationIgnored var deviceModelDownloadAgain = false
+    @ObservationIgnored let deviceModelAssets = DeviceModelAssets.shared
     /// Why the last model reading failed, in the reader's words.
     var deviceModelIssue: String? = nil
     /// Summaries of the model readings made this session (pages, time, formulas), by manifest digest.
@@ -2307,7 +2312,7 @@ final class ReaderModel {
         for task in devicePreparationTasks.values { task.cancel() }
         devicePreparationTasks = [:]; devicePreparations = [:]; devicePreparationIssues = [:]
         readerUpdates = [:]; failedHTMLOpens = []; legacyBundleFallback = []; finishedImportSources = []
-        cancelDeviceModelReading(); deviceModelIssue = nil; deviceModelSummaries = [:]; deviceModelHTMLBundles = [:]
+        cancelDeviceModelReading(); deviceModelIssue = nil; deviceModelSummaries = [:]; deviceModelHTMLBundles = [:]; deviceModelDownloadPaperID = nil
         chatProfileFetch = nil; chatProfilesRefreshing = false; chatProfileTable = nil; chatProfileTableFailed = false
         pendingChatProfiles = [:]; chatStudies = [:]; chatFollowUps = [:]; figureImageCache.removeAllObjects(); figurePartCropCache = [:]
         FigureFramingRecorder.shared.clear() // the figure framing record (in memory only) leaves with the account

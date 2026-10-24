@@ -1,5 +1,17 @@
 # Fast and slow tests
 
+## The on-device PDF model as a download — October 24
+
+Fast: Core `swift test --filter DevicePDFModelPackTests` (the pack description and its version, refused descriptions,
+verified install, tampered and missing files, a model update, removal, on-device compilation, the locator's order).
+Before an upload: `node scripts/check-device-model-pack.mjs <archive or products dir>` (`upload-testflight.sh` runs it;
+`--mac` for the Mac archive). Slow, opt-in: `-only-testing:ScienceReaderUITests/DeviceModelJourneyTests` on an iPhone
+Simulator downloads the pack through the Simulator's On-Demand Resources service from the build folder (needs `node
+scripts/device-models.mjs` before the build), reads the fixture paper, then removes the model in Settings, so each run
+starts without it. Tests that need the models from a folder instead of a download: `GRADSTEP_DEVICE_MODELS=<dir>`
+(`TEST_RUNNER_GRADSTEP_DEVICE_MODELS` for app-hosted tests, e.g. `ScienceReaderTests/DeviceModelRouteTests`); the Mac
+tool and `scripts/device-route-*.mjs` keep taking `--models apps/apple/DeviceModels`.
+
 ## Heading formulas and affiliation addresses (reader revision 24) — October 24
 
 Fast (in `npm test`): `tests/backend/arxiv-html.test.ts` ("a formula in a title or heading that Unicode spells", "an
