@@ -24,6 +24,20 @@ diagram labels".
 | Item spacing | No empty lines under an item; paragraphs inside one item stay apart. |
 | Diagram labels | A label of several lines is drawn line by line (wrapped to its minipage); `\phantom` text is not drawn. Not a degrade case: arXiv's own page reads, so the reader draws it rather than replacing it with a note. |
 
+## Show in PDF for on-device readings (owner request 2026-10-24; agent decisions, reversible)
+
+Owner: *"it would be neat to somehow have a feature where, wherever you select, it can guess where in the pdf that is and
+show it to you with a pop up that you can zoom around in"*.
+
+| Decision | Choice |
+|---|---|
+| Data | The converter records every emitted block's page and box(es) in points (provenance `blocks`, port revision 11); equations already had theirs. The reading is unchanged. Older readings have no block rows and search the whole PDF. |
+| Matching | On the device, in the PDF's own text layer, folded (ligatures, case, accents, spacing, punctuation and a hyphen at a line's break ignored); on the block's recorded pages, a repeated phrase told apart by the block's box and then by the text around the selection; an approximate match when the reading differs; else the block's recorded boxes, outlined dashed with a note; else "Not found in the PDF". |
+| Entry | The last item of the text selection's menu and of the tapped equation's menu, "Show in PDF" (`doc.viewfinder`), only for an on-device reading whose PDF is on this device. No new chrome; arXiv HTML readings unchanged. Tables get no new tap entry (none exists for them in the paper). |
+| Pop-up | Opens framed on the passage, lines highlighted, extent outlined; pinch to the whole page, double tap toggles; previous/next page and X in a slim top row. Full screen on iPhone and upright iPad, the paper's slot sideways on iPad, a sheet on the Mac. Only the visible part is drawn sharp; everything is let go on close. |
+
+Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Show in PDF".
+
 ## Figures of on-device readings zoom out onto the PDF page (owner request 2026-10-24; agent decisions, reversible)
 
 Owner: *"in the on device model, when I click on an AI explainers for a figure, I should be able to zoom out around it and

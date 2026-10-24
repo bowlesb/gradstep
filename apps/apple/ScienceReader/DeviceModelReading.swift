@@ -178,18 +178,58 @@ extension ReaderModel {
     /// onto the page"): the reading's own record of the crop, and the PDF found by its digest. Nil for any other reading,
     /// for one made before the crops were recorded (port revision 10), and when the PDF has been removed.
     func figurePDFPage(bundle: VerifiedReaderBundle, figureID: String) -> FigurePDFPage? {
-        guard bundle.manifest.source.kind == "device-pdf", let source = bundle.devicePDFSource, let region = source.figures[figureID] else { return nil }
+        guard let region = bundle.devicePDFSource?.figures[figureID], let load = devicePDF(bundle: bundle) else { return nil }
+        return FigurePDFPage(region: region, load: load)
+    }
+    /// How to read the PDF an on-device reading was made from, when it is on this device (found by its digest); nil for any
+    /// other reading and when the PDF has been removed. Read only when asked (a zoom-out, Show in PDF), never sent anywhere.
+    func devicePDF(bundle: VerifiedReaderBundle) -> (@Sendable () async throws -> Data)? {
+        guard bundle.manifest.source.kind == "device-pdf", let source = bundle.devicePDFSource else { return nil }
         #if DEBUG && FIXTURE_HOST
         // `--figure-fixture-pdf=<path>`: the PDF a fixture reading was made from, read from this Mac.
         if let path = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--figure-fixture-pdf=") })?.dropFirst("--figure-fixture-pdf=".count) {
             let url = URL(fileURLWithPath: String(path))
-            return FigurePDFPage(region: region) { try Data(contentsOf: url) }
+            return { try Data(contentsOf: url) }
         }
         #endif
         guard let record = localPaperRecords.first(where: { $0.identity.sha256.hex == source.pdfSHA256 }),
               let store = localPersistence.localPaperStore else { return nil }
         let identity = record.identity
-        return FigurePDFPage(region: region) { try await store.read(identity) }
+        return { try await store.read(identity) }
+    }
+    /// Show in PDF applies: the open reading is an on-device one whose PDF is still on this device.
+    func canShowInPDF(_ bundle: VerifiedReaderBundle?) -> Bool { bundle.map { devicePDF(bundle: $0) != nil } ?? false }
+
+    /// Show in PDF for a selection (FIGURE_VIEW.md "Show in PDF"): its text and the text around it, and where the reading
+    /// says its blocks (and any equation in it) came from.
+    func showInPDFRequest(bundle: VerifiedReaderBundle, selection: ReaderSelection) -> ShowInPDFRequest? {
+        guard let source = bundle.devicePDFSource, let load = devicePDF(bundle: bundle), selection.manifestSHA256 == bundle.manifestSHA256 else { return nil }
+        var blockIDs: [String] = []
+        for part in selection.parts where !blockIDs.contains(part.blockID) { blockIDs.append(part.blockID) }
+        // An equation part stands between words as a gap the approximate match allows for.
+        let text = selection.parts.map { $0.kind == "text" ? ($0.text ?? "") : " " }.joined()
+        let equationIDs = selection.parts.compactMap(\.equationID)
+        let regions = blockIDs.flatMap { source.blocks[$0] ?? [] } + equationIDs.compactMap { source.equations[$0] }
+        let isEquation = selection.parts.allSatisfy { $0.kind == "equation" }
+        return ShowInPDFRequest(query: PDFPassageQuery(text: isEquation ? "" : text, before: selection.context?.prefix ?? "",
+                                                       after: selection.context?.suffix ?? "", regions: regions),
+                                blockFraction: blockIDs.first.flatMap { Self.blockFraction($0, in: bundle) },
+                                subject: isEquation ? .equation : .text, load: load)
+    }
+
+    /// Show in PDF for a tapped equation: its own recorded box (its block's when it has none).
+    func showEquationInPDFRequest(bundle: VerifiedReaderBundle, equationID: String) -> ShowInPDFRequest? {
+        guard let source = bundle.devicePDFSource, let load = devicePDF(bundle: bundle) else { return nil }
+        let blockID = bundle.index.equations.first { $0.id == equationID }?.blockID
+        let regions = source.equations[equationID].map { [$0] } ?? blockID.flatMap { source.blocks[$0] } ?? []
+        return ShowInPDFRequest(query: PDFPassageQuery(text: "", regions: regions), blockFraction: blockID.flatMap { Self.blockFraction($0, in: bundle) },
+                                subject: .equation, load: load)
+    }
+
+    /// How far through the reading a block is (0…1): where to look first in a PDF whose reading recorded no places.
+    private static func blockFraction(_ id: String, in bundle: VerifiedReaderBundle) -> Double? {
+        guard let index = bundle.index.blocks.firstIndex(where: { $0.id == id }), bundle.index.blocks.count > 1 else { return nil }
+        return Double(index) / Double(bundle.index.blocks.count - 1)
     }
     var deviceModelAvailable: Bool { deviceModelReader && DeviceModelEngine.available }
     /// Whether "Read with the on-device model" applies to this paper now.

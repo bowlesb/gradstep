@@ -178,6 +178,8 @@ struct PaperView: View {
     /// The equation view (docs/architecture/EQUATION_VIEW.md) and what it asked for as it closed (a paragraph, the chat).
     @State private var equation: EquationViewRequest?
     @State private var equationFollowUp: EquationViewOutcome?
+    /// Show in PDF's pop-up (an on-device reading): the passage or equation on the PDF on this device.
+    @State private var showInPDF: ShowInPDFRequest?
     /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
     @State private var findRequestID: UUID?
     @State private var find = PaperFindController()
@@ -513,6 +515,8 @@ struct PaperView: View {
                 .environment(\.figureViewHost, figureHost { figureReference = nil })
                 .macSheetKeys()
             }
+            // Show in PDF (an on-device reading): over the paper's own slot in Wide, as its other sheets.
+            .showInPDFPresentation($showInPDF, wide: wideBar)
         }
         // Explainers outside the NavigationStack: in Wide they open in the companion slot on the paper's right with their own
         // bar (ExplainPane), and the paper becomes the Paper place (owner, 2026-10-23).
@@ -575,7 +579,7 @@ struct PaperView: View {
             if taken && wideBar { closeCompanions() }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
-            selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false
+            selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; showInPDF = nil
             citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
             if model.notes.capturing == .paper { model.notes.capturing = nil }
@@ -841,6 +845,19 @@ struct PaperView: View {
         hooked.onReferenceAction = { value, action in handleReferenceAction(value, action, scope: scope) }
         hooked.onAddToNote = { chosen, quote in addToNote(chosen, quote: quote, scope: scope) }
         hooked.onDrawSnippet = { if model.readerDocumentScope == scope { beginDrawing() } }
+        // Show in PDF: an on-device reading whose PDF is on this device (FIGURE_VIEW.md "Show in PDF"); arXiv readings have none.
+        if let bundle = model.selectedPaper?.readerBundle, model.canShowInPDF(bundle) {
+            hooked.onShowInPDF = { chosen in
+                guard model.readerDocumentScope == scope else { return }
+                showInPDF = model.showInPDFRequest(bundle: bundle, selection: chosen)
+                selection = nil; selectionClearID = UUID()
+            }
+            hooked.onShowEquationInPDF = { id in
+                guard model.readerDocumentScope == scope else { return }
+                showInPDF = model.showEquationInPDFRequest(bundle: bundle, equationID: id)
+                selection = nil; selectionClearID = UUID()
+            }
+        }
         return hooked
     }
     /// The web content process died (memory, a swipe that unloaded the page): reload once, quietly; say so the second time.
@@ -1138,6 +1155,9 @@ struct PaperWebView: UIViewRepresentable {
     /// Notes: Add to note on the selected text (what was selected, its quote), and Draw snippet from the context menu.
     var onAddToNote: ((ReaderSelection, String) -> Void)? = nil
     var onDrawSnippet: (() -> Void)? = nil
+    /// Show in PDF on what is selected, and on a tapped equation (an on-device reading whose PDF is here; else nil).
+    var onShowInPDF: ((ReaderSelection) -> Void)? = nil
+    var onShowEquationInPDF: ((String) -> Void)? = nil
     /// Room after the end of the page (the Wide shape's floating text size control).
     var bottomInset: CGFloat = 0
     /// Room before its start (the Wide shape's floating controls); jumps land below it too.
@@ -1253,6 +1273,14 @@ struct PaperWebView: UIViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.figurePinch.action = figureID == nil ? nil : context.environment.figurePageZoomOut
         (web as? ReaderWebView)?.hasSelection = hasSelection
+        if figureID == nil, let reader = web as? ReaderWebView {
+            // Show in PDF comes and goes with the PDF on this device (FIGURE_VIEW.md "Show in PDF").
+            let coordinator = context.coordinator
+            reader.showInPDF = onShowInPDF == nil ? nil : { [weak coordinator, weak reader] in
+                if let coordinator, let reader { coordinator.runShowInPDF(in: reader) }
+            }
+            reader.onShowEquationInPDF = onShowEquationInPDF
+        }
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false
             context.coordinator.loadedURL = url
@@ -1485,6 +1513,17 @@ struct PaperWebView: UIViewRepresentable {
                 guard let self, self.active, self.loadingID == load, case .success(let value) = result,
                       let (selection, _) = Self.selection(value, bundle: bundle) else { return }
                 self.parent.onMenuAction?(action, selection)
+            }
+        }
+
+        /// Show in PDF: what is selected now (as the chat actions read it).
+        func runShowInPDF(in web: WKWebView) {
+            guard active, ready, let bundle = parent.bundle else { return }
+            let load = loadingID
+            web.callAsyncJavaScript("return window.__scienceReaderSelectionNow();", arguments: [:], in: nil, in: .defaultClient) { [weak self] result in
+                guard let self, self.active, self.loadingID == load, case .success(let value) = result,
+                      let (selection, _) = Self.selection(value, bundle: bundle) else { return }
+                self.parent.onShowInPDF?(selection)
             }
         }
 
