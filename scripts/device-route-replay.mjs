@@ -65,6 +65,7 @@ for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, 'index.html'), bundle.members.get('index.html'));
   writeFileSync(join(out, 'reader.json'), bundle.members.get('reader.json'));
+  if (bundle.members.has('provenance.json')) writeFileSync(join(out, 'provenance.json'), bundle.members.get('provenance.json'));
   writeFileSync(join(out, 'index.json'), JSON.stringify(bundle.trace));
   // The source run's timings stay (the replay has no models); the replay's own seconds are noted beside them.
   const source = JSON.parse(readFileSync(join(FROM, key, 'conversion.json'), 'utf8'));

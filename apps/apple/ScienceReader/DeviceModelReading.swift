@@ -88,11 +88,14 @@ enum DeviceModelEngine {
     /// On (2026-10-24, docs/reviews/DEVICE_PDF_WEAKNESSES_20261024.md): a formula under the gate is typeset when its
     /// letters, digits, accents and operators are the page's own glyphs (`verifyGlyphs`, confidence 0.5 and up); a formula
     /// whose glyphs repeat an earlier one's takes its reading (`reuseRecognitions`, speed); ligatures as letters
-    /// (`ligatures`); a compound's hyphen at a line's end kept when the paper prints the pair hyphenated (`compounds`).
+    /// (`ligatures`); a compound's hyphen at a line's end kept when the paper prints the pair hyphenated (`compounds`); a
+    /// glyph returning to the left below its line's own text starts a new line (`lineReturns`). Off: `displayLines` (a
+    /// numbered display the layout read as a paragraph's line becomes a display; +0.01 displays found on all three corpora,
+    /// but their typeset precision 0.004–0.006 lower).
     static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners",
                                      "captionMath", "equationNumbers", "mergeDisplays", "bibliography", "venueNotice", "displayPunctuation",
                                      "fontAliases", "wordGaps", "accents", "lineBands", "verifyGlyphs", "reuseRecognitions", "ligatures",
-                                     "compounds"]
+                                     "compounds", "lineReturns"]
     /// The models and the converter are in this build and the system can run the stateful recogniser.
     static var available: Bool {
         guard #available(iOS 18.0, *) else { return false }

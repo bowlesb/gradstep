@@ -297,6 +297,16 @@ for entire PDFs is too ambitious" and the Mathpix research
   every corpus); the recogniser's export gains a 512-token decoder cache (same weights; only formulas the old cache cut
   off read differently; lock updated). Venue PDFs used for evaluation are open-access local research copies on the Mac,
   never in the repo.
+- 2026-10-24 (owner: "a tool that will help clarify its weaknesses … faster and accurate"; agent decisions, reversible,
+  [review](reviews/DEVICE_PDF_WEAKNESSES_20261024.md)): a weakness explorer (`scripts/device-route-weaknesses.mjs`) is the
+  evaluation tool for the route. Four more rules are on in the app: `lineReturns`, `ligatures` and `compounds` (each won or
+  tied on all three corpora) and `reuseRecognitions` (speed, accuracy unchanged). **`verifyGlyphs` is on although it moves the
+  gate's trade-off**: the confidence gate stays at 0.95, and a reading under it (0.5 and up) is typeset only when its
+  letters, digits, accents and operators are exactly the page's own glyphs; displays typeset rise from about four in ten
+  to eight in ten (venue: a quarter to six in ten) while scored typeset precision falls 0.010–0.039, most of which proved to
+  be the scorer's on inspection. The earlier rule that a lower gate is the owner's choice is respected in that the gate is
+  unchanged; turning `verifyGlyphs` off (one name in `DeviceModelReading.rules`) restores the previous behaviour.
+  `displayLines` is built and off (more displays found, slightly lower typeset precision on every corpus).
 
 
 ## Subfigures: rough zoom is the goal (owner, 2026-10-21)

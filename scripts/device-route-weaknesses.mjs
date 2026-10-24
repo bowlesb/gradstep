@@ -439,7 +439,8 @@ function analysePaper(run, key) {
   });
 
   // 2. Headings.
-  const normTitle = t => t.toLowerCase().replace(/[^a-z]+/g, '').replace(/^appendix/, '');
+  // Letters only, without a section number spelt in letters (appendix A, II, iv): the two readers number differently.
+  const normTitle = t => t.toLowerCase().split(/\s+/).filter(Boolean).filter((w, i) => !(i === 0 && /^(appendix|[a-z]|[ivx]{1,4})$/.test(w)) && !(i === 1 && /^[a-z]$/.test(w) && /^appendix/.test(t.toLowerCase()))).join('').replace(/[^a-z]+/g, '');
   const runIn = t => { t = t.trim(); return /[:.]$/.test(t) && t.split(/\s+/).length <= 6 && !/^([Aa]ppendix\s+)?(\d+(\.\d+)*|[A-Z](\.\d+)*)\.?\s/.test(t); };
   const paragraphStarts = db.filter(b => b.kind === 'paragraph').map(b => b.words.slice(0, 12).join(''));
   const opensParagraph = t => { const n = t.replace(/[^a-z]/g, ''); return n.length > 0 && paragraphStarts.some(s => s.startsWith(n)); };
@@ -605,7 +606,7 @@ function analysePaper(run, key) {
       const dloc = locate(pw, d.words.slice(0, 14)) ?? loc;
       if (d.tag === 'figure') { add('table.image', 'converter', 0.4, { sub: 'cells not placed', loc: dloc, truth: truthSnippet, device: deviceHTMLSnippet(d, run.variant, key) }); continue; }
       const n = lcsPairs(ws.map(id), d.words.map(id))?.length ?? 0, f1 = 2 * n / Math.max(1, ws.length + d.words.length);
-      if (f1 < 0.75) add('table.cells', 'converter', 1 - f1, { sub: `word F1 ${round(f1, 2)}`, loc: dloc, truth: truthSnippet, device: deviceHTMLSnippet(d, run.variant, key) });
+      if (f1 < 0.75) add('table.cells', 'converter', 1 - f1, { sub: f1 < 0.5 ? 'word F1 under 0.5' : 'word F1 0.5 to 0.75', f1: round(f1, 2), loc: dloc, truth: truthSnippet, device: deviceHTMLSnippet(d, run.variant, key) });
       continue;
     }
     const inText = scored.filter(([s, di]) => s >= 0.1 && db[di].kind !== 'table').slice(0, 3);
@@ -699,7 +700,7 @@ function analysePaper(run, key) {
   const tAbs = abstractOf(tb, false), dAbs = abstractOf(db, true);
   if (tAbs && tAbs.length >= 20) {
     const score = dAbs ? f1(tAbs, dAbs) : 0;
-    if (score < 0.85) add('front.abstract', 'converter', 1 - score, { sub: dAbs ? `word F1 ${round(score, 2)}` : 'no abstract block', truth: esc(tAbs.slice(0, 50).join(' ')) + ' …', device: esc((dAbs ?? []).slice(0, 50).join(' ')) + ' …', locWords: tAbs.slice(0, 14) });
+    if (score < 0.85) add('front.abstract', 'converter', 1 - score, { sub: dAbs ? (score < 0.5 ? 'word F1 under 0.5' : 'word F1 0.5 to 0.85') : 'no abstract block', truth: esc(tAbs.slice(0, 50).join(' ')) + ' …', device: esc((dAbs ?? []).slice(0, 50).join(' ')) + ' …', locWords: tAbs.slice(0, 14) });
   }
 
   // Locations for incidents that carry only words.

@@ -19,7 +19,7 @@ first-class path (owner direction, 2026-10-13), the PDF never leaves the device,
 | App | `ScienceReader` | Settings › Experimental; "Read with the on-device model" on a paper whose PDF is on the device; progress by stage; the result opens in the same reader with a banner (model-read, report a problem, back to the HTML version) | Simulator journey with a fixture PDF |
 | Text recognition (Swift, since 2026-10-23) | `DevicePDFOCR.swift` | A page whose text layer is empty (a scan) or unreadable (codes without a Unicode mapping, letters that are no words) gets its glyphs from Vision's on-device text recogniser on the 150 dpi render (each word's characters spread over its box, font `GradstepOCR`); `Options.ocrFallback` (on), the tool's `--no-ocr` | `DevicePDFOCRTests`; scanned copies of arXiv papers scored against their HTML |
 | Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`); since 2026-10-23 with a 512-token cache | The script's digest check; the app hides the experiment when they are absent |
-| Evaluation (Mac) | `scripts/device-route-accuracy.mjs`, `scripts/device-route-replay.mjs` | Fresh arXiv papers (PDF + the exact revision's HTML) scored against the app's own arXiv HTML reading; `--record` runs replayed through the converter in Node to try rule changes in seconds | [Review 2026-10-21](../reviews/DEVICE_PDF_ROUTE_20261021.md) |
+| Evaluation (Mac) | `scripts/device-route-accuracy.mjs`, `scripts/device-route-replay.mjs`, `scripts/device-route-weaknesses.mjs` | Fresh arXiv papers (PDF + the exact revision's HTML) scored against the app's own arXiv HTML reading; `--record` runs replayed through the converter in Node to try rule changes in seconds; the weakness explorer sorts every difference into an error taxonomy by stage and impact, with page crops and per-page timings | [Review 2026-10-21](../reviews/DEVICE_PDF_ROUTE_20261021.md), [2026-10-24](../reviews/DEVICE_PDF_WEAKNESSES_20261024.md) |
 
 ## The contract between the host and the converter
 
@@ -235,3 +235,31 @@ in training (equation numbers inside, rows cut apart), which the converter now m
 Display glyph-right +0.013 / +0.010 / +0.013, nothing else changes; decoder step 14.1 → 16.0 ms per batch of eight on
 the Mac's GPU, a batch's state about 0.41 → 0.51 GB. The review has the plan for the display boxes and a recogniser
 trained on crops cut the way the app cuts them.
+
+## Weakness explorer and port revision 11 — 2026-10-24
+
+Owner, 2026-10-24: "a tool that will help clarify its weaknesses so we can improve them … making it faster and accurate."
+[Review](../reviews/DEVICE_PDF_WEAKNESSES_20261024.md).
+
+**The explorer** (`scripts/device-route-weaknesses.mjs`) sorts every difference between recorded runs and the arXiv HTML
+reading into 35 categories (text, order, headings, displays, inline math, tables, figures, captions, references, front
+matter, furniture), each incident with a severity, a page location and its likely stage (layout, tagger, recogniser, text
+layer, converter; conventions and HTML-only text carry no impact), and writes a browsable report sorted by impact
+(severity-weighted incidents per 10 pages) with page crops (`DevicePDFRouteTool --render-crops`, the route's own Core
+Graphics rendering) beside both readings, per-page stage timings, and `--baseline` deltas.
+
+**Host.** Busy seconds per page and stage in the tool's summary (`host_pages`; `finish` after the last page). Crop requests
+carry `cost` (the formula's glyph count) and the background recogniser batches by it, then by width.
+
+**Converter rules** (port revision 11; on in the app unless noted), each measured on the three corpora:
+
+| Rule | What it does | Effect (test / dev / venue) |
+|---|---|---|
+| `verifyGlyphs` (`=n` floor, default 0.5) | A reading under the gate is typeset when its letters, digits, accents and plain operators are exactly the formula's text-layer glyphs | display typeset 0.43 → 0.81 / 0.43 → 0.78 / 0.25 → 0.61 at typeset precision −0.021 / −0.010 / −0.039 (mostly scorer artefacts on inspection); inline typeset +0.05 / +0.05 / +0.08 |
+| `lineReturns` | A glyph returning to the left below its line's own text starts a new line (two lines no longer interleave through a script's box) | text F1 +0.006 / +0.003 / +0.005, whole blocks +0.013 / +0.005 / +0.011, inline found +0.009 / +0.004 / +0.009 |
+| `ligatures` | ﬁ ﬂ ﬀ ﬃ ﬄ as letters in text | text F1 +0.001 / ±0 / +0.002 |
+| `compounds` | A line-end hyphen stays when the paper prints the pair hyphenated within a line | text F1 +0.001 / +0.002 / +0.001 |
+| `reuseRecognitions` | A formula whose glyphs repeat an earlier one's takes its reading | recogniser crops −20 % / −18 % / −27 %, accuracy unchanged |
+| `displayLines` (off) | A numbered, indented, nearly-all-math paragraph line (or an unboxed line) becomes a display | displays found +0.010 / +0.009 / +0.010 but typeset precision −0.006 / −0.004 / −0.005 |
+
+Speed: fewer crops and better-filled batches, but no wall-time gain measurable on the loaded Mac (interleaved A/B ×1.04).
