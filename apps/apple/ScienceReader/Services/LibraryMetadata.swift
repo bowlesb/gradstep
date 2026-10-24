@@ -13,11 +13,15 @@ enum LibraryLayout: String, CaseIterable, Sendable {
     init(saved: String?) { self = saved == LibraryLayout.list.rawValue ? .list : .table }
 }
 
-/// Feed layout: the List (title, authors, abstract, Add) or the same table as the Library's.
+/// Feed layout: the same table as the Library's (the default, as the Library's) or the List (title, authors, abstract, Add).
 enum FeedLayout: String, CaseIterable, Sendable {
     case list, table
 
     var title: String { self == .list ? "List" : "Table" }
+
+    /// A saved choice, as the Library's (owner, 2026-10-24: "Why is the feed default view not a table like the library"):
+    /// only an explicit List stays the List; no choice opens the Table.
+    init(saved: String?) { self = saved == FeedLayout.list.rawValue ? .list : .table }
 }
 
 /// Friendly names for arXiv categories. The Feed's chips and the Library's Topics share them. Categories the tag

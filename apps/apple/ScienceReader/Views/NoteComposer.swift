@@ -18,7 +18,7 @@ private struct NoteComposerHost: ViewModifier {
     @Bindable var model: ReaderModel
     let origin: CapturedSnippet.Origin
     func body(content: Content) -> some View {
-        content.sheet(item: Binding(get: { model.notes.composer.flatMap { $0.snippet?.origin == origin ? $0 : nil } },
+        content.slotSheet(item: Binding(get: { model.notes.composer.flatMap { $0.snippet?.origin == origin ? $0 : nil } },
                                     set: { if $0 == nil { model.notes.composer = nil } })) { request in
             if let snippet = request.snippet { NoteComposerView(model: model, snippet: snippet).macSheetKeys(enabled: false) }
         }
@@ -28,7 +28,7 @@ private struct NoteComposerHost: ViewModifier {
 struct NoteComposerView: View {
     @Bindable var model: ReaderModel
     let snippet: CapturedSnippet
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
     @State private var destination: NoteDestinationChoice = .new
     @State private var newTitle = ""
     @State private var comment = ""
@@ -75,7 +75,7 @@ struct NoteComposerView: View {
                 Button("Keep editing", role: .cancel) {}
             } message: { Text("Your comment and the captured region won’t be saved.") }
         }
-        .interactiveDismissDisabled(!comment.isEmpty || saving)
+        .sheetDismissDisabled(!comment.isEmpty || saving)
         .task { await prepare() }
         .onAppear {
             let notes = model.notes.state.notes

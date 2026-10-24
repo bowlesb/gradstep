@@ -7,7 +7,7 @@ import ScienceReaderCore
 struct ReaderVersionSheet: View {
     let model: ReaderModel
     let paper: Paper
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
 
     private var shown: Int? { paper.readerBundle.flatMap(ReaderVersions.revision(of:)) }
     private var current: Int? { ReaderVersions.current }

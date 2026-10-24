@@ -224,7 +224,7 @@ struct DeviceApprovalBanner: ViewModifier {
                 }
             }
             .animation(.default, value: visible.map(\.id))
-            .sheet(isPresented: Binding(get: { review != nil }, set: { if !$0 { review = nil } }), onDismiss: { Task { await refresh() } }) {
+            .appSheet(isPresented: Binding(get: { review != nil }, set: { if !$0 { review = nil } }), onDismiss: { Task { await refresh() } }) {
                 if let review {
                     NavigationStack {
                         ScrollView {

@@ -7,7 +7,7 @@ struct PresentedDiagram: Identifiable, Equatable { let id: UUID }
 /// A saved diagram in a sheet (from an answer's "View diagram").
 struct DiagramSheet: View {
     let diagram: ChatDiagram
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
 
     var body: some View {
         NavigationStack {

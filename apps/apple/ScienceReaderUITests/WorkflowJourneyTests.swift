@@ -379,7 +379,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let mathpix: Bool
         let heading: String, before: String, after: String, latex: String, figure: String
         static let authored = ReaderJourney(mathpix: false, heading: "2. Read the equations in context",
-            before: "Scaled dot-product attention turns", after: "The normalization in Equation",
+            before: "Scaled dot-product attention turns", after: "The normalization in",
             latex: #"\begin{equation}"#, figure: "Open figure: Queries and keys")
         // Real DPO paper rendered by timestep-mathpix-mathml-v1 (CC BY 4.0).
         static let mathpix = ReaderJourney(mathpix: true, heading: "5.2 Instability of Actor-Critic Algorithms",
@@ -1359,7 +1359,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let headingButton = app.buttons[headingName]
         XCTAssertTrue(headingButton.waitForExistence(timeout: 5)); headingButton.tap()
         let before = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Scaled dot-product attention turns")).firstMatch
-        let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The normalization in Equation")).firstMatch
+        let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The normalization in")).firstMatch
         XCTAssertTrue(before.waitForExistence(timeout: 5)); XCTAssertTrue(after.waitForExistence(timeout: 5))
         let arrived = NSPredicate { _, _ in before.isHittable && after.isHittable && after.frame.minY > before.frame.maxY + 20 }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: arrived, object: nil)], timeout: 5), .completed)
@@ -1369,8 +1369,8 @@ final class WorkflowJourneyTests: XCTestCase {
             let y = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
             web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width / 2, dy: y)).tap()
         }
-        // Build 16 #4: a tapped equation opens the same edit menu as selected text, beside it.
-        let define = app.editMenuItem("Explain in Chat")
+        // Build 16 #4: a tapped equation opens its edit menu beside it (Chat about Equation · Focus · Copy as Text).
+        let define = app.editMenuItem("Chat about Equation")
         let equationY = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
         let right = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width * 0.8, dy: equationY))
         let left = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width * 0.2, dy: equationY))
@@ -1379,22 +1379,23 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Wide equation pans without activating actions")
         left.press(forDuration: 0.05, thenDragTo: right)
         tapEquation()
-        XCTAssertTrue(app.revealEditMenuItem("Explain in Chat").exists, "A touch on SVG math must open the edit menu")
-        XCTAssertTrue(app.editMenuItem("Copy LaTeX").exists, "Copy comes first for an equation too")
-        let copyLatex = app.editMenuItem("Copy LaTeX").frame
-        XCTAssertTrue(copyLatex.minX < define.frame.minX || copyLatex.minY < define.frame.minY, "Copy LaTeX comes first")
+        XCTAssertTrue(app.revealEditMenuItem("Chat about Equation").exists, "A touch on SVG math must open the edit menu")
+        let copyText = app.editMenuItem("Copy as Text")
+        XCTAssertTrue(copyText.exists, "Copy as Text for an equation")
+        XCTAssertTrue(copyText.frame.minX > define.frame.minX || copyText.frame.minY > define.frame.minY, "Copy as Text comes last")
+        XCTAssertFalse(app.editMenuItem("Related papers").exists, "No Related papers on an equation (owner, 2026-10-24)")
         XCTAssertFalse(app.buttons["reader.selection.define"].exists, "No selection bar under the paper")
         capture(app, "Touching an equation offers the edit menu with the paper's actions")
         // Tapping the page outside it closes the menu and unselects the equation.
         web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
         XCTAssertTrue(define.waitForNonExistence(timeout: 5))
         let location = before.frame.minY - web.frame.minY
-        tapEquation(); XCTAssertTrue(app.revealEditMenuItem("Explain in Chat").exists); define.tap()
-        let question = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#)).firstMatch
-        XCTAssertTrue(question.waitForExistence(timeout: 8), "The exact equation environment reaches encrypted local chat")
-        XCTAssertEqual(chatContext(app), "Paper chat")
-        app.buttons["chat.returnToPaper"].tap()
+        // Chat about Equation opens the equation view with its own chat (EQUATION_VIEW.md), not the paper's chat.
+        tapEquation(); XCTAssertTrue(app.revealEditMenuItem("Chat about Equation").exists); define.tap()
+        let composer = app.descendants(matching: .any)["contextChat.composer"].firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 8), "The equation's own chat")
+        XCTAssertTrue(app.buttons["equation.explain"].exists, "In the equation view")
+        app.closeInfoSheet(from: app.buttons["equation.explain"])
         XCTAssertTrue(before.waitForExistence(timeout: 5))
         XCTAssertEqual(before.frame.minY - web.frame.minY, location, accuracy: 6)
         XCTAssertFalse(define.exists)
@@ -1454,11 +1455,14 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(copy.frame.minX < explain.frame.minX || copy.frame.minY < explain.frame.minY, "Copy comes first")
         XCTAssertFalse(app.buttons["reader.selection.define"].exists, "No selection bar under the paper")
         capture(app, "Native text selection with the paper's actions in the edit menu")
-        for title in ["Why it matters", "Related papers", "Add paper"] {
-            let item = app.revealEditMenuItem(title)
-            XCTAssertTrue(item.exists && item.isHittable, "\(title) is reachable in the menu")
+        // Owner, 2026-10-24: Copy · Explain in Chat · Save snippet, nothing else ("translate, related papers on a random
+        // text selection? It needs to be better thought out").
+        let snippet = app.revealEditMenuItem("Save snippet")
+        XCTAssertTrue(snippet.exists && snippet.isHittable, "Save snippet is reachable in the menu")
+        for title in ["Why it matters", "Related papers", "Add paper", "Draw snippet", "Look Up", "Translate", "Search Web", "Share…"] {
+            XCTAssertFalse(app.editMenuItem(title).exists, "\(title) is not offered")
         }
-        capture(app, "Edit menu, every paper action reachable")
+        capture(app, "Edit menu, the paper's three actions")
         // Tapping elsewhere closes the menu and the selection: at the text column's right edge, beside the menu (on an
         // iPad the full menu opens under the selection, across the column's middle).
         web.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.15)).tap()

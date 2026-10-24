@@ -149,8 +149,29 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     then an ease-in fade over `FigureFullscreenStage.fadeDuration`, 1 s; with Reduce Motion it stays as long, then goes at
     once). The Feed does the same for its picked article. A row not in the list (filtered out, searched past) gets
     nothing; sideways again, the same paper is on the right (`RowReveal`, `RevealTint`).
-  - *Selection actions* stay in the system edit menu next to the selection on every shape (Explain in Chat, Save
-    snippet, …); no bar of actions sits over the page.
+  - *Selection actions* stay in the system edit menu next to the selection on every shape; no bar of actions sits over
+    the page. A text selection's menu is **Copy · Explain in Chat · Save snippet** and nothing else (owner, 2026-10-24:
+    "many of the options suck… translate, related papers on a random text selection? It needs to be better thought
+    out"): the system's Look Up, Translate, Search Web, Share, Speak and Writing Tools are removed (`ReaderWebView.
+    buildMenu` keeps only the system's Copy), and Why it matters, Related papers, Add paper and Draw snippet are not in
+    it. Draw snippet stays in the paper's ⋯ and, on the Mac, a right-click with nothing selected. A tapped equation:
+    **Chat about Equation · Focus · Copy as Text**. A reference entry: the system's pull-down menu at the entry (a
+    vertical list with symbols: Copy, Open on arXiv, Add to library, Discuss in chat), as on the Mac; a tap outside or a
+    scroll closes it. Figure pages' text selections get the same trimming (Copy only). The Mac's Paper menu has one
+    "Explain Selection in Chat" (⌥⌘1).
+  - *Prompts as on iPhone* (owner, 2026-10-24: "make the UX same as iPhone find all instances where this guidance
+    applies"): on iPad nothing floats as a centred card over the two slots. In Wide a prompt raised from something in a
+    slot (an explainer's model chooser or cloud consent, the equation view's, the chat's consent and answer options, a
+    list's Columns, Snippets' sheets, the paper's Find matches, reader version, figure gallery or figure reference)
+    covers **that slot only** (`slotSheet`, `Views/SlotSheet.swift`): the slot dims, the sheet rises from its bottom edge
+    with a grabber and rounded top corners at the same detent as on iPhone, and closes with its Cancel or ✕, a drag on its
+    grabber, a tap on the dimmed slot or VoiceOver's escape (none of them while it asks not to be, as with unsaved text);
+    the other slot stays visible, undimmed and usable. A prompt that belongs to the whole app (Settings, sign-in,
+    recovery, Get credits, Add paper, reports, Listen's player…) and every sheet upright is the iPhone's sheet scaled up
+    (`appSheet` / `phoneSheetSizing`): the window's width upright, a page's size sideways, never the small form sheet
+    (iPadOS 18 and later; iPadOS 17 keeps the form sheet). Upright, the AI Explainer, the equation view and a figure page
+    cover the page exactly as on iPhone (owner, 2026-10-24: "no need for a UX difference there"). System alerts,
+    confirmation dialogs anchored to their control and popovers anchored to their control stay the system's.
   - *Not yet*: Settings as Sections | Page (still a sheet); the Mac's own Wide step (its toolbar holds the five places;
     its Reader is the paper beside a resizable chat column, `ReaderSplit`; pane bars, Return to send and density are
     unchanged). Contents' figure pages in the left slot keep Snippet, Chat and AI Explainer; what they choose applies to
@@ -274,11 +295,15 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   remains available, and Mac double-click still selects text. Above the four tabs, show “Double tap anywhere while
   reading the article for this menu” until the gesture succeeds; remember that fact on this device across launches.
   Contents and reference jumps land immediately, including with Reduce Motion off. Bibliography entries show all
-  their actions together in a vertical native menu, without a horizontal More page.
+  their actions together in a vertical native menu, without a horizontal More page: the system's pull-down menu with
+  each action's symbol, anchored at the entry on iPhone, iPad and Mac (owner, 2026-10-24: the action sheet "doesn't follow
+  the native iOS style").
 
 - **Rows**: `.headline` title (≤ 2 lines), `.subheadline` authors, `.footnote` details/status; 16 pt side and 12 pt
   vertical padding; at most one trailing icon; navigation rows have a chevron, action rows accent text.
-- **Tables**: one `PaperTable` (`Views/PaperTable.swift`) wherever papers show as a table (Library, Feed). A pinned
+- **Tables**: one `PaperTable` (`Views/PaperTable.swift`) wherever papers show as a table (Library, Feed). Both open as
+  the table unless the reader chose List (Feed: owner, 2026-10-24, "Why is the feed default view not a table like the
+  library"; at accessibility text sizes both show rows; `FeedLayout(saved:)`). A pinned
   header of `.footnote` semibold titles in secondary color; the sorted one in accent with a chevron (tap to sort, again
   to reverse; "· Added ⌄" beside Title when the sorted column doesn't fit). Title column: `.subheadline` semibold
   title (≤ 2 lines, truncated). Library uses separate Device and Authors columns, enabled by default; the title does

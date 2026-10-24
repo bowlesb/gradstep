@@ -15,6 +15,23 @@
   catalog's (`$\Delta$` as arXiv writes it), not the reader's; unchanged.
 
 
+## TestFlight 90 (pending)
+
+- **iPad menus, explainers and prompts** (branch `ipad-menus-90`; owner feedback on TestFlight 88, DECISIONS.md › Menus,
+  explainers and prompts on iPad): upright, the AI Explainer, equation view and figure page cover the page as on iPhone;
+  Why it matters, Related papers, Add paper, Draw snippet and the system's Look Up/Translate/Search Web/Share/Speak are
+  gone from a text selection's menu (Copy · Explain in Chat · Save snippet), an equation's is Chat about Equation · Focus ·
+  Copy as Text; a reference opens the system's pull-down menu with symbols; the Feed opens as a table; in Wide a slot's
+  prompts (model chooser, consent, Columns, Snippets' sheets…) cover that slot only, and app-level sheets are the iPhone's
+  sheet scaled up. Not yet on TestFlight; not seen on a device. Verification (Simulator iOS 26.4, iPad Pro 13-inch M5 and
+  iPhone 17 Pro; Mac Catalyst on this Mac): `swift test` 437/437; new `MenusJourneyTests` pass on iPad (8) and iPhone
+  (the 5 that apply), `testMacRightClickMenus` passes on the Mac; IPadShapesJourneyTests 14/15 (the ⌘1 place shortcut
+  check fails, as noted for TestFlight 88; `testReadAndDiscussKeepThePaperInPlace` failed once and passed on rerun);
+  selection, equation and reference journeys in WorkflowJourneyTests and ReaderNavigationTests pass on both;
+  ChatTitle/ChatGeneration/PaperTable unit tests pass. MacKeyboardTests' ⌘4 Browse check fails (⌘4 is Chat since the
+  places were renumbered; stale, not changed here). The Feed's checkmark state after Add isn't reached in the fixture;
+  rows keep their top and height from Add to loading. iPadOS 18 sizing not run on an 18 Simulator (only 26.4 installed).
+
 ## New AI gateway key, iPad Wide places — 2026-10-24 UTC (TestFlight 88, iOS and Mac uploaded)
 
 - **AI key restored on staging:** the owner supplied a new dedicated OpenRouter key (key info: $50 key limit, unused)

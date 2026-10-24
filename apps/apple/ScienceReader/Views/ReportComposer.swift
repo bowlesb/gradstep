@@ -82,7 +82,7 @@ struct ReportComposer: View {
                         } catch { if photoVersion == version { self.error = "The image could not be opened. Choose a PNG or JPEG screenshot under 20 MB." } }
                     }
                 }
-                .sheet(isPresented: $editingImage) {
+                .appSheet(isPresented: $editingImage) {
                     if let screenshot { ScreenshotEditor(image: screenshot) { result in self.screenshot = result.image; attachment = result.attachment; consent = false } }
                 }
         }

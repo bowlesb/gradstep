@@ -50,30 +50,30 @@ struct SharedPresentations: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: signInPresentation, onDismiss: { model.authenticationSheetDismissed() }) {
+            .appSheet(isPresented: signInPresentation, onDismiss: { model.authenticationSheetDismissed() }) {
                 if let presentationID = model.signInPresentationID {
                     AuthenticationView(model: model, presentationID: presentationID).id(presentationID).macSheetKeys()
                 }
             }
-            .sheet(isPresented: routed($model.showRecovery)) { RecoveryView(model: model).interactiveDismissDisabled().macSheetKeys(enabled: false) }
-            .sheet(isPresented: routed($model.showAllChats)) {
+            .appSheet(isPresented: routed($model.showRecovery)) { RecoveryView(model: model).interactiveDismissDisabled().macSheetKeys(enabled: false) }
+            .appSheet(isPresented: routed($model.showAllChats)) {
                 ChatHistoryView(model: model, paperID: model.allChatsPaperID, startsOnPaper: model.allChatsStartsOnPaper).macSheetKeys()
             }
-            .sheet(isPresented: routed($model.showDiagrams)) { HistoryView(model: model, diagrams: true).macSheetKeys() }
-            .sheet(isPresented: routed($model.showStore)) { CreditsStoreView(model: model).macSheetKeys() }
-            .sheet(isPresented: routed($model.showRecommendations)) { RecommendationSheet(model: model).macSheetKeys() }
-            .sheet(item: routed($model.presentedDiagram)) { presented in
+            .appSheet(isPresented: routed($model.showDiagrams)) { HistoryView(model: model, diagrams: true).macSheetKeys() }
+            .appSheet(isPresented: routed($model.showStore)) { CreditsStoreView(model: model).macSheetKeys() }
+            .appSheet(isPresented: routed($model.showRecommendations)) { RecommendationSheet(model: model).macSheetKeys() }
+            .appSheet(item: routed($model.presentedDiagram)) { presented in
                 if let diagram = model.diagram(presented.id) {
                     DiagramSheet(diagram: diagram).macSheetKeys()
                         .environment(\.figureImage) { manifest, paths in model.figureImage(manifest: manifest, paths: paths) }
                         .environment(\.figurePartCrops) { stored in model.figurePartCrops(stored) }
                 }
             }
-            .sheet(isPresented: routed($model.showReport), onDismiss: {
+            .appSheet(isPresented: routed($model.showReport), onDismiss: {
                 model.reportScreenshot = nil
                 if model.showReportsAfterComposer { model.showReportsAfterComposer = false; model.showReports = true }
             }) { ReportComposer(model: model) }
-            .sheet(isPresented: routed($model.showReports)) { if let service = model.support { ReportsView(service: service).macSheetKeys() } }
+            .appSheet(isPresented: routed($model.showReports)) { if let service = model.support { ReportsView(service: service).macSheetKeys() } }
             .alert("Gradstep", isPresented: Binding(get: { live && model.error != nil }, set: { if !$0 { model.error = nil } })) {
                 Button("OK") { model.error = nil }
             } message: { Text(model.error ?? "") }

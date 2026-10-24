@@ -638,7 +638,7 @@ struct LibraryColumnsSheet: View {
     @Bindable var model: ReaderModel
     /// The table's row width (inside the margins), to say which chosen columns need more room.
     let tableWidth: CGFloat
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
     @ScaledMetric(relativeTo: .subheadline) private var scale: CGFloat = 1
     private let widthClass = LibraryColumnSettings.WidthClass.current
 

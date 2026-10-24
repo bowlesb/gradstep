@@ -312,7 +312,9 @@ final class IPadShapesJourneyTests: XCTestCase {
         app.buttons["Feed options"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["Report this screen"].firstMatch.waitForExistence(timeout: 3), "The ⋯ menu is open")
         XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in a ⋯ menu here: it is in the places menu")
-        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+        // A tap outside closes it (Escape reaches a menu only with a hardware keyboard attached, which the Simulator's
+        // runner doesn't guarantee): on the right slot's placeholder, which a tap doesn't change.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.6)).tap()
         wait("The ⋯ menu closed") { !app.descendants(matching: .any)["Report this screen"].firstMatch.exists }
         choose("chat", app)
         wait("Chat") { app.currentPlace == "Chat" }

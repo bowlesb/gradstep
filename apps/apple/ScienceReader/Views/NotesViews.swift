@@ -431,10 +431,10 @@ struct NoteDetailView: View {
             ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: note) }
         }
         .tabBarSpace()
-        .sheet(item: $writing) { request in NoteTextSheet(model: model, request: request).macSheetKeys(enabled: false) }
+        .slotSheet(item: $writing) { request in NoteTextSheet(model: model, request: request).macSheetKeys(enabled: false) }
         .fullScreenCover(item: $zoomed) { entry in SnippetZoomView(model: model, entry: entry) }
-        .sheet(item: $details) { entry in NoteSourceSheet(model: model, entry: entry).macSheetKeys() }
-        .sheet(item: $reviewing) { entry in NoteVersionsSheet(model: model, entry: entry).macSheetKeys() }
+        .slotSheet(item: $details) { entry in NoteSourceSheet(model: model, entry: entry).macSheetKeys() }
+        .slotSheet(item: $reviewing) { entry in NoteVersionsSheet(model: model, entry: entry).macSheetKeys() }
         .confirmationDialog("Delete this snippet?", isPresented: Binding(get: { deletingEntry != nil }, set: { if !$0 { deletingEntry = nil } }),
                             titleVisibility: .visible, presenting: deletingEntry) { entry in
             Button("Delete snippet", role: .destructive) {
@@ -821,7 +821,7 @@ struct ZoomableImage: UIViewRepresentable {
 struct NoteTextSheet: View {
     let model: ReaderModel
     let request: NoteTextRequest
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
     @State private var text = ""
     @State private var saving = false
     @State private var issue: String?
@@ -865,7 +865,7 @@ struct NoteTextSheet: View {
             }
         }
         .onAppear { text = request.text; focused = true }
-        .interactiveDismissDisabled(text != request.text)
+        .sheetDismissDisabled(text != request.text)
     }
 
     private func save() {
@@ -888,7 +888,7 @@ struct NoteTextSheet: View {
 struct NoteSourceSheet: View {
     let model: ReaderModel
     let entry: NotesState.Entry
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -937,7 +937,7 @@ struct NoteSourceSheet: View {
 struct NoteVersionsSheet: View {
     let model: ReaderModel
     let entry: NotesState.Entry
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
     @State private var issue: String?
 
     var body: some View {

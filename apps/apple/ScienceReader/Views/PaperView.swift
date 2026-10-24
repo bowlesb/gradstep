@@ -461,7 +461,7 @@ struct PaperView: View {
                 }
             }
         }
-        .sheet(isPresented: $showContents, onDismiss: applyFigureOutcome) {
+        .slotSheet(isPresented: $showContents, onDismiss: applyFigureOutcome) {
                 PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize,
                                    report: { ReportPresenter.present(model, sheet: "Contents") }) { target, id in
                     // The jump goes at the tap, while the sheet slides away (owner, build 78: "it gives me a delay before
@@ -473,10 +473,10 @@ struct PaperView: View {
                 .environment(\.figureViewHost, figureHost { showContents = false })
                 .macSheetKeys()
             }
-            .sheet(isPresented: $showReaderVersion) {
+            .slotSheet(isPresented: $showReaderVersion) {
                 if let paper = model.selectedPaper { ReaderVersionSheet(model: model, paper: paper).macSheetKeys() }
             }
-            .sheet(isPresented: $showFigures, onDismiss: applyFigureOutcome) {
+            .slotSheet(isPresented: $showFigures, onDismiss: applyFigureOutcome) {
                 if let bundle = model.selectedPaper?.readerBundle {
                     // At the tap, as Contents (build 78); the highlight is still showing once the gallery has gone.
                     FigureGalleryView(bundle: bundle, baseFontSize: model.paperFontSize) { id in
@@ -488,7 +488,7 @@ struct PaperView: View {
             }
             // A figure reference ("Fig. 1"): the figure, table or algorithm with its caption, half height so the paper
             // stays in view; "Go to figure" goes there with Back as the sheet closes.
-            .sheet(item: $figureReference, onDismiss: applyFigureOutcome) { value in
+            .slotSheet(item: $figureReference, onDismiss: applyFigureOutcome) { value in
                 NavigationStack {
                     Group {
                         if let bundle = model.selectedPaper?.readerBundle {
@@ -507,6 +507,7 @@ struct PaperView: View {
                     }
                 }
                 .presentationDetents([.medium, .large], selection: $figureReferenceDetent).presentationDragIndicator(.visible)
+                .slotSheetDetent(figureReferenceDetent == .large ? .large : .medium)
                 .onAppear { figureReferenceDetent = .medium }
                 .environment(\.expandSheet) { figureReferenceDetent = .large }
                 .environment(\.figureViewHost, figureHost { figureReference = nil })
@@ -1690,7 +1691,7 @@ struct LocalPDFReaderView: View {
                     }
                 }
                 .onDisappear { if capturing { model?.notes.capturing = nil } }
-                .sheet(isPresented: $showContents) {
+                .appSheet(isPresented: $showContents) {
                     NavigationStack {
                         let entries = outline
                         Group {

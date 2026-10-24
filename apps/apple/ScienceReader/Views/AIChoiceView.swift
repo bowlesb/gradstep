@@ -11,7 +11,7 @@ struct AIChoiceView: View {
     var scenario: AIUseCase? = nil
     let needsVision: Bool
     let choose: (String?) -> Void
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
     @State private var selectionMade = false
     @State private var initialized = false
     @State private var expanded = false
@@ -48,7 +48,7 @@ struct AIChoiceView: View {
             model.refreshChatProfiles(); await local.refresh()
         }
         .onDisappear { if !chat, !selectionMade { model.pendingAIChoice = nil; model.pendingLocalAIChoice = nil } }
-        .presentationDetents(expanded ? [.large] : [.height(220)])
+        .sheetDetent(expanded ? .large : .height(220))
         .frame(minWidth: Platform.isMac ? 480 : nil, minHeight: Platform.isMac ? (expanded ? 500 : 220) : nil)
     }
 
@@ -126,7 +126,7 @@ struct AISelectionButton: View {
             }.font(.caption.weight(.medium)).foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("ai.selection").accessibilityLabel("Model: \(model.currentAIName)")
-        .sheet(isPresented: $choosing) {
+        .slotSheet(isPresented: $choosing) {
             AIChoiceView(model: model, chat: true, needsVision: false) { model.localAIModelID = $0 }
         }
     }

@@ -77,7 +77,7 @@ struct PodcastPlayerSheet: View {
         .presentationDragIndicator(.visible)
         .background { keyboardShortcuts }
         // Over the player: an evidence quote from a paper that isn't in the library.
-        .sheet(item: Binding(get: { center.evidenceElsewhere }, set: { center.evidenceElsewhere = $0 })) { item in
+        .appSheet(item: Binding(get: { center.evidenceElsewhere }, set: { center.evidenceElsewhere = $0 })) { item in
             PodcastEvidenceElsewhereSheet(model: model, item: item).macSheetKeys()
         }
     }
@@ -548,8 +548,8 @@ struct PodcastPresenter: ViewModifier {
     func body(content: Content) -> some View {
         @Bindable var center = model.podcasts
         content
-            .sheet(isPresented: $center.showPlayer) { PodcastPlayerSheet(model: model).macSheetKeys() }
-            .sheet(item: $center.generation) { _ in PodcastGenerateSheet(model: model).macSheetKeys() }
+            .appSheet(isPresented: $center.showPlayer) { PodcastPlayerSheet(model: model).macSheetKeys() }
+            .appSheet(item: $center.generation) { _ in PodcastGenerateSheet(model: model).macSheetKeys() }
             // While the player or generation sheet is up, they show the notice themselves (a root alert can't present).
             .alert("Listen", isPresented: Binding(get: { center.notice != nil && !center.showPlayer && center.generation == nil },
                                                   set: { if !$0 { center.notice = nil } })) {

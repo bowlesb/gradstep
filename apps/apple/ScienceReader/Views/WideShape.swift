@@ -208,6 +208,8 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
                 .frame(width: side == .right ? left : nil)
                 .frame(maxWidth: side == .right ? nil : .infinity)
                 .environment(\.placesLeadingReserve, mainLeads ? placesReserve : 0)
+                // Its prompts cover this slot only while two show (owner, 2026-10-24; SlotSheet.swift).
+                .modifier(SlotSheetHost(active: side != .none))
                 // Covered: still loaded at its place, but neither seen, read by VoiceOver nor touched. (Its UIKit-hosted
                 // parts, a NavigationStack's pages, don't take SwiftUI's hiding: the covering slot is modal as well.)
                 .opacity(covering ? 0 : 1)
@@ -223,6 +225,7 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
             if side != .none {
                 otherView
                     .frame(width: covering ? width : (side == .left ? left : max(0, width - left - 1)))
+                    .modifier(SlotSheetHost(active: true))
                     .background(Color(uiColor: .systemBackground).ignoresSafeArea())
                     .opacity(closing ? 0.5 : 1)
                     .environment(\.placesLeadingReserve, mainLeads ? 0 : placesReserve)
@@ -647,11 +650,13 @@ private struct ExplainerCompanion<Page: View>: ViewModifier {
 }
 
 extension View {
-    /// A sheet in Tall, exactly as on iPhone; in Wide the companion slot beside the paper (ExplainPane).
+    /// A sheet in Tall, exactly as on iPhone: on iPad too it covers the page (owner, 2026-10-24: "the AI explainer doesn't
+    /// cover the whole page. Please make it like iPhone no need for a UX difference there"; `phoneSheetSizing`). In Wide the
+    /// companion slot beside the paper (ExplainPane).
     func explainerPresentation<Item: Identifiable, Page: View>(item: Binding<Item?>, wide: Bool, opened: (() -> Void)? = nil,
                                                               onDismiss: (() -> Void)? = nil,
                                                               @ViewBuilder content: @escaping (Item) -> Page) -> some View {
-        self.sheet(item: wide ? .constant(nil) : item, onDismiss: onDismiss, content: content)
+        self.sheet(item: wide ? .constant(nil) : item, onDismiss: onDismiss) { content($0).phoneSheetSizing() }
             .modifier(ExplainerCompanion(shown: wide && item.wrappedValue != nil, close: { item.wrappedValue = nil },
                                          onDismiss: onDismiss, opened: opened) {
                 if let value = item.wrappedValue { content(value) }
@@ -660,7 +665,7 @@ extension View {
 
     func explainerPresentation<Page: View>(isPresented: Binding<Bool>, wide: Bool, opened: (() -> Void)? = nil,
                                            onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping () -> Page) -> some View {
-        self.sheet(isPresented: wide ? .constant(false) : isPresented, onDismiss: onDismiss, content: content)
+        self.sheet(isPresented: wide ? .constant(false) : isPresented, onDismiss: onDismiss) { content().phoneSheetSizing() }
             .modifier(ExplainerCompanion(shown: wide && isPresented.wrappedValue, close: { isPresented.wrappedValue = false },
                                          onDismiss: onDismiss, opened: opened, page: content))
     }

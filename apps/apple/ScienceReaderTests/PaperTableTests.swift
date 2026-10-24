@@ -103,6 +103,12 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(LibraryLayout.allCases.map(\.title), ["Table", "List"])
     }
 
+    func testTheFeedOpensAsATableLikeTheLibrary() {
+        XCTAssertEqual(FeedLayout(saved: nil), .table, "The Feed's default is the table (owner, 2026-10-24)")
+        XCTAssertEqual(FeedLayout(saved: "table"), .table)
+        XCTAssertEqual(FeedLayout(saved: "list"), .list, "An explicit List stays")
+    }
+
     func testFeedColumnsFollowTheWidth() {
         // Build 21: Popularity first beside the title (narrow), then Topics (chips), then Published.
         XCTAssertEqual(feedColumns(Width.phoneSmall), ["popularity", "add"], "Phone portrait: title, popularity and Add")

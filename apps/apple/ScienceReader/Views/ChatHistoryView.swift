@@ -127,7 +127,7 @@ struct ChatHistoryView: View {
                 if embedded { slotRow(searchable: !summaries.isEmpty) } else { topRow(searchable: !summaries.isEmpty) }
             }
             .renameConversationAlert(model: model, conversation: $renaming)
-            .sheet(isPresented: $showColumns) { columnsSheet }
+            .slotSheet(isPresented: $showColumns) { columnsSheet }
             .alert("Delete this conversation?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                    presenting: deleting) { row in
                 Button("Delete", role: .destructive) { Task { await model.deleteConversation(row.id) } }
@@ -138,7 +138,6 @@ struct ChatHistoryView: View {
             }
         }
         .presentationDetents([.large])
-        .modifier(ChatHistorySizing())
     }
 
     // MARK: Top
@@ -639,9 +638,3 @@ struct ChatHistoryLargeRow: View {
     }
 }
 
-/// A table wants the room: the page-sized sheet on iPad (still a sheet, dismissed the same way); full height on iPhone.
-private struct ChatHistorySizing: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) { content.presentationSizing(.page) } else { content }
-    }
-}

@@ -58,7 +58,7 @@ struct FigureGalleryView: View {
     let bundle: VerifiedReaderBundle
     var baseFontSize: Double = 17
     let onShowInPaper: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
+    @SheetDismiss private var dismiss
     @State private var path: [String] = []
     private var figures: [GalleryFigure] { GalleryFigure.all(in: bundle.index) }
 

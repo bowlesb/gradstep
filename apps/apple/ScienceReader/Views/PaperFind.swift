@@ -90,7 +90,7 @@ struct PaperFindBar: View {
         .padding(.horizontal, 16).padding(.bottom, 6).background(floating ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.bar))
         .task { focused = true }
         .task(id: find.query) { await find.search() }
-        .sheet(isPresented: $find.showsMatches) {
+        .slotSheet(isPresented: $find.showsMatches) {
             NavigationStack {
                 List(find.matches) { match in
                     Button { find.select(match.index) } label: {

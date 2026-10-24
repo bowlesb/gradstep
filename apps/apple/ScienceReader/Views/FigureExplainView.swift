@@ -95,7 +95,7 @@ private struct FigurePageActions: ViewModifier {
             .navigationDestination(isPresented: $explaining) {
                 if let host, let context { FigureExplainView(model: host.model, context: context, requesting: explainOnOpen, finish: host.finish, close: host.close) }
             }
-            .sheet(isPresented: $choosingAI) {
+            .slotSheet(isPresented: $choosingAI) {
                 if let host {
                     AIChoiceView(model: host.model, scenario: .figures, needsVision: true) { _ in
                         explainOnOpen = true; expandSheet?(); explaining = true
@@ -179,16 +179,16 @@ struct FigureExplainView: View {
         }
         .onDisappear { if expandedImage == nil { session?.stop(); if let chatToken { model.endContextualChat(chatToken) } } }
         .modifier(FigureImageCover(image: $expandedImage))
-        .sheet(isPresented: $choosingAI) {
+        .slotSheet(isPresented: $choosingAI) {
             AIChoiceView(model: model, chat: true, needsVision: true) { id in
                 model.localAIModelID = id; session?.stop()
                 let opened = FigureExplainSession(context: context, model: model); session = opened
                 Task { await opened.start() }
             }
         }
-        .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
+        .slotSheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
             CloudConsentContent(accept: { session?.acceptConsent() }, decline: { session?.declineConsent() })
-                .presentationDetents([.large])
+                .sheetDetent(.large)
                 .macSheetKeys()
         }
     }
