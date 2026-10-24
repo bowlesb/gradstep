@@ -1,6 +1,6 @@
 # Interest index: server layer (step 2)
 
-Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00054-m9n`,
+Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00055-vzm`,
 Edge function `interest-index`; serving `staff`). Evidence and as-built differences are in
 [Phase B as built](#phase-b-as-built-staging-2026-10-24). The lead's interim decisions are recorded in
 [DECISIONS.md](../DECISIONS.md#interest-index-server-layer-agent-design-2026-10-24-phase-b-built-on-staging-the-same-day).
@@ -62,6 +62,8 @@ over 400 random corpus papers. Papers average **308 tokens** (median 306, p95 41
   - The model file's SHA-256 is checked at load. On a mismatch the worker refuses to embed (`interest_model_mismatch`).
   - The model is fetched at **build** time by `ADD --checksum=sha256:… https://huggingface.co/Xenova/gte-small/resolve/<commit>/onnx/model.onnx`.
     The running worker never downloads anything.
+  - ONNX Runtime's built-in telemetry (on by default in 1.30) is switched off with `ORT_DISABLE_TELEMETRY=1` in the image,
+    and the embedder refuses to load the runtime without it ([ONNX Runtime telemetry](#onnx-runtime-telemetry-closed-2026-10-24-worker-revision-gradstep-pipeline-00055-vzm)).
 
 ### Data
 
@@ -538,14 +540,66 @@ through `account-delete`; script in the session scratchpad):
 
 **Known limits and follow-ups.**
 
-- ONNX Runtime 1.30's native telemetry module logs "No readable CA bundle was found; telemetry HTTPS uploads will be
-  unavailable" when the model loads. The image has no CA bundle, so it cannot upload, and the JS egress guard covers
-  only `fetch`. Disabling it explicitly, or proving no attempt with egress logs, is a follow-up.
+- ONNX Runtime telemetry: closed 2026-10-24; see "ONNX Runtime telemetry" below.
 - Backfill throughput is bounded by the 20-minute run spacing. A self-kick at release would roughly halve a future
   full re-embedding; it is not needed for the daily ≈ 750 papers.
 - The admin Health card is built and type-checks, but the admin site was not redeployed (the database side, including
   Attention items, is live through `v1_admin_health`).
 - No client uses the index yet (step 3). The privacy line in §5 needs owner approval before public release.
+
+## ONNX Runtime telemetry (closed 2026-10-24; worker revision `gradstep-pipeline-00055-vzm`)
+
+Rule: servers make no unexpected outbound connections.
+
+**Source.** The warning comes from ONNX Runtime's own native core, not from the tokenizer (the worker uses its own
+WordPiece; `@huggingface/tokenizers` is not installed).
+
+- ONNX Runtime 1.30.0 (`onnxruntime-node@1.30.0`, upstream tag `v1.30.0`, commit `f2c39fe2`) ships Microsoft's 1DS
+  telemetry in its official POSIX builds: `onnxruntime/core/platform/posix/telemetry.cc`.
+- It is **on by default** (`PosixTelemetry::enabled_{true}`).
+- When the runtime environment initializes, it:
+  - creates a 1DS log manager posting to `https://mobile.events.data.microsoft.com/OneCollector/1.0`;
+  - persists a device id and an event cache under `$HOME/.cache/Microsoft/DeveloperTools/.onnxruntime/`
+    (`deviceid`, `onnxruntime.db`);
+  - queues events: process info (ORT version, OS, CPU model, memory, hashed device id), session creation (model
+    producer, file and graph names, model hashes), load, run counts, and errors. No input text or embeddings.
+- With no CA bundle the uploader cannot complete TLS. Its own warning is that log line.
+
+**Switch.** `onnxruntime-node` exposes no telemetry API (only `env.logLevel`). The supported opt-out is the
+environment variable `ORT_DISABLE_TELEMETRY` (`telemetry_environment.h`: "1", "true", "yes", "on" or "y"). It is latched
+when the runtime initializes: no uploader is created, no event is logged and no device id is written.
+
+- The image now sets `ENV ORT_DISABLE_TELEMETRY=1`.
+- `interest-embed.ts` refuses to load the runtime without it (`interest_telemetry_enabled`), checked in
+  `tests/backend/interest-telemetry.test.ts`.
+- The Dockerfile line is asserted by `tests/operations/test_pipeline_deployment.py`.
+
+**Proof** (local Colima VM, amd64 images from Cloud Build). A capture container shared each probe's network namespace
+(`tcpdump -i any`). DNS pointed at 127.0.0.1, so lookups are visible but no name can reach a resolver. Evidence is under
+the worktree's `.artifacts/interest-network-check/`.
+
+| Image and condition | DNS / TCP | ORT device-id directory |
+|---|---|---|
+| Deployed revision 00054, as deployed (no CA bundle, no opt-out) | Repeated `A?`/`AAAA? mobile.events.data.microsoft.com` lookups (from 10 s after load, again a minute later); log line "No readable CA bundle…" | Created (`deviceid`, `onnxruntime.db*`) |
+| The same with a CA bundle added ("if certificates were present") | The same lookups; with real DNS it would connect and upload | Created |
+| Opt-out image (`ORT_DISABLE_TELEMETRY=1`), CA bundle present | **None** (no DNS, no TCP) over 75 s | Not created |
+| Opt-out image with the variable cleared | The embedder refuses (`interest_telemetry_enabled`); the runtime never loads | — |
+| Opt-out image: a full `/interest` run against staging with real DNS (claim, sync, embed 3 papers, release) | DNS only `coxhjvqpflgxkleydati.supabase.co`; TCP only to its two addresses (104.18.38.10:443, 172.64.149.246:443) | — |
+
+On Cloud Run, revision 00055 loaded the model and embedded 3 re-pended papers at 17:08 UTC without the warning that
+00053/00054 logged at every model load.
+
+**What happened before the fix.**
+
+- Revisions 00053 and 00054 (14:58–17:07 UTC, about 7 runs) looked up Microsoft's collector. On Cloud Run the lookups
+  resolve, so they probably opened TCP and TLS toward it.
+- With no CA bundle, TLS verification fails before HTTP, so no event payload could be sent. The device-id files lived in
+  each instance's ephemeral filesystem and are gone.
+- Separately, my local measurements on the owner's Mac (Python `onnxruntime` 1.31 at 06:25 and the Node parity test at
+  07:34 PDT) ran with the same telemetry on and a system CA bundle, so they probably sent ORT's events. Those events hold
+  library, OS and CPU facts, a hashed device id and gte-small's file name and hashes, never paper text.
+- I deleted the state they left (`~/Library/Application Support/Microsoft/DeveloperTools/.onnxruntime`). The slow parity
+  test now sets the opt-out itself.
 
 ## Decisions taken for Phase B (lead's interim decisions; the owner can revisit)
 

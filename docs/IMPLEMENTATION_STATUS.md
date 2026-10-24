@@ -98,8 +98,18 @@ pending owner approval, Homebrew PostgreSQL 17 + pgvector for local tests) are i
   instructions.
 - **Not done or known:**
   - The admin site was not redeployed: the Health card is built and type-checks, and the database side is live.
-  - ONNX Runtime's native telemetry logs that uploads are unavailable (no CA bundle in the image); an explicit disable
-    is a follow-up.
+  - ONNX Runtime telemetry is **closed** (branch `interest-ort-telemetry`; worker revision `gradstep-pipeline-00055-vzm`,
+    deployed 17:07 UTC):
+    - ORT 1.30's official build has Microsoft 1DS telemetry on by default (`mobile.events.data.microsoft.com`).
+    - The image now sets the documented opt-out `ORT_DISABLE_TELEMETRY=1`, and the embedder refuses to load without it.
+    - Captures:
+      - the old image (no CA bundle) looked up the collector repeatedly;
+      - the new image made no lookup;
+      - a full `/interest` run against staging resolved and connected only to `coxhjvqpflgxkleydati.supabase.co`.
+    - Before the fix: revisions 00053/00054 probably reached the collector's TLS but could not send events. The local
+      measurements on the owner's Mac probably sent ORT's device and model metadata, never paper text; their state was
+      deleted.
+    - Details: INTEREST_INDEX.md "ONNX Runtime telemetry".
   - No device or browser consumes the index (step 3).
   - The privacy-notice line needs owner approval before `serving='all'`.
 

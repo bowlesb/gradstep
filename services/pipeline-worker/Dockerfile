@@ -19,6 +19,9 @@ COPY supabase/functions/_shared ./supabase/functions/_shared
 COPY server.ts run.ts podcast-run.ts podcast-encode.ts interest-run.ts interest-embed.ts ./services/pipeline-worker/
 RUN chmod a+r ./services/pipeline-worker/model/gte-small.onnx
 ENV NODE_ENV=production
+# ONNX Runtime's documented POSIX telemetry opt-out (read once at runtime initialization): no 1DS uploader, no events,
+# no device id. interest-embed.ts refuses to load the runtime without it (docs/architecture/INTEREST_INDEX.md §1).
+ENV ORT_DISABLE_TELEMETRY=1
 USER node
 EXPOSE 8080
 CMD ["node", "services/pipeline-worker/server.ts"]
