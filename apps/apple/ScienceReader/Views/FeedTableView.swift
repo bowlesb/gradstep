@@ -315,15 +315,31 @@ struct DiscoveryAddControl: View {
     var showLibrary: (() -> Void)? = nil
     let add: () -> Void
     var body: some View {
+        // Every state takes the size of the largest (Add's capsule, the loading sign with "100%"), so Add → loading →
+        // checkmark never moves the title's wrapping or the row's separators (owner, 2026-10-24).
+        ZStack {
+            Button("Add") {}.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+            loading(fraction: 1)
+            Color.clear.frame(width: 44, height: 44)
+        }
+        .hidden().accessibilityHidden(true)
+        .overlay { state }
+    }
+
+    private func loading(fraction: Double?) -> some View {
+        VStack(spacing: 2) {
+            ProgressView().controlSize(.small)
+            if let fraction {
+                Text("\(Int((fraction * 100).rounded(.down)))%").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private var state: some View {
         if adding || setup.busy {
             Button { showLibrary?() } label: {
-                VStack(spacing: 2) {
-                    ProgressView().controlSize(.small)
-                    if let fraction = setup.fraction {
-                        Text("\(Int((fraction * 100).rounded(.down)))%").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                    }
-                }
-                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                loading(fraction: setup.fraction)
+                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.plain).disabled(showLibrary == nil)
             .accessibilityLabel(setup.fraction.map { "\(ArxivHTMLReader.phase(for: $0)) \(Int(($0 * 100).rounded(.down))) percent" } ?? "Adding")
