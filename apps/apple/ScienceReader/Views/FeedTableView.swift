@@ -1,49 +1,53 @@
 import SwiftUI
 import ScienceReaderCore
 
-/// What the Feed table sorts by. Suggested is the server's order (For you's ranking); it has no column.
+/// What the Feed table sorts by. Suggested is the server's order (For you's ranking); it has no column. Why groups the
+/// rows by why For you suggests them (owner, 2026-10-24).
 enum FeedSortKey: Hashable, CaseIterable {
-    case suggested, published, popularity, title, topic, authors
+    case suggested, why, published, popularity, title, topic, authors
     var label: String {
         switch self {
-        case .suggested: "Suggested"; case .published: "Published"; case .popularity: "Popularity"; case .title: "Title"
+        case .suggested: "Suggested"; case .why: "Why"; case .published: "Published"; case .popularity: "Popularity"; case .title: "Title"
         case .topic: "Topics"; case .authors: "Authors"
         }
     }
     var ascendingFirst: Bool { ![.published, .popularity, .suggested].contains(self) }
-    /// The orders offered for a selection: Suggested only where the server ranks (For you and topics).
-    static func offered(personal: Bool) -> [FeedSortKey] { allCases.filter { personal || $0 != .suggested } }
+    /// The orders offered for a selection: Suggested and Why only where the server ranks and says why (For you and topics).
+    static func offered(personal: Bool) -> [FeedSortKey] { allCases.filter { personal || ($0 != .suggested && $0 != .why) } }
 }
 
-/// The Feed's columns: Title (and first author) always, the reader's choice of Popularity, Topics, Published, Authors,
-/// arXiv ID and Abstract (owner feedback, build 17: "why are there so few options"; build 21: "Why not topics? And can we
+/// The Feed's columns: Title (and first author) always, the reader's choice of Why (For you and topics; owner,
+/// 2026-10-24: "Let's try having a column in Table for the reason"), Popularity, Topics, Published, Authors, arXiv ID and
+/// Abstract (owner feedback, build 17: "why are there so few options"; build 21: "Why not topics? And can we
 /// put a popularity score?"), and Add, which stays at the trailing end. When the chosen columns don't fit, they scroll
 /// sideways under the pinned title (`TableArrangement`).
 enum FeedTableColumn: String, CaseIterable, Identifiable, Sendable {
     // "topic" keeps its stored name so readers' saved choices carry over to Topics.
-    case popularity, topic, published, authors, arxiv, abstract, add
+    case why, popularity, topic, published, authors, arxiv, abstract, add
 
     typealias Column = PaperTableColumn<FeedSortKey>
     static let title = Column(id: "title", title: "Title", sortKey: .title, ascendingFirst: true)
     var id: String { rawValue }
 
     /// The columns the reader chooses (Add always shows).
-    static let choosable: [FeedTableColumn] = [.popularity, .topic, .published, .authors, .arxiv, .abstract]
-    /// iPhone: Popularity beside the title in portrait, Topics and Published scroll in; iPad and Mac add the authors.
-    static let compactDefault: Set<FeedTableColumn> = [.popularity, .topic, .published]
-    static let regularDefault: Set<FeedTableColumn> = [.popularity, .topic, .published, .authors]
+    static let choosable: [FeedTableColumn] = [.why, .popularity, .topic, .published, .authors, .arxiv, .abstract]
+    /// iPhone: Why beside the title in portrait, Popularity, Topics and Published scroll in; iPad and Mac add the authors.
+    /// Why shows only where a paper has a reason (For you and topics), never for a category.
+    static let compactDefault: Set<FeedTableColumn> = [.why, .popularity, .topic, .published]
+    static let regularDefault: Set<FeedTableColumn> = [.why, .popularity, .topic, .published, .authors]
     /// Columns added after readers had saved choices: shown once to those readers if they are a default.
-    static let introduced: Set<FeedTableColumn> = [.popularity]
+    static let introduced: Set<FeedTableColumn> = [.popularity, .why]
 
     var title: String {
         switch self {
-        case .popularity: "Popularity"; case .topic: "Topics"; case .published: "Published"; case .authors: "Authors"; case .arxiv: "arXiv ID"
+        case .why: "Why"; case .popularity: "Popularity"; case .topic: "Topics"; case .published: "Published"; case .authors: "Authors"; case .arxiv: "arXiv ID"
         case .abstract: "Abstract"; case .add: ""
         }
     }
 
     var explanation: String {
         switch self {
+        case .why: "Why For you suggests it (For you and your topics)"
         case .popularity: "Upvotes on Hugging Face Papers"
         case .topic: "Its specific topics, from title and abstract"
         case .published: "Month it appeared on arXiv"
@@ -56,20 +60,25 @@ enum FeedTableColumn: String, CaseIterable, Identifiable, Sendable {
 
     var column: Column {
         switch self {
-        case .popularity: Column(id: rawValue, title: title, priority: 1, width: 84, sortKey: .popularity)
-        case .topic: Column(id: rawValue, title: title, priority: 2, width: 170, sortKey: .topic, ascendingFirst: true)
-        case .published: Column(id: rawValue, title: title, priority: 3, width: 88, sortKey: .published)
-        case .authors: Column(id: rawValue, title: title, priority: 4, width: 140, sortKey: .authors, ascendingFirst: true)
-        case .arxiv: Column(id: rawValue, title: title, priority: 5, width: 92)
-        case .abstract: Column(id: rawValue, title: title, priority: 6, width: 260)
+        // Two short lines ("Your tag: byte-level LMs"); beside the title on every iPhone in portrait.
+        case .why: Column(id: rawValue, title: title, priority: 1, width: 120, sortKey: .why, ascendingFirst: true)
+        case .popularity: Column(id: rawValue, title: title, priority: 2, width: 84, sortKey: .popularity)
+        case .topic: Column(id: rawValue, title: title, priority: 3, width: 170, sortKey: .topic, ascendingFirst: true)
+        case .published: Column(id: rawValue, title: title, priority: 4, width: 88, sortKey: .published)
+        case .authors: Column(id: rawValue, title: title, priority: 5, width: 140, sortKey: .authors, ascendingFirst: true)
+        case .arxiv: Column(id: rawValue, title: title, priority: 6, width: 92)
+        case .abstract: Column(id: rawValue, title: title, priority: 7, width: 260)
         case .add: Column(id: rawValue, title: "", priority: 0, width: 56, alignment: .trailing, isControl: true)
         }
     }
 
     /// Every column, in row order.
     static let all: [Column] = allCases.map(\.column)
-    /// The chosen columns and Add, in row order.
-    static func columns(_ enabled: Set<FeedTableColumn>) -> [Column] { allCases.filter { $0 == .add || enabled.contains($0) }.map(\.column) }
+    /// The chosen columns and Add, in row order. Why only when a paper has a reason (`reasons`): a category's papers have
+    /// none.
+    static func columns(_ enabled: Set<FeedTableColumn>, reasons: Bool = true) -> [Column] {
+        allCases.filter { $0 == .add || (enabled.contains($0) && ($0 != .why || reasons)) }.map(\.column)
+    }
 
     /// Newest first, like the List.
     static let defaultSort = PaperTableSort(key: FeedSortKey.published, ascending: false)
@@ -131,18 +140,20 @@ enum FeedFormat {
         return votes == 1 ? "1 upvote on Hugging Face Papers" : "\(votes) upvotes on Hugging Face Papers"
     }
 
-    /// The title cell's second line: why For you suggests it, then the first author.
-    static func subtitle(_ result: DiscoveryResult) -> String? {
-        let parts = [result.reason?.text, LibraryFormat.firstAuthor(result.authors)].compactMap { $0 }
+    /// The title cell's second line: why For you suggests it (unless the Why column says it), then the first author.
+    static func subtitle(_ result: DiscoveryResult, reason: Bool = true) -> String? {
+        let parts = [reason ? result.reason?.text : nil, LibraryFormat.firstAuthor(result.authors)].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// The results in the chosen order; ties (and unknown values, which go last) keep the server's order.
     static func ordered(_ results: [DiscoveryResult], by sort: PaperTableSort<FeedSortKey>) -> [DiscoveryResult] {
+        // Why: grouped as the List's sections are, the server's order within each group.
+        if sort.key == .why { return FeedWhy.ordered(results, ascending: sort.ascending) }
         let indexed = Array(results.enumerated())
         func before(_ a: (offset: Int, element: DiscoveryResult), _ b: (offset: Int, element: DiscoveryResult)) -> Bool {
             switch sort.key {
-            case .suggested:
+            case .suggested, .why:
                 break
             case .popularity:
                 switch (a.element.upvotes, b.element.upvotes) {
@@ -204,16 +215,21 @@ struct FeedTable: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // Why shows where papers have reasons (For you, topics); while it shows, the title's second line doesn't repeat it.
+        let rows = model.shownFeedResults
+        let reasons = rows.contains { $0.reason != nil }
+        let chosen = model.feedColumns[.current]
+        let whyShown = reasons && chosen.contains(.why)
         // Suggested (the server's ranking) shows no sort indicator: it is the list as served.
-        PaperTable(rows: FeedFormat.ordered(model.shownFeedResults, by: model.feedSort), titleColumn: FeedTableColumn.title,
-                   columns: FeedTableColumn.columns(model.feedColumns[.current]), sort: $model.feedSort,
+        PaperTable(rows: FeedFormat.ordered(rows, by: model.feedSort), titleColumn: FeedTableColumn.title,
+                   columns: FeedTableColumn.columns(chosen, reasons: reasons), sort: $model.feedSort,
                    extraSortTitles: Dictionary(uniqueKeysWithValues: FeedSortKey.allCases.filter { $0 != .suggested }.map { ($0, $0.label) }),
                    horizontalScroll: true,
                    identifier: "feed.table",
                    rowIdentifier: { "feed.table.\($0.sourceID)" },
-                   title: { PaperTableTitle(title: $0.title, subtitle: FeedFormat.subtitle($0),
+                   title: { PaperTableTitle(title: $0.title, subtitle: FeedFormat.subtitle($0, reason: !whyShown),
                                             highlighted: pick != nil && model.feedPickID == $0.sourceID, expanded: expanded.contains($0.id),
-                                            subtitleLines: $0.reason == nil ? 1 : 2) },
+                                            subtitleLines: $0.reason == nil || whyShown ? 1 : 2) },
                    cell: { result, column in cell(result, column: FeedTableColumn(rawValue: column)) },
                    spoken: { result, column in spoken(result, column: FeedTableColumn(rawValue: column)) },
                    primaryAction: { action(for: $0) },
@@ -240,6 +256,9 @@ struct FeedTable: View {
 
     @ViewBuilder private func cell(_ result: DiscoveryResult, column: FeedTableColumn?) -> some View {
         switch column {
+        case .why:
+            if let reason = result.reason { FeedWhyCell(reason: reason) }
+            else { Text("—").font(.subheadline).foregroundStyle(.secondary) }
         case .popularity:
             Text(FeedFormat.popularity(result) ?? "—").font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
         case .topic: PaperTableChips(tags: FeedFormat.topics(result))
@@ -258,6 +277,7 @@ struct FeedTable: View {
 
     private func spoken(_ result: DiscoveryResult, column: FeedTableColumn?) -> String? {
         switch column {
+        case .why: result.reason.map { "Why: \($0.text)" }
         case .popularity: FeedFormat.spokenPopularity(result)
         case .topic: FeedFormat.topics(result).joined(separator: ", ")
         case .published: FeedFormat.spokenPublished(result)
@@ -403,18 +423,61 @@ struct FeedChipsBar: View {
     }
 }
 
-/// Why For you suggests a paper, under its authors: "In your tag: RLHF".
+/// Why For you suggests a paper, under its authors: "In your tag: RLHF". In a section of the grouped List, `shown` is
+/// what its header doesn't already say ("By Tri Dao"); VoiceOver keeps the whole sentence.
 struct FeedReasonLine: View {
     let reason: FeedReason
+    var shown: String? = nil
     var body: some View {
         Label {
-            Text(reason.text).lineLimit(2)
+            Text(shown ?? reason.text).lineLimit(2)
         } icon: {
             Image(systemName: reason.kind == "trending" ? "arrow.up.right" : "sparkles").imageScale(.small)
         }
         .font(.footnote).foregroundStyle(Color.accentColor)
         .labelStyle(.titleAndIcon)
         .accessibilityLabel("Why: \(reason.text)")
+    }
+}
+
+/// The table's Why cell: the group's symbol and a short label ("Your tag: RLHF", "Author: Tri Dao"); the full sentence
+/// is its VoiceOver reading and, on the Mac, its tooltip.
+struct FeedWhyCell: View {
+    let reason: FeedReason
+    @ScaledMetric(relativeTo: .footnote) private var symbolWidth: CGFloat = 16
+    var body: some View {
+        // A narrow symbol column so every label starts at the same place and keeps the cell's width for its words.
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Image(systemName: reason.group.symbol).imageScale(.small).foregroundStyle(Color.accentColor)
+                .frame(width: symbolWidth)
+            Text(reason.shortLabel).lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.footnote).foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(reason.text)
+    }
+}
+
+/// A section header of the grouped For you List: the group's symbol, its name ("RLHF", "From authors you read") and how
+/// many papers it has.
+struct FeedSectionHeader: View {
+    let section: FeedSection
+    var body: some View {
+        let count = section.results.count
+        HStack(spacing: 6) {
+            Image(systemName: section.group.symbol).imageScale(.small).foregroundStyle(Color.accentColor)
+            Text(section.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+            Text("\(count)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        // Pinned at the top while its papers scroll under it: an opaque band, edge to edge, so they don't show through.
+        .background { Color(uiColor: .systemBackground).padding(.horizontal, -2 * DesignMetrics.margin).padding(.vertical, -2) }
+        .textCase(nil)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(section.title), \(count == 1 ? "1 paper" : "\(count) papers")")
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("feed.section.\(section.id)")
     }
 }
 

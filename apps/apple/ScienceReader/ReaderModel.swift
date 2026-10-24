@@ -5721,6 +5721,22 @@ extension ReaderModel {
              "abstract": "One demonstration and a learned world model suffice for long-horizon household tasks.",
              "topics": ["Imitation learning", "World models"], "upvotes": 5,
              "reason": ["kind": "explore", "label": "cs.RO", "text": "Something different: Robotics"]],
+            // Grouped by why (owner, 2026-10-24): a second paper in the reader's tag, a popular one and a category match.
+            ["source_id": "2610.06120", "revision": 1, "title": "Byte Latent Transformers at Scale",
+             "authors": ["Ana Costa", "Rahul Iyer"], "year": 2026, "categories": ["cs.CL"],
+             "abstract": "Dynamic byte patches match tokenizer-based models at 8B parameters with fewer inference FLOPs.",
+             "topics": ["Tokenization", "Language modeling"], "upvotes": 31,
+             "reason": ["kind": "tag", "label": "byte-level LMs", "text": "In your tag: byte-level LMs"]],
+            ["source_id": "2610.04476", "revision": 1, "title": "How Reasoning Models Fail: A Survey of Evaluation Pitfalls",
+             "authors": ["Ivan Petrov", "Maria Rossi"], "year": 2026, "categories": ["cs.CL", "cs.AI"],
+             "abstract": "We catalogue contamination, grader and sampling pitfalls across 120 reasoning benchmarks.",
+             "topics": ["Reasoning", "Evaluation"], "upvotes": 212,
+             "reason": ["kind": "trending", "label": "212", "text": "Popular on Hugging Face Papers"]],
+            ["source_id": "2610.02119", "revision": 1, "title": "Fused Attention Kernels for Long Sequences on Consumer GPUs",
+             "authors": ["Tom Walsh"], "year": 2026, "categories": ["cs.LG"],
+             "abstract": "A fused kernel halves attention memory traffic for 128k-token sequences on 24 GB GPUs.",
+             "topics": ["Long context", "Efficient inference"], "upvotes": 3,
+             "reason": ["kind": "category", "label": "cs.LG", "text": "New in Machine learning"]],
         ]
         // A topic chip: the papers with that topic ("RL for reasoning" and "byte-level LMs" stand for their parts).
         let parts: [String: [String]] = ["RL for reasoning": ["Policy optimization", "Reasoning"], "byte-level LMs": ["Tokenization"]]

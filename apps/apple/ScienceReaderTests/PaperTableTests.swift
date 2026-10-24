@@ -110,11 +110,15 @@ final class PaperTableTests: XCTestCase {
     }
 
     func testFeedColumnsFollowTheWidth() {
-        // Build 21: Popularity first beside the title (narrow), then Topics (chips), then Published.
-        XCTAssertEqual(feedColumns(Width.phoneSmall), ["popularity", "add"], "Phone portrait: title, popularity and Add")
-        XCTAssertEqual(feedColumns(Width.phone), ["popularity", "add"])
-        XCTAssertEqual(feedColumns(Width.phoneLandscape), ["popularity", "topic", "add"])
-        XCTAssertEqual(feedColumns(Width.padPortrait), ["popularity", "topic", "published", "add"])
+        // Owner, 2026-10-24: Why first beside the title (every iPhone in portrait), then Popularity (build 21), Topics
+        // (chips), Published; the rest scroll sideways.
+        XCTAssertEqual(feedColumns(Width.phoneSmall), ["why", "add"], "Phone portrait: title, why and Add")
+        XCTAssertEqual(feedColumns(Width.phone), ["why", "add"])
+        XCTAssertEqual(feedColumns(Width.phoneLandscape), ["why", "popularity", "add"])
+        XCTAssertEqual(feedColumns(Width.padPortrait), ["why", "popularity", "topic", "add"])
+        XCTAssertEqual(PaperTableLayout.visibleColumns(FeedTableColumn.columns(Set(FeedTableColumn.choosable), reasons: false),
+                                                       width: Width.padPortrait).map(\.id), ["popularity", "topic", "published", "add"],
+                       "a category's papers have no reasons: no Why column, the others as before")
     }
 
     func testChosenColumnsRemainReachableWithoutMovingPinnedControls() {
