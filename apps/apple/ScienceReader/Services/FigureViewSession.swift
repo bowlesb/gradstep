@@ -24,7 +24,29 @@ struct FigureViewContext {
     let assetPaths: [String]
     /// The paper numbered on this device; nil when it isn't an arXiv paper here (no walkthrough then).
     let localContext: LocalPaperChatContext?
+    /// The PDF page the figure was cut from, when the on-device route cut it and the PDF is on this device (FIGURE_VIEW.md
+    /// "Zoom out onto the page"); nil for every other reading, which zooms as before.
+    var pdfPage: FigurePDFPage? = nil
     var isDrawnTable: Bool { assetPaths.isEmpty }
+}
+
+/// Where a figure's crop sits on its PDF page, and how to read that PDF from this device: only once the reader zooms out
+/// past the crop (its page is drawn then, and let go when the full-screen figure closes).
+struct FigurePDFPage: Sendable {
+    let region: DevicePDFFigureRegion
+    let load: @Sendable () async throws -> Data
+
+    /// The figure's page drawn at `density` pixels per point, off the main actor; nil when the PDF can't be read.
+    func render(density: Double) async -> CGImage? {
+        struct Drawn: @unchecked Sendable { let image: CGImage? }
+        let load = self.load, index = region.page
+        return await Task.detached(priority: .userInitiated) { () -> Drawn in
+            guard let data = try? await load(), let provider = CGDataProvider(data: data as CFData),
+                  let page = CGPDFDocument(provider)?.page(at: index + 1) else { return Drawn(image: nil) }
+            // The same drawing the route cut the crop from (the crop box, turned by its /Rotate), so the crop's place matches.
+            return Drawn(image: DevicePDFRaster.render(page, dpi: density * 72))
+        }.value.image
+    }
 }
 
 /// What a figure page or its walkthrough asks for as it closes, applied once the sheet has gone.

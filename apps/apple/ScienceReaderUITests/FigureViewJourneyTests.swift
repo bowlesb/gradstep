@@ -555,6 +555,110 @@ final class FigureViewJourneyTests: XCTestCase {
         app.buttons["figureView.fullscreen.close"].tap()
     }
 
+    /// Zoom out onto the page (owner, 2026-10-24: "in the on device model, when I click on an AI explainers for a figure, I
+    /// should be able to zoom out around it and see the actual pdf"; FIGURE_VIEW.md "Zoom out onto the page"). A real paper
+    /// read by the on-device route on this Mac (`DevicePDFRouteTool <pdf> <dir>/<id>v<revision> --models … --compiler …`,
+    /// then `shasum -a 256 manifest.json` into `manifest.sha256`) passed as `TEST_RUNNER_FIGURE_DEVICE_BUNDLE=<dir>/<id>v<n>`
+    /// with its PDF as `TEST_RUNNER_FIGURE_DEVICE_PDF`. The explainer's figure opens full screen at the crop as before; a
+    /// pinch outwards shows the PDF page around it (drawn then), the crop outlined; a double tap returns to the crop; the
+    /// top row's page control goes there and back; a pinch outwards on the card, or on the figure page, opens onto the page.
+    /// `GS_SCREENSHOT_DIR` keeps the screenshots.
+    func testZoomingOutOfAnOnDeviceFigureShowsItsPDFPage() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let bundle = environment["FIGURE_DEVICE_BUNDLE"], !bundle.isEmpty, let pdf = environment["FIGURE_DEVICE_PDF"], !pdf.isEmpty else {
+            throw XCTSkip("Set TEST_RUNNER_FIGURE_DEVICE_BUNDLE to an on-device reading and TEST_RUNNER_FIGURE_DEVICE_PDF to its PDF")
+        }
+        let device = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        func save(_ name: String) {
+            let shot = XCUIScreen.main.screenshot()
+            let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            if let directory = environment["GS_SCREENSHOT_DIR"], !directory.isEmpty {
+                try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+                try? shot.pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(device)-\(name).png"))
+            }
+        }
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=figure_walkthrough", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
+                               "--figure-fixture-bundle=\(bundle)", "--figure-fixture-pdf=\(pdf)", "-appearance", "light"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
+        app.show("paper")
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 20), "the model's reading opens")
+        XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 20))
+        app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        app.contentsTab("Figures").tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'contents.figure.' AND label CONTAINS 'Figure 1'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Figure 1 in Contents"); row.tap()
+        XCTAssertTrue(app.buttons["figureView.explain"].waitForExistence(timeout: 5), "Figure 1's page")
+        let full = app.descendants(matching: .any)["figureView.fullscreen.image"], close = app.buttons["figureView.fullscreen.close"]
+        let value = { (full.value as? String) ?? "" }
+
+        // The figure page: a pinch outwards opens the figure full screen on its page.
+        #if !targetEnvironment(macCatalyst)
+        // The figure page's own web view (the paper's may be behind its sheet): the smallest on screen.
+        let figurePage = app.webViews.allElementsBoundByIndex.filter(\.isHittable).min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+        try XCTUnwrap(figurePage).pinch(withScale: 0.4, velocity: -1)
+        XCTAssertTrue(full.waitForExistence(timeout: 5), "a pinch outwards on the figure page opens the figure full screen")
+        XCTAssertTrue(wait(10) { value().contains("page drawn") }, "onto its page: \(value())")
+        sleep(1); save("figure-page-pinched-out")
+        close.tap()
+        XCTAssertTrue(wait(5) { !full.exists })
+        #endif
+
+        // The explainer: its figure card is the crop, as before.
+        app.buttons["figureView.explain"].tap()
+        if app.buttons["ai.chooseModel"].waitForExistence(timeout: 5) {
+            app.buttons["ai.chooseModel"].tap()
+            XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        }
+        let card = app.descendants(matching: .any)["figureView.figure"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "the whole figure's card")
+        XCTAssertEqual(app.descendants(matching: .any)["figureView.heading"].firstMatch.label, "Figure 1")
+        sleep(1); save("1-explainer-at-the-crop")
+        card.tap()
+        XCTAssertTrue(full.waitForExistence(timeout: 5))
+        XCTAssertTrue(wait(5) { value().contains("whole") }, "full screen at the crop, as before: \(value())")
+        XCTAssertFalse(value().contains("page"), "no page until zooming out")
+        let page = app.buttons["figureView.fullscreen.page"]
+        XCTAssertTrue(page.waitForExistence(timeout: 3)); XCTAssertEqual(page.label, "Show the whole page")
+        sleep(1); save("2-full-screen-at-the-crop")
+        // A pinch outwards past the crop: the PDF page around it, drawn now, the crop outlined.
+        full.pinch(withScale: 0.35, velocity: -1)
+        if UIDevice.current.userInterfaceIdiom == .pad, !wait(8, { value().contains("page") }) {
+            // The iPad Simulator (iPadOS 26) delivers this synthesized pinch to no recognizer in the full-screen cover (not even
+            // one added for it, while the same pinch works on the iPhone Simulator and on the figure page and card here): the
+            // page control stands in for the screenshot.
+            XCTContext.runActivity(named: "iPad Simulator: in-cover pinch not delivered; using the page control") { _ in }
+            page.tap()
+        }
+        XCTAssertTrue(wait(20) { value().contains("page drawn, crop outlined") }, "the page around the crop: \(value())")
+        XCTAssertEqual(page.label, "Back to the figure")
+        sleep(1); save("3-zoomed-out-onto-the-page")
+        #if !targetEnvironment(macCatalyst)
+        // A double tap returns to the crop.
+        full.doubleTap()
+        XCTAssertTrue(wait(5) { value().contains("whole") && !value().contains("page") }, "back to the crop: \(value())")
+        #endif
+        // The page control: there and back.
+        page.tap()
+        XCTAssertTrue(wait(5) { value().contains("page drawn") }, "the whole page: \(value())")
+        sleep(1); save("4-the-whole-page")
+        page.tap()
+        XCTAssertTrue(wait(5) { !value().contains("page") }, "back to the figure: \(value())")
+        close.tap()
+        XCTAssertTrue(wait(5) { !full.exists })
+        #if !targetEnvironment(macCatalyst)
+        // A pinch outwards on the card opens straight onto the page.
+        card.pinch(withScale: 0.5, velocity: -1)
+        XCTAssertTrue(full.waitForExistence(timeout: 5), "a pinch on the card opens full screen")
+        XCTAssertTrue(wait(8) { value().contains("page drawn") }, "onto the page: \(value())")
+        close.tap()
+        XCTAssertTrue(wait(5) { !full.exists })
+        #endif
+    }
+
     /// Report this screen on the sheets that had no "…" (where the builds 66–76 feedback was given), with the app's own
     /// snapshot, returning to the same sheet; the two explain actions are peers and a table's says "Chat about Table".
     func testReportThisScreenFromContentsAndAFigurePage() throws {

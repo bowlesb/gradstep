@@ -4277,7 +4277,8 @@ final class ReaderModel {
         let number = GalleryFigure.label(caption).number
         return FigureViewContext(paperID: paper.id, bundle: bundle, figureID: figureID,
                                  label: number ?? (paths.isEmpty ? "Table" : "Figure"), caption: caption, paragraph: paragraph,
-                                 assetPaths: paths, localContext: figureLocalContext(paper, bundle: bundle))
+                                 assetPaths: paths, localContext: figureLocalContext(paper, bundle: bundle),
+                                 pdfPage: paths.count == 1 ? figurePDFPage(bundle: bundle, figureID: figureID) : nil)
     }
 
     private func figureLocalContext(_ paper: Paper, bundle: VerifiedReaderBundle) -> LocalPaperChatContext? {

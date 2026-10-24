@@ -1232,6 +1232,8 @@ struct PaperWebView: UIViewRepresentable {
             }
         } else if let figureID {
             ReaderWebView.figurePages.setObject(web, forKey: figureID as NSString)
+            // A pinch outwards on a figure the on-device model cut from a PDF opens its page (FIGURE_VIEW.md "Zoom out onto the page").
+            context.coordinator.figurePinch.attach(to: web)
         }
         web.isOpaque = false; web.backgroundColor = .systemBackground
         web.isFindInteractionEnabled = false
@@ -1249,6 +1251,7 @@ struct PaperWebView: UIViewRepresentable {
 
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.figurePinch.action = figureID == nil ? nil : context.environment.figurePageZoomOut
         (web as? ReaderWebView)?.hasSelection = hasSelection
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false
@@ -1324,6 +1327,7 @@ struct PaperWebView: UIViewRepresentable {
         var appliedPaperTags: [String] = []
         var appliedPaperTagSource = ""
         var passages = PaperPassageState()
+        let figurePinch = FigurePagePinch()
         init(_ parent: PaperWebView) {
             self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID; lastCitationDismissID = parent.citationDismissID
             lastFindRequestID = parent.findRequestID

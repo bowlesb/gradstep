@@ -1,6 +1,7 @@
 import ScienceReaderCore
 import SwiftUI
 import UIKit
+import WebKit
 
 // The figure view's screens (owner, build 59; docs/architecture/FIGURE_VIEW.md): a figure page offers Explain and Ask in
 // chat side by side; Explain opens the walkthrough in the equation view's look: the figure, what it shows, then each
@@ -20,7 +21,14 @@ struct FigureViewHost {
 private struct FigureViewHostKey: EnvironmentKey { nonisolated(unsafe) static let defaultValue: FigureViewHost? = nil }
 /// A half-height sheet's way to take the full height (Contents, a figure reference): the walkthrough reads best there.
 private struct ExpandSheetKey: EnvironmentKey { nonisolated(unsafe) static let defaultValue: (@MainActor () -> Void)? = nil }
+/// A figure page's way to open the figure's PDF page full screen (a pinch outwards on it; FIGURE_VIEW.md "Zoom out onto
+/// the page"); nil unless the figure has one on this device.
+private struct FigurePageZoomOutKey: EnvironmentKey { nonisolated(unsafe) static let defaultValue: (@MainActor () -> Void)? = nil }
 extension EnvironmentValues {
+    var figurePageZoomOut: (@MainActor () -> Void)? {
+        get { self[FigurePageZoomOutKey.self] }
+        set { self[FigurePageZoomOutKey.self] = newValue }
+    }
     var figureViewHost: FigureViewHost? {
         get { self[FigureViewHostKey.self] }
         set { self[FigureViewHostKey.self] = newValue }
@@ -49,6 +57,8 @@ private struct FigurePageActions: ViewModifier {
     @State private var explaining = false
     @State private var explainOnOpen = true
     @State private var choosingAI = false
+    /// The figure full screen on its PDF page (a pinch outwards on a figure the on-device model cut from a PDF here).
+    @State private var expandedImage: FigureImagePresentation?
 
     /// Drawing a snippet over this figure page (Add to note: the whole item first, then adjust).
     private var capturing: Bool { host?.model.notes.capturing == .figure }
@@ -56,6 +66,7 @@ private struct FigurePageActions: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .modifier(FigurePageZoomOutHost(zoomOut: zoomOut, image: $expandedImage))
             .overlay {
                 if let host, capturing, let paper {
                     SnippetCaptureOverlay(model: host.model, origin: .figure, capture: { rect, size in
@@ -106,6 +117,24 @@ private struct FigurePageActions: ViewModifier {
                 explaining = false
                 context = host.flatMap { $0.model.figureContext(paperID: $0.paperID, figureID: figureID) }
             }
+    }
+
+    /// Opens the figure's PDF page full screen; nil without one (or while drawing a snippet).
+    private var zoomOut: (@MainActor () -> Void)? {
+        guard context?.pdfPage != nil, !capturing else { return nil }
+        return { showPage() }
+    }
+
+    /// The figure full screen, zooming out onto its PDF page at once (the figure's own image is decoded off the main actor).
+    private func showPage() {
+        guard expandedImage == nil, let context, let page = context.pdfPage,
+              let figure = context.bundle.index.figures.first(where: { $0.id == context.figureID }) else { return }
+        let bundle = context.bundle
+        Task { @MainActor in
+            let prepared = await Task.detached(priority: .userInitiated) { ChatFigureFinder.prepared(figure, bundle: bundle) }.value
+            guard let image = prepared.image, let page = FigureImagePresentation.page(page, for: image) else { return }
+            presentFigureImage { expandedImage = FigureImagePresentation(image: image, part: nil, label: context.label, page: page, startOnPage: true) }
+        }
     }
 
     /// Add to note: the whole figure or table is chosen to start; the corners adjust it, Use snippet keeps it.
@@ -234,12 +263,16 @@ struct FigureExplainView: View {
 
     /// Opens the full-screen figure from a card (FIGURE_VIEW.md "Full screen on touch"): at once, from the card's own place
     /// (`at`, window coordinates), recording how (the local framing record).
+    /// `toPage`: a pinch outwards on the card opens onto the figure's PDF page, when it has one (FIGURE_VIEW.md "Zoom out
+    /// onto the page").
     private func open(_ image: CGImage, part: FramedPart?, label: String, identifier: String, recordKey: String?,
-                      _ gesture: FigureFramingRecord.OpenGesture, at rect: CGRect?) {
+                      _ gesture: FigureFramingRecord.OpenGesture, at rect: CGRect?, toPage: Bool = false) {
         if let recordKey { FigureFramingRecorder.shared.changed(recordKey, opened: gesture) }
         let card = FigureViewportScroll.shown.object(forKey: identifier as NSString)
         let source = rect ?? card.flatMap { $0.window == nil ? nil : $0.convert($0.bounds, to: nil) }
-        presentFigureImage { expandedImage = FigureImagePresentation(image: image, part: part, label: label, recordKey: recordKey, source: source, sourceKey: identifier) }
+        let page = FigureImagePresentation.page(context.pdfPage, for: image)
+        presentFigureImage { expandedImage = FigureImagePresentation(image: image, part: part, label: label, recordKey: recordKey, source: source, sourceKey: identifier,
+                                                                    page: page, startOnPage: toPage && page != nil) }
     }
 
     /// A card that opens full screen when touched (the whole figure, or a part framed by confidence: FIGURE_VIEW.md "Parts as
@@ -248,15 +281,15 @@ struct FigureExplainView: View {
     private func partCard(_ part: FramedPart?, image: CGImage, label: String, identifier: String, maxHeight: CGFloat, recordKey: String?) -> some View {
         let W = Double(image.width), H = Double(image.height), shown = part ?? .whole(width: image.width, height: image.height)
         let frameWidth = (shown.frame.x1 - shown.frame.x0) * W, frameHeight = (shown.frame.y1 - shown.frame.y0) * H
-        let expand = { (gesture: FigureFramingRecord.OpenGesture, rect: CGRect?) in
-            open(image, part: part, label: label, identifier: identifier, recordKey: recordKey, gesture, at: rect)
+        let expand = { (gesture: FigureFramingRecord.OpenGesture, rect: CGRect?, toPage: Bool) in
+            open(image, part: part, label: label, identifier: identifier, recordKey: recordKey, gesture, at: rect, toPage: toPage)
         }
         return VStack(alignment: .trailing, spacing: 4) {
-            FigureViewport(image: image, part: shown, recordKey: recordKey, snippetKey: identifier, onOpen: { gesture, rect in expand(gesture, rect) })
+            FigureViewport(image: image, part: shown, recordKey: recordKey, snippetKey: identifier, onOpen: { gesture, rect, out in expand(gesture, rect, out) })
                 .id(identifier + "\(shown.frame)")
                 .aspectRatio(frameWidth / frameHeight, contentMode: .fit)
                 .accessibilityLabel(label).accessibilityIdentifier(identifier)
-            Button { expand(.button, nil) } label: {
+            Button { expand(.button, nil, false) } label: {
                 Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right").font(.footnote.weight(.medium))
                     .frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.borderless).accessibilityLabel("View \(label) fullscreen").accessibilityIdentifier("figureView.fullscreen")
@@ -650,11 +683,48 @@ struct FigureViewport: UIViewRepresentable {
     var recordKey: String?
     var snippetKey: String?
     /// How the reader opened it, and where the card is (window coordinates).
-    var onOpen: ((FigureFramingRecord.OpenGesture, CGRect) -> Void)?
+    var onOpen: ((FigureFramingRecord.OpenGesture, CGRect, Bool) -> Void)?
     func makeUIView(context: Context) -> FigureViewportScroll {
         FigureViewportScroll(image: image, part: part, fullscreen: false, outlines: true, recordKey: recordKey, snippetKey: snippetKey, onOpen: onOpen)
     }
     func updateUIView(_ view: FigureViewportScroll, context: Context) { view.onOpen = onOpen }
+}
+
+/// A figure page whose figure has its PDF page on this device: a pinch outwards on it (`FigurePagePinch`) or VoiceOver's
+/// "Show the whole page" opens the figure full screen on its page.
+private struct FigurePageZoomOutHost: ViewModifier {
+    let zoomOut: (@MainActor () -> Void)?
+    @Binding var image: FigureImagePresentation?
+    func body(content: Content) -> some View {
+        content
+            // In the actions, not around the content: the figure page's web view is never made again.
+            .accessibilityActions { if let zoomOut { Button("Show the whole page") { zoomOut() } } }
+            .environment(\.figurePageZoomOut, zoomOut)
+            .modifier(FigureImageCover(image: $image))
+    }
+}
+
+/// A figure page's pinch outwards (FIGURE_VIEW.md "Zoom out onto the page"): alongside the web view's own zoom, once a
+/// gesture, when the page is not zoomed in, it calls `action` (set only for a figure with its PDF page on this device).
+@MainActor final class FigurePagePinch: NSObject, UIGestureRecognizerDelegate {
+    var action: (@MainActor () -> Void)?
+    private weak var web: WKWebView?
+    private var fired = false
+    func attach(to web: WKWebView) {
+        self.web = web
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))); pinch.delegate = self
+        web.addGestureRecognizer(pinch)
+    }
+    @objc private func pinched(_ gesture: UIPinchGestureRecognizer) {
+        switch gesture.state {
+        case .began: fired = false
+        case .changed:
+            guard !fired, let action, gesture.scale < 0.85, let scroll = web?.scrollView, scroll.zoomScale <= scroll.minimumZoomScale + 0.01 else { return }
+            fired = true; action()
+        default: break
+        }
+    }
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }
 
 /// Decides for one view's own gesture recognizers (UIView's `gestureRecognizerShouldBegin` is the view's, so these live
@@ -674,38 +744,71 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
     private let lookLayer = CALayer(), veil = CAShapeLayer(), outline = CAShapeLayer()
     let pixels: CGImage, part: FramedPart
     private let fullscreen: Bool, outlines: Bool, recordKey: String?
-    var onOpen: ((FigureFramingRecord.OpenGesture, CGRect) -> Void)?
+    /// How the card was opened, where it is, and whether the pinch was outwards (to the page, when there is one).
+    var onOpen: ((FigureFramingRecord.OpenGesture, CGRect, Bool) -> Void)?
     /// Full screen: the zoom state changed (true at the whole figure), for the Whole figure / Show part control.
     var onWhole: ((Bool) -> Void)?
+    /// Full screen: the PDF page shown around the figure, or not (the top row's page control).
+    var onPage: ((Bool) -> Void)?
     private var laidOut = CGSize.zero
     private(set) var restZoom: CGFloat = 1
     private let pad: CGSize
     private let filter = FigureGestureFilter()
 
-    init(image: CGImage, part: FramedPart, fullscreen: Bool, outlines: Bool, recordKey: String?, snippetKey: String?, onOpen: ((FigureFramingRecord.OpenGesture, CGRect) -> Void)?) {
+    // The page under the figure (FIGURE_VIEW.md "Zoom out onto the page"; full screen, a figure the on-device route cut
+    // from a PDF on this device). The canvas then holds the page, the image placed exactly on its crop; until the reader
+    // zooms out past the whole figure everything looks and pans as without it (the figure on its white margin, `backing`).
+    private let page: FigurePDFPage?, layout: FigurePageLayout?
+    private let pageView = UIImageView(), backing = UIView(), cropOutline = CAShapeLayer()
+    /// Where the image's top-left corner sits in the canvas (its white margin's width without a page).
+    private let imageOrigin: CGPoint
+    private var pageRequested = false
+    private(set) var pageShown = false
+    var hasPage: Bool { layout != nil }
+
+    init(image: CGImage, part: FramedPart, fullscreen: Bool, outlines: Bool, recordKey: String?, snippetKey: String?, page: FigurePDFPage? = nil,
+         onOpen: ((FigureFramingRecord.OpenGesture, CGRect, Bool) -> Void)?) {
         pixels = image; self.part = part; self.fullscreen = fullscreen; self.outlines = outlines; self.recordKey = recordKey; self.onOpen = onOpen
         pad = CGSize(width: part.padX * Double(image.width), height: part.padY * Double(image.height))
+        let layout = fullscreen ? page.flatMap { FigurePageLayout(region: $0.region, imageWidth: image.width, imageHeight: image.height) } : nil
+        self.layout = layout; self.page = layout == nil ? nil : page
+        let placed = layout?.canvas(pad: pad)
+        imageOrigin = placed?.imageOrigin ?? CGPoint(x: pad.width, y: pad.height)
         super.init(frame: .zero)
         delegate = self; bounces = false; bouncesZoom = false; contentInsetAdjustmentBehavior = .never
         showsVerticalScrollIndicator = false; showsHorizontalScrollIndicator = false; backgroundColor = .white
         canvas.backgroundColor = .white
-        canvas.frame = CGRect(x: 0, y: 0, width: CGFloat(image.width) + 2 * pad.width, height: CGFloat(image.height) + 2 * pad.height)
+        canvas.frame = CGRect(origin: .zero, size: placed?.size ?? CGSize(width: CGFloat(image.width) + 2 * pad.width, height: CGFloat(image.height) + 2 * pad.height))
         picture.image = UIImage(cgImage: image)
-        picture.frame = CGRect(x: pad.width, y: pad.height, width: CGFloat(image.width), height: CGFloat(image.height))
+        picture.frame = CGRect(x: imageOrigin.x, y: imageOrigin.y, width: CGFloat(image.width), height: CGFloat(image.height))
+        if let layout {
+            // The page (white until drawn) and the figure's own margin, the page hidden until the reader zooms out.
+            canvas.backgroundColor = .clear
+            pageView.backgroundColor = .white; pageView.alpha = 0; pageView.contentMode = .scaleToFill
+            pageView.frame = layout.page.offsetBy(dx: imageOrigin.x, dy: imageOrigin.y)
+            backing.backgroundColor = .white; backing.frame = figureBox
+            canvas.addSubview(pageView); canvas.addSubview(backing)
+        }
         canvas.addSubview(picture)
+        for view in [self, canvas, picture, pageView, backing] { view.isMultipleTouchEnabled = true }
         veil.fillRule = .evenOdd; veil.fillColor = UIColor.white.cgColor
         outline.fillColor = nil; outline.strokeColor = FigurePartCrop.outline
         lookLayer.frame = canvas.bounds
         lookLayer.addSublayer(veil); lookLayer.addSublayer(outline); canvas.layer.addSublayer(lookLayer)
-        let region = regionRect
-        veil.path = { let p = UIBezierPath(rect: canvas.bounds); p.append(UIBezierPath(rect: region)); return p.cgPath }()
+        // On the page, the crop stays faintly outlined in the parts' outline colour.
+        cropOutline.fillColor = nil; cropOutline.strokeColor = FigurePartCrop.outline.copy(alpha: 0.55); cropOutline.isHidden = true
+        canvas.layer.addSublayer(cropOutline)
+        let region = regionRect, box = figureBox
+        veil.path = { let p = UIBezierPath(rect: box); p.append(UIBezierPath(rect: region)); return p.cgPath }()
         addSubview(canvas)
         isAccessibilityElement = true
         if fullscreen {
             accessibilityTraits = [.image, .adjustable]
-            accessibilityHint = "Pinch to zoom, drag to pan, double tap for the whole figure or the part."
+            accessibilityHint = layout == nil ? "Pinch to zoom, drag to pan, double tap for the whole figure or the part."
+                : "Pinch to zoom, drag to pan; zoom out past the figure for its page in the PDF. Double tap for the whole figure or the part."
             let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:))); doubleTap.numberOfTapsRequired = 2
             addGestureRecognizer(doubleTap)
+            updateActions()
         } else {
             // The card: nothing zooms or pans here; any of these opens full screen at once.
             accessibilityTraits = [.image, .button]
@@ -733,17 +836,22 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
     var frameRect: CGRect { rect(part.frame) }
     private func rect(_ r: CropRect) -> CGRect {
         let W = Double(pixels.width), H = Double(pixels.height)
-        return CGRect(x: r.x0 * W + pad.width, y: r.y0 * H + pad.height, width: (r.x1 - r.x0) * W, height: (r.y1 - r.y0) * H)
+        return CGRect(x: r.x0 * W + imageOrigin.x, y: r.y0 * H + imageOrigin.y, width: (r.x1 - r.x0) * W, height: (r.y1 - r.y0) * H)
+    }
+    /// The figure on its white margin, in canvas points (the whole canvas without a page).
+    private var figureBox: CGRect {
+        CGRect(x: imageOrigin.x - pad.width, y: imageOrigin.y - pad.height, width: CGFloat(pixels.width) + 2 * pad.width, height: CGFloat(pixels.height) + 2 * pad.height)
     }
     /// The frame grown to the view's shape about its centre.
     private func fitted(_ r: CGRect) -> CGRect {
         guard bounds.width > 0, bounds.height > 0 else { return r }
-        let aspect = bounds.width / bounds.height, w = r.width / r.height > aspect ? r.width : r.height * aspect
-        return CGRect(x: r.midX - w / 2, y: r.midY - w / aspect / 2, width: w, height: w / aspect)
+        return FigureZoomMath.fitted(r, to: bounds.size)
     }
     private var restRect: CGRect { fitted(frameRect) }
-    /// The zoom at which the whole canvas fits (full screen's smallest).
-    var wholeZoom: CGFloat { min(bounds.width / max(1, canvas.bounds.width), bounds.height / max(1, canvas.bounds.height)) }
+    /// The zoom at which the whole figure fits (full screen's smallest without a page).
+    var wholeZoom: CGFloat { FigureZoomMath.fitZoom(figureBox, in: bounds.size) }
+    /// The zoom at which the whole page fits (full screen's smallest with one).
+    private var pageZoom: CGFloat { FigureZoomMath.fitZoom(canvas.bounds, in: bounds.size) }
     var showsWhole: Bool { zoomScale <= wholeZoom * 1.01 }
 
     override func layoutSubviews() {
@@ -752,12 +860,15 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
         laidOut = bounds.size
         restZoom = bounds.width / restRect.width
         if fullscreen {
-            // Zoom limits sized to the whole figure: out to all of it, in to 8× that (at least 3× the part's own frame).
-            minimumZoomScale = min(wholeZoom, restZoom); maximumZoomScale = max(wholeZoom * 8, restZoom * 3)
+            // Zoom limits sized to the whole figure: out to all of it (to its whole page, with one), in to 8× that (at
+            // least 3× the part's own frame).
+            minimumZoomScale = min(wholeZoom, restZoom, hasPage ? pageZoom : .greatestFiniteMagnitude); maximumZoomScale = max(wholeZoom * 8, restZoom * 3)
+            // With a page, the view is held to the figure (or the page) by `hold`, so it may reach past the canvas's edges.
+            if hasPage { contentInset = UIEdgeInsets(top: bounds.height, left: bounds.width, bottom: bounds.height, right: bounds.width) }
         } else {
             minimumZoomScale = restZoom; maximumZoomScale = restZoom
         }
-        goTo(restRect, animated: false)
+        if pageShown { showPage(animated: false) } else { goTo(restRect, animated: false) }
     }
 
     /// Shows `r` (canvas points), fitted to the view; inside an animation block it animates with it.
@@ -765,15 +876,25 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
         let zoom = min(maximumZoomScale, max(minimumZoomScale, bounds.width / r.width))
         let apply = { [self] in
             setZoomScale(zoom, animated: false)
-            centre()
-            setContentOffset(CGPoint(x: r.minX * zoom - contentInset.left, y: r.minY * zoom - contentInset.top), animated: false)
-            clampOffset()
+            if hasPage {
+                contentOffset = FigureZoomMath.clampedOffset(CGPoint(x: r.minX * zoom, y: r.minY * zoom), zoom: zoom, view: bounds.size, bounds: holdBounds)
+            } else {
+                centre()
+                setContentOffset(CGPoint(x: r.minX * zoom - contentInset.left, y: r.minY * zoom - contentInset.top), animated: false)
+                clampOffset()
+            }
         }
         if animated { UIView.animate(withDuration: duration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply) } else { apply() }
         applyLook(); updateValue(); onWhole?(showsWhole)
     }
-    func showPart(animated: Bool) { goTo(restRect, animated: animated) }
-    func showWhole(animated: Bool) { goTo(fitted(canvas.bounds), animated: animated) }
+    func showPart(animated: Bool) { leavePage(animated: animated); goTo(restRect, animated: animated) }
+    func showWhole(animated: Bool) { leavePage(animated: animated); goTo(fitted(figureBox), animated: animated) }
+    /// The whole page around the figure, fitted (the top row's page control, VoiceOver's "Show the whole page").
+    func showPage(animated: Bool) {
+        guard hasPage else { return }
+        enterPage(animated: animated)
+        goTo(fitted(canvas.bounds), animated: animated)
+    }
     /// Where the part's frame is now, in `view`'s coordinates (the card's matched geometry).
     func frameOnScreen(in view: UIView) -> CGRect { canvas.convert(frameRect, to: view) }
 
@@ -784,17 +905,67 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
     private func centre() {
         contentInset = UIEdgeInsets(top: max(0, (bounds.height - contentSize.height) / 2), left: max(0, (bounds.width - contentSize.width) / 2), bottom: 0, right: 0)
     }
+    /// With a page: what the view is held to, the figure on its margin (as without a page) until the page shows, then
+    /// the whole canvas.
+    private var holdBounds: CGRect { pageShown ? canvas.bounds : figureBox }
+    private func hold() {
+        guard hasPage, bounds.width > 0 else { return }
+        let held = FigureZoomMath.clampedOffset(contentOffset, zoom: zoomScale, view: bounds.size, bounds: holdBounds)
+        if abs(held.x - contentOffset.x) > 0.01 || abs(held.y - contentOffset.y) > 0.01 { contentOffset = held }
+    }
     /// At the top edge (a swipe down there closes full screen rather than panning).
-    var atTop: Bool { contentOffset.y <= -contentInset.top + 1 }
+    var atTop: Bool {
+        guard hasPage else { return contentOffset.y <= -contentInset.top + 1 }
+        return contentOffset.y <= FigureZoomMath.clampedOffset(CGPoint(x: contentOffset.x, y: -1e9), zoom: zoomScale, view: bounds.size, bounds: holdBounds).y + 1
+    }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
-    func scrollViewDidZoom(_ scrollView: UIScrollView) { centre(); applyLook(); updateValue(); onWhole?(showsWhole) }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        if hasPage {
+            // Past the whole figure the page shows around it, and stays until the reader goes back to the figure.
+            if !pageShown, zoomScale < min(wholeZoom, restZoom) * 0.995 { enterPage(animated: true) }
+            hold()
+        } else { centre() }
+        applyLook(); updateValue(); onWhole?(showsWhole)
+    }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { hold() }
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { record(zoomed: true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { record(panned: true) } }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { record(panned: true) }
 
+    /// The page fades in around the figure (drawn now, the first time), the crop outlined on it.
+    private func enterPage(animated: Bool) {
+        guard hasPage, !pageShown else { return }
+        pageShown = true
+        requestPage()
+        let show = { [self] in pageView.alpha = 1; backing.alpha = 0 }
+        if animated, !UIAccessibility.isReduceMotionEnabled { UIView.animate(withDuration: 0.25, animations: show) } else { show() }
+        applyLook(); updateValue(); updateActions(); onPage?(true)
+    }
+    /// Back to the figure: the page fades and the view is held to the figure again.
+    private func leavePage(animated: Bool) {
+        guard pageShown else { return }
+        pageShown = false
+        let hide = { [self] in pageView.alpha = 0; backing.alpha = 1 }
+        if animated, !UIAccessibility.isReduceMotionEnabled { UIView.animate(withDuration: 0.3, animations: hide) } else { hide() }
+        applyLook(); updateValue(); updateActions(); onPage?(false)
+    }
+    /// The page drawn once, at the screen's resolution for the whole page fitted (twice that, for zooming in), off the main
+    /// actor; it goes with this view when full screen closes.
+    private func requestPage() {
+        guard let page, let layout, !pageRequested else { return }
+        pageRequested = true
+        let density = FigurePageLayout.renderDensity(pageSize: layout.region.pageSize, viewSize: bounds.size,
+                                                     screenScale: window?.screen.scale ?? traitCollection.displayScale, figureDensity: layout.scaleX)
+        Task { @MainActor [weak self] in
+            guard let image = await page.render(density: density), let self else { return }
+            self.pageView.image = UIImage(cgImage: image)
+            self.updateValue()
+        }
+    }
+
     /// The veil and outline: the card's look at rest; full screen's revealed look (soft veil, the part outlined), which
-    /// `fadeLook` fades away. The whole figure as a part has neither.
+    /// `fadeLook` fades away. The whole figure as a part has neither. On the page, the crop's own faint outline.
     private func applyLook() {
         let look = part.look(revealed: fullscreen)
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -802,6 +973,11 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
         outline.isHidden = !look.outlined || !outlines
         let line = 2 / max(zoomScale, 0.01)
         outline.lineWidth = line; outline.path = UIBezierPath(rect: regionRect.insetBy(dx: -line, dy: -line)).cgPath
+        cropOutline.isHidden = !pageShown
+        if pageShown {
+            let thin = 1.5 / max(zoomScale, 0.01)
+            cropOutline.lineWidth = thin; cropOutline.path = UIBezierPath(rect: picture.frame.insetBy(dx: -thin / 2, dy: -thin / 2)).cgPath
+        }
         CATransaction.commit()
     }
     /// Full screen: the outline (and veil) seen, then gone over `duration` (or, with Reduce Motion, after it at once).
@@ -827,16 +1003,24 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
     private func updateValue() {
         let percent = "\(Int((zoomScale / max(restZoom, 0.0001) * 100).rounded()))%"
         #if DEBUG && FIXTURE_HOST
-        // The journeys read where the view is and whether the outline still shows.
-        accessibilityValue = fullscreen ? "\(percent), \(showsWhole ? "whole" : "part"), outline \(lookShown ? "shown" : "hidden")" : percent
+        // The journeys read where the view is and whether the outline still shows (and, with a page, whether it is drawn).
+        let place = pageShown ? "page \(pageView.image == nil ? "drawing" : "drawn"), crop outlined" : showsWhole ? "whole" : "part"
+        accessibilityValue = fullscreen ? "\(percent), \(place), outline \(lookShown ? "shown" : "hidden")" : percent
         #else
-        accessibilityValue = percent
+        accessibilityValue = pageShown ? "\(percent), the page around the figure" : percent
         #endif
+    }
+    /// VoiceOver: to the whole page and back to the figure (with a page).
+    private func updateActions() {
+        guard hasPage else { accessibilityCustomActions = nil; return }
+        accessibilityCustomActions = [pageShown
+            ? UIAccessibilityCustomAction(name: "Back to the figure") { [weak self] _ in self?.showPart(animated: false); self?.record(zoomed: true); return true }
+            : UIAccessibilityCustomAction(name: "Show the whole page") { [weak self] _ in self?.showPage(animated: false); self?.record(zoomed: true); return true }]
     }
 
     /// What the view shows, in pixels of the figure (it may reach into the white margin).
     var visible: CropRect {
-        let z = max(zoomScale, 0.0001), x = (contentOffset.x) / z - pad.width, y = (contentOffset.y) / z - pad.height
+        let z = max(zoomScale, 0.0001), x = (contentOffset.x) / z - imageOrigin.x, y = (contentOffset.y) / z - imageOrigin.y
         return CropRect(Double(x), Double(y), Double(x + bounds.width / z), Double(y + bounds.height / z))
     }
     func record(zoomed: Bool = false, panned: Bool = false) {
@@ -853,16 +1037,20 @@ final class FigureViewportScroll: UIScrollView, UIScrollViewDelegate {
         return part.render(pixels, view: v, scale: scale, revealed: fullscreen, outline: FigurePartCrop.outline, lineWidth: 2 * scale / Double(z))
     }
 
-    // The card's ways in: each opens full screen at once.
-    private func open(_ gesture: FigureFramingRecord.OpenGesture) { onOpen?(gesture, convert(bounds, to: nil)) }
+    // The card's ways in: each opens full screen at once (a pinch outwards, onto the page when the figure has one).
+    private func open(_ gesture: FigureFramingRecord.OpenGesture, out: Bool = false) { onOpen?(gesture, convert(bounds, to: nil), out) }
     @objc private func tapped() { open(.tap) }
-    @objc private func pinched(_ gesture: UIPinchGestureRecognizer) { if gesture.state == .began { open(.pinch); gesture.state = .cancelled } }
+    @objc private func pinched(_ gesture: UIPinchGestureRecognizer) {
+        // It opens as soon as the fingers have moved enough to tell a pinch outwards (onto the page) from one inwards.
+        guard gesture.state == .began || gesture.state == .changed, abs(gesture.scale - 1) > 0.03 || gesture.state == .changed && abs(gesture.velocity) > 0.5 else { return }
+        open(.pinch, out: abs(gesture.scale - 1) > 0.03 ? gesture.scale < 1 : gesture.velocity < 0); gesture.state = .cancelled
+    }
     @objc private func dragged(_ gesture: UIPanGestureRecognizer) { if gesture.state == .began { open(.drag); gesture.state = .cancelled } }
 
     @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
-        // Full screen: the whole figure ↔ the part.
+        // Full screen: the whole figure ↔ the part; from the page, back to the part.
         let reduce = UIAccessibility.isReduceMotionEnabled
-        if showsWhole { showPart(animated: !reduce); if outlines { fadeLook(after: 0.4, duration: 1, reduceMotion: reduce) } } else { showWhole(animated: !reduce) }
+        if showsWhole || pageShown { showPart(animated: !reduce); if outlines { fadeLook(after: 0.4, duration: 1, reduceMotion: reduce) } } else { showWhole(animated: !reduce) }
         record(zoomed: true)
     }
     override func accessibilityActivate() -> Bool {
@@ -908,11 +1096,18 @@ final class FigureFullscreenStage: UIView {
     }
     static let openDuration = 0.35, fadeDuration = 1.0
 
-    init(image: CGImage, part: FramedPart, outlines: Bool, label: String, recordKey: String?, source: CGRect?, sourceKey: String?) {
-        scroll = FigureViewportScroll(image: image, part: part, fullscreen: true, outlines: outlines, recordKey: recordKey, snippetKey: nil, onOpen: nil)
-        self.source = source; self.sourceKey = sourceKey; self.outlines = outlines
+    var onPage: ((Bool) -> Void)? { didSet { scroll.onPage = onPage } }
+    /// Opened by a pinch outwards: once open, the view zooms out onto the figure's page.
+    private let startOnPage: Bool
+
+    init(image: CGImage, part: FramedPart, outlines: Bool, label: String, recordKey: String?, source: CGRect?, sourceKey: String?,
+         page: FigurePDFPage? = nil, startOnPage: Bool = false) {
+        scroll = FigureViewportScroll(image: image, part: part, fullscreen: true, outlines: outlines, recordKey: recordKey, snippetKey: nil, page: page, onOpen: nil)
+        self.source = source; self.sourceKey = sourceKey; self.outlines = outlines; self.startOnPage = startOnPage && scroll.hasPage
         super.init(frame: .zero)
         backgroundColor = .clear
+        // Both fingers of a pinch reach the figure (a plain view takes only the first touch).
+        isMultipleTouchEnabled = true
         backdrop.backgroundColor = .systemBackground; backdrop.alpha = 0
         addSubview(backdrop); addSubview(scroll)
         scroll.backgroundColor = .clear
@@ -924,7 +1119,7 @@ final class FigureFullscreenStage: UIView {
         filter.shouldBegin = { [weak self] gesture in
             guard let self, let pan = gesture as? UIPanGestureRecognizer else { return true }
             let v = pan.velocity(in: self)
-            return !closing && v.y > abs(v.x) * 1.2 && scroll.atTop
+            return !closing && pan.numberOfTouches == 1 && v.y > abs(v.x) * 1.2 && scroll.atTop
         }
         addGestureRecognizer(dismiss)
         scroll.panGestureRecognizer.require(toFail: dismiss)
@@ -999,10 +1194,21 @@ final class FigureFullscreenStage: UIView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12 * slow) { [weak self] in self?.onChrome?(true) }
     }
 
-    /// Open: the outline fades (or, with Reduce Motion, shows for a second, then goes).
+    /// Open: the outline fades (or, with Reduce Motion, shows for a second, then goes); opened by a pinch outwards, the view
+    /// then zooms out onto the page.
     private func settled() {
+        if startOnPage { scroll.showPage(animated: !reduceMotion); scroll.record(zoomed: true) }
         guard outlines else { return }
         scroll.fadeLook(after: 0.1 * Self.slow, duration: Self.fadeDuration * Self.slow, reduceMotion: reduceMotion)
+    }
+
+    /// The page around the figure, or back to the figure (the top row's page control).
+    func togglePage() {
+        if scroll.pageShown {
+            scroll.showPart(animated: !reduceMotion)
+            if outlines { scroll.fadeLook(after: 0.4, duration: Self.fadeDuration, reduceMotion: reduceMotion) }
+        } else { scroll.showPage(animated: !reduceMotion) }
+        scroll.record(zoomed: true)
     }
 
     /// Whole figure ↔ the part (the top row's control).
@@ -1073,6 +1279,14 @@ struct FigureImagePresentation: Identifiable {
     /// Where the card was (window coordinates), and its key to find it again when closing.
     var source: CGRect?
     var sourceKey: String?
+    /// The figure's PDF page on this device (an on-device reading), and whether to open onto it.
+    var page: FigurePDFPage?
+    var startOnPage = false
+
+    /// `page` when this image is the crop it records (a figure of one image as the route cut it); else nil.
+    static func page(_ page: FigurePDFPage?, for image: CGImage) -> FigurePDFPage? {
+        page.flatMap { FigurePageLayout(region: $0.region, imageWidth: image.width, imageHeight: image.height) == nil ? nil : $0 }
+    }
 }
 
 private struct FigureViewerWindowSizeKey: EnvironmentKey { static let defaultValue = CGSize.zero }
@@ -1121,10 +1335,11 @@ struct FullscreenFigureImage: View {
     @State private var stage: FigureFullscreenStage?
     @State private var chrome = false
     @State private var whole = false
+    @State private var onPage = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        FigureStageView(image: image, matched: matched, stage: $stage, chrome: $chrome, whole: $whole, closed: close)
+        FigureStageView(image: image, matched: matched, stage: $stage, chrome: $chrome, whole: $whole, onPage: $onPage, closed: close)
             .ignoresSafeArea()
             .overlay(alignment: .top) {
                 HStack(spacing: 8) {
@@ -1136,6 +1351,17 @@ struct FullscreenFigureImage: View {
                             .padding(.horizontal, 12).frame(minHeight: 36)
                             .background(Capsule().fill(.regularMaterial))
                             .accessibilityIdentifier("figureView.fullscreen.toggle")
+                    }
+                    if image.page != nil {
+                        // The PDF page around the figure (a figure the on-device model cut from a PDF on this device), as
+                        // small as the X: zooming out past the figure does the same.
+                        Button { stage?.togglePage() } label: {
+                            Image(systemName: onPage ? "crop" : "doc.viewfinder").font(.system(size: 15, weight: .semibold)).frame(width: 36, height: 36)
+                                .background(Circle().fill(.regularMaterial))
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(onPage ? "Back to the figure" : "Show the whole page").accessibilityIdentifier("figureView.fullscreen.page")
                     }
                     Button { stage?.close() } label: {
                         Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).frame(width: 36, height: 36)
@@ -1161,13 +1387,16 @@ private struct FigureStageView: UIViewRepresentable {
     @Binding var stage: FigureFullscreenStage?
     @Binding var chrome: Bool
     @Binding var whole: Bool
+    @Binding var onPage: Bool
     let closed: () -> Void
     func makeUIView(context: Context) -> FigureFullscreenStage {
         let part = image.part ?? .whole(width: image.image.width, height: image.image.height)
         let view = FigureFullscreenStage(image: image.image, part: part, outlines: image.part != nil, label: image.label, recordKey: image.recordKey,
-                                         source: matched ? image.source : nil, sourceKey: matched ? image.sourceKey : nil)
+                                         source: matched ? image.source : nil, sourceKey: matched ? image.sourceKey : nil,
+                                         page: image.page, startOnPage: image.startOnPage)
         view.onChrome = { shown in Task { @MainActor in chrome = shown } }
         view.onWhole = { at in Task { @MainActor in if whole != at { whole = at } } }
+        view.onPage = { shown in Task { @MainActor in if onPage != shown { onPage = shown } } }
         view.onClosed = closed
         Task { @MainActor in stage = view }
         return view

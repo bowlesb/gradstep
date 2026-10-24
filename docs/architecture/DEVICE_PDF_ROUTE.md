@@ -142,6 +142,11 @@ The shared HTML validator now admits the arXiv compiler's bounded affiliation-li
 is unchanged; the embedded converter is rebuilt and its port identity advanced because its dependency bytes
 changed. The compiler freshness check caught the stale embedded bundle before release.
 
+### Port revision 10 — 2026-10-24
+
+Provenance gains `figures`: each shown figure's page, crop and page size in points, so the apps can zoom out of a crop
+onto the PDF on the device (FIGURE_VIEW.md "Zoom out onto the page"). The reading itself is unchanged.
+
 ## Development after the port kit — port revision 5, 2026-10-21
 
 Owner, 2026-10-21: keep developing the on-device route (too slow, not accurate enough); Mathpix is not built. Measured

@@ -1,5 +1,39 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Zoom out onto the page — 2026-10-24 (apps, branch `figure-zoom-out`; not released)
+
+Owner, 2026-10-24: "in the on device model, when I click on an AI explainers for a figure, I should be able to zoom out
+around it and see the actual pdf, that would compensate for an inadequate crop". Decision record:
+[DECISIONS](../DECISIONS.md#figures-of-on-device-readings-zoom-out-onto-the-pdf-page-owner-request-2026-10-24-agent-decisions-reversible).
+
+- **Where the crop is.** The on-device converter (port revision 10) adds `figures` to `provenance.json`: one row per
+  shown figure, `[id, page (from 0), x0, y0, x1, y1, page width, page height]`, points from the top left of the page as
+  shown (crop box turned by `/Rotate`). The image is exactly that rectangle at 150 dpi × the budget's scale.
+  `DevicePDFReaderProvenance` reads the rows (a bad row is dropped, never the reading); `ReaderModel.figurePDFPage` finds
+  the PDF on this device by the provenance's digest (`DevicePaperStore`); `FigureViewContext.pdfPage` carries both.
+  Readings before revision 10, arXiv HTML readings, figures of several images and removed PDFs have none.
+- **The canvas** (`FigurePageLayout`, `FigureZoomMath` in ScienceReaderCore, tested): the full-screen figure's canvas,
+  in the figure's pixels, holds the page with the image exactly on its crop. Until the reader zooms out past the whole
+  figure, the view is held to the figure on its white margin, which looks and pans as before.
+- **Zooming out** below the whole figure's fit fades the page in around it; it is drawn then (once, off the main actor,
+  with the same CoreGraphics drawing the route cut the crop from, at twice the screen's pixels for the fitted page, at
+  least the figure's own density, at most 4,096 px a side) and released when full screen closes. The crop stays outlined
+  thinly in the parts' outline colour; a part's own outline and veil behave as before. The zoom stops at the whole page;
+  the page pans; a double tap (or the Show part / Whole figure control) returns to the figure and hides the page.
+- **Ways in:** a pinch outwards in full screen; a small round control by the X (`doc.viewfinder`, "Show the whole page";
+  `crop`, "Back to the figure"); VoiceOver actions of the same names; a pinch outwards on the explainer's card or on the
+  figure page opens full screen straight onto the page (the figure page also has the VoiceOver action). The Mac's
+  trackpad pinch does the same.
+- **Not built:** continuing past the page's edge onto the neighbouring page.
+- **Evidence:** `FigurePageZoomTests` (Core), `device-pdf.test.ts` (provenance rows), the opt-in journey
+  `FigureViewJourneyTests.testZoomingOutOfAnOnDeviceFigureShowsItsPDFPage` on a real reading of 2305.18290v3 made by
+  `DevicePDFRouteTool`, passed on the iPhone 17 Pro and iPad Pro 13-inch (M5) Simulators (iOS 26.4); screenshots
+  `.artifacts/figure-zoom-out/`. On the iPad Simulator a synthesized pinch inside the full-screen cover reaches no
+  gesture recognizer (the same pinch works on the iPhone Simulator, and on the iPad's card and figure page), so there the
+  journey takes the page control; the pinch on an iPad itself is untested. A Mac journey was not run (Catalyst builds).
+- **Also:** the card's pinch now opens full screen once the fingers have moved enough to tell its direction; the
+  full screen's swipe down closes only for one finger.
+
 ## Full screen on touch — 2026-10-22 (apps and browser local, not released)
 
 Owner, 2026-10-22: "I like the changes. The one issue is when you try to click into a subfigure and zoom. The transition

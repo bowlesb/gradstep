@@ -31,6 +31,7 @@
   ChatTitle/ChatGeneration/PaperTable unit tests pass. MacKeyboardTests' ⌘4 Browse check fails (⌘4 is Chat since the
   places were renumbered; stale, not changed here). The Feed's checkmark state after Add isn't reached in the fixture;
   rows keep their top and height from Add to loading. iPadOS 18 sizing not run on an 18 Simulator (only 26.4 installed).
+- Figures of on-device readings zoom out onto the PDF page (branch `figure-zoom-out`; converter port revision 10; FIGURE_VIEW.md "Zoom out onto the page").
 
 ## New AI gateway key, iPad Wide places — 2026-10-24 UTC (TestFlight 88, iOS and Mac uploaded)
 
