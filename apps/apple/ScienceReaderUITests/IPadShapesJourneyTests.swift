@@ -325,7 +325,14 @@ final class IPadShapesJourneyTests: XCTestCase {
         // Search: the Library with its field focused.
         _ = app.placeItem("search"); element("tab.search", app).tap()
         wait("Search is the Library's field") { app.currentPlace == "Library" && app.segmentedControls["library.searchScope"].exists }
-        if app.buttons["library.search.cancel"].exists { app.buttons["library.search.cancel"].tap() }
+        // The hardware keyboard first, in the focused field: on the Simulator the first key event of a launch never runs a
+        // keyboard shortcut (⌘1 failed on 3 of 3 fresh launches with nothing typed before it, while typed letters arrive),
+        // which made this check flaky. A letter that reaches the field proves later keys are delivered (⌘1 then passed 4 of 4).
+        let field = element("library.search", app)
+        app.typeKey("x", modifierFlags: [])
+        wait("A typed letter reaches the search field") { (field.value as? String) == "x" }
+        app.buttons["library.search.cancel"].tap()
+        wait("Search ended") { !app.segmentedControls["library.searchScope"].exists }
         // ⌘2 with a hardware keyboard: Library; ⌘1: Feed.
         app.typeKey("1", modifierFlags: .command)
         wait("⌘1 is Feed") { app.currentPlace == "Feed" }
