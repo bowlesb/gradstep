@@ -662,6 +662,15 @@ final class IPadShapesJourneyTests: XCTestCase {
         assertOneRow(app, controls: [options], content: app.collectionViews.firstMatch)
         XCTAssertLessThan(options.frame.maxX, app.frame.width * 0.5, "The list's ⋯ ends the list's row")
         save("\(device)-feed-empty")
+        // Text size floats over nothing in Wide (TestFlight 90 follow-up: A− / A+ sat over the Feed's rows): it is in the ⋯.
+        XCTAssertFalse(app.buttons["feed.textSize.larger"].exists, "No A− / A+ floating over the Feed's list")
+        options.tap()
+        let larger = app.buttons["feed.textSize.larger"].firstMatch
+        XCTAssertTrue(larger.waitForExistence(timeout: 3), "Larger text is in the Feed's ⋯")
+        XCTAssertTrue(app.buttons["feed.textSize.smaller"].firstMatch.exists, "Smaller text is in the Feed's ⋯")
+        // A tap on the right slot's placeholder closes the menu without changing anything.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.6)).tap()
+        wait("The ⋯ menu closed") { !app.buttons["feed.textSize.larger"].firstMatch.exists }
         let row = feedRow("2610.01234", app)
         XCTAssertTrue(row.waitForExistence(timeout: 8))
         let rowFrame = row.frame

@@ -975,20 +975,21 @@ struct FeedView: View {
             }
             // A− / A+ (build 16 #6): the Feed's text, in steps from the system's text size.
             .dynamicTypeSize(dynamicTypeSize.stepped(by: model.feedTextStep))
-            // Room under the last row for the text size control.
-            .contentMargins(.bottom, model.feedState == .loaded ? 56 : 0, for: .scrollContent)
+            // Room under the last row for the text size control (Tall only: in Wide it is a row of ⋯).
+            .contentMargins(.bottom, model.feedState == .loaded && !wideBar ? 56 : 0, for: .scrollContent)
             // Owner feedback (2026-10-06): the Feed's top used space like the Library's used to. Same
             // header as the Library: one row — the topics (the feed's filter) and the "…" menu.
             .safeAreaInset(edge: .top, spacing: 0) { header }
             .tabBarSpace()
+            // Tall: A− / A+ float at the list's corner as on iPhone. Wide: they are the first row of the Feed's ⋯, so nothing
+            // floats over the list's slot (TestFlight 90 follow-up: the control sat over the Feed's rows).
             .overlay(alignment: .bottomTrailing) {
-                if model.feedState == .loaded && !model.feedResults.isEmpty {
+                if !wideBar && showsTextSize {
                     let current = dynamicTypeSize.stepped(by: model.feedTextStep)
                     TextSizeControl(identifier: "feed.textSize",
                                     canShrink: dynamicTypeSize.stepped(by: model.feedTextStep - 1) != current,
                                     canGrow: dynamicTypeSize.stepped(by: model.feedTextStep + 1) != current,
-                                    shrink: { model.feedTextStep = max(-6, model.feedTextStep - 1) },
-                                    grow: { model.feedTextStep = min(6, model.feedTextStep + 1) })
+                                    shrink: shrinkText, grow: growText)
                         .padding(.trailing, DesignMetrics.margin).padding(.bottom, tabBarReserve + 8)
                 }
             }
@@ -998,6 +999,11 @@ struct FeedView: View {
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
     }
+
+    /// A− / A+ apply to a loaded Feed with papers in it.
+    private var showsTextSize: Bool { model.feedState == .loaded && !model.feedResults.isEmpty }
+    private func shrinkText() { model.feedTextStep = max(-6, model.feedTextStep - 1) }
+    private func growText() { model.feedTextStep = min(6, model.feedTextStep + 1) }
 
     /// Feed options › Columns (build 17).
     private var feedColumnsSheet: some View {
@@ -1046,6 +1052,18 @@ struct FeedView: View {
                 } label: {
                     Label { Text("View as"); Text(model.feedLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
                 }
+            }
+            // Wide: the Feed's text size, as the chat's ⋯ has it (Tall keeps the floating A− / A+).
+            if wideBar && showsTextSize {
+                let current = dynamicTypeSize.stepped(by: model.feedTextStep)
+                ControlGroup {
+                    MenuRow("Smaller text", systemImage: "textformat.size.smaller", action: shrinkText)
+                        .disabled(dynamicTypeSize.stepped(by: model.feedTextStep - 1) == current)
+                        .accessibilityIdentifier("feed.textSize.smaller")
+                    MenuRow("Larger text", systemImage: "textformat.size.larger", action: growText)
+                        .disabled(dynamicTypeSize.stepped(by: model.feedTextStep + 1) == current)
+                        .accessibilityIdentifier("feed.textSize.larger")
+                }.controlGroupStyle(.compactMenu)
             }
             if model.feedLayout == .table {
                 // The table's order and columns (build 17: "sort by Published, Title, Topic"; "choose which columns").

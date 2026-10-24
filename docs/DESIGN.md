@@ -89,7 +89,7 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Vertical budget (Wide)*: above content, the status bar and at most one 52 pt row (≤ 56 pt, asserted by
     `IPadShapesJourneyTests`); over the paper 0 pt (asserted). Below, only the chat's message box (its status line sits
     above it). The paper has no bottom bar and no bottom band: text size and line width float at its corner as on iPhone,
-    with room after the page's end (the page's own CSS, in either slot). The page draws on the app's background
+    with room after the page's end (the page's own CSS, in either slot). A list's text size (the Feed's A− / A+) is the first row of its ⋯ in Wide, so nothing floats over a list's slot (Tall keeps the iPhone's floating control). The page draws on the app's background
     (`systemBackground`; in dark mode the reader's own #0F0F0F would meet the chat's black at the divider). The find bar
     (under the floating controls), notices and sync status float over content and never move the text.
   - *Two slots* (`TwoSlotLayout`, the one reusable container; at most two columns): it owns the widths, the divider and
