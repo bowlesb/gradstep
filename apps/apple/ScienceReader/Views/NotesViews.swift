@@ -1033,7 +1033,8 @@ struct NoteTextSheet: View {
                 else { model.notes.focusEntryID = try await model.addText(text, to: request.noteID) }
                 dismiss()
             } catch {
-                issue = "Couldn’t save on this device. " + ((error as? LocalizedError)?.errorDescription ?? "Your text is still here.")
+                issue = StorageSpace.message(for: error).map { $0 + " Your text is still here." }
+                    ?? "Couldn’t save on this device. " + ((error as? LocalizedError)?.errorDescription ?? "Your text is still here.")
             }
         }
     }

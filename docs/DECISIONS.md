@@ -45,6 +45,20 @@ measurements: [INTEREST_INDEX.md › Related papers for a tag](architecture/INTE
 | ML paper search for a tag | The tag's plain words, as before (no `keyword:` prefix: arXiv has no keyword field and these are Gradstep's own tags). paper-search.ts asks arXiv for all the words (a hyphenated word stays one quoted word, `all:"on-policy" AND all:distillation`) and for titles with the whole phrase, and ranks a title with the phrase first, however it is hyphenated or capitalised. Pinned by a backend test. |
 | Device column | Centred: the header and every glyph (check, cloud, warning, each in the same 32 pt box) share one centre at every width, iPhone, iPad and Mac. Pages and Chats stay right-aligned under right-aligned headers; the Feed's Add column already centred its states in one box. |
 
+## Offline and full disk: one line, no paid retries, resume on reconnect (owner request 2026-10-25; agent decisions, reversible)
+
+Asked for "reasonable behavior" with no internet or a full disk ([review](reviews/OFFLINE_AND_STORAGE_20261025.md)):
+
+- **Words:** one short line per cause, no app-wide banner: "You’re offline. What’s on this device still works.",
+  "This device is out of space. Free up 120 MB and try again." (the amount when known), "This Wi‑Fi needs you to sign
+  in. Open Safari to sign in, then try again."; sync says "Offline · Saved on this device".
+- **Retries:** nothing paid retries by itself (an offline question waits for Try again); sync, unsent library changes,
+  the first-device setup and a failed library refresh resume as soon as the network returns.
+- **Space checked before large downloads:** the on-device model needs twice its size plus 50 MB; a PDF of known size
+  twice its size. Paper preparation fails cleanly and says the shortfall (its size isn't known in advance).
+- **Full disk at launch:** what is saved opens and reads; the store's open-time clean-up waits for the next launch with
+  room; a store last closed by an earlier build opens exclusively, or read-only until space returns.
+
 ## Interest index privacy notice approved; serving may go to all (owner, 2026-10-25)
 
 Asked to "approve the interest-index privacy wording so topics and the new For you ranking can go beyond staff

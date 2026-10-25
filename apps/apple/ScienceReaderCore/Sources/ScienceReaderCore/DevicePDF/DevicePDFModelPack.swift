@@ -140,7 +140,11 @@ public struct DevicePDFModelStore: Sendable {
         })
         for package in packages.sorted() {
             let compiled: URL
-            do { compiled = try await compile(staging.appendingPathComponent(package)) } catch { throw DevicePDFModelPackError.compileFailed(package) }
+            do { compiled = try await compile(staging.appendingPathComponent(package)) } catch {
+                // A full disk is the reader's to fix, and says so; anything else is the model's.
+                if StorageSpace.isOutOfSpace(error) { throw error }
+                throw DevicePDFModelPackError.compileFailed(package)
+            }
             let target = staging.appendingPathComponent(String(package.dropLast(".mlpackage".count)) + ".mlmodelc")
             try? fm.removeItem(at: target)
             try fm.moveItem(at: compiled, to: target)

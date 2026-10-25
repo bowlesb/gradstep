@@ -15,11 +15,12 @@ enum PDFUploadIntake {
         catch let problem as PDFFileProblem { return problem.message }
         catch is CancellationError { return nil }
         catch BackendError.signInRequired { return "Sign in to add papers to your library." }
-        catch { return "Couldn’t add this PDF. Check there’s room on this device and try again." }
+        catch { return StorageSpace.message(for: error) ?? "Couldn’t add this PDF. Check there’s room on this device and try again." }
     }
 
-    /// Files dropped on the Library or the Add sheet (iPad, Mac): each PDF is copied before the drop ends.
-    static func loadDropped(_ providers: [NSItemProvider]) async -> [URL] {
+    /// Files dropped on the Library or the Add sheet (iPad, Mac): each PDF is copied before the drop ends. A copy that
+    /// fails (a full disk) is said through `failed`, never dropped silently.
+    static func loadDropped(_ providers: [NSItemProvider], failed: @escaping @Sendable (String) -> Void = { _ in }) async -> [URL] {
         var urls: [URL] = []
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
             let copy: URL? = await withCheckedContinuation { continuation in
@@ -33,7 +34,10 @@ enum PDFUploadIntake {
                         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                         try FileManager.default.copyItem(at: url, to: target)
                         continuation.resume(returning: target)
-                    } catch { continuation.resume(returning: nil) }
+                    } catch {
+                        failed(StorageSpace.message(for: error) ?? "A dropped PDF couldn’t be copied. Try dropping it again.")
+                        continuation.resume(returning: nil)
+                    }
                 }
             }
             if let copy { urls.append(copy) }
@@ -144,7 +148,8 @@ extension View {
         onDrop(of: [.pdf], isTargeted: isTargeted) { providers in
             guard model.uploads.isActive else { return false }
             Task { @MainActor in
-                for url in await PDFUploadIntake.loadDropped(providers) {
+                let dropped = await PDFUploadIntake.loadDropped(providers) { message in Task { @MainActor in model.uploads.problem = message } }
+                for url in dropped {
                     if let message = await PDFUploadIntake.add(url, target: .newPaper, title: nil, model: model) { model.uploads.problem = message }
                 }
             }

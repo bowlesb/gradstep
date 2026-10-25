@@ -192,6 +192,9 @@ struct DevicePDFFetcher: DevicePDFFetching {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 60; configuration.timeoutIntervalForResource = 300
         configuration.waitsForConnectivity = false
+        #if DEBUG && FIXTURE_HOST
+        BackendFaultProtocol.install(in: configuration)
+        #endif
         return configuration
     }()
 
@@ -239,7 +242,9 @@ struct DevicePDFFetcher: DevicePDFFetching {
             }
             if http.statusCode == 404 || http.statusCode == 410 { bytes.task.cancel(); throw DeviceFetchError.failed }
             if http.expectedContentLength > Self.maximumBytes { bytes.task.cancel(); throw DeviceFetchError.tooLarge }
-            let body = try await read(bytes, expected: http.expectedContentLength, progress: progress)
+            // Its length is checkable only when it wasn't compressed in transit (then the bytes read are the decoded ones).
+            let identity = (http.value(forHTTPHeaderField: "Content-Encoding")?.lowercased() ?? "identity") == "identity"
+            let body = try await read(bytes, expected: http.expectedContentLength, exact: identity, progress: progress)
             switch body {
             case .pdf(let file):
                 guard http.statusCode == 200 else { try? FileManager.default.removeItem(at: file); throw DeviceFetchError.failed }
@@ -259,12 +264,26 @@ struct DevicePDFFetcher: DevicePDFFetching {
 
     private enum Body { case pdf(URL), page(String), other }
 
+    /// A connection failure while reading is the site being unreachable from here; anything else keeps its own meaning.
+    private static func connection(_ error: Error) -> Error {
+        if let url = error as? URLError, url.code != .cancelled { return DeviceFetchError.unreachable }
+        return error
+    }
+
     /// A PDF streamed to a temporary file (refused past 64 MiB); a page read up to 1.5 MB; anything else not at all.
-    private func read(_ bytes: URLSession.AsyncBytes, expected: Int64, progress: @escaping @Sendable (Double) -> Void) async throws -> Body {
+    /// docs/reviews/OFFLINE_AND_STORAGE_20261025.md: a connection that drops partway is `.unreachable` (it was a raw error,
+    /// shown as "couldn't download… open it in Safari"), a body shorter than its declared length is never kept as a PDF,
+    /// and a disk without room for it (and its encrypted copy) says how much to free before downloading.
+    private func read(_ bytes: URLSession.AsyncBytes, expected: Int64, exact: Bool, progress: @escaping @Sendable (Double) -> Void) async throws -> Body {
         var head = Data(); var iterator = bytes.makeAsyncIterator()
-        while head.count < 512, let byte = try await iterator.next() { head.append(byte) }
+        do { while head.count < 512, let byte = try await iterator.next() { head.append(byte) } }
+        catch { throw Self.connection(error) }
         let text = String(decoding: head, as: UTF8.self)
         if text.hasPrefix("%PDF-") {
+            if expected > 0 {
+                do { try StorageSpace.ensure(expected * 2, at: FileManager.default.temporaryDirectory) }
+                catch { bytes.task.cancel(); throw error }
+            }
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("device-\(UUID().uuidString).pdf")
             FileManager.default.createFile(atPath: file.path, contents: nil)
             let handle = try FileHandle(forWritingTo: file)
@@ -281,9 +300,14 @@ struct DevicePDFFetcher: DevicePDFFetching {
                     }
                     if next == nil { break }
                 }
-            } catch { try? FileManager.default.removeItem(at: file); bytes.task.cancel(); throw error }
+            } catch {
+                try? FileManager.default.removeItem(at: file); bytes.task.cancel()
+                if StorageSpace.isOutOfSpace(error) { throw StorageSpace.fullError(writing: max(expected, written) * 2, at: file) }
+                throw Self.connection(error)
+            }
             let size = Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
             if size > Self.maximumBytes { try? FileManager.default.removeItem(at: file); throw DeviceFetchError.tooLarge }
+            if exact, expected > 0, size < expected { try? FileManager.default.removeItem(at: file); throw DeviceFetchError.unreachable }
             progress(1)
             return .pdf(file)
         }

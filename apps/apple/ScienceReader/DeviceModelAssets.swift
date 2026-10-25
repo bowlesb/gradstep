@@ -177,6 +177,10 @@ final class DeviceModelAssets {
         return Task { false }
         #else
         guard let pack, let store = Self.store else { return Task { false } }
+        // Room for the download and the checked copy made from it, said before 365 MB is fetched, not after.
+        if let issue = Self.spaceIssue(packBytes: pack.bytes, available: (try? DevicePDFModelStore.defaultRoot()).flatMap(StorageSpace.available)) {
+            state = .failed(issue); return Task { false }
+        }
         wanted = true
         state = .downloading(0)
         generation += 1
@@ -270,18 +274,24 @@ final class DeviceModelAssets {
     #if DEBUG && FIXTURE_HOST
     // MARK: UI-test fixture
 
-    /// `--device-model-download-fixture[=ready|fail|slow]` (UI tests and visual checks): a pack of about 365 MB that
-    /// "downloads" in about two seconds (`slow`: twenty; `fail`: stops at 40 % with the connection message) without On-Demand
-    /// Resources or files; `ready` starts downloaded. Settings only: the route still finds no models.
-    enum DownloadFixture: String { case missing, ready, fail, slow }
+    /// `--device-model-download-fixture[=ready|fail|fail_once|full|slow]` (UI tests and visual checks): a pack of about
+    /// 365 MB that "downloads" in about two seconds (`slow`: twenty; `fail`: stops at 40 % with the connection message;
+    /// `fail_once`: only the first run does; `full`: a device with 200 MB free, refused before downloading) without
+    /// On-Demand Resources or files; `ready` starts downloaded. Settings only: the route still finds no models.
+    enum DownloadFixture: String { case missing, ready, fail, slow, full; case failOnce = "fail_once" }
     nonisolated static let downloadFixture: DownloadFixture? = {
         guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--device-model-download-fixture") }) else { return nil }
         return argument.split(separator: "=").dropFirst().first.flatMap { DownloadFixture(rawValue: String($0)) } ?? .missing
     }()
     nonisolated static let fixtureBytes: Int64 = 365_200_000
     @ObservationIgnored private var fixtureInstalled = false
+    @ObservationIgnored private var fixtureFailed = false
 
     private func startFixture(_ fixture: DownloadFixture) -> Task<Bool, Never> {
+        if fixture == .full, let issue = Self.spaceIssue(packBytes: Self.fixtureBytes, available: 200_000_000) {
+            state = .failed(issue); return Task { false }
+        }
+        let fails = fixture == .fail || (fixture == .failOnce && !fixtureFailed)
         wanted = true
         state = .downloading(0)
         generation += 1
@@ -290,8 +300,8 @@ final class DeviceModelAssets {
             for step in 1...steps {
                 try? await Task.sleep(for: pause)
                 guard let self, self.generation == run else { return false }
-                if fixture == .fail, step == steps * 2 / 5 {
-                    self.download = nil
+                if fails, step == steps * 2 / 5 {
+                    self.download = nil; self.fixtureFailed = true
                     self.state = .failed("The download stopped. Check the connection and try again.")
                     return false
                 }
@@ -311,10 +321,19 @@ final class DeviceModelAssets {
     nonisolated static let fixtureBytes: Int64 = 0
     #endif
 
+    /// Room for the download and the checked copy made from it: the pack twice, with StorageSpace's margin. Nil when it
+    /// fits or free space is unknown.
+    nonisolated static func spaceIssue(packBytes: Int64, available: Int64?) -> String? {
+        guard let available else { return nil }
+        let needed = packBytes * 2 + StorageSpace.margin
+        return available < needed ? StorageSpace.message(needing: needed - available) : nil
+    }
+
     nonisolated static func message(for error: Error) -> String {
         let ns = error as NSError
-        if ns.domain == NSCocoaErrorDomain, ns.code == NSBundleOnDemandResourceOutOfSpaceError || ns.code == NSFileWriteOutOfSpaceError {
-            return "Not enough free space on this device for the model."
+        if StorageSpace.isOutOfSpace(error) {
+            if let full = error as? StorageFullError { return full.localizedDescription }
+            return StorageSpace.message(needing: packDescription.map { $0.bytes + StorageSpace.margin })
         }
         if let pack = error as? DevicePDFModelPackError {
             switch pack {

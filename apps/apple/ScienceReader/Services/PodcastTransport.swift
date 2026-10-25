@@ -123,6 +123,7 @@ extension BackendError {
         case "podcast_paused", "platform_budget_exhausted":
             return "Episode creation is paused right now. Nothing was charged, and reading is unaffected."
         case "storage_full": return "Episode storage is full right now. Nothing was charged."
+        case "network_sign_in": return ConnectionText.networkSignIn
         case "insufficient_credits": return "You don’t have enough credits for this length. A shorter one needs fewer."
         case "podcast_transfer_limit": return "Episode downloads are limited for this month. Downloaded episodes still play."
         case "podcast_grant_unavailable", "podcast_grant_consumed": return "The download needs to restart. Try again."
@@ -139,6 +140,9 @@ extension BackendError {
 extension Error {
     var podcastMessage: String {
         if let backend = self as? BackendError { return backend.podcastMessage }
+        // An episode's audio saved on a full disk: how much to free (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+        if let space = StorageSpace.message(for: self) { return space }
+        if ConnectionText.isOffline(self) { return "You’re offline. Downloaded episodes still play." }
         if self is URLError { return "The connection was interrupted. Downloaded episodes still play." }
         if let reader = self as? ReaderError, reader == .corruptData { return "This episode couldn’t be verified. Try again." }
         return "Listening isn’t available right now. Try again later."

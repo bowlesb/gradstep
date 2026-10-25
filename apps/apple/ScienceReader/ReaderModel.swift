@@ -357,8 +357,9 @@ final class ReaderModel {
     /// Why a preparation failed, in the reader's words; never source text.
     static func preparationReason(_ error: Error) -> String {
         if let known = error as? ArxivHTMLError { return known.message }
-        if let url = error as? URLError { return "Couldn’t reach arXiv: \(url.localizedDescription)" }
-        if let store = error as? LocalReaderStoreError { return "The paper was prepared but couldn’t be stored on this device (\(store))." }
+        // A full disk, or a connection that failed (offline, timed out, a captive Wi‑Fi), in one plain line.
+        if let connection = ConnectionText.message(for: error, reaching: "arXiv") { return connection }
+        if error is LocalReaderStoreError { return "The paper was prepared but couldn’t be stored on this device. Try again." }
         return "This paper couldn’t be prepared on this device (\(type(of: error)))."
     }
     /// After a chat citation opened the paper, the reader offers "Back to chat" (owner, 2026-10-15).
@@ -1359,6 +1360,8 @@ final class ReaderModel {
         self.librarySearchWorker = librarySearchWorker
         if fixtureFailed { error = "The local sign-in fixture couldn’t be prepared." }
         podcasts.host = self
+        // Back online: queued work resumes now rather than after its back-off (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+        Connectivity.shared.onReconnect { [weak self] in self?.connectionReturned() }
         fullTextIndexer.inputs = { [weak self] in self?.fullTextInputs() ?? .init() }
         fullTextIndexer.changed = { [weak self] in self?.fullTextIndexChanged() }
         // Snippets' search reads the reading under a drawn region when that paper's reading is on this device.
@@ -2083,10 +2086,38 @@ final class ReaderModel {
         }
     }
 
+    /// Sync's one line when it stops: offline and an unreachable server said plainly (it resumes by itself when the
+    /// connection returns), a full disk with what to do, anything else in its own words.
+    static func syncIssue(for error: Error) -> String {
+        if ConnectionText.isOffline(error) { return ConnectionText.offlineSync }
+        if ConnectionText.isConnection(error) { return "Can’t reach Gradstep · Saved on this device" }
+        if case BackendError.rejected("network_sign_in") = error { return ConnectionText.networkSignIn }
+        return StorageSpace.message(for: error) ?? (error as? LocalizedError)?.errorDescription
+            ?? "Sync could not finish. Your saved work remains on this device."
+    }
+
+    /// The device is back online (`Connectivity`): sync, unsent library changes, an unfinished first-device setup and a
+    /// failed library refresh go now, rather than after a back-off that can reach five minutes. Nothing paid is retried
+    /// by itself: a chat answer that failed offline waits for its Try again.
+    func connectionReturned() {
+        guard accountID != nil else { return }
+        let scope = sessionID
+        if syncFailures > 0 || syncIssue != nil {
+            syncFailures = 0; syncRetryAfter = nil
+            syncSchedule?.task.cancel(); syncSchedule = nil; updateSyncSchedule()
+            Task { await self.scheduledSync(scope: scope) }
+        }
+        if accountPreparationIssue != nil, accountPreparationTask == nil { Task { await self.retryAccountPreparation() } }
+        if libraryIssue != nil { Task { if self.sessionID == scope { await self.refreshLibrary() } } }
+        else { Task { if self.sessionID == scope { await self.libraryCommandCoordinator?.retry() } } }
+    }
+
     /// The connection, a busy or failing server: retried with back-off. Key, storage and protocol errors are not.
     static func isReachability(_ error: Error) -> Bool {
         if let backend = error as? BackendError { return backend.isTransient }
         if let url = error as? URLError { return url.code != .cancelled }
+        // A token refresh that couldn't reach Gradstep (offline with an expired token) is the connection, not the keys.
+        if let auth = error as? AuthenticationError { return auth == .connection }
         return false
     }
     @ObservationIgnored private var accountPreparationFailures = 0
@@ -2380,7 +2411,7 @@ final class ReaderModel {
             // The timeline gets a code (ReaderError case, known server code, URLError number), never the copy.
             SessionTimeline.shared.record("sync", ["status": "failed", "code": SyncFailure.code(error)])
             syncStatus = "Saved on this device · Sync paused"
-            syncIssue = (error as? LocalizedError)?.errorDescription ?? "Sync could not finish. Your saved work remains on this device."
+            syncIssue = Self.syncIssue(for: error)
             if let keyError = error as? ReaderError, keyError == .missingKey || keyError == .staleEpoch {
                 recoveryCode = nil; needsRecovery = true; requestRecoveryPresentation()
             } else if reportErrors { show(error) }
@@ -3722,7 +3753,8 @@ final class ReaderModel {
                 self.failedHTMLOpens.insert(paper.id)
                 let code = (error as? ArxivHTMLError)?.code ?? String(describing: type(of: error))
                 SessionTimeline.shared.record("reader", ["phase": "open-failed", "code": code])
-                self.readerOpenIssue = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device. Try again, or open its PDF."
+                self.readerOpenIssue = (error as? ArxivHTMLError)?.message ?? ConnectionText.message(for: error, reaching: "arXiv")
+                    ?? "This paper couldn’t be prepared on this device. Try again, or open its PDF."
                 self.readerOpenCode = code
                 self.readerOpenFallback = ReaderOpenFallback(error)
             }
@@ -4419,9 +4451,20 @@ final class ReaderModel {
         }
         answer.subject?.localModelID = key.localModel.flatMap { $0.split(separator: "/").dropFirst().first.map(String.init) }
         equationAnswers[key] = answer
-        try? equationResultStore()?.write(answer, for: key)
+        guard keptOnDevice({ try equationResultStore()?.write(answer, for: key) }) else { return }
         if key.localModel == nil, let subject = answer.subject { keptEquationFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
     }
+    /// Writes a paid explanation to this device (Explanations). It was `try?`, so a full disk lost it silently while the
+    /// list still named it; now the answer stays open for this session and the reader is told why it isn't kept
+    /// (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+    private func keptOnDevice(_ write: () throws -> Void) -> Bool {
+        do { try write(); return true } catch {
+            self.error = (StorageSpace.message(for: error) ?? "This explanation couldn’t be saved on this device.")
+                + " It stays open until you leave it."
+            return false
+        }
+    }
+
     func equationResultStore() -> EquationResultStore? {
         if let equationStore { return equationStore }
         guard let configuration, let device, let accountID, device.accountID == accountID,
@@ -4611,7 +4654,7 @@ final class ReaderModel {
         }
         answer.subject?.localModelID = key.localModel.flatMap { $0.split(separator: "/").dropFirst().first.map(String.init) }
         figureAnswers[key] = answer
-        try? figureResultStore()?.write(answer, for: key)
+        guard keptOnDevice({ try figureResultStore()?.write(answer, for: key) }) else { return }
         if key.part == nil, key.localModel == nil, let subject = answer.subject { keptFigureFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
     }
 
@@ -4698,7 +4741,7 @@ final class ReaderModel {
             answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: "paper", action: .paperExplainer) { _ in "AI Explainer" }
         }
         paperExplainerAnswers[key] = answer
-        try? paperExplainerResultStore()?.write(answer, for: key)
+        _ = keptOnDevice({ try paperExplainerResultStore()?.write(answer, for: key) })
     }
     /// The sealed store of text recognised in snippet images for the signed-in account (ReaderModel+Notes); nil before
     /// activation.
@@ -5171,7 +5214,12 @@ final class ReaderModel {
             } catch BackendError.throttled {
                 outcome = .failed(code: "rate_limited")
             } catch {
-                if !Task.isCancelled { outcome = .failed(code: "transport") }
+                // Before any text: the request never got through (offline, or Gradstep unreachable), which says so
+                // rather than "interrupted" (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+                if !Task.isCancelled {
+                    outcome = .failed(code: !text.isEmpty ? "transport" : ConnectionText.isOffline(error) ? "offline"
+                                      : ConnectionText.isConnection(error) ? "unreachable" : "transport")
+                }
             }
             return true
         }
@@ -5304,6 +5352,7 @@ final class ReaderModel {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
         var unsaved: UnsavedAnswer?
+        var storageDetail: String?
         if let status = resolution.status {
             // Show exactly the sealed text before the row changes ownership.
             chatStreamingText[generation.id] = text
@@ -5323,6 +5372,7 @@ final class ReaderModel {
             } catch {
                 if issue == nil {
                     issue = "storage"
+                    if StorageSpace.isOutOfSpace(error) { storageDetail = StorageSpace.message(for: error) }
                     // The answer arrived (and was paid for); only this device's save failed. Keep it to show and to save
                     // again on Try again, which never asks for it a second time.
                     unsaved = UnsavedAnswer(generation: generation, text: text, status: status, outcome: outcome, choice: choice,
@@ -5343,6 +5393,7 @@ final class ReaderModel {
         }
         if let issue {
             chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits,
+                                                                            detail: issue == "storage" ? storageDetail : nil,
                                                                             premium: ReaderModel.isPremium(generation.profile.model))
         }
         // A repeated save asked the server for nothing: the balance and library refreshes already ran.
@@ -5690,7 +5741,17 @@ final class ReaderModel {
         storeSummary = summary
     }
 
-    func show(_ error: Error) { self.error = (error as? LocalizedError)?.errorDescription ?? "This operation could not finish. Your existing saved data has been preserved." }
+    /// The draft line under the message box when a checkpoint fails: a full disk says so (the text stays in the box).
+    static func draftIssue(_ error: Error) -> String {
+        StorageSpace.isOutOfSpace(error) ? "Draft not saved: this device is out of space." : "Draft not saved on this device. Try saving it again."
+    }
+
+    func show(_ error: Error) {
+        // A full disk or a failed connection says so, in one line (docs/reviews/OFFLINE_AND_STORAGE_20261025.md); a
+        // URLError or SQLite error has no words of its own and used to get the generic line.
+        self.error = ConnectionText.message(for: error) ?? (error as? LocalizedError)?.errorDescription
+            ?? "This operation could not finish. Your existing saved data has been preserved."
+    }
 
     private func prepareDrafts(snapshot: LocalStoreSnapshot, scope: UUID) {
         if !draftsRestored {
@@ -5712,8 +5773,8 @@ final class ReaderModel {
             case .success(let stored):
                 self.updateDraftQuietly { $0.acknowledge(checkpoint, stored: stored) }
                 if self.chatWorkspace.checkpoint(for: requested.id) != stored { self.queueDraft(requested.id) }
-            case .failure:
-                self.updateDraftQuietly { $0.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.") }
+            case .failure(let error):
+                self.updateDraftQuietly { $0.failCheckpoint(checkpoint, message: Self.draftIssue(error)) }
             }
         }
     }
@@ -5742,7 +5803,7 @@ final class ReaderModel {
         do { try draftQueue.save(checkpoint.draft) }
         catch {
             pendingDraftCheckpoints.removeValue(forKey: id)
-            updateDraftQuietly { $0.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.") }
+            updateDraftQuietly { $0.failCheckpoint(checkpoint, message: Self.draftIssue(error)) }
         }
     }
 
@@ -5830,6 +5891,17 @@ final class ReaderModel {
             select(paper)
             if arguments.contains("--visual-edit-tags") { editTags(for: paper) }
         }
+        // docs/reviews/OFFLINE_AND_STORAGE_20261025.md: an arXiv paper whose reading isn't on this device yet, to open while
+        // offline (only with `--network-offline`, which also keeps its requests from leaving the Simulator).
+        if arguments.contains("--offline-reader-unprepared"), arguments.contains(where: { $0.hasPrefix("--network-offline") }),
+           let reference = try? SourcePaperReference(membershipID: OfflineReaderFixture.unprepared, sourceID: "2601.01234", revision: 2) {
+            var paper = Paper(id: reference.membershipID, title: "Not yet on this device", authors: "A. Author", year: 2026,
+                              abstract: "An arXiv paper in the library whose reading downloads when it is opened.", keywords: ["cs.LG"],
+                              fileURL: nil, artifactID: nil)
+            paper.sourceID = "2601.01234"; paper.sourceRevision = 2; paper.sourceMembership = reference; paper.authorNames = ["A. Author"]
+            papers.append(paper)
+        }
+        StorageFullFixture.arm()
     }
 
     /// Synthetic process-restart journeys use the real encrypted SQLite path,
@@ -5876,6 +5948,7 @@ final class ReaderModel {
         prepareDrafts(snapshot: snapshot, scope: sessionID)
         publish(snapshot)
         if let scrollAuditConversation { activeConversation = scrollAuditConversation }
+        StorageFullFixture.arm()
         checkpointAllDrafts()
         tab = .library
     }
@@ -6173,6 +6246,9 @@ final class ReaderLocalPersistence {
         #if DEBUG
         if failingWritesForTesting > 0 { failingWritesForTesting -= 1; throw ReaderError.storageUnavailable }
         #endif
+        #if DEBUG && FIXTURE_HOST
+        if StorageFullFixture.isFull { throw StorageFullFixture.error }
+        #endif
         return register { try await operation(store) }
     }
     #if DEBUG
@@ -6192,11 +6268,17 @@ final class ReaderLocalPersistence {
     /// accepted install before replacing this writer.
     func acceptLocalPaperWrite<Value: Sendable>(_ operation: @escaping @Sendable (DevicePaperStore) async throws -> Value) throws -> Task<Value, Error> {
         guard !isRetired, !isActivating, let localPaperStore else { throw ReaderError.storageUnavailable }
+        #if DEBUG && FIXTURE_HOST
+        if StorageFullFixture.isFull { throw StorageFullFixture.error }
+        #endif
         return register { try await operation(localPaperStore) }
     }
 
     func acceptLocalReaderWrite<Value: Sendable>(_ operation: @escaping @Sendable (DeviceReaderStore) async throws -> Value) throws -> Task<Value, Error> {
         guard !isRetired, !isActivating, let localReaderStore else { throw ReaderError.storageUnavailable }
+        #if DEBUG && FIXTURE_HOST
+        if StorageFullFixture.isFull { throw StorageFullFixture.error }
+        #endif
         return register { try await operation(localReaderStore) }
     }
 

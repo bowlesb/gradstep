@@ -34,6 +34,13 @@ run on `openrouter` (and Tavily); historical `anthropic`/`deepseek`/`google` hea
 - **Not yet:** the browser's last-session library while offline needs the browser to reopen its keys without the
   server (native does, from its cached device); that is a key-handling change for review, not a quiet addition.
 
+**2026-10-25 (apps, not released): no network and a full disk.** One line per connection failure (`ConnectionText`:
+offline, timed out, lost, unreachable, TLS/captive Wi‑Fi); a web page in place of Gradstep's JSON is `network_sign_in`
+(transient); `Connectivity` resumes sync, library changes and a stalled first-device setup when the network returns; a
+full disk is told apart everywhere (`StorageSpace`) and no longer stops the encrypted store from opening. The fault
+injector covers every session the app makes and adds `offline|dns|tls|lost|html`. Details, defaults and evidence:
+[OFFLINE_AND_STORAGE_20261025.md](../reviews/OFFLINE_AND_STORAGE_20261025.md).
+
 Scope: every external dependency and our own backend paths, on every surface — the shared Swift app (iPhone, iPad,
 Mac), the browser app, Edge functions, the Cloud Run worker and the admin. Findings cite `file:line` at `ef81285`.
 Related: [ADMIN_HEALTH.md](ADMIN_HEALTH.md), [ARXIV_DEVICE_ONLY.md](ARXIV_DEVICE_ONLY.md),

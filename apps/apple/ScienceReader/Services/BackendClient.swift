@@ -96,7 +96,7 @@ enum BackendError: LocalizedError {
     var isTransient: Bool {
         switch self {
         case .transport, .throttled: true
-        case .rejected(let code): code == "request_failed"
+        case .rejected(let code): code == "request_failed" || code == "network_sign_in"
         default: false
         }
     }
@@ -113,6 +113,7 @@ enum BackendError: LocalizedError {
         case .signInRequired: "Sign in to sync your library."
         case .emailConfirmation: "Check your email to confirm your account, then sign in."
         case .rejected(let code): switch code {
+            case "network_sign_in": ConnectionText.networkSignIn
             case "insufficient_credits": "Your available credits do not cover this request."
             case "account_busy": "An answer or paper conversion is still in progress. Try again shortly; if this keeps happening, send a report."
             case "confirmation_required": "Type DELETE to confirm."
@@ -218,7 +219,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     /// builds; a no-op everywhere else).
     private static func injectFaults(_ settings: URLSessionConfiguration) {
         #if DEBUG && FIXTURE_HOST
-        if BackendFaultProtocol.isActive { settings.protocolClasses = [BackendFaultProtocol.self] + (settings.protocolClasses ?? []) }
+        BackendFaultProtocol.install(in: settings)
         #endif
     }
 
@@ -585,6 +586,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             }
             throw ChatTransportError.rejected(code.flatMap { $0.utf8.count <= 64 ? $0 : nil } ?? "service_unavailable")
         }
+        if http.mimeType?.lowercased() == "text/html" { task.cancel(); throw ChatTransportError.rejected("network_sign_in") }
         guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/event-stream") == true else {
             task.cancel(); throw ChatStreamError.malformed
         }
@@ -1132,6 +1134,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 return data
             } onCancel: { bytes.task.cancel() }
             try Task.checkCancellation()
+            // A captive Wi‑Fi's sign-in page in place of the answer: the connection, not the account.
+            if response.mimeType?.lowercased() == "text/html" { throw AuthenticationError.connection }
             guard route.accepts(response.statusCode) else {
                 if (200..<400).contains(response.statusCode) { throw AuthenticationError.invalidResponse }
                 throw Self.authFailure(route: route, response: response, data: data)
@@ -1213,6 +1217,12 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             "status": String((response as? HTTPURLResponse)?.statusCode ?? 0), "bytes": String(data.count),
             "ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
         guard let response = response as? HTTPURLResponse else { throw BackendError.transport }
+        // A captive Wi‑Fi answers in Gradstep's place with its sign-in page (a 200, or a redirect this client refuses);
+        // every Gradstep answer here is JSON or bytes, never a web page (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+        if (200..<400).contains(response.statusCode), response.mimeType?.lowercased() == "text/html",
+           !path.hasPrefix("functions/v1/reader-member") {
+            throw BackendError.rejected("network_sign_in")
+        }
         guard (200..<300).contains(response.statusCode) else {
             struct Failure: Decodable { let code: String?; let message: String?; let error_code: String?; let retry_after: Double? }
             let failure = try? JSONDecoder().decode(Failure.self, from: data)

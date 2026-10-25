@@ -9,6 +9,8 @@ enum OfflineReaderFixture {
     static let document = UUID(uuidString: "dddddddd-0000-4000-8000-000000000002")!
     static let artifact = UUID(uuidString: "dddddddd-0000-4000-8000-000000000003")!
     static let item = UUID(uuidString: "dddddddd-0000-4000-8000-000000000004")!
+    /// `--offline-reader-unprepared`: a membership whose reading isn't on this device (opened offline in journeys).
+    static let unprepared = UUID(uuidString: "dddddddd-0000-4000-8000-000000000009")!
     // Pinned after rendering the real DPO Mathpix capture (arXiv 2305.18290,
     // CC BY 4.0) with the Edge renderer, never a digest discovered in a download.
     static let mathpixManifestSHA256 = "cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71"

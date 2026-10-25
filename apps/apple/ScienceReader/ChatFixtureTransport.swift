@@ -4,7 +4,7 @@ import ScienceReaderCore
 
 /// Synthetic answers for UI journeys (`--chat-fixture`). Compiled out of
 /// physical-device and release builds; it never opens a network connection.
-/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|broken_diagram|sources|research|throttled|overloaded|stall`.
+/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|broken_diagram|sources|research|throttled|overloaded|stall|offline`.
 /// `broken_diagram`: a diagram Mermaid can't parse, and a correction (`diagram_fix`) that still can't be.
 /// `research`: a table, papers named by arXiv ID and DOI, and a Sources list.
 /// `figure_parts`: an answer about the sample's Figure 1 that marks where its two parts go, and the parts.
@@ -30,6 +30,9 @@ struct ChatFixtureTransport: ChatTransport {
         /// Faults (docs/architecture/RESILIENCE.md): the server is rate limiting (`rate_limited` before any text), the
         /// AI provider is overloaded (`provider_unavailable` before any text), or the stream goes silent (no events at all).
         case throttled, overloaded, stall, providerBilling = "provider_billing"
+        /// No network (docs/reviews/OFFLINE_AND_STORAGE_20261025.md): every request fails before reaching the server, as
+        /// URLSession fails offline. `--network-offline[=<seconds>]` does the same for its window in any mode.
+        case offline
     }
     let mode: Mode
 
@@ -201,6 +204,10 @@ struct ChatFixtureTransport: ChatTransport {
 
     func chatStream(_ request: ChatGenerationRequest, accountID: UUID) async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
         let mode = self.mode
+        if mode == .offline || NetworkFaultFixture.isOffline {
+            try await Task.sleep(for: .milliseconds(150))
+            throw URLError(.notConnectedToInternet)
+        }
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -306,7 +313,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .providerBilling, .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts, .equation, .figureWalkthrough:
+                    case .providerBilling, .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts, .equation, .figureWalkthrough, .offline:
                         try await Task.sleep(for: .milliseconds(300))
                         // A numbered (device-prepared) paper gets a cited answer, as the live server writes one.
                         let cited = request.localContext != nil

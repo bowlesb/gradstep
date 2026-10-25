@@ -23,6 +23,19 @@ the usage journeys are iPhone-only, the range one also passes on an iPad), `Asse
 `--reset-draft-fixture` now also clears the fixture account's usage records. Notices: `node scripts/app-notices.mjs`
 (`--root=<checkout with node_modules>` from a worktree). Screenshots under `.artifacts/tf92-feedback/`.
 
+## No network, bad connections, a full disk — October 25
+
+Fast: Core `swift test --filter StorageFullTests` (real ENOSPC on a 20 MB APFS disk image that `hdiutil` makes, attaches
+privately and deletes; about 20 s; skips where `hdiutil` can't run): the encrypted store fails cleanly and recovers
+without a relaunch, opens on a completely full disk (three cases), drafts, PDFs, crash leftovers and the model install.
+App-hosted `-only-testing:ScienceReaderTests/OfflineAndStorageTests` (wording, the reader's offline and full-disk
+screens, dropped and short PDFs, a captive Wi‑Fi page, the model's space check). Slow, opt-in, iPhone Simulator:
+`-only-testing:ScienceReaderUITests/OfflineAndStorageJourneyTests` (six journeys, about 2½ minutes;
+`TEST_RUNNER_GS_SCREENSHOT_DIR` for screenshots). Launch arguments (Debug, fixture host): `--network-offline[=<s>]`,
+`--storage-full-fixture[=<s>]`, `--backend-fault=<prefix>:offline|dns|tls|lost|html` (any session; `*` or a host prefix),
+`--chat-fixture-mode=offline`, `--device-model-download-fixture=fail_once|full`, `--offline-reader-unprepared`. Review:
+[OFFLINE_AND_STORAGE_20261025.md](reviews/OFFLINE_AND_STORAGE_20261025.md).
+
 ## The on-device PDF model as a download — October 24
 
 Fast: Core `swift test --filter DevicePDFModelPackTests` (the pack description and its version, refused descriptions,

@@ -28,6 +28,10 @@ struct SyncSummary: Equatable {
     static func changes(_ count: Int) -> String { count == 1 ? "1 change" : "\(count.formatted()) changes" }
 
     static func from(status: String, issue: String?, pending: Int) -> SyncSummary {
+        if issue == ConnectionText.offlineSync {
+            return SyncSummary(tone: .paused, title: "You’re offline",
+                               detail: "Your changes are saved on this device and sync when you’re back online.", short: "Offline")
+        }
         if issue != nil || status.hasSuffix("Sync paused") {
             return SyncSummary(tone: .paused, title: "Sync is paused",
                                detail: issue ?? "Your changes are saved on this device and sync when it can reach Gradstep.",

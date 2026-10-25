@@ -225,8 +225,12 @@ final class SessionCapture {
         let destination = root.appendingPathComponent("gradstep-session-\(directory.lastPathComponent).zip")
         var result: URL?, failure: NSError?
         NSFileCoordinator().coordinate(readingItemAt: directory, options: .forUploading, error: &failure) { zipped in
+            // Copied under a name the list ignores, then renamed: a copy cut short (a full disk) is never listed as a session.
+            let partial = destination.appendingPathExtension("partial")
+            try? FileManager.default.removeItem(at: partial)
+            guard (try? FileManager.default.copyItem(at: zipped, to: partial)) != nil else { try? FileManager.default.removeItem(at: partial); return }
             try? FileManager.default.removeItem(at: destination)
-            if (try? FileManager.default.copyItem(at: zipped, to: destination)) != nil { result = destination }
+            if (try? FileManager.default.moveItem(at: partial, to: destination)) != nil { result = destination }
         }
         return result
     }
