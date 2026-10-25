@@ -21,6 +21,14 @@ public struct DiscoveryResult: Decodable, Sendable, Equatable, Identifiable {
     public let reason: FeedReason?
     public var id: String { sourceID }
 
+    /// A paper this device read itself (arXiv's export API for related papers): no reason, no popularity.
+    public init(sourceID: String, revision: Int, title: String, authors: [String], year: Int?, abstract: String?,
+                categories: [String], topics: [String] = []) {
+        self.sourceID = sourceID; self.revision = revision; self.title = title; self.authors = authors; self.year = year
+        self.abstract = abstract; abstractTruncated = false; self.categories = categories; self.topics = topics
+        upvotes = nil; reason = nil
+    }
+
     private enum CodingKeys: String, CodingKey {
         case revision, title, authors, year, abstract, categories, topics, upvotes, reason
         case sourceID = "source_id"
