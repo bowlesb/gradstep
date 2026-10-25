@@ -15,6 +15,8 @@ const cases=[...[
  'testOfflineImportAbsentHTMLDownloadsAndReopensPDFWithoutUpload',
  'testOfflineReportedPaperRegressionsThroughNativeLibrary',
  'testImportTableRowsReserveTheSameHeightBeforeMetadataAndWhileAdding',
+ 'testImportTableRowsKeepTheReadyHeightWithTheProgressColumnHidden',
+ 'testAFailedImportsRetryFitsItsTitlesSecondLine',
  'testLocalPDFFileAddsARealLibraryItemAndRejectsDamagedInput',
 ].map(c=>'ScienceReaderTests/LibraryModelTests/'+c),
  'ScienceReaderTests/AuthenticationBackendTests/testDeletedRemoteSessionRetiresCachedCredentialsInsteadOfRetryingForever',

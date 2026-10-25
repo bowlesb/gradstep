@@ -1037,15 +1037,64 @@ final class LibraryModelTests: XCTestCase {
     }
 
     func testImportTableRowsReserveTheSameHeightBeforeMetadataAndWhileAdding() async throws {
-        let server = LibraryModelServer(activated: true)
+        // The test host is the app, so the model starts from the Library choices the last UI test launch saved on this
+        // Simulator: LibraryTopicsTests leaves the iPhone with Tags alone (TestFlight 93's gate measured rows of 82 and 64
+        // pt there, a 14 pt spinner under the title, before JUDGMENT_LOG 17); others leave Device and Authors, or the
+        // Failed filter. This measures the default table, where Progress carries an import's spinner.
+        let (cells, spinners) = try await importRowHeights(LibraryColumnSettings(), name: "Library row heights while adding")
+        XCTAssertFalse(spinners.isEmpty, "the Adding row must actually render a spinner")
+        for (cell, frame) in zip(cells, spinners) {
+            XCTAssertEqual(frame.midY, cell.bounds.midY, accuracy: 3, "centre the spinner in the whole row")
+        }
+    }
+
+    /// JUDGMENT_LOG 17: with the Progress column hidden (Tags alone, as LibraryTopicsTests leaves the iPhone), an adding
+    /// paper's spinner and "Adding" sit in its title's reserved second line, and its title keeps to one line, so the row
+    /// is a ready row's height in every column choice. The adding paper's title is long enough to need two lines.
+    func testImportTableRowsKeepTheReadyHeightWithTheProgressColumnHidden() async throws {
+        var columns = LibraryColumnSettings(); columns.compact = [.tags]; columns.regular = [.tags]
+        let long = "A deliberately long title for a paper still being added, which would need a second line of the table"
+        let (cells, spinners) = try await importRowHeights(columns, addingTitle: long, name: "Library row heights while adding, Tags only")
+        XCTAssertFalse(spinners.isEmpty, "the Adding row must actually render a spinner")
+        for (cell, frame) in zip(cells, spinners) {
+            // The title's second line: half a title line below the row's centre, at the title's leading edge.
+            let below = frame.midY - cell.bounds.midY
+            XCTAssertGreaterThan(below, 4, "the spinner sits in the title's second line, not the row's middle (\(below))")
+            XCTAssertLessThan(below, 16, "the spinner sits in the title's second line, not under it (\(below))")
+            XCTAssertLessThan(frame.minX, 48, "the spinner starts the title's second line")
+            XCTAssertGreaterThanOrEqual(frame.minY, 0); XCTAssertLessThanOrEqual(frame.maxY, cell.bounds.maxY)
+        }
+    }
+
+    /// A failed import without the Progress column: its problem and Retry in the title's second line, the row a ready
+    /// row's height.
+    func testAFailedImportsRetryFitsItsTitlesSecondLine() async throws {
+        var columns = LibraryColumnSettings(); columns.compact = [.tags]; columns.regular = [.tags]
+        let (_, spinners) = try await importRowHeights(columns, failed: true, name: "Library row heights, failed import, Tags only")
+        XCTAssertTrue(spinners.isEmpty, "a failed import isn't working")
+    }
+
+    /// Renders the Library table with `columns` (a ready paper and an import), checks both rows are one height and returns
+    /// the rows with each spinner's frame in its row (at least 18 pt tall).
+    private func importRowHeights(_ columns: LibraryColumnSettings, addingTitle: String? = nil, failed: Bool = false,
+                                  name: String) async throws -> (cells: [UICollectionViewCell], spinners: [CGRect]) {
+        let server = LibraryModelServer(activated: true, pendingFailed: failed)
         server.metadataTitle = "Short title"
         let fixture = try fixture(server), model = fixture.model
         await model.start()
-        // The test host is the app, so the model starts from the Library choices the last UI test launch saved on this
-        // Simulator: LibraryTopicsTests leaves the iPhone with Tags alone, where an import's status sits under its title
-        // (TestFlight 93's gate: rows 82 and 64 pt, a 14 pt spinner); others leave Device and Authors, or the Failed filter.
-        // This measures the default table, where Progress carries an import's spinner.
-        model.libraryLayout = .table; model.libraryColumns = LibraryColumnSettings(); model.libraryFilter = .all
+        model.libraryLayout = .table; model.libraryColumns = columns; model.libraryFilter = .all
+        if let addingTitle {
+            // The import's details have arrived (its title), and it is still being added.
+            var row = server.pending(state: 3)
+            row["metadata_id"] = UUID().wire; row["version_id"] = UUID().wire; row["metadata_recorded_at"] = "2026-10-03T10:00:00Z"
+            row["source_revision"] = 1; row["source_url"] = "https://arxiv.org/abs/2404.00001v1"
+            row["metadata"] = ["title": addingTitle, "authors": ["Ada Researcher"], "abstract": "Still being added.",
+                               "published_at": "2024-04-03", "updated_at": "2024-05-02", "categories": ["cs.LG"], "venue": NSNull()] as [String: Any]
+            server.deliver(server.changes([row], through: 3))
+            await model.refreshLibrary()
+            XCTAssertNil(model.libraryIssue)
+            XCTAssertEqual(model.libraryImports.first?.metadata?.title, addingTitle)
+        }
         // Search runs off the main actor. A rendered filter row does not mean the paper rows have arrived.
         await model.waitForLibrarySearch()
         let window = try window(for: model)
@@ -1053,27 +1102,29 @@ final class LibraryModelTests: XCTestCase {
             if let list = view as? UICollectionView { return list.visibleCells }
             return view.subviews.flatMap(rowCells)
         }
-        try await capture(window, name: "Library row heights while adding")
+        try await capture(window, name: name)
         // This fixture has exactly two papers. Their 44-point tap areas plus vertical insets are taller than
         // the filter-chip cell; SwiftUI's private section numbering differs across OS versions.
         XCTAssertEqual(model.libraryRows.count, 2)
         let cells = Array(rowCells(window).sorted { $0.bounds.height > $1.bounds.height }.prefix(2))
         XCTAssertGreaterThanOrEqual(cells.count, 2)
         let heights = cells.map { $0.bounds.height }
-        print("Library ready/adding row heights: \(heights)")
-        XCTAssertLessThanOrEqual((heights.max() ?? 0) - (heights.min() ?? 0), 1, "adding must not change the reserved title/author row height")
+        print("\(name): ready/import row heights \(heights)")
+        XCTAssertLessThanOrEqual((heights.max() ?? 0) - (heights.min() ?? 0), 1, "an import must not change the reserved row height")
         func spinners(_ view: UIView) -> [UIActivityIndicatorView] {
             if let spinner = view as? UIActivityIndicatorView { return [spinner] }
             return view.subviews.flatMap(spinners)
         }
-        let spinning = cells.flatMap { cell in spinners(cell).map { (cell, $0) } }
-        XCTAssertFalse(spinning.isEmpty, "the Adding row must actually render a spinner")
-        for (cell, spinner) in spinning {
-            let frame = spinner.convert(spinner.bounds, to: cell)
-            print("Adding spinner height \(frame.height), centre \(frame.midY), row centre \(cell.bounds.midY)")
-            XCTAssertGreaterThanOrEqual(frame.height, 18)
-            XCTAssertEqual(frame.midY, cell.bounds.midY, accuracy: 3, "centre the spinner in the whole row")
+        var spinning: [(UICollectionViewCell, CGRect)] = []
+        for cell in cells {
+            for spinner in spinners(cell) where !spinner.isHidden {
+                let frame = spinner.convert(spinner.bounds, to: cell)
+                print("\(name): spinner \(frame) in a row of \(cell.bounds.size)")
+                XCTAssertGreaterThanOrEqual(frame.height, 18)
+                spinning.append((cell, frame))
+            }
         }
+        return (spinning.map(\.0), spinning.map(\.1))
     }
 
     private func capture(_ window: UIWindow, name: String) async throws {

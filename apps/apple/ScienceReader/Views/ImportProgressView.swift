@@ -8,11 +8,13 @@ import SwiftUI
 ///   slim bar with "62% · About 40 s left", and an info button when `explain` is set.
 /// - `.compact` (a table column of about 100 pt): one word, with the percent when it fits ("Reading 62%"), the
 ///   bar, and the time on at most two lines ("40 s left").
+/// - `.line` (a table title's second line, when no column shows the import): the spinner, or a short bar, and one word
+///   with the percent when it fits, on one line.
 ///
 /// The progress is one VoiceOver element ("Reading equations and figures, page 12 of 27, 62 percent, about 40
 /// seconds left"); the info button is its own ("Why does this take a minute?").
 struct ImportProgressView: View {
-    enum Style { case row, compact }
+    enum Style { case row, compact, line }
     let progress: ImportProgress
     var style: Style = .row
     /// Shows "Why does this take a minute?" (`ImportProgressExplainer`); rows show an info button when set.
@@ -26,6 +28,7 @@ struct ImportProgressView: View {
             switch style {
             case .row: row(shown)
             case .compact: compact(shown)
+            case .line: line(shown)
             }
         }
     }
@@ -106,6 +109,29 @@ struct ImportProgressView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(shown.accessibilityLabel)
         .accessibilityIdentifier("importProgress")
+    }
+
+    private func line(_ shown: ImportProgressPresentation) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            HStack(alignment: .center, spacing: 6) {
+                if let fraction = shown.fraction { ImportProgressBar(fraction: fraction).frame(width: 28) } else { ImportActivitySpinner() }
+                let title = shown.percent.map { "\(shown.compactTitle) \($0)%" } ?? shown.compactTitle
+                ViewThatFits(in: .horizontal) {
+                    // "Adding · 4 min", "Adding · Taking longer than usual" when there is room.
+                    if let time = shown.compactTimeText { Text("\(title) · \(time)").monospacedDigit() }
+                    Text(title).monospacedDigit()
+                    Text(shown.compactTitle)
+                }
+                .lineLimit(1)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(shown.accessibilityLabel)
+            .accessibilityIdentifier("importProgress")
+            // Words only: a tap goes through to the row under the line.
+            .allowsHitTesting(false)
+            if let explain { ImportProgressInfoButton(action: explain) }
+        }
+        .font(.footnote).foregroundStyle(.secondary)
     }
 }
 

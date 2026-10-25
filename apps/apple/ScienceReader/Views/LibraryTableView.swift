@@ -145,8 +145,8 @@ extension LibraryColumnSettings.WidthClass {
 
 /// The Library as a table: `PaperTable` over the library's rows, with the reader's columns. Tapping a paper opens it
 /// as in the list; tapping an import that needs credits opens the store; a stopped import shows its action (Retry,
-/// Get credits, Remove) in its Progress cell, or under its title when Progress isn't shown. Long-press and swipe keep
-/// the list's row actions.
+/// Get credits, Remove) in its Progress cell, or in its title's second line when Progress isn't shown. Long-press and
+/// swipe keep the list's row actions.
 struct LibraryPaperTable<Top: View>: View {
     @Bindable var model: ReaderModel
     @ViewBuilder var top: Top
@@ -155,6 +155,8 @@ struct LibraryPaperTable<Top: View>: View {
     var body: some View {
         let items = model.libraryRows.map { LibraryTableItem(entry: $0, facts: model.libraryFacts(for: $0)) }
         let enabled = model.libraryColumns[LibraryColumnSettings.WidthClass.current]
+        // Every chosen column shows (they scroll sideways when they don't fit), so this is whether Progress is shown.
+        let progressShown = enabled.contains(.progress)
         PaperTable(rows: items, titleColumn: LibraryTableColumn.title, columns: LibraryTableColumn.columns(enabled),
                    sort: sort, extraSortTitles: [.authors: LibrarySearchSort.Field.authors.label], horizontalScroll: true, rowAlignment: .center,
                    identifier: "library.table",
@@ -162,7 +164,12 @@ struct LibraryPaperTable<Top: View>: View {
                    title: { item in
                        PaperTableTitle(title: item.facts.title, highlighted: isSelected(item.entry),
                                        reservesSpace: true, reservesSubtitleSpace: false, match: model.libraryMatches[item.entry.id],
-                                       note: model.libraryRelated[item.entry.id]?.text)
+                                       note: model.libraryRelated[item.entry.id]?.text,
+                                       // Without the Progress column an import still shows what it is doing, and its action,
+                                       // in its title's second line, so its row is a ready row's height (JUDGMENT_LOG 17).
+                                       status: item.isImport && !progressShown ? AnyView(LibraryImportStatusLine(
+                                           item: item, act: { perform($0, on: item) }, enabled: model.canChangeImports,
+                                           explain: { model.showImportHelp = true })) : nil)
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), model: model,
@@ -179,12 +186,7 @@ struct LibraryPaperTable<Top: View>: View {
                    primaryAction: { action(for: $0) },
                    menu: { LibraryRowActions(model: model, entry: $0.entry, inTable: true) },
                    swipe: { LibrarySwipeActions(model: model, entry: $0.entry) },
-                   detail: { item, shown in
-                       // Without the Progress column an import still shows what it is doing, and its action.
-                       if item.isImport, !shown.contains(LibraryTableColumn.progress.rawValue) {
-                           LibraryImportStatusLine(item: item, act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
-                       }
-                   },
+                   detail: { _, _ in },
                    top: { top })
         // Turned upright with a paper beside the list: its row centred and tinted, the tint fading (owner, 2026-10-23).
         .revealing(model.revealedRow(in: .library, wide: wideBar))
@@ -355,8 +357,9 @@ struct LibraryProgressCell: View {
 /// "⚠︎ Download failed": an orange symbol and the status in plain words, never broken mid-word.
 struct LibraryProblemLabel: View {
     let text: String
+    var lines = 2
     var body: some View {
-        Label { Text(text).lineLimit(2).fixedSize(horizontal: false, vertical: true) } icon: {
+        Label { Text(text).lineLimit(lines).fixedSize(horizontal: false, vertical: lines > 1) } icon: {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange).imageScale(.small)
         }
         .labelStyle(LibraryStatusLabelStyle()).font(.footnote).foregroundStyle(.secondary)
@@ -367,6 +370,8 @@ struct LibraryProblemLabel: View {
 struct LibraryImportActionButton: View {
     let action: LibraryImportAction
     var enabled = true
+    /// `.mini` in a title's second line, where it shares one line's height.
+    var size = ControlSize.small
     /// The row's identifier, so tests and VoiceOver can tell rows' buttons apart.
     let sourceID: String
     let perform: () -> Void
@@ -374,7 +379,7 @@ struct LibraryImportActionButton: View {
         Button(action: perform) {
             Text(action.title).font(.footnote.weight(.semibold)).lineLimit(1)
         }
-        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(size)
         .tint(action == .remove ? Color.secondary : Color.accentColor)
         .disabled(!enabled)
         .accessibilityHint(action.hint)
@@ -382,38 +387,51 @@ struct LibraryImportActionButton: View {
     }
 }
 
-/// An import's status under its title when the Progress column isn't shown: what it is doing, or what failed and its
-/// action, on one line.
+/// An import's status in its title's second line when the Progress column isn't shown (`PaperTableTitle.status`): the
+/// spinner and one word while it runs ("Adding"), or what stopped it and its action, on that one line, so the row keeps
+/// a ready row's height (owner, builds 58–59; JUDGMENT_LOG 17).
 struct LibraryImportStatusLine: View {
     let item: LibraryTableItem
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
+    /// "Why does this take a minute?" beside an import's progress.
     var explain: (() -> Void)? = nil
     var body: some View {
         let facts = item.facts
-        if let progress = facts.importProgress {
-            ImportProgressView(progress: progress, style: .row, explain: explain).font(.footnote).foregroundStyle(.secondary)
-        } else {
-            line(facts)
-        }
-    }
-
-    private func line(_ facts: LibraryRowFacts) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            if let step = facts.step, step != .queued {
-                ProgressView().controlSize(.mini).accessibilityHidden(true)
-                Text(step.label(short: false)).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-            } else if case .problem = facts.status {
-                LibraryProblemLabel(text: item.statusDescription ?? facts.statusText ?? "")
-            } else if let text = facts.statusText {
-                Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
-            }
-            Spacer(minLength: 8)
+        HStack(alignment: .center, spacing: 8) {
+            status(facts)
+            Spacer(minLength: 4)
             if let action = facts.importAction {
-                LibraryImportActionButton(action: action, enabled: enabled || action == .getCredits, sourceID: item.id) { act(action) }
+                LibraryImportActionButton(action: action, enabled: enabled || action == .getCredits, size: .mini, sourceID: item.id) { act(action) }
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    /// Only the action and the ⓘ take taps; the words let them through to the row under the line.
+    @ViewBuilder private func status(_ facts: LibraryRowFacts) -> some View {
+        if let progress = facts.importProgress {
+            ImportProgressView(progress: progress, style: .line, explain: explain)
+        } else {
+            words(facts).allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder private func words(_ facts: LibraryRowFacts) -> some View {
+        // Waiting in the queue isn't work yet: no spinner (its words below).
+        if let step = facts.step, step != .queued {
+            HStack(alignment: .center, spacing: 6) { ImportActivitySpinner(); Text(step.tableTitle).lineLimit(1) }
+                .font(.footnote).foregroundStyle(.secondary)
+                .accessibilityElement(children: .ignore).accessibilityLabel(step.tableTitle)
+        } else if case .problem(let text) = facts.status {
+            // The Progress column's words ("Download failed"), which fit beside the action; VoiceOver reads the sentence.
+            LibraryProblemLabel(text: text, lines: 1).accessibilityLabel(item.statusDescription ?? text)
+        } else if case .active(let text) = facts.status {
+            Label { Text(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))).lineLimit(1) } icon: { ImportActivitySpinner() }
+                .labelStyle(LibraryStatusLabelStyle()).font(.footnote).foregroundStyle(.secondary)
+        } else if let text = facts.statusText {
+            Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
 }
 
