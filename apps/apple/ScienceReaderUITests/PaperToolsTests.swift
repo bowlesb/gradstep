@@ -144,7 +144,9 @@ final class PaperToolsTests: XCTestCase {
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
         XCTAssertTrue(wait { composer.frame.maxY <= keyboard.frame.minY + 2 }, "Composer stays above keyboard")
-        app.buttons["chat.dismissKeyboard"].tap()
+        // The composer's own dismiss button is iPhone-only (build 69); an iPad uses the keyboard's hide key.
+        if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        else { let hide = app.keyboards.buttons["Hide keyboard"].firstMatch; hide.exists ? hide.tap() : app.typeText(XCUIKeyboardKey.escape.rawValue) }
         XCTAssertTrue(wait { app.keyboards.count == 0 && abs(tab.frame.minY - home.minY) < 3 })
     }
 
@@ -266,25 +268,30 @@ final class PaperToolsTests: XCTestCase {
     /// mark follows the reading.
     func testContentsMarksTheSectionBeingRead() throws {
         let app = openSample(appearance: "dark")
-        let web = app.webViews.firstMatch
         func openContents() -> XCUIElement {
             app.buttons["Table of contents"].tap()
             XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
             return app.buttons["contents.reading"]
         }
-        func close() { app.buttons["sheet.close"].tap(); XCTAssertTrue(app.contentsTabs.waitForNonExistence(timeout: 5)) }
-        for _ in 0..<3 { web.swipeUp() }
+        // A Contents row puts its heading at the top of the page: that is the section being read, on any screen size.
+        func go(to title: String) {
+            if !app.contentsTabs.exists { _ = openContents() }
+            let row = app.buttons[title]
+            XCTAssertTrue(row.waitForExistence(timeout: 5), title)
+            row.tap()
+            XCTAssertTrue(app.contentsTabs.waitForNonExistence(timeout: 5))
+        }
+        go(to: "2. Read the equations in context")
         let first = openContents()
         XCTAssertTrue(first.waitForExistence(timeout: 3), "The section being read is marked")
         XCTAssertTrue(first.isHittable, "and in view")
+        XCTAssertEqual(first.label, "2. Read the equations in context")
         XCTAssertTrue((first.value as? String ?? "").contains("Reading"))
         capture(app, "Contents: the section being read")
-        let firstTitle = first.label
-        close()
-        for _ in 0..<8 { web.swipeUp(velocity: .fast) }
+        go(to: "3. Check the evaluation")
         let later = openContents()
         XCTAssertTrue(later.waitForExistence(timeout: 3) && later.isHittable)
-        XCTAssertNotEqual(later.label, firstTitle, "The mark follows the reading")
+        XCTAssertEqual(later.label, "3. Check the evaluation", "The mark follows the reading")
         XCTAssertEqual(app.buttons.matching(identifier: "contents.reading").count, 1, "One section is marked")
         capture(app, "Contents: further on")
         later.tap()

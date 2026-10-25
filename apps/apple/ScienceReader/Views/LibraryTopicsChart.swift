@@ -25,7 +25,6 @@ struct LibraryTopicsSection: View {
 struct LibraryTopicsChart: View {
     @Bindable var model: ReaderModel
     let topics: InterestLibraryTopics
-    @State private var selectedAngle: Double?
     @State private var showSmaller = false
     @State private var renaming: InterestTopicSlice?
     @State private var newName = ""
@@ -145,13 +144,14 @@ struct LibraryTopicsChart: View {
                 .opacity(selected == nil || selected == wedge.id || (selected.map(isSmaller) ?? false) && wedge.id == InterestTopicSlice.otherID ? 1 : 0.3)
         }
         .chartLegend(.hidden)
-        .chartAngleSelection(value: $selectedAngle)
-        .onChange(of: selectedAngle) { _, angle in
-            guard let angle else { return }
-            selectedAngle = nil
-            guard let wedge = wedge(at: angle) else { return }
-            if wedge.id == InterestTopicSlice.otherID { withAnimation { showSmaller.toggle() } }
-            else if let slice = topics.slice(wedge.id) { model.toggleTopicFilter(slice) }
+        // A tap on a slice filters (owner decision 4: "slices filter"). Charts' angle selection answers a drag across
+        // the chart, not a tap, so the tap's angle around the centre picks the wedge: the first starts at 12 o'clock
+        // and they run clockwise. Taps in the hole or outside the ring do nothing.
+        .chartOverlay { _ in
+            GeometryReader { geo in
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { location in tapRing(at: location, in: geo.size) }
+            }
         }
         .chartBackground { _ in
             VStack(spacing: 0) {
@@ -163,6 +163,19 @@ struct LibraryTopicsChart: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary)
         .accessibilityIdentifier("library.topics.ring")
+    }
+
+    private func tapRing(at point: CGPoint, in size: CGSize) {
+        let outer = min(size.width, size.height) / 2
+        let dx = point.x - size.width / 2, dy = point.y - size.height / 2
+        let distance = (dx * dx + dy * dy).squareRoot()
+        guard distance >= outer * 0.6, distance <= outer * 1.08 else { return }
+        var turn = atan2(dx, -dy)
+        if turn < 0 { turn += 2 * .pi }
+        let total = wedges.reduce(0) { $0 + $1.share }
+        guard total > 0, let wedge = wedge(at: Double(turn / (2 * .pi)) * total) else { return }
+        if wedge.id == InterestTopicSlice.otherID { withAnimation { showSmaller.toggle() } }
+        else if let slice = topics.slice(wedge.id) { model.toggleTopicFilter(slice) }
     }
 
     private func isSmaller(_ id: Int) -> Bool { rings.smaller.contains { $0.id == id } || id == InterestTopicSlice.otherID }

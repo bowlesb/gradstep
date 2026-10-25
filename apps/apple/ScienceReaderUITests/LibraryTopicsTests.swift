@@ -50,7 +50,9 @@ final class LibraryTopicsTests: XCTestCase {
     func testALegendRowOrSliceFiltersTheList() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = launch(["--library-layout=list"])
-        XCTAssertTrue(app.buttons["paper.\(paper(7))"].waitForExistence(timeout: 10), "Every paper before filtering")
+        // A list loads only the rows on screen (a phone shows a few): the chosen-topic chip says whether it filters.
+        XCTAssertTrue(app.buttons["paper.\(paper(0))"].waitForExistence(timeout: 10), "The list before filtering")
+        XCTAssertFalse(element("library.topics.clear", in: app).exists, "No topic chosen yet")
         let row = element("library.topics.row.\(kvTopic)", in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.tap()
@@ -60,8 +62,7 @@ final class LibraryTopicsTests: XCTestCase {
         attach("Library filtered to a topic")
         // The same row again shows everything.
         row.tap()
-        XCTAssertTrue(app.buttons["paper.\(paper(7))"].waitForExistence(timeout: 5), "All papers again")
-        XCTAssertFalse(element("library.topics.clear", in: app).exists)
+        XCTAssertTrue(element("library.topics.clear", in: app).waitForNonExistence(timeout: 5), "All papers again")
         // A slice: the first (largest) runs clockwise from the top; tap inside it.
         let ring = element("library.topics.ring", in: app)
         let frame = ring.frame, radius = frame.width / 2 * 0.86, angle = 25.0 * .pi / 180
@@ -71,7 +72,7 @@ final class LibraryTopicsTests: XCTestCase {
         XCTAssertTrue(app.buttons["paper.\(paper(0))"].exists && !app.buttons["paper.\(paper(7))"].exists)
         // Clearing from the chip.
         element("library.topics.clear", in: app).tap()
-        XCTAssertTrue(app.buttons["paper.\(paper(7))"].waitForExistence(timeout: 5))
+        XCTAssertTrue(element("library.topics.clear", in: app).waitForNonExistence(timeout: 5), "The chip clears it")
         // Other opens the smaller groups, including the papers outside every topic.
         element("library.topics.other", in: app).tap()
         XCTAssertTrue(element("library.topics.outside", in: app).waitForExistence(timeout: 5), "Outside topics")
@@ -106,7 +107,8 @@ final class LibraryTopicsTests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.press(forDuration: 1.0)
         app.buttons["Rename…"].firstMatch.tap()
-        let field = app.textFields["library.topics.renameField"]
+        // An alert's field doesn't carry its SwiftUI identifier: the Rename topic alert's only field.
+        let field = app.alerts["Rename topic"].textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("Sparse attention")
         app.buttons["Save"].tap()
