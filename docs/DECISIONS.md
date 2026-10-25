@@ -2301,3 +2301,26 @@ Chat and › Tall and Wide (*Chat*):
   paper", Settings › Your assets › Chats, the chat's ⋯) shows the chat list in the side panel, filtered to This paper
   where the route comes from a paper; no centred All chats sheet in Wide. Tall keeps the sheet. Built in the
   navigation round after TestFlight 91.
+## Snippets: owner feedback on TestFlight 91 (owner direction 2026-10-24; native apps)
+
+From a recorded iPad session (upright). Spec and causes: [NOTES_AND_SNIPPETS.md › Snippets: owner feedback on TestFlight
+91](architecture/NOTES_AND_SNIPPETS.md#snippets-owner-feedback-on-testflight-91-2026-10-24-native-local-source-not-released).
+
+- **Rename in place.** "If I click on this here… I should be able to just relabel it right in place there." The open
+  collection's name is a field where it is shown; Return or leaving it saves, Escape restores. ⋯ › Rename collection
+  focuses it. *Supersedes the Rename collection alert for the open collection* (a Tall list row's Rename keeps it).
+- **Search covers every text of a snippet.** "What in the snippets does it actually search? Is it as good as it possibly
+  can be?" Word-beginning matches, case and diacritics folded, over names, comments, quotations, paper titles and
+  authors, arXiv IDs, sections, labels, the reading's text and LaTeX under a drawn region, and text recognised in its
+  image. Agent choices (reversible): Vision runs on this device once per image already here (never downloading for it),
+  its text sealed under the account's local key and never synced (no record format change, so the browser doesn't have
+  it); all words must fall in one snippet plus its collection's name; the hint is the placeholder "Names, comments,
+  text, papers", the full list in the no-results state.
+- **A collection's row is two lines**: its name, then "N snippets" ("No snippets yet" when empty, never also "0
+  snippets"). No date, no latest-snippet preview, no papers. *Supersedes the Notes list's "last edited" and preview.*
+- **Collapse all / Expand all are one step without animation**; one card's chevron still animates.
+- **Drawing a snippet is the box and Use snippet in the bottom-right corner.** "Honestly, you just need the button, Use
+  snippet… put it in the bottom right… you don't need the enclosure. None of this other stuff." No panel, size, hints,
+  Whole page or Adjust edges on screen; VoiceOver actions (whole page, each edge) and ⌘A and Escape keep a path
+  without dragging. The save flow after it (collection, Save, "Saved · Open") is unchanged. *Supersedes the capture
+  panel in "Capture, step by step › Drawing".*

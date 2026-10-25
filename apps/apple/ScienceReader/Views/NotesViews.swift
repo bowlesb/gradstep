@@ -51,7 +51,12 @@ struct NotesView: View {
             Button("OK") { issue = nil }
         } message: { Text(issue ?? "") }
         .environment(\.noteActions, NoteActions(newNote: { name = ""; creating = true },
-                                                 rename: { note in name = note.title; renaming = note },
+                                                 rename: { note in
+                                                     // Beside the list, the open collection's name is renamed where it shows.
+                                                     if wide, model.notes.openNoteID == note.id {
+                                                         Task { try? await Task.sleep(for: .milliseconds(350)); model.notes.renameRequest = note.id }
+                                                     } else { name = note.title; renaming = note }
+                                                 },
                                                  delete: { deleting = $0 }))
     }
 
@@ -103,8 +108,7 @@ struct NotesView: View {
         let note = model.notes.openNoteID.flatMap { model.notes.state.note($0) }
         return WideBar {
             if let note {
-                Text(note.title).font(.headline).lineLimit(1)
-                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("note.title")
+                CollectionTitleField(model: model, note: note, alignment: .natural).id(note.id)
             }
         } trailing: {
             NotesScreenMenu(model: model, note: note, glass: true)
@@ -218,7 +222,10 @@ struct NotesScreenMenu: View {
                         }
                     }
                 }
-                MenuRow("Rename collection", systemImage: "pencil") { actions.rename(note) }.accessibilityIdentifier("note.rename")
+                // The name is edited where it is shown (owner, TestFlight 91), once the menu has closed.
+                MenuRow("Rename collection", systemImage: "pencil") {
+                    Task { try? await Task.sleep(for: .milliseconds(350)); model.notes.renameRequest = note.id }
+                }.accessibilityIdentifier("note.rename")
                 Button(role: .destructive) { actions.delete(note) } label: { Label("Delete collection", systemImage: "trash") }
                     .accessibilityIdentifier("note.delete")
             } else if model.notesAvailability == .ready {
@@ -234,9 +241,14 @@ struct NotesScreenMenu: View {
             .accessibilityIdentifier(note == nil ? "notes.options" : "note.options")
     }
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// One step, without animation (owner, TestFlight 91: the first Collapse all went "jaggedy… at multiple stages" with
+    /// "this black thing at the top"). Animated, every card of the lazy stream changed height at once while scrolled
+    /// part-way: cards never laid out arrived mid-animation and the shrinking content left the area above uncovered for a
+    /// few frames. Now the stream changes once.
     private func setAll(_ collapsed: Bool, _ note: NotesState.Note) {
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { model.notes.setAllCollapsed(collapsed, in: note.id) }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { model.notes.setAllCollapsed(collapsed, in: note.id) }
     }
 }
 
@@ -252,6 +264,8 @@ struct NotesList: View {
     /// A collection picked: it opens beside the list, and a list covering the window (iPad Wide) splits again, even when
     /// it is the one already open (owner, 2026-10-23).
     private func open(_ id: UUID) {
+        // From a search, the collection opens at its first snippet that matched.
+        model.notes.focusEntryID = model.notes.searchMatches?.first { $0.noteID == id }?.entryIDs.first
         model.notes.openNoteID = id
         SlotFractions.shared.uncover()
     }
@@ -296,7 +310,7 @@ struct NotesList: View {
                         searching ? Image(systemName: "magnifyingglass") : Image(GradstepSymbol.notes)
                     }
                 } description: {
-                    Text(searching ? "Try a title, a comment or quoted text." : "Capture your first snippet in Paper with ⋯ › Draw snippet.")
+                    Text(searching ? NotesSearchField.coverage : "Capture your first snippet in Paper with ⋯ › Draw snippet.")
                 } actions: {
                     if searching { Button("Clear search") { model.notes.search = "" } }
                     else { Button { actions.newNote() } label: { ProminentLabel(title: "New collection") }.buttonStyle(.borderedProminent)
@@ -344,24 +358,155 @@ struct NoteRow: View {
                 .font(.system(size: 18, weight: .medium))
                 .frame(width: 40, height: 44).background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
                 .accessibilityHidden(true)
+            // Two lines (owner, TestFlight 91: "You just need two lines there, the title and then the number of snippets…
+            // I would honestly remove the date too"): no preview of the latest snippet, no papers, no date. Waiting syncs
+            // are said once, above the list.
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(note.title).font(.headline).lineLimit(2)
                     if note.hasConflict { Text("2 versions").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
                 }
-                Text(NotesCenter.preview(note)).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                Text(meta).font(.footnote).foregroundStyle(.secondary)
+                Text(NoteCollectionLine.detail(entryCount: note.entries.count)).font(.subheadline).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("notes.row.detail")
             }
             Spacer(minLength: 0)
         }
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
+}
 
-    private var meta: String {
-        let count = note.entries.count
-        let date = Date(timeIntervalSince1970: Double(note.lastEdited) / 1000).formatted(date: .abbreviated, time: .omitted)
-        return "\(count) \(count == 1 ? "snippet" : "snippets") · \(date)" + (model.notes.isWaiting(note) ? " · Waiting to sync" : "")
+/// The open collection's name, edited where it is shown (owner, TestFlight 91: "I should be able to just relabel it right
+/// in place there"): the title in its bar (Tall, the Mac) or its slot's row (Wide) is a text field. A tap puts the caret
+/// in it; Return or leaving the field saves; Escape, or an empty name, puts the name back. ⋯ › Rename collection focuses it.
+/// A UIKit field, so Escape from a hardware keyboard is the field's own (SwiftUI's TextField ends editing on Escape, which
+/// would save instead of restoring).
+struct CollectionTitleField: View {
+    @Bindable var model: ReaderModel
+    let note: NotesState.Note
+    var alignment: NSTextAlignment = .center
+    @State private var issue: String?
+    @State private var saving: String?
+
+    var body: some View {
+        InPlaceTextField(text: note.title, placeholder: "Collection name", identifier: "note.title", alignment: alignment,
+                         focusRequest: model.notes.renameRequest == note.id,
+                         focusRequestHandled: { model.notes.renameRequest = nil },
+                         limit: NotesFormat.maximumTitleScalars, commit: commit)
+            .frame(minHeight: 34)
+            .alert("Couldn’t rename on this device", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+                Button("OK") { issue = nil }
+            } message: { Text(issue ?? "") }
+    }
+
+    /// Returns the text the field shows afterwards.
+    private func commit(_ text: String) -> String {
+        guard let title = NoteRecord.normalizedTitle(text) else { return note.title }
+        // Return and the focus leaving both arrive: one rename.
+        guard title != note.title, title != saving else { return title }
+        let id = note.id
+        saving = title
+        Task {
+            defer { saving = nil }
+            do { try await model.renameNote(id, to: title) }
+            catch { issue = (error as? LocalizedError)?.errorDescription ?? "The collection couldn’t be renamed." }
+        }
+        return title
+    }
+}
+
+/// A one-line UIKit text field for a name edited in place: the headline font, no border, Return and losing focus commit
+/// (`commit` returns what to show), Escape restores the name it was given, typing stops at `limit` Unicode scalars.
+struct InPlaceTextField: UIViewRepresentable {
+    let text: String
+    let placeholder: String
+    var identifier = ""
+    var alignment: NSTextAlignment = .center
+    var focusRequest = false
+    var focusRequestHandled: () -> Void = {}
+    var limit = 80
+    let commit: (String) -> String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> EscapableTextField {
+        let field = EscapableTextField()
+        field.font = UIFont.preferredFont(forTextStyle: .headline)
+        field.adjustsFontForContentSizeCategory = true
+        field.textAlignment = alignment
+        field.placeholder = placeholder
+        field.returnKeyType = .done
+        field.borderStyle = .none
+        field.clearButtonMode = .never
+        field.text = text
+        field.accessibilityLabel = placeholder
+        field.accessibilityHint = "Edit to rename the collection"
+        field.accessibilityIdentifier = identifier
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.onEscape = { [weak coordinator = context.coordinator, weak field] in
+            guard let coordinator, let field else { return }
+            coordinator.restoring = true
+            field.text = coordinator.parent.text
+            field.resignFirstResponder()
+            coordinator.restoring = false
+        }
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateUIView(_ field: EscapableTextField, context: Context) {
+        context.coordinator.parent = self
+        field.textAlignment = alignment
+        if !field.isFirstResponder, field.text != text { field.text = text }
+        if focusRequest {
+            DispatchQueue.main.async {
+                focusRequestHandled()
+                field.becomeFirstResponder()
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: InPlaceTextField
+        var restoring = false
+        init(_ parent: InPlaceTextField) { self.parent = parent }
+
+        @objc func changed(_ field: UITextField) {
+            guard let value = field.text, value.unicodeScalars.count > parent.limit else { return }
+            field.text = String(String.UnicodeScalarView(value.unicodeScalars.prefix(parent.limit)))
+        }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            field.resignFirstResponder()
+            return false
+        }
+
+        func textFieldDidEndEditing(_ field: UITextField) {
+            guard !restoring else { return }
+            field.text = parent.commit(field.text ?? "")
+        }
+    }
+}
+
+/// Escape (a hardware keyboard) restores instead of ending editing with the typed text.
+final class EscapableTextField: UITextField {
+    var onEscape: () -> Void = {}
+
+    override var keyCommands: [UIKeyCommand]? {
+        let escape = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed))
+        escape.wantsPriorityOverSystemBehavior = true
+        return (super.keyCommands ?? []) + [escape]
+    }
+
+    @objc private func escapePressed() { onEscape() }
+
+    // Where the key command isn't consulted (some text-input paths deliver the press directly).
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if presses.contains(where: { $0.key?.keyCode == .keyboardEscape }) { onEscape(); return }
+        super.pressesBegan(presses, with: event)
     }
 }
 
@@ -403,23 +548,28 @@ struct NoteDetailView: View {
                         emptyNote.frame(maxWidth: .infinity).padding(.top, 48)
                     }
                     ForEach(Array(note.entries.enumerated()), id: \.element.id) { index, entry in
-                        if index == 0 || !Calendar.current.isDate(day(entry), inSameDayAs: day(note.entries[index - 1])) {
-                            Text(day(entry).formatted(date: .abbreviated, time: .omitted)).font(.footnote.weight(.semibold))
-                                // Owner, build 78: close to its first entry (now a card; 2026-10-22).
-                                .foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 14).padding(.bottom, 6).padding(.leading, 4)
-                                .accessibilityAddTraits(.isHeader)
+                        // One child per entry: its day label with its card.
+                        VStack(alignment: .leading, spacing: 0) {
+                            if index == 0 || !Calendar.current.isDate(day(entry), inSameDayAs: day(note.entries[index - 1])) {
+                                Text(day(entry).formatted(date: .abbreviated, time: .omitted)).font(.footnote.weight(.semibold))
+                                    // Owner, build 78: close to its first entry (now a card; 2026-10-22).
+                                    .foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 14).padding(.bottom, 6).padding(.leading, 4)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                            NoteEntryView(model: model, entry: entry, number: index + 1,
+                                          edit: { writing = NoteTextRequest(noteID: note.id, entryID: entry.id, text: entry.record.comment,
+                                                                             kind: entry.record.kind) },
+                                          zoom: { zoomed = entry }, details: { details = entry }, review: { reviewing = entry },
+                                          delete: { deletingEntry = entry })
                         }
-                        NoteEntryView(model: model, entry: entry, number: index + 1,
-                                      edit: { writing = NoteTextRequest(noteID: note.id, entryID: entry.id, text: entry.record.comment,
-                                                                         kind: entry.record.kind) },
-                                      zoom: { zoomed = entry }, details: { details = entry }, review: { reviewing = entry },
-                                      delete: { deletingEntry = entry })
-                            .id(entry.id)
+                        .id(entry.id)
                     }
                 }
                 .padding(.horizontal, DesignMetrics.margin).padding(.vertical, 16)
                 .frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
             }
+            // Scrolling the stream ends editing the name in the bar (which saves it).
+            .scrollDismissesKeyboard(.immediately)
             .onAppear { scrollToFocus(reader) }
             .onChange(of: model.notes.focusEntryID) { _, _ in scrollToFocus(reader) }
         }
@@ -427,6 +577,12 @@ struct NoteDetailView: View {
         .navigationBarBackButtonHidden(!showsBack)
         .navigationBarHiddenInWide(wideBar)
         .toolbar {
+            // The name in the bar is edited in place (owner, TestFlight 91). Wide hides this bar: its row has the field.
+            if !wideBar {
+                ToolbarItem(placement: .principal) {
+                    CollectionTitleField(model: model, note: note).frame(minWidth: 120, maxWidth: 420)
+                }
+            }
             // Owner, build 78: "Let’s stick with the comment option for now only": no separate writing between snippets.
             ToolbarItem(placement: .topBarTrailing) { NotesScreenMenu(model: model, note: note) }
         }
@@ -970,19 +1126,23 @@ private struct NotesSearchable: ViewModifier {
     let enabled: Bool
     @Binding var text: String
     func body(content: Content) -> some View {
-        if enabled { content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search snippets") }
+        if enabled { content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: NotesSearchField.prompt) }
         else { content }
     }
 }
 
 /// The Wide row's snippets search field.
 struct NotesSearchField: View {
+    /// What the search covers, in the field (owner, TestFlight 91: "What in the snippets does it actually search?").
+    static let prompt = "Names, comments, text, papers"
+    /// The same in full, when nothing matched.
+    static let coverage = "Searches collection names, comments, quoted text, the words and equations in drawn snippets, and paper titles and authors. Words match from their start."
     @Binding var text: String
     @FocusState private var focused: Bool
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-            TextField("Search snippets", text: $text).focused($focused).submitLabel(.search)
+            TextField(Self.prompt, text: $text).focused($focused).submitLabel(.search)
                 .accessibilityIdentifier("notes.search")
         }
     }

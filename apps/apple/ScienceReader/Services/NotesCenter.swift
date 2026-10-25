@@ -4,6 +4,7 @@ import Observation
 import ScienceReaderCore
 import UIKit
 import UniformTypeIdentifiers
+import Vision
 
 // Notes and snippets (docs/architecture/NOTES_AND_SNIPPETS.md): the account's notes as the reader sees them, their sync
 // states, and the capture/composer/confirmation state shared by Paper, figure pages, the local PDF reader and Notes.
@@ -105,6 +106,20 @@ enum NoteEntrySync: Equatable {
     /// dictionary holds the collections changed or read this session; the defaults are the record across launches.
     private var collapsedEntries: [UUID: Set<UUID>] = [:]
     @ObservationIgnored var collapseMemory = NoteCollapseMemory()
+    /// The open collection's name is edited in place (owner, TestFlight 91): its ⋯ › Rename collection asks the title.
+    var renameRequest: UUID?
+    /// Text Vision recognised in region images on this device, by the full image's blob ID ("" when there was none);
+    /// sealed on disk (`SnippetTextStore`), read for search only.
+    private(set) var recognised: [UUID: String] = [:]
+    @ObservationIgnored var recognisedLoaded = false
+    @ObservationIgnored var textStore: SnippetTextStore?
+    @ObservationIgnored var recognising: Task<Void, Never>?
+    @ObservationIgnored var recogniseAgain = false
+    /// Full images that weren't on this device when their words were looked for (read when one is downloaded).
+    @ObservationIgnored var recogniseMissing: Set<UUID> = []
+    /// The reading a manifest names, when it is on this device (set by ReaderModel): search reads the blocks under a region.
+    @ObservationIgnored var readingIndex: (String) -> ReaderBundleIndex? = { _ in nil }
+    @ObservationIgnored private let searchWords = NoteSearch.WordCache()
 
     func update(_ privateState: PrivateState) {
         let next = NotesState(privateState)
@@ -133,7 +148,9 @@ enum NoteEntrySync: Equatable {
         state = NotesState(); pendingEvents = []; pendingBlobs = []; destination = nil; uploadFailures = [:]
         stateRevision &+= 1
         openNoteID = nil; focusEntryID = nil; search = ""; capturing = nil; captureInitialRect = nil; composer = nil; notice = nil
-        collapsedEntries = [:]
+        collapsedEntries = [:]; renameRequest = nil
+        recognised = [:]; recognisedLoaded = false; textStore = nil; searchWords.removeAll()
+        recognising?.cancel(); recognising = nil; recogniseAgain = false; recogniseMissing = []
         images.removeAllObjects()
     }
 
@@ -163,25 +180,32 @@ enum NoteEntrySync: Equatable {
 
     // MARK: Presentation
 
-    /// Notes matching the search (titles, comments and quoted text, in memory on this device), most recent first.
+    /// Collections matching the search (NoteSearch: every text field of a snippet, the reading under a drawn region when
+    /// it is on this device, text recognised in its image), most recent first.
     var shownNotes: [NotesState.Note] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return state.notes }
-        return state.notes.filter { note in
-            note.title.localizedCaseInsensitiveContains(query) || note.entries.contains { entry in
-                entry.record.comment.localizedCaseInsensitiveContains(query)
-                    || (entry.record.quote?.localizedCaseInsensitiveContains(query) ?? false)
-                    || (entry.record.source?.title.localizedCaseInsensitiveContains(query) ?? false)
-            }
-        }
+        guard let matches = searchMatches else { return state.notes }
+        let ids = Set(matches.map(\.noteID))
+        return state.notes.filter { ids.contains($0.id) }
     }
 
-    /// The note's quiet preview: its newest writing, else its newest quotation, else what was captured.
-    static func preview(_ note: NotesState.Note) -> String {
-        guard let last = note.entries.last else { return "No snippets yet" }
-        if !last.record.comment.isEmpty { return last.record.comment }
-        if let quote = last.record.quote { return quote }
-        return last.record.source.map { "Snippet from \($0.title)" } ?? "Snippet"
+    /// The search's matches, or nil when nothing is searched.
+    var searchMatches: [NoteSearch.Match]? {
+        NoteSearch.search(state, query: search, extra: { [self] in searchText($0) }, cache: searchWords)
+    }
+
+    /// What search knows about a snippet beyond its record: the reading's blocks under a drawn region (their text, the
+    /// LaTeX of their equations, figure and table captions) and the text recognised in its image.
+    func searchText(_ record: NoteEntryRecord) -> [String] {
+        var texts: [String] = []
+        if let anchor = record.anchor, let manifest = anchor.manifestSHA256, let index = readingIndex(manifest) {
+            texts += NoteSearch.bundleText(anchor, in: index)
+        }
+        if let id = record.media?.full.blobID, let text = recognised[id], !text.isEmpty { texts.append(text) }
+        return texts
+    }
+
+    func setRecognised(_ texts: [UUID: String]) {
+        if texts != recognised { recognised = texts }
     }
 
     func sync(of entry: NotesState.Entry) -> NoteEntrySync {
@@ -201,6 +225,22 @@ enum NoteEntrySync: Equatable {
 
     func cachedImage(_ media: NoteMedia) -> UIImage? { images.object(forKey: media.blobID.wire as NSString) }
     func cache(_ image: UIImage, for media: NoteMedia) { images.setObject(image, forKey: media.blobID.wire as NSString) }
+}
+
+// MARK: - Recognised text
+
+/// Reads the words in a snippet's image with Vision, on this device, once per image (Snippets' search). Lines in reading
+/// order, joined by newlines; at most `SnippetTextStore.maximumTextBytes`.
+enum SnippetTextRecognizer {
+    static func text(in image: CGImage) -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.automaticallyDetectsLanguage = true
+        do { try VNImageRequestHandler(cgImage: image, options: [:]).perform([request]) } catch { return "" }
+        let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        return SnippetTextStore.bounded(lines.joined(separator: "\n"))
+    }
 }
 
 // MARK: - Images
