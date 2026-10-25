@@ -28,7 +28,7 @@ final class VisualScenarioTests: XCTestCase {
             "library": Scenario(arguments: ["--workflow-fixture"]) { _ in },
             "feed": Scenario(arguments: ["--workflow-fixture"]) { app in self.go(app, "feed"); sleep(1) },
             "feed-results": Scenario(arguments: ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]) { app in self.go(app, "feed"); sleep(1) },
-            // The Feed as the shared paper table; `feed-table-abstract` opens a row's abstract.
+            // The Feed as the shared paper table; `feed-table-abstract` opens a row's details (2026-10-24).
             "feed-table": Scenario(arguments: Self.feedTableFixture) { app in self.go(app, "feed"); sleep(1) },
             "feed-table-abstract": Scenario(arguments: Self.feedTableFixture) { app in
                 self.go(app, "feed")

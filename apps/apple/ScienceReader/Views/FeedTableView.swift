@@ -210,6 +210,9 @@ struct FeedTable: View {
     /// Wide's Feed: a row's tap shows its details beside the list (FeedAbstractPane) instead of the abstract under it; the
     /// picked row is highlighted.
     var pick: ((DiscoveryResult) -> Void)? = nil
+    /// A row's tap opens its details (owner, 2026-10-24): `pick` in Wide, the large sheet in Tall. The abstract under the
+    /// row stays a choice in its long-press menu (Show abstract). Nil: the tap shows the abstract under the row.
+    var open: ((DiscoveryResult) -> Void)? = nil
     @State private var expanded: Set<String> = []
     @State private var adding: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -290,16 +293,24 @@ struct FeedTable: View {
 
     private func action(for result: DiscoveryResult) -> PaperTableAction? {
         if let pick { return PaperTableAction(hint: "Shows its details beside the list") { pick(result) } }
+        if let open { return PaperTableAction(hint: "Shows its details") { open(result) } }
         guard result.abstract != nil else { return nil }
+        return PaperTableAction(hint: expanded.contains(result.id) ? "Hides the abstract" : "Shows the abstract") { toggleAbstract(result) }
+    }
+
+    private func toggleAbstract(_ result: DiscoveryResult) {
         let open = expanded.contains(result.id)
-        return PaperTableAction(hint: open ? "Hides the abstract" : "Shows the abstract") {
-            withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
-                if open { expanded.remove(result.id) } else { expanded.insert(result.id) }
-            }
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
+            if open { expanded.remove(result.id) } else { expanded.insert(result.id) }
         }
     }
 
     @ViewBuilder private func actions(_ result: DiscoveryResult) -> some View {
+        // A row's tap opens its details; its abstract under the row is here.
+        if open != nil && pick == nil && result.abstract != nil {
+            let shown = expanded.contains(result.id)
+            Button(shown ? "Hide abstract" : "Show abstract", systemImage: shown ? "chevron.up" : "text.alignleft") { toggleAbstract(result) }
+        }
         if !model.librarySourceIDs.contains(result.sourceID) {
             Button("Add to library", systemImage: "plus") { add(result) }.disabled(!model.canBeginImport || adding.contains(result.id))
         }

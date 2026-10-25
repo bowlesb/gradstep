@@ -179,6 +179,9 @@ final class ReaderModel {
     /// paper is open there instead (Read).
     var feedPickID: String?
     var feedReading = false
+    /// Tall (iPhone, iPad upright): the Feed paper whose details fill the screen (a large sheet swiped down when done; owner,
+    /// 2026-10-24). Wide shows the same details in the right slot (`feedPickID`).
+    var feedDetail: DiscoveryResult?
     /// iPad turned upright on the Library with a paper beside it, or on the Feed with an article picked: that row, centred
     /// and tinted in the Tall list until the tint has faded (owner, 2026-10-23; RowReveal).
     var rowReveal: RowReveal?
@@ -2639,7 +2642,28 @@ final class ReaderModel {
         }
     }
 
+    /// Every Feed result this session has shown (For you, topics, categories), newest kept: what related papers can be
+    /// told about without asking anyone (FeedRelated.swift).
+    @ObservationIgnored private var feedKnown: [String: DiscoveryResult] = [:]
+    @ObservationIgnored private let feedRelated = FeedRelatedService()
+
+    /// Related papers for a Feed paper's details, worked out on this device (FeedRelated.swift): the server never learns
+    /// which paper was opened.
+    func relatedPapers(for result: DiscoveryResult) async -> RelatedFeedOutcome {
+        var known = Array(feedKnown.values)
+        if feedKnown[result.sourceID] == nil { known.append(result) }
+        var arxiv = await libraryService?.capabilities?.searchesOnDevice == true
+        var backend = self.backend
+        #if DEBUG && FIXTURE_HOST
+        // Fixture runs rank the Feed results here: no index, no arXiv.
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasSuffix("-fixture") }) { arxiv = false; backend = nil }
+        #endif
+        return await feedRelated.related(for: result, known: known, library: librarySourceIDs, backend: backend, accountID: accountID, arxiv: arxiv)
+    }
+
     private func showFeed(_ response: DiscoveryResponse, for selection: FeedSelection) {
+        if feedKnown.count > 3_000 { feedKnown.removeAll() }
+        for result in response.results { feedKnown[result.sourceID] = result }
         feedPersonal.note(response.feed, for: selection)
         feedResults = response.results; feedShown = selection; feedState = .loaded
         feedLoadedAt = Date(); feedStaleNote = nil

@@ -936,6 +936,11 @@ struct FeedView: View {
             SlotFractions.shared.uncover()
         }
     }
+    /// A tap on a card (anywhere but its abstract's Full abstract, Add and links) opens its details (owner, 2026-10-24):
+    /// Wide, in the right slot; Tall, a large sheet swiped down when done.
+    private var open: (DiscoveryResult) -> Void {
+        pick ?? { result in model.feedDetail = result }
+    }
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -967,11 +972,13 @@ struct FeedView: View {
                             StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }
                                 .padding(.horizontal, DesignMetrics.margin).padding(.top, 6)
                         }
-                        FeedTable(model: model, issue: $issue, pick: pick).refreshable { model.loadFeed() }
+                        FeedTable(model: model, issue: $issue, pick: pick, open: open).refreshable { model.loadFeed() }
                     } else {
                         // Turned upright with an article picked: its row centred and tinted, the tint fading (owner,
                         // 2026-10-23).
                         let reveal = model.revealedRow(in: .feed, wide: wideBar)
+                        let columns = listColumns
+                        let sections = FeedWhy.sections(model.shownFeedResults)
                         ScrollViewReader { proxy in
                         List {
                             if let issue {
@@ -983,21 +990,22 @@ struct FeedView: View {
                             FeedColdStartNote(model: model)
                             // For you in sections by why each paper is suggested (owner, 2026-10-24: "having grouped lists in
                             // list view"); one kind of reason or none (a category) stays one plain list.
-                            if let sections = FeedWhy.sections(model.shownFeedResults) {
+                            if let sections {
                                 ForEach(sections) { section in
                                     Section {
-                                        ForEach(section.results) { feedRow($0, section: section, reveal: reveal) }
+                                        feedRows(section.results, section: section, reveal: reveal, columns: columns)
                                     } header: {
                                         FeedSectionHeader(section: section)
                                     }
                                 }
                             } else {
-                                ForEach(model.shownFeedResults) { feedRow($0, section: nil, reveal: reveal) }
+                                feedRows(model.shownFeedResults, section: nil, reveal: reveal, columns: columns)
                             }
                         }
                         .listStyle(.plain).refreshable { model.loadFeed() }
-                        .readableScrollColumn(width: width)
-                        .revealScroll(reveal?.row, token: reveal?.reveal.token, proxy: proxy)
+                        .readableScrollColumn(width: columns > 1 ? 0 : width)
+                        .revealScroll(reveal.map { FeedGridRow.id(of: $0.row, in: sections?.map(\.results) ?? [model.shownFeedResults], columns: columns) },
+                                      token: reveal?.reveal.token, proxy: proxy)
                         }
                     }
                 }
@@ -1025,6 +1033,15 @@ struct FeedView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .slotSheet(isPresented: $showColumns) { feedColumnsSheet }
+            // Tall: a card's details fill the screen (FeedPaperDetails); turned sideways, they move to the right slot.
+            .appSheet(item: Binding(get: { wideBar ? nil : model.feedDetail }, set: { model.feedDetail = $0 })) { result in
+                FeedDetailSheet(model: model, root: result)
+            }
+            .onChange(of: wideBar, initial: true) { _, wide in
+                guard wide, let detail = model.feedDetail else { return }
+                if model.feedResults.contains(where: { $0.sourceID == detail.sourceID }) { model.feedPickID = detail.sourceID; model.feedReading = false }
+                model.feedDetail = nil
+            }
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
     }
@@ -1034,12 +1051,52 @@ struct FeedView: View {
     private func shrinkText() { model.feedTextStep = max(-6, model.feedTextStep - 1) }
     private func growText() { model.feedTextStep = min(6, model.feedTextStep + 1) }
 
+    /// iPad upright (Tall, at least 760 pt wide): the List's cards in two columns across the window instead of one readable
+    /// column between empty margins (owner, 2026-10-24: "take the whole screen… a lot of space is not being well used").
+    /// Each column is about an iPhone row's width, so the lines stay a comfortable length. One column on iPhone, in Wide's
+    /// slot, on the Mac and at accessibility text sizes.
+    private var listColumns: Int {
+        !wideBar && !Platform.isMac && UIDevice.current.userInterfaceIdiom == .pad && width >= 760
+            && !dynamicTypeSize.stepped(by: model.feedTextStep).isAccessibilitySize ? 2 : 1
+    }
+
+    /// The List's papers: one row each, or `columns` cards side by side per row.
+    @ViewBuilder private func feedRows(_ results: [DiscoveryResult], section: FeedSection?, reveal: TableReveal<String>?, columns: Int) -> some View {
+        if columns < 2 {
+            ForEach(results) { feedRow($0, section: section, reveal: reveal) }
+        } else {
+            ForEach(FeedGridRow.rows(results, columns: columns)) { row in
+                HStack(alignment: .top, spacing: 32) {
+                    ForEach(row.results) { feedCard($0, section: section, reveal: reveal) }
+                    ForEach(0 ..< columns - row.results.count, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+                }
+                .listRowInsets(EdgeInsets(top: 14, leading: 28, bottom: 14, trailing: 28))
+            }
+        }
+    }
+
+    /// One card of the two-column List (its tint, when turned upright with it picked, on the card alone).
+    private func feedCard(_ result: DiscoveryResult, section: FeedSection?, reveal: TableReveal<String>?) -> some View {
+        let revealed = reveal?.row == result.id
+        let open = self.open
+        return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, section: section, pick: { open(result) })
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if revealed, let reveal {
+                    RevealTint(reveal: reveal.reveal, end: reveal.end).padding(-8).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(-8)
+                }
+            }
+            .accessibilityAddTraits(revealed ? .isSelected : [])
+    }
+
     /// One paper of the List; in a section, its why line leaves out what the header says.
     private func feedRow(_ result: DiscoveryResult, section: FeedSection?, reveal: TableReveal<String>?) -> some View {
         let picked = pick != nil && model.feedPickID == result.sourceID
         let revealed = reveal?.row == result.id
+        let open = self.open
         return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, section: section,
-                            pick: pick.map { pick in { pick(result) } })
+                            pick: { open(result) })
             .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
             .listRowBackground(revealed ? reveal.map { AnyView(RevealTint(reveal: $0.reveal, end: $0.end)) }
                                : picked ? AnyView(Color.accentColor.opacity(0.12)) : nil)
@@ -1079,7 +1136,7 @@ struct FeedView: View {
             }
             optionsMenu
         }
-        .modifier(HeaderWidth(fullWidth: tableShown)).padding(.top, 2).padding(.bottom, 8)
+        .modifier(HeaderWidth(fullWidth: tableShown || listColumns > 1)).padding(.top, 2).padding(.bottom, 8)
         .chromeBand(.top, solid: tableShown)
     }
 
@@ -1131,6 +1188,23 @@ struct FeedView: View {
             SettingsMenuSection(model: model)
         } label: { HeaderButtonLabel(systemImage: "ellipsis") }
         .buttonStyle(.plain).accessibilityLabel("Feed options")
+    }
+}
+
+/// A row of the two-column Feed List: its papers, side by side.
+struct FeedGridRow: Identifiable {
+    let results: [DiscoveryResult]
+    var id: String { results.map(\.sourceID).joined(separator: "|") }
+
+    static func rows(_ results: [DiscoveryResult], columns: Int) -> [FeedGridRow] {
+        stride(from: 0, to: results.count, by: max(1, columns)).map { FeedGridRow(results: Array(results[$0 ..< min($0 + columns, results.count)])) }
+    }
+
+    /// The List row that holds `sourceID` (itself with one column), for scrolling to it.
+    static func id(of sourceID: String, in groups: [[DiscoveryResult]], columns: Int) -> String {
+        guard columns > 1 else { return sourceID }
+        for group in groups { if let row = rows(group, columns: columns).first(where: { $0.results.contains { $0.sourceID == sourceID } }) { return row.id } }
+        return sourceID
     }
 }
 
@@ -2076,7 +2150,8 @@ struct DiscoveryRow: View {
     var showsIdentifier = true
     /// The For you List's section the row is in (grouped by why): its why line leaves out what the header says.
     var section: FeedSection? = nil
-    /// Wide's Feed: a tap on the row shows its details beside the list (FeedAbstractPane); its buttons keep their own taps.
+    /// The Feed: a tap on the card shows its details (Wide beside the list, FeedAbstractPane; Tall a large sheet,
+    /// FeedDetailSheet; owner, 2026-10-24); its Full abstract, Add and links keep their own taps.
     var pick: (() -> Void)? = nil
     @State private var adding = false
     @State private var expanded = false
@@ -2087,11 +2162,19 @@ struct DiscoveryRow: View {
         } else { row }
     }
 
+    /// VoiceOver: the card's title is its default action (Show details); Full abstract stays its own named button.
+    @ViewBuilder private var title: some View {
+        let text = Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+        if let pick {
+            text.accessibilityAddTraits(.isButton).accessibilityHint("Shows its details").accessibilityAction(.default, pick)
+        } else { text }
+    }
+
     private var row: some View {
         HStack(alignment: .center, spacing: 12) {
             // The Library rows' type scale (design audit F6): title, authors, then details.
             VStack(alignment: .leading, spacing: 4) {
-                Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+                title
                 if let authors = LibraryFormat.shortAuthors(result.authors) {
                     Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
