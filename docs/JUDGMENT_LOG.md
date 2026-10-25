@@ -6,6 +6,14 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-25
 
+27. **Paper AI Explainer: "Go deeper" on each key concept** (owner, TestFlight 93: "an option … to request more
+    elaboration on each concept, and then another screen in front. Then when we swipe away we get the entire overview
+    behind"). Each Key concept gets a "Go deeper ›" that opens a card in front: the concept explained in this paper's
+    context (what it is, why the paper needs it, an intuition or small example, where it appears with ¶ links), one AI
+    call at the explainer's usual price, kept with the explanation so reopening is free; swipe down returns to the
+    overview. The header becomes compact (title, paper and model on two short lines) so the overview starts higher.
+    *Undo:* remove the button; the overview is unchanged.
+
 22. **Global search keeps its sealed index on the device after sign-out** (cleared from memory and screen; removed
     with the account), like the encrypted chat store and the Library's index. The ML paper search cache is deleted at
     sign-out. *Undo:* delete the index at sign-out (a full rebuild, a few seconds, at the next sign-in).
