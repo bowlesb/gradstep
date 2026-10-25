@@ -329,7 +329,7 @@ and build), then sets `serving='staff'`. `all` waits for step 3's device layer a
 chosen names, hidden flags, keywords or rankings. Step 3 syncs those only as an end-to-end encrypted blob (proposal,
 under 100 KB).
 
-Exception, For you (migration 0155, 2026-10-24): the Feed's server ranking, which the owner accepted on 2026-10-08 over
+Exception, For you (migration 0155, 2026-10-24; **accepted by the owner 2026-10-24**: "I see, a sounds fine then", after being told it sends nothing new: the server already holds the library list and the public titles and abstracts): the Feed's server ranking, which the owner accepted on 2026-10-08 over
 server-visible library membership, also uses the public fingerprints of the reader's own library papers, per request,
 under the same `interest_policy.serving` gate as this index. Nothing is stored and nothing from it is published
 (PERSONALIZED_FEED.md "Similarity to the library"). Device-only signals stay on devices.
@@ -376,7 +376,8 @@ activity days are already covered.
 
 **Privacy notice, when serving goes to `all` (owner approval needed before public release):** "To find your topics, your devices download a public map of recent
 arXiv research from our servers, the same file for everyone. Your topics are worked out on your devices; our servers
-don't receive them."
+don't receive them. For you also ranks new papers by how close they are to the arXiv papers in your library, using their
+public titles and abstracts; nothing from that comparison is kept."
 
 ## 6. Cost and operations
 

@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-24 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## For you ranks by similarity to the library (owner sessions 2026-10-24; staff only, owner decision pending before everyone)
+## For you ranks by similarity to the library (owner sessions 2026-10-24; owner accepted option (a) 2026-10-24)
 
 - **Why:** For you read only the legacy library table, so readers on the current library were cold starts (fixed by
   migration 0154). Even with the profile, tags and author names gave weak reasons (namesake authors, broad areas).
@@ -18,6 +18,11 @@ Last updated: 2026-10-24 UTC. Requirements below come from the current user conv
     - **(a)** accept this as an exception and cover it in the privacy notice; or
     - **(b)** move similarity to the device (step 3), where the device re-ranks the server's list.
   - Staff-only meanwhile.
+- **Decided (owner, 2026-10-24): (a).** Asked whether (a) sends the library's contents to the server, the owner was
+  told it sends nothing new (membership and public titles/abstracts are already there; notes, chats, snippets,
+  reading progress and uploads stay end-to-end encrypted and uploads are left out) and replied "I see, a sounds fine
+  then". The privacy-notice draft in INTEREST_INDEX.md §5 gains one sentence for it. Serving to `all` still waits for
+  the owner's approval of that notice wording.
 
 ## Library search over every paper's text: an encrypted on-device index (owner question 2026-10-24; agent decisions, reversible)
 
