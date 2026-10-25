@@ -301,6 +301,13 @@ public final class FullTextSnapshot: @unchecked Sendable {
         }
     }
 
+    /// One paper's saved reading text as the index holds it (decrypted in memory only), or nil when it has none. The
+    /// interest index counts its phrases for the paper's keywords (InterestLabels.paperTerms).
+    public func bodyText(group: String) -> String? {
+        guard let text = texts?.body(group: group), text.length > 0 else { return nil }
+        return String(decoding: text.bytes(0 ..< text.length), as: UTF8.self)
+    }
+
     // MARK: Snippets
 
     /// About this many characters of text around the densest body match.
