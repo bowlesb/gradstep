@@ -280,8 +280,9 @@ enum FigureViewOutcome {
                     transcript: [.init(role: .user, text: label)], selection: quote, action: action, profile: profile, figures: [image])
                     .forLocalInference(paperText: PaperChatContext.text(context.bundle.index), focus: context.paragraph)
             } else if let local = context.localContext {
-                request = try .figure(action, operationID: UUID(), label: label, quote: quote, profile: profile,
-                                      localContext: local, visualAnswers: model.visualAnswers, image: image)
+                request = try ChatGenerationRequest.figure(action, operationID: UUID(), label: label, quote: quote, profile: profile,
+                                                           localContext: local, visualAnswers: model.visualAnswers, image: image)
+                    .linked(item: context.figureID)
             } else { set(Part(state: .unavailable)); return }
         } catch {
             let message = localModelID != nil ? ChatFailureText.message(for: "local_context_large") : "This figure couldn’t be sent."

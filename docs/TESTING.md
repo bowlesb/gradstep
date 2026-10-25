@@ -10,6 +10,19 @@ compile `node scripts/reader-device-compile.mjs --ids=2610.27450v1 --out=<dir>`,
 `TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`, `TEST_RUNNER_READER_SHOT_NAME=<prefix>` and `TEST_RUNNER_GS_SCREENSHOT_DIR`
 (skipped without the bundle). Screenshots under `.artifacts/tf92-equations/`.
 
+## TestFlight 92 feedback: usage ranges and links, breakdown pictures, Acknowledgements, recommendations card — October 25
+
+Fast: Core `swift test --filter "AIUsageRangeTests|AIUsageTests|AssetsExportTests"` (the day window's totals and
+activities, days newest first, a request's conversation and kept explanation, links never encoded, older records decode,
+unfinished rows show no tokens; the export's breakdowns against the shared fixture); browser `tests/ai-usage.test.ts`,
+`tests/assets-export.test.ts` (`UPDATE_EXPORT_FIXTURE=1` rewrites the breakdown expectations). App:
+`ScienceReaderTests/AssetsExportAppTests` (parts cut from the fixture paper's figure as PNG). Slow, opt-in, one iPhone
+Simulator: `ScienceReaderUITests/AIUsageJourneyTests` (`testRangeDrivesTotalsRingAndDays`, `testARowOpensItsConversation`;
+the usage journeys are iPhone-only, the range one also passes on an iPad), `AssetsExportJourneyTests/testFigureBreakdownsComeWithTheirPictures`,
+`RecommendationJourneyTests/testTheCardSitsUnderTheTitleAndStaysPut`, `SettingsTests/testAboutHoldsVersionPrivacyAndAcknowledgements`.
+`--reset-draft-fixture` now also clears the fixture account's usage records. Notices: `node scripts/app-notices.mjs`
+(`--root=<checkout with node_modules>` from a worktree). Screenshots under `.artifacts/tf92-feedback/`.
+
 ## The on-device PDF model as a download — October 24
 
 Fast: Core `swift test --filter DevicePDFModelPackTests` (the pack description and its version, refused descriptions,

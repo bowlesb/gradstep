@@ -259,16 +259,29 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["About"].exists)
         app.buttons["about.acknowledgements"].tap()
         XCTAssertTrue(app.navigationBars["Acknowledgements"].waitForExistence(timeout: 5))
-        // The reader's own components since the device-only cutover (no Mathpix on a server), and arXiv's acknowledgement.
-        XCTAssertTrue(element(labelContaining: "arXiv HTML for the reader on this device", in: app).waitForExistence(timeout: 5))
+        // One compact row per item, its name and license (owner, TestFlight 92: "Is any of this screen needed at all?"); the
+        // reader's own libraries since the device-only cutover, DataCite rather than OpenAlex, no Mathpix.
+        for (name, license) in [("SwiftMath", "MIT"), ("Math fonts", "GUST, OFL"), ("Mermaid", "MIT and others"), ("htmlparser2, Temml", "MIT, BSD"),
+                                ("Google Sans", "OFL"), ("arXiv", "API terms"), ("DataCite", "CC0")] {
+            let row = app.buttons["acknowledgements.\(name)"]
+            XCTAssertTrue(row.waitForExistence(timeout: 5), name)
+            XCTAssertTrue(row.label.contains(license), "\(name): \(row.label)")
+        }
+        XCTAssertFalse(element(labelContaining: "arXiv HTML for the reader on this device", in: app).exists, "No explanatory sentences")
         XCTAssertFalse(element(labelContaining: "Mathpix", in: app).exists, "Nothing converts papers on a server")
-        XCTAssertFalse(element(labelContaining: "equation-aware readers", in: app).exists, "No “reader” jargon")
-        // Search and the Feed's data since the owner's decisions of 2026-10-16: DataCite, no OpenAlex.
-        XCTAssertTrue(element(labelContaining: "ML paper search and the shared Feed", in: app).exists)
         XCTAssertFalse(element(labelContaining: "OpenAlex", in: app).exists, "Search no longer uses OpenAlex")
-        let acknowledgement = app.descendants(matching: .any)["acknowledgements.arxiv"]
-        for _ in 0..<4 where !acknowledgement.exists { app.swipeUp() }
+        // arXiv's required acknowledgement (docs/architecture/ARXIV_DEVICE_ONLY.md §7) stays on this screen.
         XCTAssertTrue(element(labelContaining: "Thank you to arXiv", in: app).exists, "arXiv's acknowledgement")
+        save("acknowledgements")
+        // The full notice is one tap away: Mermaid's own MIT notice and its bundled libraries'.
+        app.buttons["acknowledgements.Mermaid"].tap()
+        XCTAssertTrue(app.navigationBars["Mermaid"].waitForExistence(timeout: 5))
+        XCTAssertTrue(element(labelContaining: "Knut Sveidqvist", in: app).waitForExistence(timeout: 5), "Mermaid's copyright")
+        XCTAssertTrue(element(labelContaining: "Permission is hereby granted", in: app).exists, "The permission notice")
+        save("acknowledgements-mermaid")
+        app.navigationBars["Mermaid"].buttons.firstMatch.tap()
+        app.buttons["acknowledgements.SwiftMath"].tap()
+        XCTAssertTrue(element(labelContaining: "Computer Inspirations", in: app).waitForExistence(timeout: 5), "SwiftMath's copyright")
     }
 
     // Pricing (2026-10-22, docs/PRICING_HOW_IT_WORKS.md): the plan with how pricing works behind ⓘ, this month's free AI,

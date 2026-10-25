@@ -6,7 +6,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   activityLabel, activityName, compact, creditsText, grouped, modelLabel, outcomeLabel, parseUsagePage, partLabel, periodLabel, provenanceFor,
-  recallProvenance, rememberProvenance, forgetProvenance, slicesSummary, tokensText, totalsText, usageSlices, USAGE_ACTIVITIES, type UsageActivityCount,
+  recallProvenance, rememberProvenance, forgetProvenance, reportsTokens, slicesSummary, tokensText, totalsText, unreportedTokens, usageSlices,
+  USAGE_ACTIVITIES, type UsageActivityCount,
   type UsageProvenance, type UsageSlice,
 } from '../src/lib/ai-usage';
 
@@ -62,6 +63,15 @@ describe('AI usage', () => {
     expect(tokensText({ input_tokens: 0, cached_tokens: 0, cache_write_tokens: 0, output_tokens: 0, searches: 0, audio_ms: 0, estimated: false })).toBe('—');
     expect(periodLabel(30)).toBe('Last 30 days');
     expect(periodLabel(365)).toBe('Last 12 months');
+  });
+
+  // TestFlight 92: a question that didn't finish read "132k in · 10k out", what was set aside for it, not what was used.
+  it('shows tokens only for requests the provider finished', () => {
+    for (const outcome of ['completed', 'stopped', 'free'] as const) expect(reportsTokens(outcome)).toBe(true);
+    for (const outcome of ['failed', 'not_charged', 'in_progress', 'checking'] as const) expect(reportsTokens(outcome)).toBe(false);
+    expect(unreportedTokens('failed')).toContain('isn’t what was used');
+    expect(unreportedTokens('completed')).toBeNull();
+    expect(outcomeLabel('failed')).toBe('Didn’t finish · not charged');
   });
 
   it('refuses a reply that is not a page', () => {

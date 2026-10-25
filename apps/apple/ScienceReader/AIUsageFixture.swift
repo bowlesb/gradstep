@@ -3,17 +3,22 @@ import Foundation
 import ScienceReaderCore
 
 /// Your AI usage for UI journeys (`--chat-fixture`): the operations this device asked for (from its own usage record,
-/// newest first, each a 3-credit Sonnet answer), then the shared fixture's kinds of rows (a stopped answer, a failed
-/// equation explainer, a Study turn in progress, a podcast, free tags, a figure explainer, a passage question with its
-/// parts), then thirty older answers so the list pages. `--usage-fixture-empty` has none; `--usage-fixture-fail-once`
-/// fails the first read. Never opens a network connection.
+/// newest first, each a 3-credit Sonnet answer of the activity it recorded), then the shared fixture's kinds of rows (a
+/// stopped answer, a failed equation explainer, a Study turn in progress, a podcast, free tags, a figure explainer, a
+/// passage question with its parts) minutes ago, then thirty older answers an hour apart from two hours ago, so the list
+/// pages and spans two days, and two from 4 and 12 days ago. The server's window (whole UTC days, today included) is
+/// applied. `--usage-fixture-empty` has none; `--usage-fixture-fail-once` fails the first read. Never opens a network
+/// connection.
 extension ChatFixtureTransport: AIUsageSource {
     private static let failedOnce = FixtureFlag()
 
     func aiUsage(days: Int, activity: AIUsageActivity?, before: AIUsageCursor?, accountID: UUID) async throws -> AIUsagePage {
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains("--usage-fixture-fail-once"), Self.failedOnce.take() { throw ChatTransportError.rejected("transport") }
-        let all = arguments.contains("--usage-fixture-empty") ? [] : Self.rows(asked: Self.asked(accountID: accountID))
+        var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+        let since = utc.date(byAdding: .day, value: -(days - 1), to: utc.startOfDay(for: Date()))!
+        let all = (arguments.contains("--usage-fixture-empty") ? [] : Self.rows(asked: Self.asked(accountID: accountID)))
+            .filter { row in (row["created_at"] as? String).flatMap(AIUsageFormat.date).map { $0 >= since } ?? true }
         let shown = all.filter { activity == nil || $0["activity"] as? String == activity?.rawValue }
         let start = before.flatMap { cursor in shown.firstIndex { $0["id"] as? String == cursor.id.uuidString.lowercased() }.map { $0 + 1 } } ?? 0
         let page = Array(shown.dropFirst(start).prefix(AIUsageFormat.pageSize)), more = shown.count > start + AIUsageFormat.pageSize
@@ -38,12 +43,13 @@ extension ChatFixtureTransport: AIUsageSource {
     }
 
     /// The cloud operations this device recorded for the account, whatever the fixture host's environment is called.
-    private static func asked(accountID: UUID) -> [UUID] {
+    private static func asked(accountID: UUID) -> [(UUID, AIUsageProvenance)] {
         let suffix = "." + accountID.uuidString.lowercased()
         let environments = UserDefaults.standard.dictionaryRepresentation().keys
             .filter { $0.hasPrefix("gradstep.usage-provenance.v1.") && $0.hasSuffix(suffix) }
             .map { String($0.dropFirst("gradstep.usage-provenance.v1.".count).dropLast(suffix.count)) }
-        return environments.flatMap { AIUsageProvenanceStore(environment: $0, accountID: accountID).all().keys }.sorted { $0.uuidString < $1.uuidString }
+        return environments.flatMap { AIUsageProvenanceStore(environment: $0, accountID: accountID).all().map { ($0.key, $0.value) } }
+            .sorted { $0.0.uuidString < $1.0.uuidString }
     }
 
     private static func part(_ part: String, _ model: String, input: Int = 0, cached: Int = 0, write: Int = 0, output: Int = 0, searches: Int = 0,
@@ -54,7 +60,7 @@ extension ChatFixtureTransport: AIUsageSource {
 
     private static func op(_ id: String, minutesAgo: Double, kind: String = "chat", activity: String, outcome: String = "completed", paidBy: String = "you",
                            credits: Int?, held: Int = 0, model: String, parts: [[String: Any]]) -> [String: Any] {
-        let created = Date(timeIntervalSince1970: 1_792_644_000).addingTimeInterval(-minutesAgo * 60) // 2026-10-22 04:40 UTC
+        let created = Date().addingTimeInterval(-minutesAgo * 60)
         let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         var row: [String: Any] = ["id": id, "created_at": iso.string(from: created), "settled_at": credits == nil ? NSNull() : iso.string(from: created.addingTimeInterval(12)),
             "kind": kind, "activity": activity, "action": NSNull(), "ending": NSNull(), "outcome": outcome, "paid_by": paidBy,
@@ -66,10 +72,24 @@ extension ChatFixtureTransport: AIUsageSource {
         return row
     }
 
-    private static func rows(asked: [UUID]) -> [[String: Any]] {
+    /// The activity the server would name for what this device recorded.
+    private static func activity(_ provenance: AIUsageProvenance) -> String {
+        if provenance.kind == .recommendation { return "recommendations" }
+        switch provenance.action.flatMap(ChatAction.init(rawValue:)) {
+        case .figure?, .figureSimpler?: return "figure_explainer"
+        case .equation?, .equationBackground?: return "equation_explainer"
+        case .study?: return "study"
+        case .related?: return "related_papers"
+        case .relevance?: return "why_it_matters"
+        default: return "chat"
+        }
+    }
+
+    private static func rows(asked: [(UUID, AIUsageProvenance)]) -> [[String: Any]] {
         let sonnet = "anthropic/claude-sonnet-5.5", haiku = "anthropic/claude-haiku-5.5", p = "14400000-0000-4000-8001-"
-        let mine = asked.map { id in
-            op(id.uuidString.lowercased(), minutesAgo: 0, activity: "chat", credits: 3, model: sonnet,
+        let mine = asked.map { id, provenance in
+            op(id.uuidString.lowercased(), minutesAgo: 0, kind: provenance.kind == .recommendation ? "recommend" : "chat",
+               activity: Self.activity(provenance), credits: 3, model: sonnet,
                parts: [part("answer", sonnet, input: 2_400, cached: 18_000, output: 420), part("title", haiku, input: 200, output: 9)])
         }
         let shared = [
@@ -94,7 +114,12 @@ extension ChatFixtureTransport: AIUsageSource {
         let older = (0..<30).map { n in
             op(String(format: "14400000-0000-4000-8003-%012d", n), minutesAgo: Double(120 + 60 * n), activity: "chat", credits: 2, model: sonnet,
                parts: [part("answer", sonnet, input: 1_200, cached: 15_000, output: 500)])
-        }
+        } + [
+            op("14400000-0000-4000-8004-000000000001", minutesAgo: 4 * 1_440, activity: "related_papers", credits: 4, model: sonnet,
+               parts: [part("answer", sonnet, input: 2_000, cached: 18_000, output: 900), part("web_search", "search-basic", searches: 2)]),
+            op("14400000-0000-4000-8004-000000000002", minutesAgo: 12 * 1_440, activity: "why_it_matters", credits: 2, model: sonnet,
+               parts: [part("answer", sonnet, input: 1_500, cached: 16_000, output: 400)]),
+        ]
         // This device's own questions are the newest: shown first.
         return mine.map { var row = $0; row["created_at"] = ISO8601DateFormatter().string(from: Date()); return row } + shared + older
     }

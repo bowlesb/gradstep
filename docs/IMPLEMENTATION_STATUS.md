@@ -111,6 +111,22 @@ screenshots before/after (bundles compiled by revisions 25 and 26) on iPhone 17 
 in the main checkout's `.artifacts/tf92-equations/` (`ReaderNavigationTests.testTestFlight92AlignedEquationAndBar`).
 Not verified: the Mac app itself, a physical device.
 
+## After TestFlight 92 — owner's iPhone feedback (2026-10-25; branch, not released)
+
+Decisions: [DECISIONS.md](DECISIONS.md) "TestFlight 92 feedback". Client-only; no server change, deploy or migration.
+
+- Recommended papers: the card sits directly under the sheet's title and stays put as papers arrive.
+- Your AI usage: Day · Week · Month · Year at the top (the last 24 hours worked out on the device); the list in days;
+  "Open chat ›" (figure, equation, AI Explainer, papers) under rows whose resource is still here; figure-explainer rows
+  name their paper; unfinished, uncharged and unsettled rows show no token counts (apps and browser).
+- Download your assets: figure breakdowns with their parts' pictures cut from the paper on this device; the ⓘ explains
+  that pictures are never stored or synced and what the last download left out (no footer). Browser builder matches.
+- Acknowledgements: one row per item with the full notice one tap away; the missing license texts are now in the app.
+- **Not verified:** on a device; the Mac app beyond a Catalyst build (no Mac UI run); links for requests asked on another device
+  against real synced history (unit-tested with synthetic history); the browser's usage screen in a browser.
+- **Server note:** `v1_ai_usage` reports unfinished attempts' reserved units as tokens and counts them in the window's
+  token total (DECISIONS.md); the clients now hide them per row, the total still includes them.
+
 ## TestFlight 92 — 2026-10-25 UTC (iOS and Mac uploaded)
 
 Uploaded at 09:50 UTC (iOS) and 09:59 UTC (Mac), from main at 1b3b4c1f. Everything in "In TestFlight 92" below

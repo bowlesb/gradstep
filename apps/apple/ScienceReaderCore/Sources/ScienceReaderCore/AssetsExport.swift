@@ -3,7 +3,8 @@ import zlib
 
 /// Download your assets (owner, build 82: "Need a download assets button"): the reader's own content as one .zip, put
 /// together on this device from what it holds or can decrypt; nothing is sent anywhere. Downloaded papers are left out
-/// (they are the publishers' content). The browser's lib/assets-export.ts builds the same files and the same zip byte for
+/// (they are the publishers' content). A chat's figure breakdowns come with the pictures of their parts when the device
+/// cut them from its own copy of the paper (owner, TestFlight 92); the pictures are never stored or synced. The browser's lib/assets-export.ts builds the same files and the same zip byte for
 /// byte from the same input (tests/fixtures/assets-export/assets-export-v1.json), so every rule here is repeatable: dates
 /// in UTC, names cleaned by an explicit character list, files ordered by their UTF-8 bytes, stored (uncompressed) entries.
 public enum AssetsExport {
@@ -121,16 +122,41 @@ public enum AssetsExport {
             self.symbols = symbols; self.sections = sections; self.background = background; self.ideas = ideas; self.links = links; self.text = text
         }
     }
+    public struct BreakdownPart: Codable, Equatable, Sendable {
+        public var label: String
+        public var note: String
+        /// The part's picture has this type (`image/png`, `image/jpeg`); its bytes are passed separately, keyed
+        /// "<breakdown id>/<part number from 1>".
+        public var image: String?
+        public init(label: String, note: String, image: String? = nil) { self.label = label; self.note = note; self.image = image }
+    }
+    /// A chat answer's figure breakdown: its parts' labels and notes, with each part's picture cut from the paper on the device.
+    public struct Breakdown: Codable, Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var at: Int64?
+        public var chat: String?
+        public var paper: String?
+        public var parts: [BreakdownPart]
+        public init(id: String, title: String, at: Int64? = nil, chat: String? = nil, paper: String? = nil, parts: [BreakdownPart]) {
+            self.id = id; self.title = title; self.at = at; self.chat = chat; self.paper = paper; self.parts = parts
+        }
+    }
     public struct Input: Codable, Equatable, Sendable {
         public var exportedAt: Int64
         public var chats: [Chat]
         public var diagrams: [Diagram]
         public var collections: [Collection]
         public var explanations: [Explanation]
+        /// Figure breakdowns the device could cut from its copy of the paper (absent: none; a `figure-parts-v1` diagram
+        /// passed in `diagrams` instead is counted as left out).
+        public var breakdowns: [Breakdown]?
         /// What the device couldn't read, in the device's own words (each a sentence).
         public var skipped: [String]
-        public init(exportedAt: Int64, chats: [Chat] = [], diagrams: [Diagram] = [], collections: [Collection] = [], explanations: [Explanation] = [], skipped: [String] = []) {
-            self.exportedAt = exportedAt; self.chats = chats; self.diagrams = diagrams; self.collections = collections; self.explanations = explanations; self.skipped = skipped
+        public init(exportedAt: Int64, chats: [Chat] = [], diagrams: [Diagram] = [], collections: [Collection] = [], explanations: [Explanation] = [],
+                    breakdowns: [Breakdown]? = nil, skipped: [String] = []) {
+            self.exportedAt = exportedAt; self.chats = chats; self.diagrams = diagrams; self.collections = collections; self.explanations = explanations
+            self.breakdowns = breakdowns; self.skipped = skipped
         }
     }
     public struct File: Equatable, Sendable {
@@ -295,6 +321,19 @@ public enum AssetsExport {
         return out.filter { !$0.isEmpty }.joined(separator: "\n\n") + "\n"
     }
 
+    private static func breakdownMarkdown(_ b: Breakdown, images: [Int: String]) -> String {
+        let facts = [nonEmpty(b.paper).map { "- Paper: \(line($0))" }, nonEmpty(b.chat).map { "- From the chat: \(line($0))" },
+                     b.at.map { "- Saved: \(stamp($0))" }].compactMap { $0 }.joined(separator: "\n")
+        var out = ["# \(line(b.title).isEmpty ? "Figure breakdown" : line(b.title))", facts]
+        for (index, part) in b.parts.enumerated() {
+            out.append("## \(index + 1). \(line(part.label))")
+            if let image = images[index] { out.append("![Part \(index + 1)](<images/\(image)>)") }
+            else if part.image != nil { out.append("_The picture wasn’t available on this device._") }
+            if !trim(part.note).isEmpty { out.append(trim(part.note)) }
+        }
+        return out.filter { !$0.isEmpty }.joined(separator: "\n\n") + "\n"
+    }
+
     private static func diagramFile(_ d: Diagram) -> (ext: String, text: String) {
         if d.format == ChatDiagram.htmlFormat {
             return ("html", "<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
@@ -305,7 +344,7 @@ public enum AssetsExport {
     }
 
     /// Every file of the export, under one folder named for the day, with README.md first. `images`: snippet images by
-    /// snippet id (decrypted on this device).
+    /// snippet id (decrypted on this device), and breakdown parts' pictures by "<breakdown id>/<part number from 1>".
     public static func build(_ input: Input, images: [String: Data]) -> Result {
         let root = "Gradstep export \(day(input.exportedAt))"
         var used = Set<String>(), files: [File] = [], skipped: [String] = []
@@ -338,6 +377,18 @@ public enum AssetsExport {
         }
         if breakdowns > 0 {
             skipped.append("\(plural(breakdowns, "figure breakdown", "figure breakdowns")) from chats \(breakdowns == 1 ? "isn’t" : "aren’t") included: \(breakdowns == 1 ? "it is" : "they are") cut from the paper itself.")
+        }
+        let cut = (input.breakdowns ?? []).sorted { ordered($0.at, $0.id, $1.at, $1.id) }
+        for b in cut {
+            var names: [Int: String] = [:]
+            for (index, part) in b.parts.enumerated() {
+                guard let type = part.image, let bytes = images["\(b.id)/\(index + 1)"] else { continue }
+                let imagePath = claim("breakdowns/images", "\(b.id)-\(index + 1)", type == "image/png" ? "png" : "jpg")
+                files.append(File(path: imagePath, data: bytes)); names[index] = String(imagePath.dropFirst("breakdowns/images/".count))
+            }
+            let name = fileName(b.title, limit: 60, fallback: "Figure breakdown")
+            let path = claim("breakdowns", b.at.map { "\(day($0)) \(name)" } ?? name, "md")
+            add(path, breakdownMarkdown(b, images: names)); listed["breakdowns", default: []].append(link(b.title.isEmpty ? "Figure breakdown" : b.title, path))
         }
 
         var snippetCount = 0
@@ -383,14 +434,15 @@ public enum AssetsExport {
         skipped += input.skipped.map { line($0) }.filter { !$0.isEmpty }
 
         let count = { (kind: Explanation.Kind) in input.explanations.filter { $0.kind == kind }.count }
-        let sections: [(String, String)] = [("Chats", "chats"), ("Diagrams", "diagrams"), ("Snippets", "snippets"), ("Equation explanations", "equation"),
-                                            ("Figure explanations", "figure"), ("Paper explanations", "paper")]
+        let sections: [(String, String)] = [("Chats", "chats"), ("Diagrams", "diagrams"), ("Figure breakdowns", "breakdowns"), ("Snippets", "snippets"),
+                                            ("Equation explanations", "equation"), ("Figure explanations", "figure"), ("Paper explanations", "paper")]
         let readme = ([
             "# Gradstep export",
             "Exported \(stamp(input.exportedAt)). Everything here was put together on this device from your own content.",
-            ["- Chats: \(chats.count)", "- Diagrams: \(listed["diagrams"]?.count ?? 0)",
+            (["- Chats: \(chats.count)", "- Diagrams: \(listed["diagrams"]?.count ?? 0)"]
+             + (cut.isEmpty ? [] : ["- Figure breakdowns: \(cut.count)"]) + [
              "- Snippets: \(snippetCount) in \(plural(collections.count, "collection", "collections"))",
-             "- Equation explanations: \(count(.equation))", "- Figure explanations: \(count(.figure))", "- Paper explanations: \(count(.paper))"].joined(separator: "\n"),
+             "- Equation explanations: \(count(.equation))", "- Figure explanations: \(count(.figure))", "- Paper explanations: \(count(.paper))"]).joined(separator: "\n"),
             "Downloaded papers aren’t included: get them again from each paper’s source. Explanations are kept on each device, so these are the ones kept on this one.",
             skipped.isEmpty ? "" : "## Left out\n\n" + skipped.map { "- \($0)" }.joined(separator: "\n"),
         ] + sections.compactMap { title, key in listed[key].flatMap { $0.isEmpty ? nil : "## \(title)\n\n" + $0.joined(separator: "\n") } })

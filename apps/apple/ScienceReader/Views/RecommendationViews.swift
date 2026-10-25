@@ -112,6 +112,10 @@ private struct RecommendationRunView: View {
                 }
             }
         }
+        // The card sits directly under the title (owner, TestFlight 92: "Little box appears too far down"), and the papers
+        // arrive below it, so nothing above them moves.
+        .contentMargins(.top, 8, for: .scrollContent)
+        .listSectionSpacing(.compact)
     }
 }
 

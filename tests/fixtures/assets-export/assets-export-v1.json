@@ -255,13 +255,51 @@
     "text": "Words instead of symbols."
    }
   ],
+  "breakdowns": [
+   {
+    "id": "b2",
+    "title": "Figure 2: win rates / sampling temperature",
+    "at": 1792591330000,
+    "chat": "What is DPO / why it works?",
+    "paper": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+    "parts": [
+     {
+      "label": "Left: TL;DR win rate",
+      "note": "DPO's win rate against the reference stays highest as temperature rises.",
+      "image": "image/png"
+     },
+     {
+      "label": "Right [frontier]",
+      "note": "Reward against KL: DPO reaches the best reward for any KL budget.",
+      "image": "image/jpeg"
+     },
+     {
+      "label": "Legend",
+      "note": "  Colours name each method.  "
+     }
+    ]
+   },
+   {
+    "id": "b1",
+    "title": "",
+    "parts": [
+     {
+      "label": "Only part",
+      "note": "No picture was cut for this one.",
+      "image": "image/png"
+     }
+    ]
+   }
+  ],
   "skipped": [
    "1 chat couldn’t be read on this device."
   ]
  },
  "images": {
   "e1": "89504e470d0a1a0a0000000d49484452",
-  "e5": "ffd8ffe000104a464946"
+  "e5": "ffd8ffe000104a464946",
+  "b2/1": "89504e470d0a1a0a0000000d49484452b2b2b2b2",
+  "b2/2": "ffd8ffe000104a464946b2b2"
  },
  "expected": {
   "fileName": "Gradstep export 2026-10-22.zip",
@@ -273,7 +311,23 @@
   "files": [
    {
     "path": "Gradstep export 2026-10-22/README.md",
-    "text": "# Gradstep export\n\nExported 2026-10-22 14:02 UTC. Everything here was put together on this device from your own content.\n\n- Chats: 2\n- Diagrams: 3\n- Snippets: 5 in 2 collections\n- Equation explanations: 3\n- Figure explanations: 2\n- Paper explanations: 1\n\nDownloaded papers aren’t included: get them again from each paper’s source. Explanations are kept on each device, so these are the ones kept on this one.\n\n## Left out\n\n- 1 figure breakdown from chats isn’t included: it is cut from the paper itself.\n- An image in “Ideas” wasn’t available on this device.\n- 1 chat couldn’t be read on this device.\n\n## Chats\n\n- [.hidden: résumé notes](<chats/hidden résumé notes.md>)\n- [What is DPO / why it works?](<chats/2026-10-21 What is DPO why it works.md>)\n\n## Diagrams\n\n- [How DPO fits](<diagrams/2026-10-21 How DPO fits.mmd>)\n- [How DPO fits](<diagrams/2026-10-21 How DPO fits 2.mmd>)\n- [Loss <visual>](<diagrams/2026-10-21 Loss visual.html>)\n\n## Snippets\n\n- [Ideas](<snippets/Ideas.md>)\n- [Reading list](<snippets/Reading list.md>)\n\n## Equation explanations\n\n- [Unknown paper – Equation](<explanations/equations/Unknown paper – Equation.md>)\n- [Direct Preference Optimization – Equation (7)](<explanations/equations/Direct Preference Optimization – Equation (7).md>)\n- [Direct Preference Optimization – Equation (7) (background)](<explanations/equations/Direct Preference Optimization – Equation (7) (background).md>)\n\n## Figure explanations\n\n- [Direct Preference Optimization – Figure 2](<explanations/figures/Direct Preference Optimization – Figure 2.md>)\n- [Direct Preference Optimization – Figure 2 (more simply)](<explanations/figures/Direct Preference Optimization – Figure 2 (more simply).md>)\n\n## Paper explanations\n\n- [Direct Preference Optimization](<explanations/papers/Direct Preference Optimization.md>)\n"
+    "text": "# Gradstep export\n\nExported 2026-10-22 14:02 UTC. Everything here was put together on this device from your own content.\n\n- Chats: 2\n- Diagrams: 3\n- Figure breakdowns: 2\n- Snippets: 5 in 2 collections\n- Equation explanations: 3\n- Figure explanations: 2\n- Paper explanations: 1\n\nDownloaded papers aren’t included: get them again from each paper’s source. Explanations are kept on each device, so these are the ones kept on this one.\n\n## Left out\n\n- 1 figure breakdown from chats isn’t included: it is cut from the paper itself.\n- An image in “Ideas” wasn’t available on this device.\n- 1 chat couldn’t be read on this device.\n\n## Chats\n\n- [.hidden: résumé notes](<chats/hidden résumé notes.md>)\n- [What is DPO / why it works?](<chats/2026-10-21 What is DPO why it works.md>)\n\n## Diagrams\n\n- [How DPO fits](<diagrams/2026-10-21 How DPO fits.mmd>)\n- [How DPO fits](<diagrams/2026-10-21 How DPO fits 2.mmd>)\n- [Loss <visual>](<diagrams/2026-10-21 Loss visual.html>)\n\n## Figure breakdowns\n\n- [Figure breakdown](<breakdowns/Figure breakdown.md>)\n- [Figure 2: win rates / sampling temperature](<breakdowns/2026-10-21 Figure 2 win rates sampling temperature.md>)\n\n## Snippets\n\n- [Ideas](<snippets/Ideas.md>)\n- [Reading list](<snippets/Reading list.md>)\n\n## Equation explanations\n\n- [Unknown paper – Equation](<explanations/equations/Unknown paper – Equation.md>)\n- [Direct Preference Optimization – Equation (7)](<explanations/equations/Direct Preference Optimization – Equation (7).md>)\n- [Direct Preference Optimization – Equation (7) (background)](<explanations/equations/Direct Preference Optimization – Equation (7) (background).md>)\n\n## Figure explanations\n\n- [Direct Preference Optimization – Figure 2](<explanations/figures/Direct Preference Optimization – Figure 2.md>)\n- [Direct Preference Optimization – Figure 2 (more simply)](<explanations/figures/Direct Preference Optimization – Figure 2 (more simply).md>)\n\n## Paper explanations\n\n- [Direct Preference Optimization](<explanations/papers/Direct Preference Optimization.md>)\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/breakdowns/2026-10-21 Figure 2 win rates sampling temperature.md",
+    "text": "# Figure 2: win rates / sampling temperature\n\n- Paper: Direct Preference Optimization: Your Language Model is Secretly a Reward Model\n- From the chat: What is DPO / why it works?\n- Saved: 2026-10-21 14:02 UTC\n\n## 1. Left: TL;DR win rate\n\n![Part 1](<images/b2-1.png>)\n\nDPO's win rate against the reference stays highest as temperature rises.\n\n## 2. Right [frontier]\n\n![Part 2](<images/b2-2.jpg>)\n\nReward against KL: DPO reaches the best reward for any KL budget.\n\n## 3. Legend\n\nColours name each method.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/breakdowns/Figure breakdown.md",
+    "text": "# Figure breakdown\n\n## 1. Only part\n\n_The picture wasn’t available on this device._\n\nNo picture was cut for this one.\n"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/breakdowns/images/b2-1.png",
+    "sha256": "1cbeab63f1457e0a12cbc8831168cf2753b24f5b7505599b3ed76c7660fbd0e4"
+   },
+   {
+    "path": "Gradstep export 2026-10-22/breakdowns/images/b2-2.jpg",
+    "sha256": "1a280a33dd2be1a37da7b0ca78c63d925304bc8b60f44e33bb7b1f1f25c67ab7"
    },
    {
     "path": "Gradstep export 2026-10-22/chats/2026-10-21 What is DPO why it works.md",
@@ -336,7 +390,7 @@
     "sha256": "45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1"
    }
   ],
-  "zipBytes": 8244,
-  "zipSHA256": "3d3fc22a4d1342bc6ae31891b60d2b14a4c2b5e98e9153d885bf1a13e6e64851"
+  "zipBytes": 9927,
+  "zipSHA256": "afd484645df89759175664e83b13df40601622630492296975010f88d8ebe2d3"
  }
 }

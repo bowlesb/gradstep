@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   activityLabel, activityName, creditsText, grouped, loadUsage, modelLabel, outcomeLabel, partLabel, periodLabel, recallProvenance, slicesSummary,
-  tokensText, totalsText, usageSlices, USAGE_INFO, USAGE_PERIODS, type UsageActivity, type UsageActivityCount, type UsageCursor, type UsageOperation,
+  reportsTokens, tokensText, totalsText, unreportedTokens, usageSlices, USAGE_INFO, USAGE_PERIODS, type UsageActivity, type UsageActivityCount, type UsageCursor, type UsageOperation,
   type UsageProvenance, type UsageSlice, type UsageTotals,
 } from '../lib/ai-usage';
 import { Dialog, formatDateTime, InfoTip, SheetTop } from './common';
@@ -145,19 +145,20 @@ export function UsageDialog({ account, paperTitle, onClose }: {
               <span className="usage-activity"><strong>{activityLabel(op.activity, p)}</strong>
                 {title && <span className="usage-paper">{title}</span>}</span>
               <span className="usage-model">{modelLabel(op.model)}</span>
-              <span className="usage-tokens">{tokensText(op)}</span>
+              <span className="usage-tokens">{reportsTokens(op.outcome) ? tokensText(op) : '—'}</span>
               <span className="usage-num usage-cost"><strong>{creditsText(op)}</strong>
                 {outcome && <span className={`usage-outcome ${op.outcome}`}>{outcome}</span>}</span>
               {/* A phone's second line: the three columns above in one line of fine print. */}
-              <span className="usage-meta">{[formatDateTime(Date.parse(op.created_at)), modelLabel(op.model), tokensText(op)].filter(x => x !== '—').join(' · ')}</span>
+              <span className="usage-meta">{[formatDateTime(Date.parse(op.created_at)), modelLabel(op.model), reportsTokens(op.outcome) ? tokensText(op) : '—']
+                .filter(x => x !== '—').join(' · ')}</span>
             </button>
             {expanded && <ul className="usage-parts" data-testid={`usage-parts-${op.id}`}>
               {op.parts.map(part => <li key={`${part.part}/${part.model}`}>
                 <span>{partLabel(part.part)}{part.calls > 1 ? ` ×${part.calls}` : ''}</span><span className="muted">{modelLabel(part.model)}</span>
-                <span className="usage-tokens">{tokensText(part, true)}{part.pending ? ' · still being counted' : ''}</span></li>)}
+                {reportsTokens(op.outcome) && <span className="usage-tokens">{tokensText(part, true)}{part.pending ? ' · still being counted' : ''}</span>}</li>)}
               {!op.parts.length && <li><span className="muted">No model was called.</span></li>}
-              <li className="fine">{op.paid_by === 'gradstep' ? 'Paid by Gradstep, not your credits.' : op.parts.length > 1
-                ? 'One charge for the whole request; the parts show where its tokens went.' : 'Charged from the tokens the provider reported.'}</li>
+              <li className="fine">{unreportedTokens(op.outcome) ?? (op.paid_by === 'gradstep' ? 'Paid by Gradstep, not your credits.' : op.parts.length > 1
+                ? 'One charge for the whole request; the parts show where its tokens went.' : 'Charged from the tokens the provider reported.')}</li>
             </ul>}
           </li>;
         })}

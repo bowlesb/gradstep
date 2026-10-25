@@ -68,6 +68,15 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public private(set) var onDevicePaperText: String?
     public private(set) var onDeviceFocus: Int?
     public private(set) var isLocalInference = false
+    /// Where the answer goes on this device, for Your AI usage's link back to it (AIUsageProvenance): the conversation, or
+    /// the equation's or figure's id in the paper's bundle ("paper" for the paper's AI Explainer). Never encoded or sent.
+    public private(set) var usageConversationID: UUID?
+    public private(set) var usageItemID: String?
+
+    /// The same request, naming what it is for on this device (never sent).
+    public func linked(conversation: UUID? = nil, item: String? = nil) -> Self {
+        var copy = self; copy.usageConversationID = conversation ?? usageConversationID; copy.usageItemID = item ?? usageItemID; return copy
+    }
 
     public func forLocalInference(paperText: String?, focus: Int? = nil) -> Self {
         var copy = self; copy.onDevicePaperText = paperText; copy.onDeviceFocus = focus; copy.isLocalInference = true; return copy
@@ -178,6 +187,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public func attaching(_ figures: [ChatFigureImage]) -> ChatGenerationRequest {
         ChatGenerationRequest(operationID: UUID(), documentID: documentID, turns: turns, selection: selection, action: action, profile: profile,
                               topicTitle: topicTitle, localContext: localContext, studyNotes: studyNotes, visualAnswers: visualAnswers, figures: Array(figures.prefix(3)))
+            .linked(conversation: usageConversationID, item: usageItemID)
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {

@@ -1,6 +1,7 @@
 // Download your assets (owner, build 82: "Need a download assets button"): the reader's own content as one .zip, put
 // together on this device from what it holds or can decrypt; nothing is sent anywhere. Downloaded papers are left out
-// (they are the publishers' content). Swift's AssetsExport.swift builds the same files and the same zip byte for byte
+// (they are the publishers' content). A chat's figure breakdowns come with the pictures of their parts when the device cut
+// them from its own copy of the paper (the apps, owner TestFlight 92); the pictures are never stored or synced. Swift's AssetsExport.swift builds the same files and the same zip byte for byte
 // from the same input (tests/fixtures/assets-export.json), so every rule here is written to be repeatable: dates in UTC,
 // names cleaned by an explicit character list, files ordered by their UTF-8 bytes, stored (uncompressed) zip entries.
 import { utf8, type Bytes } from './bytes';
@@ -26,8 +27,18 @@ export interface ExportExplanation {
   background?: ExportItem[]; ideas?: ExportItem[]; links?: { from: string; to: string; label: string }[];
   text: string;
 }
+export interface ExportBreakdownPart {
+  label: string; note: string;
+  /** The part's picture has this type; its bytes are passed separately, keyed `<breakdown id>/<part number from 1>`. */
+  image?: 'image/png' | 'image/jpeg';
+}
+/** A chat answer's figure breakdown: its parts' labels and notes, with each part's picture cut from the paper on the device. */
+export interface ExportBreakdown { id: string; title: string; at?: number; chat?: string; paper?: string; parts: ExportBreakdownPart[] }
 export interface ExportInput {
   exportedAt: number; chats: ExportChat[]; diagrams: ExportDiagram[]; collections: ExportCollection[]; explanations: ExportExplanation[];
+  /** Figure breakdowns the device could cut from its copy of the paper (a `figure-parts-v1` diagram passed in `diagrams`
+   * instead is counted as left out). */
+  breakdowns?: ExportBreakdown[];
   /** What the device couldn't read, in the device's own words (each a sentence). */
   skipped: string[];
 }
@@ -144,6 +155,20 @@ function explanationMarkdown(e: ExportExplanation): string {
   return out.filter(Boolean).join('\n\n') + '\n';
 }
 
+function breakdownMarkdown(b: ExportBreakdown, images: ReadonlyMap<number, string>): string {
+  const facts = [b.paper ? `- Paper: ${line(b.paper)}` : '', b.chat ? `- From the chat: ${line(b.chat)}` : '',
+    b.at !== undefined ? `- Saved: ${stamp(b.at)}` : ''].filter(Boolean).join('\n');
+  const out = [`# ${line(b.title) || 'Figure breakdown'}`, facts];
+  b.parts.forEach((part, index) => {
+    out.push(`## ${index + 1}. ${line(part.label)}`);
+    const image = images.get(index);
+    if (image) out.push(`![Part ${index + 1}](<images/${image}>)`);
+    else if (part.image) out.push('_The picture wasn’t available on this device._');
+    if (part.note.trim()) out.push(part.note.trim());
+  });
+  return out.filter(Boolean).join('\n\n') + '\n';
+}
+
 function diagramFile(d: ExportDiagram): { ext: string; text: string } {
   if (d.format === 'html-v1') {
     return { ext: 'html', text: `<!doctype html>\n<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`
@@ -154,7 +179,7 @@ function diagramFile(d: ExportDiagram): { ext: string; text: string } {
 }
 
 /** Every file of the export, under one folder named for the day, with README.md first. `images`: snippet images by
- * snippet id (decrypted on this device). */
+ * snippet id (decrypted on this device), and breakdown parts' pictures by `<breakdown id>/<part number from 1>`. */
 export function buildExport(input: ExportInput, images: ReadonlyMap<string, Uint8Array>): ExportResult {
   const root = `Gradstep export ${day(input.exportedAt)}`;
   const used = new Set<string>(), files: ExportFile[] = [];
@@ -165,7 +190,7 @@ export function buildExport(input: ExportInput, images: ReadonlyMap<string, Uint
     return path;
   };
   const add = (path: string, data: Uint8Array | string) => files.push({ path, data: (typeof data === 'string' ? utf8(data) : data) as Bytes });
-  const listed: Record<string, string[]> = { chats: [], diagrams: [], snippets: [], equation: [], figure: [], paper: [] };
+  const listed: Record<string, string[]> = { chats: [], diagrams: [], breakdowns: [], snippets: [], equation: [], figure: [], paper: [] };
   const skipped: string[] = [];
   const order = <T extends { id?: string }>(at: (t: T) => number | undefined) => (a: T, b: T) =>
     ((at(a) ?? -1) - (at(b) ?? -1)) || byBytes(a.id ?? '', b.id ?? '');
@@ -185,6 +210,19 @@ export function buildExport(input: ExportInput, images: ReadonlyMap<string, Uint
     add(path, file.text); listed.diagrams.push(link(d.title || 'Diagram', path));
   }
   if (breakdowns) skipped.push(`${plural(breakdowns, 'figure breakdown', 'figure breakdowns')} from chats ${breakdowns === 1 ? 'isn’t' : 'aren’t'} included: ${breakdowns === 1 ? 'it is' : 'they are'} cut from the paper itself.`);
+  const cut = [...(input.breakdowns ?? [])].sort(order(b => b.at));
+  for (const b of cut) {
+    const names = new Map<number, string>();
+    b.parts.forEach((part, index) => {
+      const bytes = part.image ? images.get(`${b.id}/${index + 1}`) : undefined;
+      if (!part.image || !bytes) return;
+      const imagePath = claim('breakdowns/images', `${b.id}-${index + 1}`, part.image === 'image/png' ? 'png' : 'jpg');
+      add(imagePath, bytes); names.set(index, imagePath.slice('breakdowns/images/'.length));
+    });
+    const name = fileName(b.title, 60, 'Figure breakdown');
+    const path = claim('breakdowns', b.at !== undefined ? `${day(b.at)} ${name}` : name, 'md');
+    add(path, breakdownMarkdown(b, names)); listed.breakdowns.push(link(b.title || 'Figure breakdown', path));
+  }
 
   let snippetCount = 0;
   const collections = [...input.collections].sort((a, b) => byBytes(line(a.title), line(b.title)) || byBytes(a.id, b.id));
@@ -223,12 +261,12 @@ export function buildExport(input: ExportInput, images: ReadonlyMap<string, Uint
   const readme = [
     '# Gradstep export',
     `Exported ${stamp(input.exportedAt)}. Everything here was put together on this device from your own content.`,
-    [`- Chats: ${chats.length}`, `- Diagrams: ${listed.diagrams.length}`,
+    [`- Chats: ${chats.length}`, `- Diagrams: ${listed.diagrams.length}`, ...(cut.length ? [`- Figure breakdowns: ${cut.length}`] : []),
       `- Snippets: ${snippetCount} in ${plural(collections.length, 'collection', 'collections')}`,
       `- Equation explanations: ${count('equation')}`, `- Figure explanations: ${count('figure')}`, `- Paper explanations: ${count('paper')}`].join('\n'),
     'Downloaded papers aren’t included: get them again from each paper’s source. Explanations are kept on each device, so these are the ones kept on this one.',
     skipped.length ? `## Left out\n\n${skipped.map(s => `- ${s}`).join('\n')}` : '',
-    ...([['Chats', listed.chats], ['Diagrams', listed.diagrams], ['Snippets', listed.snippets], ['Equation explanations', listed.equation],
+    ...([['Chats', listed.chats], ['Diagrams', listed.diagrams], ['Figure breakdowns', listed.breakdowns], ['Snippets', listed.snippets], ['Equation explanations', listed.equation],
       ['Figure explanations', listed.figure], ['Paper explanations', listed.paper]] as const)
       .filter(([, l]) => l.length).map(([title, l]) => `## ${title}\n\n${l.join('\n')}`),
   ].filter(Boolean).join('\n\n') + '\n';

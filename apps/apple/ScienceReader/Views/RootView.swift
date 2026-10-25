@@ -2296,29 +2296,82 @@ struct DiscoveryRow: View {
     }
 }
 
-/// Open-source notices for components shipped in the app. Reader bundles carry
-/// their own NOTICE (renderer libraries and per-paper attribution).
+/// Settings › About › Acknowledgements (owner, TestFlight 92: "Is any of this screen needed at all?"). The libraries' licenses
+/// require their notices to ship with the app and arXiv asks for its acknowledgement on this screen
+/// (docs/architecture/ARXIV_DEVICE_ONLY.md §7), so it stays, minimal: one row per item, its name and license, with the full
+/// notice one tap away (Resources/Licenses, `node scripts/app-notices.mjs`), and arXiv's statement under the list.
 struct AcknowledgementsView: View {
-    private let items: [(String, String, String)] = [
-        ("SwiftMath", "Native math typesetting in chat answers.", "MIT License · © 2023 Computer Inspirations"),
-        ("Latin Modern Math", "Math font used for chat formulas (bundled by SwiftMath).", "GUST Font License"),
-        ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
-        ("htmlparser2, Temml", "Prepare a paper's arXiv HTML for the reader on this device, and typeset formulas the on-device model reads. Each reading carries these notices.", "MIT License"),
-        ("arXiv", "Papers' official HTML versions, downloaded by this device, and their metadata. Papers keep their authors' licenses; shared episodes are limited to CC BY and CC0 papers.", "arXiv API terms"),
-        ("DataCite", "Paper details, ML paper search and the shared Feed: the records arXiv registers for its papers. Our servers never contact arXiv.", "CC0 data"),
+    struct Item: Identifiable {
+        let name: String
+        let license: String
+        /// A notice file in the app's resources, or the words themselves.
+        var file: String? = nil
+        var text: String? = nil
+        var id: String { name }
+    }
+    static let items: [Item] = [
+        Item(name: "SwiftMath", license: "MIT", file: "License-SwiftMath"),
+        Item(name: "Math fonts", license: "GUST, OFL", file: "License-MathFonts"),
+        Item(name: "Mermaid", license: "MIT and others", file: "License-Mermaid"),
+        Item(name: "htmlparser2, Temml", license: "MIT, BSD", file: "License-Reader"),
+        Item(name: "Google Sans", license: "OFL", file: "GoogleSans-OFL"),
+        Item(name: "arXiv", license: "API terms", text: ArxivAcknowledgement.statement
+             + "\n\nPapers open from the official versions arXiv publishes, downloaded by this device; each keeps its authors' license.\n\narXiv API Terms of Use: https://info.arxiv.org/help/api/tou.html"),
+        Item(name: "DataCite", license: "CC0", text: "Paper details, ML paper search and the Feed use the metadata arXiv registers with DataCite, "
+             + "released under CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/). Thank you to DataCite."),
     ]
+
     var body: some View {
         List {
-            ForEach(items, id: \.0) { item in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.0).font(.headline)
-                    Text(item.1).font(.subheadline)
-                    Text(item.2).font(.caption).foregroundStyle(.secondary)
-                }.padding(.vertical, 2)
+            Section {
+                ForEach(Self.items) { item in
+                    NavigationLink { AcknowledgementNotice(item: item) } label: { LabeledContent(item.name, value: item.license) }
+                        .accessibilityIdentifier("acknowledgements.\(item.name)")
+                }
+            } footer: {
+                Text(ArxivAcknowledgement.statement).accessibilityIdentifier("acknowledgements.arxiv")
             }
-            Section { Text(ArxivAcknowledgement.statement).font(.footnote).foregroundStyle(.secondary) }
-                .accessibilityIdentifier("acknowledgements.arxiv")
-        }.navigationTitle("Acknowledgements").navigationBarTitleDisplayMode(.inline)
+        }
+        .navigationTitle("Acknowledgements").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// One item's full notice, as it ships in the app (a long file is shown a paragraph at a time, lazily).
+private struct AcknowledgementNotice: View {
+    let item: AcknowledgementsView.Item
+    private var paragraphs: [String] {
+        let text = item.text ?? item.file.flatMap { Bundle.main.url(forResource: $0, withExtension: "txt") }
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "This notice couldn’t be read."
+        return text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    /// A notice file's paragraph reflowed to the screen's width; a "name\n=====" heading line shown as a heading.
+    private func block(_ paragraph: String) -> some View {
+        let lines = paragraph.components(separatedBy: "\n")
+        let rule = lines.firstIndex { !$0.isEmpty && $0.allSatisfy { $0 == "=" } }
+        let flow = { (part: ArraySlice<String>) in part.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ") }
+        return VStack(alignment: .leading, spacing: 4) {
+            if let rule {
+                Text(flow(lines[..<rule])).font(.subheadline.weight(.semibold)).padding(.top, 12)
+                let rest = flow(lines[(rule + 1)...])
+                if !rest.isEmpty { Text(rest).font(.footnote) }
+            } else {
+                Text(item.file == nil ? paragraph : flow(lines[...])).font(item.file == nil ? .body : .footnote)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in block(paragraph) }
+            }
+            .textSelection(.enabled)
+            .padding(DesignMetrics.margin)
+            .frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
+        }
+        .accessibilityIdentifier("acknowledgements.notice")
+        .navigationTitle(item.name).navigationBarTitleDisplayMode(.inline)
     }
 }
 
