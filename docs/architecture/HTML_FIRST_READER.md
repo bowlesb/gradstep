@@ -69,6 +69,35 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
+### Aligned equations and accents (revision 26, 2026-10-25; not yet released)
+
+TestFlight 92 feedback for 2610.27450v1 ("Ask to Distill"): equation (2), `align` with two column pairs, read as eight
+centred lines, and (3)'s `\bar{p}^U_M` had its bar off to the left. Causes and changes:
+
+- **Alignment.** LaTeXML writes align/alignat/eqnarray as an HTML table (`ltx_eqn_table`, rows `ltx_eqn_row`, cells
+  `ltx_align_right`/`ltx_align_left`, a `math` per cell); the flow made each `math` a display of its own. `arxiv/align.ts`
+  now reads the rows and makes one display equation per number: a MathML `mtable` (`displaystyle`, `columnalign` per cell
+  from its column, `columnspan` for spanning cells), its LaTeX the cells' own as `aligned` (or `array{…}` for other column
+  patterns; one line of one relation as itself), every source formula accounted for and its id aliased to the equation.
+  Lines belong to the next number (a continued line, first column empty, to its own; trailing unnumbered lines to the
+  last). A cell holding anything but formulas and plain words falls back to the previous reading. An operator opening the
+  cell after a relation's `&` gets `form="infix"`, spaced as LaTeX spaces `&=`. Groups of one-formula lines with two or
+  more numbers carry each number on its own line.
+- **Cell alignment CSS.** `MATH_TABLE_CSS` (arXiv and on-device stylesheets): `mtd[columnalign]` sets `text-align`
+  and, for Chromium, which ignores both, `justify-items`; a relation's two sides lose the cells' inner padding. It is in
+  the bundle, so the paper, the equation view and the Equations tiles align alike (the bridge's own rule covers only the
+  reader page).
+- **Accents** (`accents.ts`, shared with the on-device route). WebKit positions an accent's glyph by its own ink height:
+  spacing accents float an x-height up, and stretched ¯ ^ ~ use STIX Two Math's smallest wide form, wider than A, W or μ
+  (the bar reaching left, scripts pushed away). Over a single token the mark becomes a low-set twin with no operator
+  spacing: ¯ → en dash, ^ → ‸, ~ unstretched, ˙ → ⋅, ¨ → ⋅⋅, ˚ → ∘; over a group the stretched mark stays. Checked on the
+  iOS 26.4 Simulator's Safari, Playwright WebKit, Chromium and Firefox. Acute, grave, breve and check still float in
+  WebKit (no low-set twin; none in the 185-source cache).
+
+Evidence: `tests/backend/arxiv-equations.test.ts`; 185 cached sources replayed against revision 25 (132 change, 0 newly
+refused); fresh-paper sweep (30 new papers) 0 failures; iPhone 17 Pro and iPad Pro 11-inch Simulator before/after
+screenshots under `.artifacts/tf92-equations/`.
+
 ### Leaked font options (revision 18, 2026-10-17; browser / TestFlight 67 iOS and Mac released)
 
 Build 66 feedback for FDE-Gym `2610.22350v1` shows fontspec options before its title page. The exact official HTML

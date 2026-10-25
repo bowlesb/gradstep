@@ -40,9 +40,11 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * line breaks go, 2610.28711v1 and 2610.14162v1 on build 88; a picture's labels of several lines or in a minipage are
  * drawn line by line and wrapped, without phantom struts, 2610.14162v1 Figure 3; revision 24: a formula in a heading
  * that Unicode spells is text, so the title's index text has no macro ("VLA-Δ", not "VLA- \Delta "), and an affiliation
- * keeps its bracketed web address instead of an empty "()", 2610.21306v1 on the fresh-paper sweep), so a device
- * re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 25;
+ * keeps its bracketed web address instead of an empty "()", 2610.21306v1 on the fresh-paper sweep; revision 26: an
+ * aligned group (align, alignat, eqnarray) is one display per number with its relations aligned, not a centred line per
+ * cell, and accents are drawn over their letter in WebKit, 2610.27450v1 equations (2) and (3) on TestFlight 92), so a
+ * device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 26;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

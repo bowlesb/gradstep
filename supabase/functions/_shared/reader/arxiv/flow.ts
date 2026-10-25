@@ -4,6 +4,7 @@ import { check } from '../util.ts';
 import { active, bind, block, children, has, isMarker, loneImage, onTitlePage, type ArxivContext, type Child } from './context.ts';
 import { authorsBlock } from './authors.ts';
 import { equation } from './math.ts';
+import { equationTable } from './align.ts';
 import { inline } from './inline.ts';
 import { imageFigure } from './figures.ts';
 import { minipageCaption, table, tableContents, tableGroupCaption } from './tables.ts';
@@ -94,13 +95,17 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
     // An "equation" that is only text (a file-name pattern marked as math, 2610.19830) reads as a paragraph.
     if (!maths.length) output = [block(cx, n, 'p', 'paragraph', id => children(n).flatMap(c => inline(cx, c, id)))];
     else output = [block(cx, n, 'p', 'equation', id => {
-      const parts: Child[] = [];
-      for (const math of maths) parts.push(equation(cx, math, id, true));
-      const tags = elements(n, c => has(c, 'ltx_tag_equation') || has(c, 'ltx_tag_equationgroup'));
-      if (tags.length) {
-        const last = parts[parts.length - 1] as OutNode;
-        last.attribs.class += ' reader-tagged';
-        last.children.push(el('span', { class: 'reader-tag' }, [tags.map(textContent).join(' ')]));
+      // An aligned group is one display per number, its relations aligned (align.ts); otherwise each formula is a line.
+      const table = equationTable(cx, n, id);
+      const parts: Child[] = table ?? [];
+      if (!table) {
+        for (const math of maths) parts.push(equation(cx, math, id, true));
+        const tags = elements(n, c => has(c, 'ltx_tag_equation') || has(c, 'ltx_tag_equationgroup'));
+        if (tags.length) {
+          const last = parts[parts.length - 1] as OutNode;
+          last.attribs.class += ' reader-tagged';
+          last.children.push(el('span', { class: 'reader-tag' }, [tags.map(textContent).join(' ')]));
+        }
       }
       walk(n, child => { if (child.name !== 'math' && child.attribs?.id && !cx.aliases.has(child.attribs.id)) bind(cx, child, id); });
       return parts;

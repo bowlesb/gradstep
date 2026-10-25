@@ -355,4 +355,63 @@ final class ReaderNavigationTests: XCTestCase {
         capture("figure3")
         app.terminate()
     }
+
+    /// TestFlight 92 report (reader revision 26), photographed in the real reader from a bundle compiled on this Mac
+    /// (`node scripts/reader-device-compile.mjs --ids=2610.27450v1 --out=<dir>`): "Ask to Distill" equation (2), an align
+    /// with two column pairs (one row per line, aligned at its relations), and (3), \bar{p}^U_M (the bar over the p), in
+    /// dark mode as reported, on iPhone and iPad. Opt-in: `TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`,
+    /// `TEST_RUNNER_READER_SHOT_NAME=<prefix>`, `TEST_RUNNER_GS_SCREENSHOT_DIR=<folder>`.
+    func testTestFlight92AlignedEquationAndBar() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let bundles = environment["READER_SHOT_BUNDLES"], !bundles.isEmpty else {
+            throw XCTSkip("Set TEST_RUNNER_READER_SHOT_BUNDLES to a folder holding a compiled 2610.27450v1 bundle")
+        }
+        let prefix = environment["READER_SHOT_NAME"] ?? "reader"
+        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        func capture(_ name: String) {
+            let shot = XCUIScreen.main.screenshot()
+            let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            if let folder = environment["GS_SCREENSHOT_DIR"] {
+                try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(prefix)-\(idiom)-\(name).png"))
+            }
+        }
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
+                               "--figure-fixture-bundle=\(bundles)/2610.27450v1", "-appearance", "dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
+        app.show("paper")
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 20), "the real paper opens")
+        XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 20))
+        app.buttons["Table of contents"].tap()
+        let list = app.descendants(matching: .any)["contents.list.contents"]
+        XCTAssertTrue(list.waitForExistence(timeout: 5))
+        let row = list.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Per-position quantities")).firstMatch
+        let bottom = app.windows.firstMatch.frame.maxY - 140
+        for _ in 0..<15 where !(row.exists && row.isHittable && row.frame.maxY < bottom) {
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+                .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        }
+        row.tapWhenSettled()
+        XCTAssertTrue(list.waitForNonExistence(timeout: 5), "a Contents row closes Contents")
+        sleep(2)
+        // The sentence before equation (2) near the top of the page (held drags, no fling), then (2) and (3) below it.
+        let lead = web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "candidate sets and their union")).firstMatch
+        for _ in 0..<12 where !(lead.exists && lead.frame.minY < web.frame.minY + web.frame.height * 0.3) {
+            web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+                .press(forDuration: 0.1, thenDragTo: web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)),
+                       withVelocity: .slow, thenHoldForDuration: 0.4)
+        }
+        sleep(1)
+        capture("equations")
+        // Further down: equation (3) when the equation above it took the screen.
+        web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+            .press(forDuration: 0.1, thenDragTo: web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)),
+                   withVelocity: .slow, thenHoldForDuration: 0.4)
+        sleep(1)
+        capture("equations-below")
+        app.terminate()
+    }
 }

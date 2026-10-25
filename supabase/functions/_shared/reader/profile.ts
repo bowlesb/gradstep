@@ -76,6 +76,14 @@ ul,ol{padding-left:1.5em}li{margin:.45em 0}li.reader-custom-marker{list-style:no
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 `;
 
+/** Formula tables (aligned rows, cases, arrays): each cell aligned as its column says (`columnalign`, which Chromium
+ * leaves unapplied: there `justify-items` places a cell's content), and a relation's two sides joined without the cells'
+ * padding, as LaTeX's `&=` joins them (owner, TestFlight 92, 2610.27450v1 equation (2)). In the arXiv and on-device PDF
+ * stylesheets, so the paper, the equation view and the Equations tiles align alike in every engine. */
+export const MATH_TABLE_CSS = 'mtd[columnalign=left]{text-align:left;justify-items:start}mtd[columnalign=right]{text-align:right;justify-items:end}'
+  + 'mtd[columnalign=center]{text-align:center;justify-items:center}'
+  + 'mtd[columnalign=right]:has(+mtd[columnalign=left]){padding-right:0}mtd[columnalign=right]+mtd[columnalign=left]{padding-left:0}\n';
+
 const BUILD_DESCRIPTOR = {
   domain: 'science-reader-renderer-build-v2', renderer: RENDERER_ID, revision: RENDERER_REVISION,
   packages: PACKAGES, math_options: MATH_OPTIONS, limits: LIMITS, csp: CSP,

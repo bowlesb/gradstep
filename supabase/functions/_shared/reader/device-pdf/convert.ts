@@ -5,6 +5,7 @@ import { check, fail, sha256Hex, utf8 } from '../util.ts';
 import { argsort, assign, byX, canonicalText, centreIn, clipBytes, composeAccents, growLines, joinLines, lineText, linesOf, median, orphanRegions,
   pyRound, recogniserRect, typicalGap, union, useCompounds, useLigatures, useLineBands, useWordGaps, visible, hyphenatedPairs } from './geometry.ts';
 import { confidence, glyphsAgree, renderMath, tidyLatex } from './math.ts';
+import { readerAccents } from '../accents.ts';
 
 /** verifyGlyphs: the lowest confidence a recognition whose glyphs the PDF's text layer confirms is typeset at. */
 export const VERIFY_FLOOR = 0.5;
@@ -885,7 +886,8 @@ export function gate(reading: Reading): void {
         const tidied = tidyLatex(f.latex);
         if (tidied !== f.latex && (math = renderMath(tidied, f.display))) f.latex = tidied;
       }
-      if (math && (confident || glyphsAgree(f.glyphTexts!, math, f.display ? 3 : 2))) { f.rendered = true; f.mathml = math; }
+      // Accents in the form every engine draws over their letter (accents.ts), once the glyphs are checked as read.
+      if (math && (confident || glyphsAgree(f.glyphTexts!, math, f.display ? 3 : 2))) { f.rendered = true; f.mathml = readerAccents(math, true); }
     }
   }
 }

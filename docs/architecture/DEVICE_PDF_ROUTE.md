@@ -412,3 +412,15 @@ Together, cell F1 0.69 → 0.75 / 0.70 → 0.78 / 0.65 → 0.75; on 5,285 labell
 tables, and tables it has only as pictures, as truth. The PDF's ruling lines were tried (injected from pdfplumber) and
 not adopted, so the host is unchanged. A table structure model is proposed in the review, not built.
 
+## Aligned rows and accents — port revision 14, 2026-10-25
+
+From the arXiv reader's revision 26 (owner, TestFlight 92, 2610.27450v1; [HTML_FIRST_READER.md](HTML_FIRST_READER.md)
+"Aligned equations and accents"). A model reading's formulas are Temml's MathML, whose cell alignment (`tml-right`,
+`tml-left`) and WebKit accent corrections (`wbk-*` transforms) are classes and styles the reader drops: every aligned,
+split and cases cell was centred, and \bar, \hat, \dot, \ddot and \check floated above their letters in WebKit.
+`renderMath` now writes a Temml cell's class as `columnalign`, which the shared `MATH_TABLE_CSS` (in `DEVICE_PDF_CSS`)
+applies, and after the gate's glyph check (`glyphsAgree` still compares Temml's own glyphs with the page's) a recognised
+formula's accents take the arXiv reader's form (`accents.ts`: Temml's not-stretchy accent becomes `accent="true"`, with
+the low-set twin over a single letter; \check keeps its mark). `tests/backend/arxiv-equations.test.ts` covers both; the
+reading's text and gate are otherwise unchanged.
+

@@ -3,7 +3,7 @@
 import { HTML_SUFFIX, htmlPrefix, render } from '../html.ts';
 import { validateHTML } from '../html-validate.ts';
 import { THIRD_PARTY_NOTICES } from '../notice.ts';
-import { BUNDLE_FORMAT, LIMITS, READER_CSS } from '../profile.ts';
+import { BUNDLE_FORMAT, LIMITS, MATH_TABLE_CSS, READER_CSS } from '../profile.ts';
 import { canonicalBytes, check, sha256Hex, utf8 } from '../util.ts';
 import { gate, read, settle, type Reading } from './convert.ts';
 import { emit } from './emit.ts';
@@ -17,7 +17,8 @@ export const DEVICE_PDF_CSS = READER_CSS
   + '.reader-math-image img{display:inline-block;width:auto;max-width:none;margin:0;border-radius:0;background:transparent}\n'
   + '.reader-display.reader-math-image img{display:block;height:auto;max-width:100%;margin:0 auto}\n'
   + '.reader-footnote{font-size:.85rem;color:#555}\n'
-  + '@media(prefers-color-scheme:dark){.reader-math-image img{filter:invert(.9)}.reader-footnote{color:#aaa}}\n';
+  + '@media(prefers-color-scheme:dark){.reader-math-image img{filter:invert(.9)}.reader-footnote{color:#aaa}}\n'
+  + MATH_TABLE_CSS;
 
 const TEMML_NOTICE = `temml ${TEMML_VERSION}
 ============================================================
