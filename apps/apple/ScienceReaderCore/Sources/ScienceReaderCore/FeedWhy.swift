@@ -36,6 +36,20 @@ public enum FeedWhyGroup: Int, CaseIterable, Comparable, Sendable {
         }
     }
 
+    /// What the group means, for the ⓘ on its List header (owner, TestFlight 91: "maybe have like a little info icon that
+    /// says what that even means").
+    public var explanation: String {
+        switch self {
+        case .tag: "Papers that fit one of your tags."
+        case .like: "Papers close to ones you added, or asked to see more like."
+        case .author: "Papers by authors of papers in your library."
+        case .popular: "Upvoted on Hugging Face Papers (▲ is the number of upvotes), or added by several readers this week."
+        case .category: "New papers in an arXiv field you read; each paper names its field."
+        case .explore: "Now and then, a paper from outside your fields, so the Feed doesn't narrow."
+        case .other: "Other papers For you suggests."
+        }
+    }
+
     /// An SF Symbol for the group (the Why column and the List's headers).
     public var symbol: String {
         switch self {
@@ -54,17 +68,19 @@ extension FeedReason {
     public var group: FeedWhyGroup { FeedWhyGroup(kind: kind) }
 
     /// The Why column's short label: "Your tag: RLHF", "Like: Muffin – A Shared Memory…", "Author: Tri Dao",
-    /// "Popular ▲ 48", "Readers are adding", "Category: cs.CL", "Explore". The full sentence is `text`.
+    /// "Popular: 48 upvotes", "Readers are adding", "New in Machine learning", "Explore". The full sentence is `text`.
+    /// Owner, TestFlight 91: "Category: cs.LG" ("What does that even mean category CSLG?") and "Popular ▲ 232" made no
+    /// sense, so a category is named as the List names it and popularity says it counts upvotes.
     public var shortLabel: String {
         switch kind {
         case "tag": return "Your tag: \(label)"
         case "added", "more_like": return "Like: \(FeedWhy.shortTitle(label, limit: 28))"
         case "author": return "Author: \(label)"
-        // Upvotes on Hugging Face Papers (the server's "Popular on Hugging Face Papers"), in the Popularity column's ▲.
-        case "trending": return Int(label).map { "Popular ▲ \($0)" } ?? "Popular"
+        // Upvotes on Hugging Face Papers (the server's "Popular on Hugging Face Papers"), the Upvotes column's ▲.
+        case "trending": return Int(label).map { "Popular: \($0) \($0 == 1 ? "upvote" : "upvotes")" } ?? "Popular"
         // Added by several readers this week.
         case "popular": return "Readers are adding"
-        case "category": return label.isEmpty ? "Category" : "Category: \(label)"
+        case "category": return "New in \(FeedWhy.categoryName(self) ?? "a field you read")"
         case "explore": return "Explore"
         default: return text
         }
@@ -165,6 +181,33 @@ public enum FeedWhy {
             }
         }.map(\.element)
     }
+
+    /// A category reason's field as readers know it: the server's own name ("New in Machine learning"), else the app's
+    /// name for the arXiv code (`TagVocabulary`), else the code; nil when there is none.
+    public static func categoryName(_ reason: FeedReason) -> String? {
+        let prefix = "New in "
+        if reason.text.hasPrefix(prefix) {
+            let named = reason.text.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+            if !named.isEmpty { return named }
+        }
+        let code = reason.label.trimmingCharacters(in: .whitespaces)
+        if code.isEmpty { return nil }
+        return TagVocabulary.name(forCategory: code) ?? code
+    }
+
+    /// The ⓘ beside the Table's Why header (owner, TestFlight 91: "If I click on why… maybe have like a little info icon
+    /// that says what that even means… you press it and then it shows you a pop-up"): what each label means, and the
+    /// Upvotes column's ▲.
+    public static let info = """
+        Why For you suggests each paper:
+        • Your tag: it fits one of your tags.
+        • Like: it is close to a paper you added.
+        • Author: by an author you read.
+        • Popular: upvoted on Hugging Face Papers. ▲ is the number of upvotes, also in the Upvotes column.
+        • Readers are adding: several readers added it this week.
+        • New in: new in an arXiv field you read.
+        • Explore: now and then, something different.
+        """
 
     private static func dropping(_ prefix: String, from text: String) -> String {
         text.hasPrefix(prefix) && text.count > prefix.count ? String(text.dropFirst(prefix.count)) : text

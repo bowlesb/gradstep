@@ -20,6 +20,21 @@ mode's section). UI test `PaperToolsTests.testContentsMarksTheSectionBeingRead` 
 `testContentsTabsListFiguresTablesAndEquations` (its X assertion was stale since build 78 removed the figure page's X on
 iPhone/iPad; now Mac-only).
 
+Owner session on 91 (iPad sideways, recording 20261024-160529), three findings:
+- **Places menu gap**: the menu was two sections (Snippets | Search); now one list (`PlacesMenuButton`).
+- **Why column**: "Category: cs.LG" → "New in Machine learning", "Popular ▲ 232" → "Popular: 232 upvotes"
+  (`FeedReason.shortLabel`); an ⓘ after the Why header and on each List section header explains the reasons; the
+  Popularity column is headed Upvotes.
+- **Figure-open animation**: opening (and closing) a figure, table or equation page or an AI Explainer beside the paper
+  no longer slides the list out, the paper across and the page in; the slots change at once (`TwoSlotLayout.slides`,
+  `ExplainerCompanion`). A Simulator recording shows Library | paper in one frame and Paper | figure page in the next.
+Verified: `swift test` (FeedWhyTests 9/9 with new label and ⓘ tests); new UI tests `IPadShapesJourneyTests.
+testThePlacesMenuIsOneList`, `testAFigureOpensBesideThePaperAtOnce` (slot animation slowed ×12 with
+`--slot-animation-slow`, frames final at the first look), `FeedForYouTests.testTheWhyColumnExplainsItself*`,
+`testTheListHeadersExplainThemselves*` failed on the old code and pass (iPad Pro 13-inch (M5) Simulator); suites in the
+report. Screens before/after: `.artifacts/sessions/20261024-160529/fixes/`. Needs the owner's eye on a device: whether
+the instant change feels right.
+
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 Release gate on the merged main: `npm test`, `npm run test:imports` 15/15, `swift test` 451 + 66 XCTest, all pass; the

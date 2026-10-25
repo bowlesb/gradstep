@@ -340,6 +340,28 @@ final class IPadShapesJourneyTests: XCTestCase {
         wait("⌘2 is Library") { app.currentPlace == "Library" }
     }
 
+    /// The places menu is one list (owner, TestFlight 91: "why is there a larger space between snippets and search? That
+    /// seems a little bit confusing"): Search and Settings follow Snippets at the same spacing as the places.
+    func testThePlacesMenuIsOneList() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        for appearance in ["light", "dark"] {
+            let app = launch(appearance, extra: ["--nothing-open"])
+            turnWide(app)
+            app.placesMenu.tap()
+            let ids = ["tab.feed", "tab.library", "tab.paper", "tab.chat", "tab.notes", "tab.search", "menu.settings"]
+            for id in ids { XCTAssertTrue(element(id, app).waitForExistence(timeout: 3), "The menu has \(id)") }
+            sleep(1)
+            save("\(device)-places-menu-one-list-\(appearance)")
+            let frames = ids.map { element($0, app).frame }
+            let gaps = zip(frames, frames.dropFirst()).map { $1.minY - $0.maxY }
+            let usual = gaps[0]
+            for (index, gap) in gaps.enumerated() {
+                XCTAssertEqual(gap, usual, accuracy: 1.5, "\(ids[index]) → \(ids[index + 1]): \(gaps)")
+            }
+            app.terminate()
+        }
+    }
+
     // MARK: - Library | paper
 
     /// The Library place: the list on the left from the start, a placeholder on the right; a picked paper opens there and
@@ -661,8 +683,9 @@ final class IPadShapesJourneyTests: XCTestCase {
 
     /// The numbered arXiv fixture paper (figures with explainers, equations, the paper's AI Explainer), Wide, beside the
     /// Library's list.
-    private func launchStudyPaperBesideLibrary(_ appearance: String = "light", mode: String = "figure_walkthrough") -> (XCUIApplication, XCUIElement) {
-        let app = launch(appearance, extra: ["--chat-fixture-mode=\(mode)", "--study-fixture"], library: false)
+    private func launchStudyPaperBesideLibrary(_ appearance: String = "light", mode: String = "figure_walkthrough",
+                                               extra: [String] = []) -> (XCUIApplication, XCUIElement) {
+        let app = launch(appearance, extra: ["--chat-fixture-mode=\(mode)", "--study-fixture"] + extra, library: false)
         turnWide(app)
         // The fixture opens its paper; give the reader time to prepare it, then show it beside the Library's list.
         let web = app.webViews.firstMatch
@@ -719,6 +742,45 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertTrue(composer(app).waitForExistence(timeout: 5))
         wait("Discuss: the paper left, the chat right") { web.exists && web.frame.maxX <= self.composer(app).frame.minX + 1 }
         XCTAssertTrue(composerText(app).contains("Which part matters most?"), "The question came with it")
+    }
+
+    /// A figure opened from the paper beside the Library goes straight to Paper | figure page (owner, TestFlight 91: "there
+    /// was an animation that was kind of weird… maybe it might work just not to have an animation, just to go there"): no
+    /// slide of the list out, the paper across or the page in. The slots' own animation is slowed twelvefold
+    /// (`--slot-animation-slow`), so a slide would still be under way at the first look after the tap. Closing it is
+    /// instant too; the list toggle still animates.
+    func testAFigureOpensBesideThePaperAtOnce() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        for appearance in ["light", "dark"] {
+            let (app, web) = launchStudyPaperBesideLibrary(appearance, extra: ["--slot-animation-slow=12"])
+            let figure = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure")).firstMatch
+            for _ in 0..<8 where !(figure.exists && figure.isHittable) { web.swipeUp() }
+            XCTAssertTrue(figure.waitForExistence(timeout: 5), "A figure in the paper")
+            save("\(device)-figure-before-tap-\(appearance)")
+            let tapped = Date()
+            figure.tap()
+            let pane = element("explain.pane", app)
+            XCTAssertTrue(pane.waitForExistence(timeout: 2), "The figure's page in the companion slot")
+            // One look, as soon as the page exists: everything is already where it ends.
+            let paperFrame = web.frame, paneFrame = pane.frame, window = app.frame
+            let looked = Date().timeIntervalSince(tapped)
+            save("\(device)-figure-at-once-\(appearance)")
+            XCTAssertEqual(paperFrame.minX, window.minX, accuracy: 2, "The paper is already at the left (\(paperFrame), \(looked) s)")
+            XCTAssertEqual(paperFrame.width / window.width, 0.5, accuracy: 0.03, "and at half the width (\(paperFrame))")
+            XCTAssertEqual(paneFrame.minX, paperFrame.maxX, accuracy: 3, "The figure page is already beside it (\(paneFrame))")
+            XCTAssertEqual(paneFrame.maxX, window.maxX, accuracy: 2, "to the window's edge (\(paneFrame))")
+            XCTAssertFalse(app.buttons["Library options"].exists, "The list is gone")
+            XCTAssertEqual(app.currentPlace, "Paper")
+
+            // ✕: the paper takes the width at once as well.
+            let close = app.buttons["sheet.close"]
+            XCTAssertTrue(close.waitForExistence(timeout: 5))
+            close.tap()
+            XCTAssertTrue(pane.waitForNonExistence(timeout: 2), "✕ closes the companion")
+            let widened = web.frame
+            XCTAssertEqual(widened.width, window.width, accuracy: 2, "The paper takes the width at once (\(widened))")
+            app.terminate()
+        }
     }
 
     // MARK: - Feed | abstract

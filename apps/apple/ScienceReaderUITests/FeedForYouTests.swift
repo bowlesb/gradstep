@@ -210,6 +210,58 @@ final class FeedForYouTests: XCTestCase {
         XCTAssertFalse(element(app, "feed.table.header.why").exists, "no Why column without reasons")
     }
 
+    // MARK: What the reasons mean (owner, TestFlight 91: "If I click on why… maybe have like a little info icon that says
+    // what that even means… you press it and then it shows you a pop-up"; "I can't make any sense of that CS AI")
+
+    func testTheWhyColumnExplainsItselfLight() throws { try whyExplained(appearance: "light") }
+    func testTheWhyColumnExplainsItselfDark() throws { try whyExplained(appearance: "dark") }
+    func testTheListHeadersExplainThemselvesLight() throws { try headersExplained(appearance: "light") }
+    func testTheListHeadersExplainThemselvesDark() throws { try headersExplained(appearance: "dark") }
+
+    private func whyExplained(appearance: String) throws {
+        let app = launch(layout: "table", appearance: appearance)
+        XCTAssertTrue(app.buttons["feed.forYou"].waitForExistence(timeout: 15))
+        XCTAssertTrue(element(app, "feed.table.header.why").waitForExistence(timeout: 5))
+        save("feed-why-explained-table-\(appearance)")
+        // Popularity says what it counts.
+        let upvotes = element(app, "feed.table.header.popularity")
+        if upvotes.exists { XCTAssertEqual(upvotes.label, "Upvotes", "the ▲ column is named for what it counts") }
+        // The ⓘ beside Why opens a small popover: what each reason means, and the ▲.
+        let info = app.buttons["feed.why.info"]
+        XCTAssertTrue(info.waitForExistence(timeout: 5), "an ⓘ beside the Why header")
+        XCTAssertLessThan(abs(info.frame.midY - element(app, "feed.table.header.why").frame.midY), 12, "in the header row")
+        info.tap()
+        let text = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Readers are adding")).firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 5), "the popover explains the reasons")
+        for words in ["New in", "Hugging Face Papers", "▲", "Your tag", "Explore"] {
+            XCTAssertTrue(text.label.contains(words), "it explains \(words): \(text.label)")
+        }
+        XCTAssertFalse(text.label.contains("cs."), "no arXiv codes")
+        sleep(1)
+        save("feed-why-explained-popover-\(appearance)")
+        // The category row reads its field by name, never its code.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+        XCTAssertTrue(text.waitForNonExistence(timeout: 5), "a tap outside closes it")
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Category: cs")).firstMatch.exists,
+                       "no raw arXiv codes in the Why column")
+    }
+
+    private func headersExplained(appearance: String) throws {
+        let app = launch(layout: "list", appearance: appearance)
+        XCTAssertTrue(app.buttons["feed.forYou"].waitForExistence(timeout: 15))
+        let tag = section(app, "tag.byte-level lms")
+        XCTAssertTrue(tag.waitForExistence(timeout: 5))
+        XCTAssertEqual(tag.label, "byte-level LMs, 2 papers", "the header still reads as before")
+        let info = app.buttons["feed.section.info.like"]
+        XCTAssertTrue(info.waitForExistence(timeout: 5), "an ⓘ on a section's header")
+        XCTAssertLessThan(abs(info.frame.midY - section(app, "like").frame.midY), 12, "on the header's line")
+        info.tap()
+        let text = app.staticTexts["Papers close to ones you added, or asked to see more like."]
+        XCTAssertTrue(text.waitForExistence(timeout: 5), "what the section means")
+        sleep(1)
+        save("feed-why-explained-section-\(appearance)")
+    }
+
     /// Sideways iPad: the grouped List and the Why table still pick a paper into the abstract pane.
     private func groupedSideways() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")

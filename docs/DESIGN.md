@@ -69,8 +69,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *The places menu* (`PlacesMenuButton`; replaces the places capsule that sat in the Wide row): one 44 pt glass circle in
     the window's **top-left corner, the same spot in every view** (owner correction, 2026-10-23: "I meant the top left";
     a list covering the window included), showing the current place's own symbol in accent, so it also says where you
-    are ("Places, Library" to VoiceOver, `places.menu`). Its menu: Feed, Library, Paper (needs a paper), Chat, Snippets
-    with the current one checked, then Search; the rows keep their `tab.*` identifiers. ⌘1…⌘5 choose the places with a
+    are ("Places, Library" to VoiceOver, `places.menu`). Its menu, one list with no separator (owner, TestFlight 91: "why
+    is there a larger space between snippets and search?"): Feed, Library, Paper (needs a paper), Chat, Snippets with the
+    current one checked, then Search and Settings; the rows keep their `tab.*` identifiers. ⌘1…⌘5 choose the places with a
     hardware keyboard. The leftmost slot's row or floating controls start `placesLeadingReserve` (52 pt) in from the edge,
     after the button: the Library's search field, the Feed's chips, All chats' search, Collections' search, Contents'
     tabs, Listen's chips, and the paper's list toggle and ☰ when the paper is leftmost. Each slot keeps its own ⋯ at its
@@ -128,7 +129,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     right — the AI Explainer, the equation view, a figure page, or the chat (Discuss: Ask, a selection's Explain, Continue
     in Chat) — with ✕ and the divider; ✕ returns the paper to the whole width at its place. A helper opened while the
     paper is beside the Library or Feed promotes it first, and a chat, list or Contents taking a side closes a helper:
-    never three columns. Continue in Chat hands the explainer's companion slot to the chat (one shared frame,
+    never three columns. Opening or closing a helper (the AI Explainer, the equation view, a figure or table page) moves
+    nothing on screen: the list leaving, the paper going to the left and the helper arriving happen at once (owner,
+    TestFlight 91: "maybe it might work just not to have an animation, just to go there"; `ExplainerCompanion`), as
+    with Reduce Motion; the list toggle, Discuss's chat and a covering list keep their 0.32 s slide. Continue in Chat hands the explainer's companion slot to the chat (one shared frame,
     `matchedGeometryEffect`, `WideSlotTransition`; no motion with Reduce Motion). Discuss's All chats is a clock, so it
     never reads as Contents' list beside it.
   - *Feed* = feed list | details. The list is on the left half from the start (not a centred column); a quiet "No article
@@ -322,7 +326,7 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   replace the table. All chats (`Views/ChatHistoryView.swift`) is the same pattern for conversations: one-line
   question with a muted second line, ~52 pt rows (7 pt vertical padding), Last read rightmost, a search field and
   filter chips above. Library adds an optional Venue column; Feed offers Why (For you and topics: why it is suggested,
-  sortable by group; owner, 2026-10-24), Popularity, Topics, Published, Authors, arXiv ID and Abstract with a Hide papers
+  sortable by group, an ⓘ beside its header; owner, 2026-10-24), Upvotes (named Popularity until TestFlight 91), Topics, Published, Authors, arXiv ID and Abstract with a Hide papers
   in my library filter, and its List groups For you into sections by why; All chats also offers Topics, Kind and Answer length (latest
   answer's full word count). Column choices are saved separately for phone and larger screens. Feed does not offer
   updated/relevance columns until those values exist in its discovery response.

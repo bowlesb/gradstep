@@ -47,9 +47,22 @@ presentation](architecture/PERSONALIZED_FEED.md#client-presentation-grouped-by-w
 
 | Decision | Choice |
 |---|---|
-| Table | A **Why** column (symbol + "Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao", "Popular ▲ 48" / "Trending", "Category: cs.CL", "Explore"; full sentence for VoiceOver and as the Mac tooltip). On by default, shown only when a row has a reason; sortable by group (tags, like papers, authors, popular, category, explore) keeping the server's order within each. While shown, the title's second line drops the reason. |
+| Table | A **Why** column (symbol + "Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao", "Popular ▲ 48" / "Trending", "Category: cs.CL", "Explore"; full sentence for VoiceOver and as the Mac tooltip). On by default, shown only when a row has a reason; sortable by group (tags, like papers, authors, popular, category, explore) keeping the server's order within each. While shown, the title's second line drops the reason. *Since TestFlight 91 (below): "New in Machine learning" and "Popular: 48 upvotes", with an ⓘ.* |
 | List | Sections in that order, one per tag, with name and count; the server's order within; rows drop what the header says and keep the anchor ("By Tri Dao"). One section only (category chips; a topic whose papers share a kind): no headers, as before. |
 | Agent choices (reversible) | Two or more one-paper tags share one "Your tags" section; no other merging. Hugging Face upvotes (`trending`) are "Popular ▲ n", several readers (`popular`) "Trending", both under "Popular this week". The column is 120 pt, first after the title. Grouping is in the app; no server change (For you already returns up to 50 papers). |
+
+## Feed reasons, the places menu and companions: owner feedback on TestFlight 91 (owner direction 2026-10-24; wording agent's, reversible)
+
+Owner, iPad sideways on TestFlight 91. Spec in DESIGN.md › Tall and Wide and [Personalized feed › Client
+presentation](architecture/PERSONALIZED_FEED.md#client-presentation-grouped-by-why-owner-2026-10-24).
+
+| Decision | Choice |
+|---|---|
+| Why labels | "What does that even mean category CSLG?… I can't make any sense of that CS AI." A category reason reads "New in Machine learning", the name the List already used; Hugging Face upvotes read "Popular: 232 upvotes". *Supersedes "Category: cs.CL" and "Popular ▲ n" in the Feed-grouped-by-why table above.* |
+| ⓘ | "If I click on why… maybe have like a little info icon that says what that even means… you press it and then it shows you a pop-up." An ⓘ after the Why header opens the usual small popover listing each label's meaning and the ▲; each List section header gets an ⓘ with its group's meaning. No footer. |
+| Upvotes | The ▲ column is headed Upvotes (was Popularity, "Popular 232… that confusing"); stored choices carry over. |
+| Places menu | "Why is there a larger space between snippets and search?" One list: Feed, Library, Paper, Chat, Snippets, Search, Settings, no section separator (no decision recorded a reason for it). |
+| Opening a helper | A figure opened from the paper beside the Library: "there was an animation that was kind of weird… maybe it might work just not to have an animation, just to go there"; "I like this UX here". Opening or closing a companion (AI Explainer, equation view, figure or table page) changes the slots at once, no slide or crossfade, including the list leaving and the paper moving left. The list toggle, Discuss and covering keep their slide. |
 
 ## Heading formulas as characters; bracketed addresses stay (fresh-paper sweep, 2026-10-24; agent decisions, reversible)
 

@@ -226,7 +226,7 @@ List rows show them in the details line. An older server's results fall back to 
   exist (papers outside the pool are ignored), strictly validated. `feed_policy.popularity_enabled` (default on) turns
   only these requests off: `select public.worker_set_feed_popularity(false)`.
 - **Unknown is a dash.** `upvotes` is null until the paper appears in a fetched daily list; it is never estimated and
-  never 0 by default. The Popularity column shows "▲ 162" or "—", and its sort puts unknown last in both directions.
+  never 0 by default. The Popularity column (headed **Upvotes** since TestFlight 91) shows "▲ 162" or "—", and its sort puts unknown last in both directions.
 - **Ranking v2** (`feed-heuristic-v2`) adds `0.1 × min(1, ln(1+u)/ln(101))` to relevance (a 100-upvote paper gains
   as much as the "≥ 3 readers" aggregate), lets up to 30 well-upvoted eligible papers (≥ 5) into the candidate set,
   and gives a paper with ≥ 20 upvotes and no personal reason the why line **"Popular on Hugging Face Papers"**.
@@ -372,8 +372,8 @@ ranked list (`ScienceReaderCore/FeedWhy.swift`); the response contract, ranking 
 | Your tags | `tag` | the tag's name ("RLHF"), one section per tag; two or more one-paper tags share "Your tags" | Your tag: RLHF |
 | Like papers | `added`, `more_like` | Like papers you added | Like: Muffin – A Shared Memory… |
 | Authors | `author` | From authors you read | Author: Tri Dao |
-| Popular | `trending`, `popular` | Popular this week | Popular ▲ 48 (Hugging Face upvotes) · Readers are adding (several readers this week) |
-| Category | `category` | By category | Category: cs.CL |
+| Popular | `trending`, `popular` | Popular this week | Popular: 48 upvotes (Hugging Face upvotes) · Readers are adding (several readers this week) |
+| Category | `category` | By category | New in Natural language processing |
 | Explore | `explore` | Something different | Explore |
 | (unknown kind) | later server kinds | More for you | the server's sentence |
 
@@ -392,6 +392,15 @@ ranked list (`ScienceReaderCore/FeedWhy.swift`); the response contract, ranking 
   it shows, the title cell's second line is the first author only; hidden by the reader, the reason returns there.
   Sort by **Why** (header tap or Sort by; For you and topics only) groups rows in the List's order, the server's order
   within each group and rows without a reason last; reversed, the groups reverse.
+- **What the reasons mean** (owner, TestFlight 91: "What does that even mean category CSLG?… If I click on why… maybe
+  have like a little info icon"): a category reason is named as the List names it, "New in Machine learning" (the
+  server's `text` without "New in ", else `TagVocabulary`'s name for the code, else the code; `FeedWhy.categoryName`),
+  never "Category: cs.LG"; Hugging Face upvotes read "Popular: 232 upvotes", not "Popular ▲ 232". An ⓘ after the Why
+  header (`feed.why.info`, the shared `InfoButton` popover, outside the header's sort button) explains each label and
+  the ▲ (`FeedWhy.info`); each List section header has its own ⓘ with what that group means
+  (`FeedWhyGroup.explanation`, `feed.section.info.<id>`), its 30 pt target overhanging the band so headers keep their
+  height. The Popularity column is headed **Upvotes** (its stored name, `popularity`, keeps saved choices; Sort by says
+  Upvotes too). VoiceOver readings are unchanged.
 - **Result count**: For you already returns up to 50 papers (`rankForYou` default; the app reads at most 50), every
   fifth an exploration, so a list has ~10 "Something different" and several sections of 3–10. No server change was
   needed; category chips stay at 25 and show no sections.
