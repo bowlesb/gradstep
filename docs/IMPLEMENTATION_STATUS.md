@@ -42,6 +42,23 @@
   - a real Google sign-in on a device with this change (the physical iPhone is paused);
   - the reference line's look (no Simulator UI run).
 
+## After TestFlight 92 — 2026-10-25 (branch; not yet in a build)
+
+Owner feedback on 92 (iPhone screenshot, 2610.27450v1 "Ask to Distill"): "Is this equation displayed correctly?"
+Equation (2), an `align` with two column pairs, read as eight centred lines (every LaTeXML cell its own display), and
+(3)'s `\bar{p}^U_M` had its bar off to the left of the p (WebKit draws LaTeXML's stretchy ¯ from STIX Two Math's wide
+bar). **Reader revision 26** makes an aligned group one display per number (a MathML table aligned at its relations,
+LaTeX as `aligned`) and draws accents over a single letter with low-set marks (bar, hat, tilde, dot, ddot, ring), with
+the same accents and Temml cell alignment on model readings (**device port revision 14**). Details and the remaining
+limits (separately numbered rows are not aligned with each other; acute, grave, breve and check unchanged):
+[HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md) "Aligned equations and accents",
+[READER_VERSIONS.md](architecture/READER_VERSIONS.md). Verified: `npm test`; 185 cached sources against revision 25 (132
+change, 0 newly refused); fresh-paper sweep (`--recent=40`, 30 new papers) 0 failures, 6 warnings unrelated to math;
+probes on the iOS 26.4 Simulator's Safari, Playwright WebKit (also at Mac widths), Chromium and Firefox; Simulator
+screenshots before/after (bundles compiled by revisions 25 and 26) on iPhone 17 Pro and iPad Pro 11-inch (M5), dark mode,
+in the main checkout's `.artifacts/tf92-equations/` (`ReaderNavigationTests.testTestFlight92AlignedEquationAndBar`).
+Not verified: the Mac app itself, a physical device.
+
 ## TestFlight 92 — 2026-10-25 UTC (iOS and Mac uploaded)
 
 Uploaded at 09:50 UTC (iOS) and 09:59 UTC (Mac), from main at 1b3b4c1f. Everything in "In TestFlight 92" below

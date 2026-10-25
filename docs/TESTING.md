@@ -1,5 +1,15 @@
 # Fast and slow tests
 
+## Aligned equations and accents (reader revision 26, device port 14) — October 25
+
+Fast (in `npm test`): `tests/backend/arxiv-equations.test.ts` (LaTeXML align with two column pairs, separately numbered
+rows, continued lines, eqnarray with a text cell, the fallback, gather's numbers, accents; Temml's aligned/cases and
+accents on the on-device route; both stylesheets). Slow, opt-in: the fresh-paper sweep and a replay of cached sources;
+compile `node scripts/reader-device-compile.mjs --ids=2610.27450v1 --out=<dir>`, then on an iPhone and an iPad Simulator
+`-only-testing:ScienceReaderUITests/ReaderNavigationTests/testTestFlight92AlignedEquationAndBar` with
+`TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`, `TEST_RUNNER_READER_SHOT_NAME=<prefix>` and `TEST_RUNNER_GS_SCREENSHOT_DIR`
+(skipped without the bundle). Screenshots under `.artifacts/tf92-equations/`.
+
 ## The on-device PDF model as a download — October 24
 
 Fast: Core `swift test --filter DevicePDFModelPackTests` (the pack description and its version, refused descriptions,

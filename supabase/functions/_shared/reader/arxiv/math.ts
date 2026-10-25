@@ -2,10 +2,11 @@
 // that every `math` element of the paper is either rendered or deliberately left out with what carried it.
 import { el, elements, isMathToken, MATH_ELEMENTS, mathAttributeIsSafe, normalizeSpace, textContent, type DomNode, type OutNode } from '../html.ts';
 import { LIMITS } from '../profile.ts';
-import { boundedText, check } from '../util.ts';
+import { boundedText, byteLength, check, CONTROL } from '../util.ts';
 import { bind, children, type ArxivContext, type Child } from './context.ts';
 import { mathBadgeText } from './math-badge.ts';
 import { applyMathVariant } from '../mathvariant.ts';
+import { readerAccent } from '../accents.ts';
 
 /** LaTeXML's presentation MathML in the reader's vocabulary: annotations and links dropped, attributes allow-listed. */
 export function mathNode(n: DomNode): Child[] {
@@ -43,7 +44,8 @@ export function mathNode(n: DomNode): Child[] {
     // An attribute outside the allow-list (or with an unsafe value) is left out, as unknown styling is.
     if (mathAttributeIsSafe(n.name, key, value)) attrs[key] = value;
   }
-  return [el(n.name, attrs, children(n).flatMap(mathNode))];
+  // An accent in the form every engine draws over its letter (accents.ts).
+  return [readerAccent(el(n.name, attrs, children(n).flatMap(mathNode)))];
 }
 // A formula in a heading as words (revision 24, 2610.21306v1 "VLA-$\Delta$: …" on the fresh-paper sweep): the index
 // writes an equation as its LaTeX, and a heading's index text is its title in the Library header, Contents and the
@@ -135,4 +137,27 @@ export function equation(cx: ArxivContext, n: DomNode, owner: string, forceDispl
   check(math.children.length > 0, 'arxiv_math_empty');
   return el('span', { id, 'data-reader-equation': id, 'data-latex': latex,
     class: `reader-equation ${display ? 'reader-display' : 'reader-inline'}` }, [math]);
+}
+
+/** A formula's LaTeX as `equation` reads it, or null where `equation` would refuse it. */
+export function mathLatex(n: DomNode): string | null {
+  const annotations = elements(n, c => c.name === 'annotation' && c.attribs.encoding === 'application/x-tex');
+  const latex = n.attribs.alttext ?? (annotations.length === 1 ? textContent(annotations[0]) : '');
+  if (!latex.trim() || CONTROL.test(latex) || byteLength(latex) > LIMITS.textBytes) return null;
+  if (annotations.length && !(annotations.length === 1 && normalizeSpace(textContent(annotations[0])) === normalizeSpace(latex))) return null;
+  return latex;
+}
+
+/** Several formulas shown as one display equation (an aligned group's rows, align.ts): `latex` in the index, `body` its
+ * MathML. Each source formula is accounted for and its id leads to this equation. */
+export function joinedEquation(cx: ArxivContext, sources: DomNode[], owner: string, latex: string, body: Child[]): OutNode {
+  for (const n of sources) { check(!cx.usedMath.has(n), 'arxiv_math_duplicate'); cx.usedMath.add(n); }
+  boundedText(latex, LIMITS.textBytes, 'arxiv_math_source');
+  check(latex.trim().length > 0 && cx.equations.length < LIMITS.equations, 'arxiv_math_source');
+  const id = `e-${cx.digest}-${cx.equations.length + 1}`;
+  for (const n of sources) bind(cx, n, id);
+  cx.equations.push({ id, block_id: owner, latex, display: true, source_form: 'body' });
+  const math = el('math', { display: 'block' }, body);
+  check(math.children.length > 0, 'arxiv_math_empty');
+  return el('span', { id, 'data-reader-equation': id, 'data-latex': latex, class: 'reader-equation reader-display' }, [math]);
 }

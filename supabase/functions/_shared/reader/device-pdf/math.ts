@@ -85,6 +85,12 @@ export function renderMath(latex: string, display: boolean): OutNode | null {
       if (value.includes('\\')) throw new Refused();
       if (value.length < 200 && mathAttributeIsSafe(mapped, key, value)) attribs[key] = value;
     }
+    // Temml aligns a table's cells by class (tml-right, tml-left), which the reader drops: the column's alignment is
+    // `columnalign`, as LaTeXML writes it, so an aligned group's relations line up (MATH_TABLE_CSS).
+    if (mapped === 'mtd') {
+      const names = (node.attribs?.class ?? '').split(/\s+/);
+      if (names.includes('tml-right')) attribs.columnalign = 'right'; else if (names.includes('tml-left')) attribs.columnalign = 'left';
+    }
     const token = isMathToken(mapped);
     return [el(mapped, attribs, (node.children ?? []).flatMap(c => convert(c, token)))];
   };

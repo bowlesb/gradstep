@@ -1,6 +1,6 @@
 import { ARXIV_PROVENANCE_FORMAT, ARXIV_RENDERER_ID, ARXIV_RENDERER_REVISION, ARXIV_SOURCE_KIND,
   arxivHTMLAssets, arxivHTMLURL, arxivInlineImages, convertArxivHTML } from './arxiv-html.ts';
-import { BUNDLE_FORMAT, LIMITS, READER_CSS, ARXIV_SOURCE_BYTES } from './profile.ts';
+import { BUNDLE_FORMAT, LIMITS, MATH_TABLE_CSS, READER_CSS, ARXIV_SOURCE_BYTES } from './profile.ts';
 import { THIRD_PARTY_NOTICES } from './notice.ts';
 import { canonicalBytes, check, decodeUTF8, HEX64, sha256Hex, utf8 } from './util.ts';
 
@@ -22,7 +22,8 @@ export const ARXIV_CSS = READER_CSS + '\nfigure img.reader-inline-image,body.rea
   + '.reader-authors .reader-affiliations,.reader-authors .reader-notes{display:block;font-size:.82em;line-height:1.4;margin-top:.45em;opacity:.85}\n'
   // Headings keep the browser's default bottom margin otherwise (an h6 "Abstract" sat 2.3 em above its text, build 43).
   + '.reader-affiliation-lines{display:block;font-size:.86em;line-height:1.6;opacity:.85}\n'
-  + 'h2{margin-bottom:.55em}h3,h4,h5,h6{margin-bottom:.45em}h2+p,h3+p,h4+p,h5+p,h6+p{margin-top:.3em}\n';
+  + 'h2{margin-bottom:.55em}h3,h4,h5,h6{margin-bottom:.45em}h2+p,h3+p,h4+p,h5+p,h6+p{margin-top:.3em}\n'
+  + MATH_TABLE_CSS;
 export const ARXIV_BUILD_SHA256 = sha256Hex(canonicalBytes({ renderer: ARXIV_RENDERER_ID,
   revision: ARXIV_RENDERER_REVISION, css: sha256Hex(utf8(ARXIV_CSS)), notices: sha256Hex(utf8(THIRD_PARTY_NOTICES)) }));
 
