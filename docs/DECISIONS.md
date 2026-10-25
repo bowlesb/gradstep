@@ -2354,4 +2354,7 @@ From the owner's recorded iPad session (upright, Tall; findings G5, G6, G17). Sp
   progress and Read, until the Feed loads again, so the row doesn't vanish under the reader's finger (the Feed's Add
   keeps every row's frame); with every paper of a topic already in the library the Feed says so, without the old "Show
   them" button. On iPad a hardware keyboard's ⌘, opens Settings sideways (as on the Mac); ⌘1…⌘5 still choose the five
-  places. Upright the bar's six items share the capsule, which widens to 624 pt (104 pt an item, as five had).
+  places. Upright the bar's six items share the capsule, which widens to 624 pt (104 pt an item, as five had). Wide's
+  All chats routes (decided above) land on the Chat place: from a paper, its chat is the conversation beside the list
+  (a new one when it has none open) and the list is on This paper; from elsewhere, the conversation last open and All;
+  Chat from the places menu resets the list to All.

@@ -2,6 +2,37 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+iPad places (owner session 2026-10-24, G5/G6/G17 and the All chats decision;
+[decision](DECISIONS.md#ipad-places-settings-beside-snippets-no-search-place-feed-hides-library-papers-owner-session-2026-10-24-testflight-91)):
+**Settings is the iPad's sixth place** — the upright bar is Feed · Library · Paper · Chat · Snippets · Settings (the capsule
+widens to keep 104 pt an item) and the places menu's one list ends with Settings (`tab.settings`; ⌘, with a hardware
+keyboard); Settings opens over the screen as before and is in no ⋯ menu on iPad (`SettingsMenuSection` checks
+`Platform.isPad`). The iPhone keeps five tabs with Settings in every ⋯; the Mac keeps Settings… ⌘,. **No Search place on
+iPad** — the places menu's Search row is gone (its `searchFromPlaces` too); the Library's field and its ML paper search
+switch are the way, and author / similar / tag searches already land there with the query. **All chats in Wide is the
+Chat place's list** — the Library's ⋯, a paper's "Chats about this paper", Discuss's clock, the chat's ⋯ and title menu
+beside the paper, and Settings › Your assets › Chats all go to the Chat place with the list on This paper from a paper
+(`ReaderModel.openAllChats`, `chatsListPaperID`/`chatsListFilter`); never a centred sheet in Wide; Tall and the Mac keep
+the sheet. **The Feed always leaves out library papers** — "Hide papers in your library" is gone from the Feed's ⋯ and
+the Mac's View menu, the stored `feed.hidesLibrary` is removed at launch, For you already excluded them on the server
+(`app_private.feed_excluded`); a paper added from the Feed's own row stays there with its progress and Read until the Feed
+loads again. UI tests (iPad Pro 13-inch (M5) Simulator): new `IPadShapesJourneyTests.testUprightTheBarHasSixPlacesWithSettingsBesideSnippets`
+and `testEveryRouteToAllChatsShowsTheListBesideTheChat` failed on the build before the change ("The bar has settings";
+"The Library's ⋯: the Chat place") and pass after; new `testTheLibrarysFieldSearchesMLPapersSideways` passes; updated
+`testThePlacesMenuSwitchesPlacesAndShowsTheCurrentOne`, `testThePlacesMenuIsOneList`, `testSearchKeepsTheListAfterOpeningAResult`,
+`testTurningAnIPadKeepsTheViewItsDraftAndThePlace` pass, as do `testAllChatsIsTheListBesideTheChatWithItsOwnSortBy`,
+`testContinueInChatWaitsForATapAndChatShowsThatChatSelected`, `testAGeneralChatIsTheChatsViewSideways`,
+`testTheFeedShowsTheAbstractBesideTheList`, `MenusJourneyTests.testAnAppSheetUprightSpansTheWindow` and
+`testTheFeedTableInWideAndAddNeverMovesARow`, `NotesJourneyTests.testSettingsFromEveryMenuReturnsToItsOrigin` and
+`testNotesInTheWideLayout`, `TableColumnsTests.testFeedColumnChooserFilterAndSideways` (now asserts a requested import
+is never in the Feed and there is no hide option) and `LibraryWritesTests`. iPad mini: the bar and places-menu tests
+pass; iPhone 17 Pro: `testSettingsFromEveryMenuReturnsToItsOrigin` (five tabs, Settings in every ⋯) and the Feed
+columns test pass. Core `swift test` passes; the Mac Catalyst app compiles. Once, in the long run, two tests sat in
+XCUITest's 60 s "animations complete not received" wait after turning sideways (46 min for the routes test, with the
+Mac's load at 44–55 and a second Simulator running); alone, after the test that preceded it, and in a diagnostic launch
+it ran with no such wait (103 s, 107 s), so not reproduced. Screens (before | after, iPad Pro 13-inch light and dark;
+test screens): `/Users/benbowlwes/science-reader/.artifacts/nav-20261024/`. Not yet on a device.
+
 OpenRouter reconciler (pipeline worker revision gradstep-pipeline-00056-wcj, deployed 2026-10-25 04:25 UTC via Cloud
 Build): it now also accepts a record whose model is the dispatched slug without its date. Forcing a retry of the stuck
 2026-10-22 DeepSeek attempt (f92ab6d2, $0.049 held) still ended in `mismatch`, so the date was not the cause. The worker
