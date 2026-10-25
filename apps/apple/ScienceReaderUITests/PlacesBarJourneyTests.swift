@@ -147,19 +147,36 @@ final class PlacesBarJourneyTests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 5), "From another place More opens its list")
     }
 
-    /// 🔍 is a place: selected while it shows, and the places take over again when chosen.
+    /// 🔍 is a place: selected while it shows, the keyboard up at once with nothing typed (JUDGMENT_LOG 16); Cancel returns
+    /// to where it was opened; 🔍 again brings back the same words, the keyboard down; from Paper it starts "In this paper".
     func testSearchIsItsOwnCircle() throws {
         try XCTSkipUnless(phone, "The iPhone's bar")
         let app = launch()
         let search = app.buttons["tab.search"]
         search.tap()
+        let field = app.textFields["search.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "The search screen")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "The keyboard comes up with nothing typed")
+        field.typeText("attention")
+        save("\(device)-search")
+        app.buttons["search.cancel"].tap()
+        wait("Cancel returns to the Library") { app.buttons["tab.library"].isSelected && !search.isSelected }
+        XCTAssertTrue(app.buttons[sampleID].isHittable)
+        search.tap()
         wait("🔍 selected") { search.isSelected }
         XCTAssertFalse(app.buttons["tab.library"].isSelected)
         XCTAssertFalse(app.moreItem.isSelected)
-        save("\(device)-search")
-        app.buttons["tab.library"].tap()
-        wait("The Library again") { app.buttons["tab.library"].isSelected && !search.isSelected }
-        XCTAssertTrue(app.buttons[sampleID].isHittable)
+        XCTAssertEqual(field.value as? String, "attention", "The same words")
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 2), "Returning to results leaves the keyboard down")
+        save("\(device)-search-again")
+        // From the paper: In this paper.
+        app.buttons["search.cancel"].tap()
+        app.buttons[sampleID].tap()
+        wait("The paper") { app.buttons["tab.paper"].isSelected }
+        search.tap()
+        XCTAssertTrue(app.buttons["search.scope"].waitForExistence(timeout: 5), "In this paper, from Paper")
+        app.buttons["search.cancel"].tap()
+        wait("Back on the paper") { app.buttons["tab.paper"].isSelected }
     }
 
     /// A phone sideways is still Tall, with the same bar (A.6).
@@ -227,12 +244,42 @@ final class PlacesBarJourneyTests: XCTestCase {
         app.typeKey("5", modifierFlags: .command)
         wait("⌘5 is Snippets") { app.buttons["tab.notes"].isSelected }
         app.typeKey("k", modifierFlags: .command)
-        wait("⌘K is Search") { app.buttons["tab.search"].isSelected }
+        // Search brings the keyboard up; the Simulator's on-screen one hides the bar meanwhile, so ask the screen.
+        wait("⌘K is Search") { app.textFields["search.field"].exists }
         app.typeKey("2", modifierFlags: .command)
         wait("⌘2 is Library") { app.buttons["tab.library"].isSelected }
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 8), "⌘, opens Settings upright")
         app.navigationBars["Settings"].buttons["Done"].firstMatch.tap()
+    }
+
+    /// A hardware keyboard in Search: ↓ chooses the first result (selected, highlighted), Return opens it where it lives.
+    func testArrowKeysChooseAResult() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "A hardware keyboard on iPad")
+        let app = launch(["--draft-fixture", "--chat-history-fixture"])
+        app.buttons["tab.search"].tap()
+        let field = app.textFields["search.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        app.typeKey("d", modifierFlags: [])
+        wait("A typed letter reaches the field (the first key event of a launch)") { (field.value as? String) == "d" }
+        app.typeKey("p", modifierFlags: []); app.typeKey("o", modifierFlags: [])
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.row."))
+        wait("Results", timeout: 20) { rows.count > 0 }
+        let first = rows.firstMatch
+        XCTAssertFalse(first.isSelected)
+        app.typeKey(.downArrow, modifierFlags: [])
+        wait("↓ chooses the first result") { first.isSelected }
+        save("\(device)-search-keyboard")
+        app.typeKey(.downArrow, modifierFlags: []); app.typeKey(.upArrow, modifierFlags: [])
+        wait("↑ back to it") { first.isSelected }
+        let chosen = first.identifier
+        // Return as the field receives it (the Simulator didn't deliver `typeKey(.return)` to the field in two runs).
+        field.typeText("\n")
+        wait("Return opens it", timeout: 10) { !app.buttons[chosen].exists }
+        if chosen.hasPrefix("search.row.message:") || chosen.hasPrefix("search.row.conversation:") {
+            XCTAssertTrue(element("chat.transcript", app).waitForExistence(timeout: 10), "The chat it lives in")
+        }
     }
 
     /// Sideways: the places menu holds all six, so no More; 🔍 sits beside it and is selected while Search shows, the

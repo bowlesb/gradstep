@@ -63,6 +63,7 @@ struct ChatTranscript: View {
                 fontSize: fontSize, diagrams: model.chatDiagrams, followUps: model.chatSuggestions,
                 openDiagram: { model.openDiagram($0) }, papers: ChatPaperContext(model: model, actions: paperActions), jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
+                landing: model.chatLanding.flatMap { $0.conversationID == model.activeConversation ? $0 : nil },
                 insets: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0),
                 isCurrent: { model.readerSessionID == scope.sessionID && model.chatComposerID == scope.composerID },
                 didFollow: { following in
@@ -383,6 +384,8 @@ private struct TranscriptTable: UIViewControllerRepresentable {
     let papers: ChatPaperContext
     let jump: TranscriptJump
     let localRequest: UUID?
+    /// A search result's message (GLOBAL_SEARCH.md): scrolled to the top of the view and marked for a moment, once.
+    var landing: ChatLanding? = nil
     /// The floating chrome's depth at each end; the table scrolls under it.
     let insets: UIEdgeInsets
     let isCurrent: () -> Bool
@@ -443,6 +446,10 @@ private struct TranscriptTable: UIViewControllerRepresentable {
         private var publishedFollow: Bool?
         private var lastJump: UUID?
         private var lastLocalRequest: UUID?
+        /// A landing not yet applied (its message not shown yet), the last one applied, and the row to mark once there.
+        private var pendingLanding: ChatLanding?
+        private var lastLanding: UUID?
+        private var landingFlash: UUID?
         private var needsRestore = true
         private var animateRestore = false
         private var anchors: [RowAnchor] = []
@@ -509,6 +516,8 @@ private struct TranscriptTable: UIViewControllerRepresentable {
                 lastJump = value.jump.id
             }
             lastLocalRequest = value.localRequest
+            if let landing = value.landing, landing.token != lastLanding { pendingLanding = landing; lastLanding = landing.token }
+            defer { applyLanding(table) }
             guard displayed != value.messages || displayedFont != value.fontSize || displayedStreamingID != value.streamingID
                     || displayedProgress != value.progress || displayedDiagrams != value.diagrams || displayedFollowUps != value.followUps || applying else { return }
             generation += 1
@@ -591,6 +600,37 @@ private struct TranscriptTable: UIViewControllerRepresentable {
             }
         }
 
+        /// Lands on the pending message once it is displayed: not following the end; that row's top just under the
+        /// chrome; marked when realized.
+        private func applyLanding(_ table: TranscriptTableView) {
+            guard let landing = pendingLanding, displayed.contains(where: { $0.id == landing.eventID }) else { return }
+            pendingLanding = nil
+            following = false; userScrolling = false
+            anchors = [RowAnchor(id: landing.eventID, relativeY: 12)]
+            realizingAnchor = nil; needsRestore = true; animateRestore = false
+            landingFlash = landing.eventID
+            if publishedFollow != following { publishedFollow = following; owner?.didFollow(following) }
+            table.setNeedsLayout()
+        }
+
+        /// A tint over the landed row that fades over a second.
+        private func flashLanding(_ table: TranscriptTableView) {
+            guard let id = landingFlash, let path = source?.indexPath(for: id), let cell = table.cellForRow(at: path) else { return }
+            landingFlash = nil
+            let tint = UIView(frame: cell.contentView.bounds.insetBy(dx: 8, dy: 0))
+            tint.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            tint.backgroundColor = UIColor(red: 250 / 255, green: 204 / 255, blue: 21 / 255, alpha: 0.3)
+            tint.layer.cornerRadius = 12
+            tint.isUserInteractionEnabled = false
+            tint.isAccessibilityElement = false
+            tint.accessibilityIdentifier = "chat.landing"
+            cell.contentView.addSubview(tint)
+            UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0.3 : 1.0, delay: 0.6, options: [.curveEaseOut]) {
+                tint.alpha = 0
+            } completion: { _ in tint.removeFromSuperview() }
+            UIAccessibility.post(notification: .layoutChanged, argument: cell)
+        }
+
         private func readAnchors(_ table: UITableView) -> [RowAnchor] {
             guard let source else { return [] }
             let top = table.contentOffset.y + table.adjustedContentInset.top
@@ -604,6 +644,7 @@ private struct TranscriptTable: UIViewControllerRepresentable {
         private func finishLayout(_ table: TranscriptTableView) {
             guard !retired, owner?.isCurrent() == true, !applying, !updating, !restoring,
                   table.bounds.height > 0, table.bounds.width > 0 else { return }
+            if pendingLanding != nil { applyLanding(table) }
             if pending != nil { applyPending(table); if applying { return } }
             let contentChanged = lastContentSize != table.contentSize
             let resized = lastViewportSize != table.bounds.size
@@ -640,6 +681,7 @@ private struct TranscriptTable: UIViewControllerRepresentable {
                     if table.cellForRow(at: path) != nil {
                         let target = clampedY(table.rectForRow(at: path).minY - anchor.relativeY - table.adjustedContentInset.top, table)
                         if abs(table.contentOffset.y - target) > pixel(table) { table.setContentOffset(CGPoint(x: 0, y: target), animated: false) }
+                        if landingFlash == anchor.id { DispatchQueue.main.async { [weak self, weak table] in if let table { self?.flashLanding(table) } } }
                     } else { anchors = [] }
                 } else {
                     // If all previously visible rows were removed, retain UIKit's

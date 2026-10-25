@@ -516,7 +516,7 @@ struct PlacesMenuButton: View {
 struct PlaceShortcuts: View {
     @Bindable var model: ReaderModel
     var body: some View {
-        Group {
+        ZStack {
             ForEach(Array(ReaderTab.phoneTabs.enumerated()), id: \.offset) { index, place in
                 Button(place.rawValue) { model.showPlace(place) }
                     .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
@@ -526,7 +526,9 @@ struct PlaceShortcuts: View {
             Button(ReaderTab.search.rawValue) { model.showSearchPlace() }.keyboardShortcut("k")
         }
         .disabled(model.readingMode)
-        .opacity(0).frame(width: 0, height: 0).allowsHitTesting(false).accessibilityHidden(true)
+        .opacity(0).frame(width: 0, height: 0).allowsHitTesting(false)
+        // Invisible buttons are no one's to find: one ignored element, hidden (VoiceOver and UI tests see the bar's).
+        .accessibilityElement(children: .ignore).accessibilityHidden(true)
     }
 }
 

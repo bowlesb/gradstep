@@ -74,9 +74,11 @@ public final class FullTextSnapshot: @unchecked Sendable {
     let averageFieldLengths: [Double]
     let texts: FullTextTextReader?
     public let generation: UInt64
+    /// Each group's info as its document was committed (`FullTextDocument.info`).
+    public let infos: [String: String]
 
-    init(segments: [FullTextSegment], current: (Int, Int) -> Bool, texts: FullTextTextReader?, generation: UInt64) {
-        self.segments = segments; self.texts = texts; self.generation = generation
+    init(segments: [FullTextSegment], current: (Int, Int) -> Bool, texts: FullTextTextReader?, generation: UInt64, infos: [String: String] = [:]) {
+        self.segments = segments; self.texts = texts; self.generation = generation; self.infos = infos
         var groups: [String] = [], index: [String: Int32] = [:]
         var docGroup: [[Int32]] = []
         let fieldCount = FullTextField.allCases.count
@@ -160,8 +162,15 @@ public final class FullTextSnapshot: @unchecked Sendable {
     /// Papers matching at least one clause, by paper. A paper matches the query when every clause bit is set
     /// (callers may also accept a clause through metadata substring matching).
     public func search(_ query: FullTextQuery, isCancelled: () -> Bool = { false }) -> [String: FullTextHit] {
+        var out: [String: FullTextHit] = [:]
+        for hit in searchSlots(query, isCancelled: isCancelled) { if let hit { out[hit.group] = hit } }
+        return out
+    }
+
+    /// `search` by slot (`groups` order): no dictionary of group names, for callers that keep per-slot tables.
+    public func searchSlots(_ query: FullTextQuery, isCancelled: () -> Bool = { false }) -> [FullTextHit?] {
         let fieldCount = FullTextField.allCases.count, groupCount = groups.count
-        guard groupCount > 0, !query.clauses.isEmpty else { return [:] }
+        guard groupCount > 0, !query.clauses.isEmpty else { return [] }
         var hits = [FullTextHit?](repeating: nil, count: groupCount)
         var references = [[FullTextHit.BodyReference]](repeating: [], count: groupCount)
         var frequencies = [Float](repeating: 0, count: groupCount * fieldCount)
@@ -169,7 +178,7 @@ public final class FullTextSnapshot: @unchecked Sendable {
         var touched: [Int32] = []
         var positions: [UInt32] = []
         for (clauseIndex, clause) in query.clauses.enumerated() {
-            if isCancelled() { return [:] }
+            if isCancelled() { return [] }
             for slot in touched { isTouched[Int(slot)] = false; for field in 0..<fieldCount { frequencies[Int(slot) * fieldCount + field] = 0 } }
             touched.removeAll(keepingCapacity: true)
             let clauseTag = UInt8(clauseIndex)
@@ -228,13 +237,8 @@ public final class FullTextSnapshot: @unchecked Sendable {
                 hits[Int(slot)] = hit
             }
         }
-        var out: [String: FullTextHit] = [:]
-        for (slot, hit) in hits.enumerated() {
-            guard var hit else { continue }
-            hit.bodyReferences = references[slot]
-            out[hit.group] = hit
-        }
-        return out
+        for slot in hits.indices where hits[slot] != nil && !references[slot].isEmpty { hits[slot]!.bodyReferences = references[slot] }
+        return hits
     }
 
     /// The term indexes a slot matches in one segment: its exact terms and up to `maximumExpansions` of the most

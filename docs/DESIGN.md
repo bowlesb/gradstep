@@ -80,8 +80,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
       window's size alone decides, as for the shape: a phone sideways is wide enough but under 600 pt tall.
     - *🔍* is its own 58 pt glass circle 8 pt after the capsule (`SearchCircle`, `tab.search`, VoiceOver "Search"),
       beside either bar, as iOS 26 draws a search tab. It opens the **Search place** (`ReaderTab.search`, content
-      `GlobalSearchView`), scoped to the open paper when Paper is the place. Selected (accent on the light accent fill)
-      while Search shows. The capsule's items keep at most 104 pt each (four: about 72 pt on a 402 pt iPhone).
+      `GlobalSearchView`, [GLOBAL_SEARCH.md](architecture/GLOBAL_SEARCH.md)), scoped to the open paper when Paper is the
+      place, the keyboard up when nothing is typed. Selected (accent on the light accent fill) while Search shows. Cancel
+      returns to the place it was opened from; 🔍 again brings back the same words, at the result opened last. The
+      capsule's items keep at most 104 pt each (four: about 72 pt on a 402 pt iPhone).
     - *More* (`gradstep.more`: three dots, the last the amber point, drawn by `tools/icons`; the word "More" under it
       tells it from ⋯) opens the **More list** (`MoreView`, `more.list`): one inset-grouped list titled "More" in the
       system title bar, rows Feed, Snippets, Settings (the place's glyph in accent, its one word, a chevron; 52 pt,

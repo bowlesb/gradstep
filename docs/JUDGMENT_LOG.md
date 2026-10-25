@@ -39,6 +39,19 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 23. **⌘1…⌘5, ⌘, and ⌘K also work on an iPhone with a hardware keyboard**, as on iPad (they are on the root now), and
     stay off in reading mode as before. A bar word that doesn't fit at the largest text sizes shrinks to 80 % rather than
     being cut. *Undo:* gate `PlaceShortcuts` with `Platform.isPad`; remove `minimumScaleFactor` in `TabBarItem`.
+24. **Search's Cancel (and Escape) go back to the place Search was opened from, keeping the words** for the next 🔍.
+    *Why:* the search screen behaved so before it became a place, and the proposal's Escape "clears the field and then
+    leaves Search". *Undo:* `closeGlobalSearch` in `ReaderModel+GlobalSearch.swift` (e.g. clear the words, or stay).
+25. **Sideways and on the Mac, a paper, chat or collection picked from the results shows beside them and Search stays the
+    place** (its 🔍 lit); other results go to their place. A Setting opens over Search, so Done returns to the results.
+    *Why:* "Search lives at the top of the left list, like Mail" (2026-10-22). *Undo:* `openSearchResult`'s last lines.
+26. **On the Mac you type in the toolbar's field; the Search place's own row keeps only "In this paper", ⓘ and Cancel**
+    (one field, not two). ↓/↑, Return and Escape work in the toolbar field. *Undo:* show the place's own field on the Mac
+    (`GlobalSearchView.header`) and make the toolbar field a button that opens Search.
+27. **↓/↑ with a hardware keyboard choose a result (highlighted), Return opens it; ↑ from the first goes back to the
+    field.** *Why:* the proposal's keyboard rule (A.6); cheap once Search was a place. *Undo:* the two `onKeyPress` lines.
+28. **🔍 brings the results back scrolled to the result opened last** (centred), not to the exact offset. *Why:* the place
+    is rebuilt on every visit, and the opened row is what you were looking at. *Undo:* `returnRowID` in GlobalSearchView.
 
 Earlier today (agent or lead calls, already in DECISIONS.md; listed here so they can be overruled in one place):
 

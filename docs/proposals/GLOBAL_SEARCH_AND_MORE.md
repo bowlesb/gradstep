@@ -1,7 +1,11 @@
-# Global search and a "More" place (proposal, 2026-10-25; open questions answered by judgment, building)
+# Global search and a "More" place (proposal, 2026-10-25; open questions answered by judgment, phase 1 built)
 
 Owner, 2026-10-25: "Just make a good judgment and keep a log." All four open questions take the recommended answer
 ([JUDGMENT_LOG.md](../JUDGMENT_LOG.md) 13–16).
+
+**Status:** phase 1 is built on one branch (local, not released; after TestFlight 93): the search (section B) as
+described in [GLOBAL_SEARCH.md](../architecture/GLOBAL_SEARCH.md), and the navigation (section A) as described in
+[DESIGN.md › Tall and Wide › The bar, More and 🔍](../DESIGN.md).
 
 Owner, 2026-10-25: *"One more feature - one of our UX issues is we have 6 icons but only room for 5. Lets change to the
 way Slack does it. slack has three at the bottom, a [fourth] icon with the words More, and then if you click you get a

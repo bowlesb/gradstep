@@ -197,8 +197,10 @@ and conventions live in the Mac target.
   trailing edge holds a 220 pt search field, "Search everything" (`gradstep.search`, a `UISearchTextField` in an
   `NSUIViewToolbarItem`: Catalyst has no `NSSearchToolbarItem`). A click in it, or Edit › Search Everything… ⌘K, goes to
   the Search place
-  (no place segment selected) and keeps the keyboard there; what is typed is `MacCommandRequests.globalSearchQuery`,
-  the Search place's words on the Mac. Leaving Search lets go of the field and keeps its words, as Mail's.
+  (no place segment selected) and keeps the keyboard there; what is typed is global search's own words
+  (`model.globalSearch.query`, kept the same both ways), so the place's own row has no second field. ↓/↑ choose a
+  result, Return opens it, Escape clears and then leaves Search. Leaving Search lets go of the field and keeps its words,
+  as Mail's.
 - The privacy cover shown when the iOS app leaves the foreground is off: a Mac window stays visible.
 - App-drawn header controls are 34 pt (44 pt touch targets on iOS); leading text bar buttons keep their width
   (Mac Catalyst otherwise draws "Cancel" in a circle as "C…").

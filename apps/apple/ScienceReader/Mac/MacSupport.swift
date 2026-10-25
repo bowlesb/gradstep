@@ -191,9 +191,6 @@ extension ReaderModel {
     static let shared = MacCommandRequests()
     /// Focus the Library's search field (⌘F), or its arXiv search (⌥⌘F).
     var librarySearch: UUID?
-    /// What is typed in the Mac toolbar's search field (MacToolbarController; GLOBAL_SEARCH_AND_MORE.md A.3): the Search
-    /// place's words on the Mac, whose results show in the window as on iPad.
-    var globalSearchQuery = ""
     /// Edit › Find in Paper: the open paper's view shows its find bar (with its own checks: a readable paper, the
     /// selection cleared).
     var findInPaper: UUID?
@@ -669,13 +666,27 @@ final class WindowHookView: UIView {
     /// Sizes are remembered only after the launch size is applied (the system's first size isn't the reader's).
     private var restoringSize = true
     private var modes: NSToolbarItemGroup?
-    /// The toolbar's search field (Catalyst has no NSSearchToolbarItem; a UISearchTextField draws as the Mac's).
-    private(set) var searchField: UISearchTextField?
+    /// The toolbar's search field (Catalyst has no NSSearchToolbarItem; a UISearchTextField draws as the Mac's). Its words
+    /// are global search's own (`model.globalSearch.query`), kept the same both ways.
+    private(set) var searchField: ToolbarSearchField?
 
     init(model: ReaderModel) {
         self.model = model
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(focusSearchRequested), name: Self.focusSearch, object: nil)
+        followSearchWords()
+    }
+
+    /// The words changed elsewhere (a recent search, the clear button, sign-out): the field shows them.
+    private func followSearchWords() {
+        withObservationTracking { _ = model.globalSearch.query } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let words = self.model.globalSearch.query
+                if let field = self.searchField, field.text != words { field.text = words }
+                self.followSearchWords()
+            }
+        }
     }
 
     func attach(to window: UIWindow) {
@@ -770,16 +781,25 @@ final class WindowHookView: UIView {
             setModeSelection(model.tab == .settings ? nil : Self.places.firstIndex(of: model.widePlace))
             return group
         case Self.searchID:
-            let field = UISearchTextField()
+            let field = ToolbarSearchField()
             // Not just "Search": the Library's own field below says that.
             field.placeholder = "Search everything"
             field.accessibilityLabel = "Search everything"
             field.accessibilityIdentifier = "mac.search"
-            field.text = MacCommandRequests.shared.globalSearchQuery
+            field.text = model.globalSearch.query
+            field.autocorrectionType = .no
+            field.autocapitalizationType = .none
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 220).isActive = true
             field.addTarget(self, action: #selector(searchBegan(_:)), for: .editingDidBegin)
             field.addTarget(self, action: #selector(searchChanged(_:)), for: .editingChanged)
+            field.addTarget(self, action: #selector(searchReturned(_:)), for: .primaryActionTriggered)
+            // ↓/↑ choose a result and Escape clears, then leaves (GLOBAL_SEARCH_AND_MORE.md A.6), as in the iPad's field.
+            field.onMove = { [weak self] step in self?.model.globalSearch.moveKeyboardSelection(by: step) }
+            field.onEscape = { [weak self] in
+                guard let self else { return }
+                if !self.model.globalSearch.query.isEmpty { self.model.globalSearch.query = "" } else { self.model.closeGlobalSearch() }
+            }
             searchField = field
             let item = NSUIViewToolbarItem(itemIdentifier: identifier, uiView: field)
             item.label = "Search"
@@ -806,12 +826,41 @@ final class WindowHookView: UIView {
     }
 
     @objc private func searchChanged(_ field: UISearchTextField) {
-        MacCommandRequests.shared.globalSearchQuery = field.text ?? ""
+        let words = field.text ?? ""
+        if model.globalSearch.query != words { model.globalSearch.query = words }
+    }
+
+    /// Return: the result chosen with ↑/↓, else the first.
+    @objc private func searchReturned(_ field: UISearchTextField) {
+        model.openChosenGlobalSearchResult(wide: true)
     }
 
     @objc private func focusSearchRequested() {
         guard let searchField else { return }
         if model.tab != .search { searchBegan(searchField) } else { searchField.becomeFirstResponder() }
+    }
+}
+
+/// The toolbar's search field: ↓/↑ move through the results and Escape clears (then leaves Search), as the iPad's field.
+final class ToolbarSearchField: UISearchTextField {
+    var onMove: ((Int) -> Void)?
+    var onEscape: (() -> Void)?
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        switch presses.first?.key?.keyCode {
+        case .keyboardDownArrow?: onMove?(1)
+        case .keyboardUpArrow?: onMove?(-1)
+        case .keyboardEscape?: onEscape?()
+        default: super.pressesBegan(presses, with: event)
+        }
+    }
+
+    /// The keys handled above end here too, so the field never sees half a press.
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        switch presses.first?.key?.keyCode {
+        case .keyboardDownArrow?, .keyboardUpArrow?, .keyboardEscape?: break
+        default: super.pressesEnded(presses, with: event)
+        }
     }
 }
 #endif

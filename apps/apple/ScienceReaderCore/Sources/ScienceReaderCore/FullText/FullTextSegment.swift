@@ -22,8 +22,10 @@ public struct FullTextDocument: Sendable {
     public let id: FullTextDocumentID
     public let fingerprint: String
     public let fields: [FullTextField: String]
-    public init(id: FullTextDocumentID, fingerprint: String, fields: [FullTextField: String]) {
-        self.id = id; self.fingerprint = fingerprint; self.fields = fields
+    /// A few words kept with the document in the sealed manifest (global search: kind, paper, container, date).
+    public let info: String?
+    public init(id: FullTextDocumentID, fingerprint: String, fields: [FullTextField: String], info: String? = nil) {
+        self.id = id; self.fingerprint = fingerprint; self.fields = fields; self.info = info
     }
 }
 

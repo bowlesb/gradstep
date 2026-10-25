@@ -9,13 +9,31 @@ More-opened place and Settings over a screen, in both bars; More's rows; the Mor
 or turns; one test per route group of the proposal's A.5 table — Paper, Chat, Library, Snippets and Feed, Settings,
 Search with its paper scope; each place's state across bar switches). Slow, opt-in: `ScienceReaderUITests/PlacesBarJourneyTests`
 on one iPhone Simulator (the four items and 🔍, More's list and each row, More highlighted and More again, Settings over
-the list, 🔍 as a place, a phone sideways, the largest accessibility text) and one iPad Simulator (a narrow window with
-the fixture-only `--narrow-window=600`, upright ⌘1/⌘5/⌘K/⌘2/⌘, keys, 🔍 sideways), with `TEST_RUNNER_GS_SCREENSHOT_DIR`
-for screenshots. After a change to the bar, More or the places menu, rerun those and the navigation suites whose helpers
+the list, 🔍 as a place with the keyboard up, Cancel back and the words kept, In this paper from Paper, a phone sideways,
+the largest accessibility text) and one iPad Simulator (a narrow window with the fixture-only `--narrow-window=600`,
+upright ⌘1/⌘5/⌘K/⌘2/⌘, keys, ↓/↑ and Return choosing a search result, 🔍 sideways), with `TEST_RUNNER_GS_SCREENSHOT_DIR`
+for screenshots. In Search, the Simulator didn't deliver `typeKey(.return)` to the field (arrows arrive); press Return
+through the field (`typeText("\n")`). With the on-screen keyboard up the bar hides, so ask the screen
+(`search.field`) rather than `tab.search` after ⌘K. After a change to the bar, More or the places menu, rerun those and the navigation suites whose helpers
 go through More on iPhone (`ReaderMenuSupport.placeItem`, `show`, `openSettingsFromMenu`): `MenusJourneyTests`,
 `IPadShapesJourneyTests`, `TableColumnsTests`, `FeedForYouTests`, `SnippetsFeedbackTests`, `PaperToolsTests`,
 `SettingsTests`, `NotesJourneyTests/testSettingsFromEveryMenuReturnsToItsOrigin`. The Mac's toolbar field and ⌘K are
 checked by building Mac Catalyst (no Catalyst UI-test target).
+
+## Global search — October 25
+
+Fast: Core `swift test --filter "GlobalSearchTests|EverythingBenchTests|FullTextSearchTests|NoteSearchTests"` (tokenizer v2,
+typos, ranking, grouping and collapse, scope, partial results, incremental updates, nothing plaintext on disk, closing,
+recent searches, the sealed ML cache). App-hosted, one Simulator: `-only-testing:ScienceReaderTests/GlobalSearchAppTests`
+and `DeviceSearchTests` (the indexer over real private state, the engine, each result's route, Settings rows exist).
+Slow, opt-in: `-only-testing:ScienceReaderUITests/GlobalSearchJourneyTests` on an iPhone Simulator (six journeys, about
+3 minutes; `testWideShowsTheResultBesideTheList` runs on an iPad, sideways); `TEST_RUNNER_GS_SCREENSHOT_DIR` saves
+`iphone-…`/`ipad-…` screenshots. Launch arguments (Debug, fixture host): `--global-search[=words]`, `--global-search-scoped`
+(In this paper, the open paper), `--search-fixture` (a kept equation explanation). Speed, opt-in, release:
+`swift run -c release FullTextBenchTool everything owner heavy`, or
+`EVERYTHING_BENCH=owner,heavy swift test -c release -Xswiftc -enable-testing --filter EverythingBenchTests` (fails over
+100 ms p95). Rerun `SearchMatchJourneyTests`, `LibraryFullTextJourneyTests` and
+`SnippetsFeedbackTests/testSearchCoversEveryTextOfASnippet` after a tokenizer change.
 
 ## Aligned equations and accents (reader revision 26, device port 14) — October 25
 
