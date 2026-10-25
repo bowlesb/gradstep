@@ -7,8 +7,8 @@ both fingerprints of every pair spilled to disk) and now takes about 0.24 s, wit
 index's privacy notice, including its For you sentence, and serving the index to `all` (2026-10-25). **For you itself is
 still `feed_policy.serving='staff'`**, so its similarity reaches every reader only after [Rollout](#rollout) step 5.
 
-Update, 2026-10-24 UTC: **migration `202610240155_feed_library_similarity.sql` and ranking `feed-heuristic-v3` (written
-and tested locally, not applied to staging, `discover` not deployed)** rank For you by similarity to the reader's
+Update, 2026-10-24 UTC: **migration `202610240155_feed_library_similarity.sql` and ranking `feed-heuristic-v3` (applied to
+staging 2026-10-25 00:08 UTC; the similar tier's sort 0156 at 13:48 UTC and the candidate speed-up 0158 at 14:10 UTC)** rank For you by similarity to the reader's
 library, from the interest index's public gte-small fingerprints, wherever the interest index serves the reader. With
 0154 the owner's 70 papers counted, but their tags are broad areas, so 28 of 50 picks were explained by an author name
 shared with a library paper (mostly namesakes: "Yu Wang", "Lei Zhang", "Di Wu") and 22 by "New in …". See
@@ -313,8 +313,8 @@ about 1 s in `discover` (authentication and rate limit ~0.4 s, candidates ~0.4 s
 first results about 1–1.5 s after sign-in on a good connection. To verify after deploy: the gateway's
 `x_envoy_upstream_service_time` for `worker_feed_candidates_v2` and `discover`'s execution time for `feed=for_you`.
 
-To apply: `python3 scripts/backup.py staging`, `python3 scripts/migrate-supabase.py staging` (0158 after 0156 and
-0157). No function deploy is needed for it (`discover` is unchanged); the app change ships with the next TestFlight build.
+Applied to staging 2026-10-25 14:10 UTC after backup 20261025T141015Z (0158 after 0156 and 0157). No function deploy
+was needed for it (`discover` is unchanged); the app change ships with the next TestFlight build.
 
 ## Specific topics and popularity (owner feedback on build 21, 2026-10-08)
 

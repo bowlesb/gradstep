@@ -68,7 +68,7 @@ migrations 0154 and 0155, `discover`, `chat`, and pipeline worker 00056.
     (ReplayKit doesn't run in the Simulator), the topics chart on real data, related papers on staging shards;
   - the Mac app (it compiles and was uploaded; no Mac UI run).
 
-## Interest index to every reader: notice placed, readiness fixes (2026-10-25; nothing applied or deployed)
+## Interest index to every reader: notice placed, readiness fixes (2026-10-25; 0156–0157 applied 13:48 UTC, website and flip waiting)
 
 The owner approved the interest index's privacy notice and serving it to `all` ("2 and 3 sure"; DECISIONS.md). On a
 branch, for the lead to review and run (steps in INTEREST_INDEX.md "Serving to all"):
