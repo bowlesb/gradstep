@@ -144,7 +144,7 @@ public struct InterestLibraryModel: Sendable {
         }
         if phrases.isEmpty, let node = map.node(topic.id) {
             // No statistics yet, or nothing passed: the map's name, else its own terms (public c-TF-IDF).
-            phrases = node.name.map { [$0] } ?? node.terms.filter { !InterestLabels.isGeneric($0) }
+            phrases = node.name.map { [$0] } ?? Array(node.terms.filter { !InterestLabels.isGeneric($0) }.prefix(2))
         }
         labelCache[topic.id] = (topic.papers, weights, excluded, phrases)
         return phrases

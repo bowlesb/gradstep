@@ -296,12 +296,16 @@ class TextIndex:
 
 
 ENDORSED_BONUS = 1.0  # a phrase the server's KeyBERT terms (real phrase embeddings) chose for one of the papers
+COMMON_WORD_SHARE = 0.02  # a single word in more than 2 % of the pool's papers ("memory", "search") doesn't label a topic
+PHRASE_BONUS = 0.5    # a topic label prefers a two- or three-word phrase over a single common word ("safe", "learned")
 
 
-def pick(order, terms, k, exclude=frozenset()):
+def pick(order, terms, k, exclude=frozenset(), common=None, endorsed=frozenset()):
     picked = []
     for t in order[:200]:
         if not terms.is_concept(t) or t in GENERIC or t in exclude:
+            continue
+        if common is not None and " " not in t and terms.df[t] > common:
             continue
         words = {w for w in t.split(" ") if len(w) >= 4}
         if any(p in t or t in p or words & set(p.split(" ")) for p in picked):
@@ -342,9 +346,10 @@ def topic_terms(papers, state, text, terms, k=3, endorsed=frozenset(), exclude=f
         close.append(dot(ctx, centre) if ctx is not None else 0.0)
     mean = sum(close) / max(1, len(close))
     top = max(scored[0][1] if scored else 0, 1e-6)
-    order = sorted(((t, s / top + 2 * (c - mean) + (ENDORSED_BONUS if t in endorsed else 0)) for (t, s), c in zip(scored, close)),
+    order = sorted(((t, s / top + 2 * (c - mean) + (ENDORSED_BONUS if t in endorsed else 0) + (PHRASE_BONUS if " " in t else 0))
+                    for (t, s), c in zip(scored, close)),
                    key=lambda x: (-x[1], x[0]))
-    return pick([t for t, _ in order], terms, k, exclude)
+    return pick([t for t, _ in order], terms, k, exclude, common=COMMON_WORD_SHARE * terms.n, endorsed=endorsed)
 
 
 def paper_terms(key, counts, state, text, terms, k=5, endorsed=frozenset()):

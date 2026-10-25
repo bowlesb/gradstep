@@ -63,9 +63,13 @@ public enum InterestLabels {
 
     // MARK: Topic labels
 
-    /// The topic's best phrases (statistics indices), best first, at most `k`.
     /// A phrase the server's own per-paper terms chose (KeyBERT with real phrase embeddings) gains this much.
     public static let endorsedBonus = 1.0
+    /// A topic label prefers a two- or three-word phrase over a single common word ("safe", "learned"): measured on the
+    /// owner's library, single words won half the labels without it.
+    public static let phraseBonus = 0.5
+    /// A single word in more than this share of the pool's papers ("memory", "search", "decision") doesn't label a topic.
+    public static let commonWordShare = 0.02
 
     /// The topic's best phrases (statistics indices), best first, at most `k`. `endorsed`: the server's terms for the
     /// topic's papers (lowercase); `excluded`: phrases that already label a larger topic.
@@ -98,19 +102,24 @@ public enum InterestLabels {
         let close = scored.map { t, _ in text.context(t, state: state).map { InterestState.dot($0, centre) } ?? 0 }
         let mean = close.reduce(0, +) / Double(max(1, close.count))
         let top = max(scored.first?.1 ?? 0, 1e-6)
-        let order = zip(scored, close).map { ($0.0, $0.1 / top + 2 * ($1 - mean) + (endorsed.contains(terms.phrase($0.0)) ? endorsedBonus : 0)) }
+        let order = zip(scored, close).map { item, c -> (Int, Double) in
+            let phrase = terms.phrase(item.0)
+            return (item.0, item.1 / top + 2 * (c - mean) + (endorsed.contains(phrase) ? endorsedBonus : 0) + (phrase.contains(" ") ? phraseBonus : 0))
+        }
             .sorted { $0.1 == $1.1 ? terms.phrase($0.0) < terms.phrase($1.0) : $0.1 > $1.1 }.map(\.0)
-        return pick(order, terms: terms, k: k, excluded: excluded)
+        return pick(order, terms: terms, k: k, excluded: excluded, common: commonWordShare * Double(terms.corpusPapers), endorsed: endorsed)
     }
 
     /// Best-first with the concept filter, the generic list and de-duplication (a phrase inside a kept one, or sharing
     /// a word of four letters or more with it: "fine-tuning lora" after "parameter-efficient fine-tuning").
-    static func pick(_ order: [Int], terms: InterestTerms, k: Int, excluded: Set<String> = []) -> [Int] {
+    static func pick(_ order: [Int], terms: InterestTerms, k: Int, excluded: Set<String> = [], common: Double? = nil,
+                     endorsed: Set<String> = []) -> [Int] {
         var picked: [Int] = []
         for t in order.prefix(200) {
             guard terms.isConcept(t) else { continue }
             let phrase = terms.phrase(t)
             guard !isGeneric(phrase), !excluded.contains(phrase) else { continue }
+            if let common, !phrase.contains(" "), Double(terms.documentFrequency(t)) > common { continue }
             let words = Set(phrase.split(separator: " ").map(String.init).filter { $0.count >= 4 })
             if picked.contains(where: { p in
                 let other = terms.phrase(p)
