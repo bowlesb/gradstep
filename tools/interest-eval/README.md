@@ -37,3 +37,9 @@ accepted Gemma terms and an HF token, and is skipped otherwise. voyage-4-lite is
 - `topic_map.py`: nested k-means map (20 / ~size÷150 / ~size÷40), c-TF-IDF labels, lift-based topic selection
   (proposal and relaxed thresholds), generic contrasts, sample per-topic For-you sections and pie charts.
 - `report_tables.py`: renders the JSON outputs as Markdown tables.
+- `topic_rule2.py`, `terms.py`: step 2's specificity-first topic rule and term layer.
+- `fetch_device_inputs.py` (step 3): the published map and term statistics and library papers' public fingerprints,
+  read-only, into `OUT/device/` (never committed).
+- `device_fixtures.py` (step 3): a reference of the device rules (`ScienceReaderCore/Interest`) and the Swift test
+  fixtures: step 2 on the owner's library (anonymised) and a public 38-paper library on the published map. Needs only
+  numpy, scipy and scikit-learn.
