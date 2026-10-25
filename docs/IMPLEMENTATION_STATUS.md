@@ -2,6 +2,13 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+OpenRouter reconciler (pipeline worker revision gradstep-pipeline-00056-wcj, deployed 2026-10-25 04:25 UTC via Cloud
+Build): it now also accepts a record whose model is the dispatched slug without its date. Forcing a retry of the stuck
+2026-10-22 DeepSeek attempt (f92ab6d2, $0.049 held) still ended in `mismatch`, so the date was not the cause. The worker
+does not log what the record named, and no OpenRouter key is on the Mac. After its 12th try it moves to Health ›
+Attention for manual reconciliation. The 2026-10-24 Gemini attempt (9975bf7c) is `not_found` at OpenRouter: the stream
+was cut before the record was written. Next step if this recurs: record the observed model and provider on a mismatch.
+
 AI Explainers on every on-device model reading (TestFlight 91 known gap; branch `worktree-agent-a8df15119d43dcfc0`;
 [decision](DECISIONS.md#explainers-on-every-on-device-model-reading-testflight-91-known-gap-agent-decisions-2026-10-24-reversible),
 DEVICE_PDF_ROUTE.md "Explainers on every model reading"). Neither gap was the converter's port revision: nothing on the
