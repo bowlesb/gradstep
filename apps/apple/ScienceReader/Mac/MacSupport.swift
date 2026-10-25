@@ -51,9 +51,10 @@ enum Platform {
 }
 
 extension ReaderModel {
-    /// The place the Wide shape shows (docs/DESIGN.md › Tall and Wide). A paper's chat sits beside its paper, so the Chat
-    /// tab with a paper's chat is the Paper place there; Chat is the general chat.
-    var widePlace: ReaderTab { tab == .chat && !generalChat ? .paper : tab }
+    /// The place the Wide shape shows (docs/DESIGN.md › Tall and Wide). A paper's chat opened from the paper sits beside
+    /// it (Discuss), so the Chat tab with that chat is the Paper place there; in iPad's Chat place (`chatBesideList`) it is
+    /// beside All chats.
+    var widePlace: ReaderTab { wideDiscuss ? .paper : tab }
 
     /// The library's list beside the open paper, whose row is highlighted there: the iPad's Library place (Library |
     /// paper), the Mac's Browse (Library ⋯ › Show library beside paper).
@@ -129,19 +130,24 @@ extension ReaderModel {
     }
 
     /// A place chosen from the places menu (iPad Wide), the Mac toolbar or View menu. Tall is the tab as it is. Wide: Chat
-    /// is the general chat (a paper's chat is the Paper place's right slot), and Paper is the paper as the left primary
-    /// item, its chat ready to be its own. Each place keeps its selection (the Library's open paper, the Feed's picked
-    /// article). Leaves Settings when it is showing.
+    /// on iPad is the conversation the reader was last in, a paper's included, beside All chats with its row selected
+    /// (owner, 2026-10-24: "it needs to take me to the chat that I was just looking at"); on the Mac it is the general chat
+    /// (a paper's chat is the Paper place's right slot). Paper is the paper as the left primary item, its chat ready to be
+    /// its own. Each place keeps its selection (the Library's open paper, the Feed's picked article). Leaves Settings when
+    /// it is showing.
     func showPlace(_ place: ReaderTab) {
         if !compactLayout {
-            if place == .chat { generalChat = true }
+            if place == .chat {
+                if Platform.isMac || !canUsePaperChat { generalChat = true } else { chatBesideList = true }
+            }
             if place == .paper, chatPaperID != nil { generalChat = false }
         }
         tab = place
     }
 
-    /// Discuss: the paper's chat is open (the paper on the left, the chat on the right).
-    var wideDiscuss: Bool { tab == .chat && !generalChat }
+    /// Discuss: the paper's chat is open (the paper on the left, the chat on the right). A paper's chat in iPad Wide's
+    /// Chat place (`chatBesideList`) is beside All chats instead.
+    var wideDiscuss: Bool { tab == .chat && !generalChat && !chatBesideList }
 
     /// A figure page's choice made outside the paper's own sheets (Navigate's Contents in the left slot), as PaperView
     /// applies it when its sheet closes.
@@ -152,7 +158,7 @@ extension ReaderModel {
         case .paragraph(let paperID, let marker): goToCitedBlock(marker, paperID: paperID)
         case .askInChat(let context, let part): askAboutFigure(context, part: part)
         case .signIn: openSignIn()
-        case .continueChat: tab = .chat; readerChatHidden = false; requestComposerFocus()
+        case .continueChat: continueInChat()
         }
     }
 

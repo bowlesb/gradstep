@@ -154,7 +154,16 @@ final class ReaderModel {
         // Going somewhere from Settings (an explanation, a downloaded paper) leaves it; Done is not needed.
         if tab != oldValue, settingsPresented { settingsPresented = false }
         if tab != oldValue, notes.capturing != nil { notes.capturing = nil }
+        // Leaving Chat ends the Chat place's hold on a paper's chat: from the paper it opens beside it again (Discuss).
+        if tab != .chat { chatBesideList = false }
     } }
+    /// iPad Wide: the open chat is shown in the Chat place, beside All chats, even when it is a paper's chat (owner,
+    /// 2026-10-24: going to Chat "needs to take me to the chat that I was just looking at, and that specific chat should be
+    /// selected… on the left"). False is the iPhone's Chat tab, or Discuss when the chat is a paper's (beside its paper).
+    var chatBesideList = false
+    /// The order of the Chat place's list (All chats beside the conversation), kept for this run while the reader goes
+    /// to other places and back (the list's ⋯ › Sort by).
+    var chatsListSort = ChatHistorySort.default
     /// Wide shape only (docs/DESIGN.md › Tall and Wide, "Two slots"): the list in the left slot beside the paper in the
     /// Paper place. Contents (Navigate) or, on the Mac, Papers (Browse); none is the paper alone.
     var wideList: WideList = .none
@@ -3892,6 +3901,27 @@ final class ReaderModel {
         return chatComposerFocusPending
     }
 
+    /// Opening or moving to a chat (Continue in Chat, Ask in chat, a snippet's Chat, Discuss in chat, New chat). On iPhone
+    /// and iPad the keyboard waits for a tap in the message box (owner, 2026-10-24: "I didn't ask for the keyboard to come
+    /// up necessarily right away… wait for the person to click on the keyboard"), unless the reader was already typing
+    /// (`typing`: Continue in Chat from an explainer whose message box had the keyboard). The Mac has no on-screen
+    /// keyboard: there the message box takes the focus as before.
+    func focusComposerOnOpen(typing: Bool = false) {
+        if Platform.isMac || typing { requestComposerFocus() }
+    }
+
+    /// The explainers' message box (ContextualChatComposer) has the keyboard focus.
+    @ObservationIgnored var contextualComposerFocused = false
+    /// Whether that box had it when its conversation was continued in Chat (promoteContextualChat).
+    @ObservationIgnored private var promotedWhileTyping = false
+
+    /// An explainer's Continue in Chat, once it has closed: the chat (beside the paper in Wide, the Chat tab in Tall).
+    func continueInChat() {
+        tab = .chat; readerChatHidden = false
+        focusComposerOnOpen(typing: promotedWhileTyping)
+        promotedWhileTyping = false
+    }
+
     /// A bibliography entry's "Discuss in chat" (owner feedback, build 21): this paper's chat with the entry quoted in
     /// the message box as Quote in Chat does, the cursor after it, nothing sent. A conversation already under way
     /// keeps its own subject, so the entry starts a new one; an unsent message in a new chat follows the quote.
@@ -3900,10 +3930,12 @@ final class ReaderModel {
         chatPaperID = paper.id; generalChat = false
         if activeConversation != nil { newChat(general: false) }
         tab = .chat; readerChatHidden = false
-        chatQuoteAction(.ask, quote: text.split(whereSeparator: \.isWhitespace).joined(separator: " "))
+        chatQuoteAction(.ask, quote: text.split(whereSeparator: \.isWhitespace).joined(separator: " "), opening: true)
     }
 
-    func chatQuoteAction(_ action: ChatQuoteAction, quote raw: String) {
+    /// `opening`: the action opened the chat from elsewhere (a reference's Discuss in chat), so the keyboard waits for a
+    /// tap (`focusComposerOnOpen`); inside the chat (Quote in Chat) the message box takes the focus.
+    func chatQuoteAction(_ action: ChatQuoteAction, quote raw: String, opening: Bool = false) {
         let quote = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(ChatGenerationRequest.maximumSelectionScalars))
         guard !quote.isEmpty else { return }
         let draft = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3911,12 +3943,16 @@ final class ReaderModel {
         case .ask:
             // A reference the reader completes with their question; an existing draft follows it.
             chatInput = "About “\(quote)”: " + draft
-            requestComposerFocus()
+            if opening { focusComposerOnOpen() } else { requestComposerFocus() }
         case .explain, .define:
             // Explain is the reader's (an equation gets the equation prompt); Define is chat-only.
             let prompt = action == .explain ? SelectionAction.define.prompt(quote) : "Define the terms and symbols in: \(quote)"
             // Never overwrite a draft: with one, the question waits in the composer instead.
-            guard draft.isEmpty else { chatInput = prompt + "\n\n" + draft; requestComposerFocus(); return }
+            guard draft.isEmpty else {
+                chatInput = prompt + "\n\n" + draft
+                if opening { focusComposerOnOpen() } else { requestComposerFocus() }
+                return
+            }
             chatInput = prompt
             if !isSignedIn { openSignIn(); return }
             let scope = sessionID, composer = chatComposerID
@@ -4203,11 +4239,11 @@ final class ReaderModel {
         switch outcome {
         case .paragraph(let paperID, let marker): goToCitedBlock(marker, paperID: paperID)
         case .askInChat(let context): askAboutEquation(context)
-        case .continueChat: tab = .chat; readerChatHidden = false; requestComposerFocus()
+        case .continueChat: continueInChat()
         }
     }
 
-    /// Ask in chat: a new chat about the paper with the equation as its passage and the composer focused, nothing sent;
+    /// Ask in chat: a new chat about the paper with the equation as its passage, nothing sent (the keyboard waits for a tap);
     /// the reader's question follows "About Equation (4) [¶12]: ".
     func askAboutEquation(_ context: EquationViewContext) {
         guard let paper = papers.first(where: { $0.id == context.paperID }) ?? (selectedPaper?.id == context.paperID ? selectedPaper : nil) else { return }
@@ -4224,7 +4260,7 @@ final class ReaderModel {
             scope.manifestSHA256 == context.bundle.manifestSHA256 ? PassageOrigin(scope: scope, selection: selection, quote: context.latex) : nil
         }
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: context.latex, action: nil, origin: origin, prefix: true) }
-        if !isSignedIn { openSignIn() } else { requestComposerFocus() }
+        if !isSignedIn { openSignIn() } else { focusComposerOnOpen() }
     }
 
     /// A snippet's or quotation's Chat (owner, 2026-10-21: "In the snippet options when viewing it in a figure, there
@@ -4276,7 +4312,7 @@ final class ReaderModel {
             imageSent: attachment != nil)
         chatInput = record.comment
         tab = .chat; readerChatHidden = false
-        if !isSignedIn { openSignIn() } else { requestComposerFocus() }
+        if !isSignedIn { openSignIn() } else { focusComposerOnOpen() }
     }
 
     /// Back to note from a snippet's chat.
@@ -4489,8 +4525,8 @@ final class ReaderModel {
     /// What a figure page asked for as it closed; its container applies it once the sheet has gone.
     func takeFigureOutcome() -> FigureViewOutcome? { defer { pendingFigureOutcome = nil }; return pendingFigureOutcome }
 
-    /// Ask in chat: a new chat about the paper with the figure's caption (or one part's text) as its passage and the
-    /// composer focused, nothing sent; the question names the figure, so its image goes with it.
+    /// Ask in chat: a new chat about the paper with the figure's caption (or one part's text) as its passage, nothing sent
+    /// (the keyboard waits for a tap); the question names the figure, so its image goes with it.
     func askAboutFigure(_ context: FigureViewContext, part: FigureWalkthrough.Section?) {
         guard let paper = papers.first(where: { $0.id == context.paperID }) ?? (selectedPaper?.id == context.paperID ? selectedPaper : nil) else { return }
         if selectedPaper?.id != paper.id { select(paper) }
@@ -4503,7 +4539,7 @@ final class ReaderModel {
         chatInput = "About \(context.label)" + (part.map { ", \($0.name)" } ?? "") + (marker.map { " [¶\($0)]" } ?? "") + ": "
         tab = .chat; readerChatHidden = false
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: nil, origin: nil, prefix: true) }
-        if !isSignedIn { openSignIn() } else { requestComposerFocus() }
+        if !isSignedIn { openSignIn() } else { focusComposerOnOpen() }
     }
 
 
@@ -6073,6 +6109,7 @@ extension ReaderModel {
         let allowance = max(0, ChatGenerationRequest.maximumSelectionScalars - bounded.unicodeScalars.count - 52)
         let quote = bounded + (explanation.isEmpty || allowance == 0 ? "" : "\n\nEarlier AI explanation (may contain errors):\n" + String(explanation.unicodeScalars.prefix(allowance)))
         pendingChatProfiles[current.composer] = chatProfile
+        promotedWhileTyping = contextualComposerFocused
         if promotedChatContexts.count >= 8 { promotedChatContexts.removeValue(forKey: promotedChatContexts.keys.first!) }
         promotedChatContexts[current.composer] = PromotedChatContext(label: current.label, text: String(explanation.prefix(32_000)), quote: quote, origin: current.origin, image: image,
                                                                          paperExplainer: paperExplainer)
@@ -6092,7 +6129,11 @@ extension ReaderModel {
         generalChat = false; chatPaperID = paperID; pendingSelection = nil
         let anchor = TextAnchor.contextual(manifestSHA256: manifest, elementID: element, quote: quote)
         let origin = anchor.map { PassageOrigin(documentID: paperID, anchor: $0) }
-        if let composer = contextualComposers[key], chatWorkspace.selectDraft(composer) != nil {
+        // The item's composer is kept when it is still the one shown, even with nothing typed (selectDraft finds only
+        // drafts with text): in iPad Wide the explainer runs this again as it closes for Continue in Chat, which reset an
+        // empty promoted chat to a new one ("New chat" instead of the figure's chat).
+        if let composer = contextualComposers[key],
+           chatWorkspace.composerID(in: chatContext) == composer || chatWorkspace.selectDraft(composer) != nil {
             branchSelections.reconcile(with: privateState, observing: activeConversation)
         } else if let saved = conversationSummaries.first(where: {
             $0.documentID == paperID && $0.anchor?.manifestSHA256 == manifest && $0.anchor?.elementID == element && $0.anchor?.quote == quote

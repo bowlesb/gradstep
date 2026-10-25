@@ -190,9 +190,13 @@ final class ReaderNavigationTests: XCTestCase {
             let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
             XCTAssertTrue(composer.waitForExistence(timeout: 8), "This paper's chat opens")
             waitUntil("The entry is quoted in the message box") { (composer.value as? String)?.hasPrefix("About “A. Chowdhery") == true }
-            waitUntil("The cursor is in the message box, ready to type") { app.keyboards.firstMatch.exists }
+            // Owner, 2026-10-24 (F6): the keyboard waits for a tap in the message box.
+            XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 2), "Discuss in chat leaves the keyboard down")
             XCTAssertTrue((composer.value as? String)?.hasSuffix("”: ") == true, "\(composer.value ?? "")")
-            capture("Discuss in chat: the reference quoted, ready to type (\(appearance))")
+            capture("Discuss in chat: the reference quoted (\(appearance))")
+            // A tap after the quote's end puts the cursor there.
+            composer.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
+            waitUntil("A tap puts the cursor in the message box") { app.keyboards.firstMatch.exists }
             app.typeText("Is this the PaLM paper?")
             waitUntil("Typing continues after the quote") { (composer.value as? String)?.hasSuffix("”: Is this the PaLM paper?") == true }
             XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,

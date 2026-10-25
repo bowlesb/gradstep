@@ -40,7 +40,13 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     model control (the model's name: Default or Choose model, whose page also has the length, Use for new chats and
     About; owner, build 69: one control, not a model button and an options slider), dictation and Send/Stop on the
     right, 10 pt above the tab bar on the bottom band (`chromeBand(.bottom)`); while the keyboard is up on iPhone a
-    hide-keyboard button sits inside it. Answer options stay in the chat's "…".
+    hide-keyboard button sits inside it. Answer options stay in the chat's "…". **The keyboard waits for a tap** (owner,
+    2026-10-24: "wait for the person to click on the keyboard before bringing the keyboard up"): opening or moving to a
+    chat — Continue in Chat, Ask in chat about a figure or equation, a snippet's Chat, a reference's Discuss in chat, New
+    chat, the Chat place or tab — never focuses the message box on iPhone or iPad; Continue in Chat keeps the keyboard up
+    only when it was already up in the explainer's box. Actions inside the chat or explainer whose purpose is to type
+    there (Quote in Chat, a tapped follow-up or starter, the explainer's Chat button and Ask about this part, Chat about
+    Equation) still put the cursor in the box. The Mac, with no on-screen keyboard, focuses as before.
   - *Paper*: the page sits between the title bar and the tab bar's room; the reader's floating controls (selection
     actions, Back, a reference's outcome) float over its last lines on the bottom band, which also fades the page
     under the tab bar. The page's viewport never changes size as controls come and go: reading positions and
@@ -138,6 +144,14 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     adds a paper. Read opens the paper in the right slot, still the Feed; its list toggle promotes it as in the Library.
     Listen (the Feed's podcasts) is one slot with its chips and ⋯ in its row.
   - *Chat* = All chats | conversation (like Messages) and *Snippets* = Collections | collection, both with the divider.
+    Chat opens on the conversation the reader was last in, a paper's chat included (owner, 2026-10-24: "it needs to take
+    me to the chat that I was just looking at, and that specific chat should be selected… on the left"): its row is
+    tinted (the Feed's picked-row accent, 12%), marked selected for VoiceOver and scrolled into view, and picking a row
+    shows it there, the list staying (`chatBesideList`; on the Mac Chat is still the general chat). A paper's chat says
+    its paper under the title. The list's ⋯ (after its search field) has **Sort by** (Last read, Started, Messages,
+    Conversation, Paper; kept for the run), as the Library list's ⋯ has; the rows have no Columns. Beside the list the
+    chat's ⋯ and title menu have no All chats: no sheet repeats the list (owner, same day: "we're never gonna have this
+    middle thing show up"). A paper's chat opened from the paper (Ask, Continue in Chat, a selection) is Discuss.
   - *Turning or resizing* (rotation, Stage Manager, fold/unfold) keeps the place, the selection, the open paper and its
     place, the open companion and any draft. Tall's Chat about a paper becomes Discuss; Discuss turned upright is the
     Chat tab with Back to the paper; the Library or Feed with a paper beside them upright are those tabs (the paper is the

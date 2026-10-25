@@ -46,6 +46,23 @@ mode's section). UI test `PaperToolsTests.testContentsMarksTheSectionBeingRead` 
 `testContentsTabsListFiguresTablesAndEquations` (its X assertion was stale since build 78 removed the figure page's X on
 iPhone/iPad; now Mac-only).
 
+Owner session 2026-10-24 (iPad, Wide; F6–F8, [decision](DECISIONS.md#chat-the-keyboard-waits-chat-keeps-the-conversation-no-all-chats-sheet-beside-the-list-owner-session-2026-10-24-testflight-91)):
+**the keyboard waits for a tap** — Continue in Chat, Ask in chat, a snippet's Chat, Discuss in chat and New chat no
+longer focus the message box on iPhone/iPad (Continue in Chat keeps the keyboard only if it was up in the explainer; the
+Mac unchanged); **Chat keeps the conversation** — iPad Wide's Chat place shows the conversation last open (a paper's chat
+too) beside All chats, its row tinted, selected and scrolled into view, and a picked paper chat stays there instead of
+leaving for Discuss; **no All chats sheet beside the list** — the chat's ⋯ and title menu drop it there, and the list's
+own ⋯ gains Sort by. Also fixed: in Wide, Continue in Chat with nothing typed in the explainer landed on "New chat"
+(`beginContextualChat` ran again as the explainer closed and replaced the empty promoted composer). New UI tests
+`IPadShapesJourneyTests.testContinueInChatWaitsForATapAndChatShowsThatChatSelected` and
+`testAllChatsIsTheListBesideTheChatWithItsOwnSortBy` (iPad Pro 13-inch (M5)) and
+`FigureViewJourneyTests.testContinueInChatLeavesTheKeyboardDownUntilTheMessageBoxIsTapped` (iPhone 17 Pro) failed before
+the change and pass after; `ReaderNavigationTests.testReferenceActionsHaveNoTitleAndDiscussInChatQuotesTheEntry` and
+`WorkflowJourneyTests.testUnsentDraftsCanBeReopenedWithoutReplacingEachOther` were updated for the tap and pass. Also
+pass: IPadShapes explainer-from-Library, general chat sideways, places menu, turning, Read/Discuss;
+ChatHistoryTableTests (6); FigureView walkthrough and Ask in chat. Screens: `.artifacts/visual/f6-f8-after/`.
+Not yet on a device.
+
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 Release gate on the merged main: `npm test`, `npm run test:imports` 15/15, `swift test` 451 + 66 XCTest, all pass; the

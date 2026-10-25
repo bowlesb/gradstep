@@ -1153,10 +1153,11 @@ final class WorkflowJourneyTests: XCTestCase {
         let app = launch()
         app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        // New chat leaves the keyboard down until the message box is tapped (owner, 2026-10-24).
         app.buttons["New chat"].tap()
-        input.typeText("First unsent question")
+        input.tap(); input.typeText("First unsent question")
         app.buttons["New chat"].tap()
-        input.typeText("Second unsent question")
+        input.tap(); input.typeText("Second unsent question")
         for title in ["First unsent question", "Second unsent question"] {
             app.buttons["Chat history"].tap()
             XCTAssertTrue(app.staticTexts["Unsent drafts"].waitForExistence(timeout: 5))
