@@ -257,11 +257,15 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
       }
       case 'cells': {
         const node = withBlock('div', 'table', o => {
-          // The caption first: equations are indexed in document order.
+          // The caption first (or after the table when it is printed below it): equations are indexed in document order.
           const caption = cleanText(lb.caption);
-          const captionChildren = !caption ? [] : lb.captionMarked !== undefined ? content(lb.captionMarked, o) : [caption];
+          const captionOf = () => !caption ? [] : lb.captionMarked !== undefined ? content(lb.captionMarked, o) : [caption];
+          const captionChildren = lb.captionAfter ? [] : captionOf();
           const rows = lb.rows.map(row => el('tr', {}, row.map(cell => el('td', cell.span > 1 ? { colspan: String(Math.min(cell.span, 999)) } : {}, content(cell.marked, o)))));
-          return [...(captionChildren.length ? [el('p', { class: 'reader-caption' }, captionChildren)] : []), el('table', {}, [el('tbody', {}, rows)])];
+          const after = lb.captionAfter ? captionOf() : [];
+          const table = el('table', {}, [el('tbody', {}, rows)]);
+          if (after.length) return [table, el('p', { class: 'reader-caption' }, after)];
+          return [...(captionChildren.length ? [el('p', { class: 'reader-caption' }, captionChildren)] : []), table];
         }, { class: 'reader-table' });
         at(node, reading.places.get(lb));
         if (node) top.push(node); break;

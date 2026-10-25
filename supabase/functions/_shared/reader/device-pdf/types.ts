@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 12;
+export const DEVICE_PDF_PORT_REVISION = 13;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -142,6 +142,14 @@ export interface DevicePDFInput {
   compounds?: boolean;
   /** A glyph returning to the left below its line's own text starts a new line, whatever its scripts widened (linesOf). */
   lineReturns?: boolean;
+  /** Table columns from the lines with the most cells (tables.TableOptions.columns). */
+  tableColumns?: boolean;
+  /** A table cell of several lines read line by line (tables.TableOptions.cellLines). */
+  cellLines?: boolean;
+  /** Table cells separated by gaps of 0.45 glyph heights, not 0.6 (tables.TableOptions.narrowGaps). */
+  narrowCellGaps?: boolean;
+  /** A table's caption printed under it follows the table in the reading (convert, emit). */
+  tableCaptionBelow?: boolean;
 }
 
 export interface Formula {

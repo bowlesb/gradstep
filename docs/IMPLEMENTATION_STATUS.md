@@ -51,6 +51,20 @@ revision's reading; own-PDF reading sends only `format`, `source`, `text`) pass,
 iOS Simulator (the bundle step stops only at the gitignored on-device model pack, not present in this worktree).
 **Server not deployed:** deploy `chat` to staging before a build with the app change ships (an older server answers
 `invalid_request` to `source: "local"`). No migration. Not run in the Simulator or on a device.
+On-device PDF route, tables (converter port revision 13; [review](reviews/DEVICE_PDF_TABLES_20261024.md)): three
+converter rules on in the app — `tableColumns` (columns from the body's grid, so spanning headers no longer merge the
+columns under them), `cellLines` (a wrapped cell read line by line), `tableCaptionBelow` (a caption printed under its table
+follows it). Real recorded runs of the 75 corpus papers with tables (no recogniser), against replays of the same records
+with the rules off, test / dev / venue: cell F1 0.691 → 0.747 / 0.696 → 0.783 / 0.651 → 0.750, whole rows 0.452 → 0.499 /
+0.587 → 0.652 / 0.376 → 0.488, table word F1 +0.040 / +0.053 / +0.071, whole blocks +0.005 / +0.006 / +0.014, inline
+found +0.020 / +0.007 / +0.010, text F1 ±0 / ±0 / +0.002; shared-content F1 −0.0008 / −0.0005 / −0.0009. On 5,285
+labelled tables from the desktop factory: cell F1 0.744 → 0.917 (dev split), 0.784 → 0.931 (test). `narrowCellGaps` built
+and off (loses 0.003 cell F1 on venue). Causes: most "flattened" tables were algorithms, prompts and code that the HTML
+writes as tables (58 of 91; now scored as truth), 34 real tables lacked a table box; most "cells wrong" were the caption's
+place and the box's contents, and the grid itself (columns merged under spanning headers), which a new cell F1 measure
+shows. No structure model trained; proposal in the review. New: cell and row F1 in `device-route-accuracy.mjs`,
+`scripts/device-route-table-bench.{py,mjs}`. Evidence: `npm test` passes; `swift test` 451 tests and 66 XCTest (1 skipped) pass. Not verified: the recogniser in
+these runs, any iPhone, the Simulator. Needs a TestFlight build to reach the app.
 
 For you by similarity to the library: new additive migration `202610240155_feed_library_similarity.sql` (**applied to staging 2026-10-25 00:08 UTC after encrypted backup 20261025T000815Z**) and ranking `feed-heuristic-v3` in `_shared/feed-rank.ts` (**`discover` deployed to staging**; the owner's live candidates rank 28 like / 11 popular on Hugging Face / 5 author / 3 explore / 3 category; workflow checks 18 pass, 1 fail = budget.health at 83 % of the $40 platform month, unrelated). With 0154 the
 owner's library counted, but their tags are broad areas, so 28 of 50 picks were "By <author>" (mostly namesakes) and 22

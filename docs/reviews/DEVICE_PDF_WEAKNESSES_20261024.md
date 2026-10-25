@@ -216,7 +216,8 @@ full corpora's recogniser busy seconds fell 14 %, 3 % and 11 %.
 3. **Recogniser time**: cap a reading's length by its crop's width (a reading of more than 0.8 tokens per pixel of width
    is always a runaway on the test corpus, 10 of 8,307 crops, each holding a batch of eight to 512 steps), and measure on a
    quiet machine or a phone; 73 % of the wall time is the wait for the recogniser after the last page.
-4. **Tables** (cells wrong 0.52, flattened 0.37): a structure model, as planned before.
+4. **Tables** (cells wrong 0.52, flattened 0.37): a structure model, as planned before. (Done first by rule, port
+   revision 13: [tables review](DEVICE_PDF_TABLES_20261024.md); the structure model is proposed there, not built.)
 
 ## 6. Checks
 

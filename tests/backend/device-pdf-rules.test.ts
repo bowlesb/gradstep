@@ -8,6 +8,7 @@ import { validateHTML } from '../../supabase/functions/_shared/reader/html-valid
 import { det, extent, host, input, line, page } from './device-pdf/synthetic.ts';
 import { glyphsAgree, renderMath, tidyLatex } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
 import { venueNotice } from '../../supabase/functions/_shared/reader/device-pdf/structure.ts';
+import { tableCells, type Cell } from '../../supabase/functions/_shared/reader/device-pdf/tables.ts';
 import { aliasFont, aliasText } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
 import { composeAccents, hyphenatedPairs, joinLines, lineText, linesOf, typicalGap, useCompounds, useLigatures, useLineBands, useWordGaps } from '../../supabase/functions/_shared/reader/device-pdf/geometry.ts';
 import type { Glyph, Region } from '../../supabase/functions/_shared/reader/device-pdf/types.ts';
@@ -322,4 +323,40 @@ test('reuse recognitions: a formula whose glyphs repeat an earlier one is not re
   assert.equal(on.latex[1], on.latex[0]);
   assert.equal(on.latex[3], on.latex[0]);
   assert.equal(on.html.match(/reader-equation reader-display/g)?.length, off.html.match(/reader-equation reader-display/g)?.length);
+});
+
+test('table columns: the body\'s grid sets the columns, a spanning header spans them; the reference merges them', () => {
+  const t = [...line('Model', 60, 100), ...line('Accuracy', 150, 100),
+    ...line('Top1', 150, 115), ...line('Top5', 185, 115),
+    ...line('Dense', 60, 130), ...line('91.0', 150, 130), ...line('97.1', 185, 130),
+    ...line('Sparse', 60, 145), ...line('91.5', 150, 145), ...line('97.4', 185, 145)];
+  const text = (row: Cell[]) => row.map(([gl, span]) => gl.map(g => g.text).join('') + (span > 1 ? `/${span}` : ''));
+  assert.deepEqual(tableCells(t)!.map(text), [['Model', 'Accuracy'], ['', 'Top1Top5'], ['Dense', '91.097.1'], ['Sparse', '91.597.4']],
+    'the reference: the header bridges the two result columns into one');
+  assert.deepEqual(tableCells(t, { columns: true })!.map(text), [['Model', 'Accuracy/2'], ['', 'Top1', 'Top5'], ['Dense', '91.0', '97.1'], ['Sparse', '91.5', '97.4']]);
+  // narrowGaps: columns 5.5 pt apart (0.55 of a 10 pt glyph height) are two cells; the reference needs more than 0.6.
+  const tight = [...line('Model', 60, 100), ...line('Acc', 90.5, 100), ...line('Cost', 200, 100), ...line('Dense', 60, 115), ...line('91.0', 90.5, 115),
+    ...line('1.0', 200, 115), ...line('Light', 60, 130), ...line('91.5', 90.5, 130), ...line('0.4', 200, 130)];
+  assert.deepEqual(tableCells(tight)!.map(text), [['ModelAcc', 'Cost'], ['Dense91.0', '1.0'], ['Light91.5', '0.4']], 'the reference merges the two');
+  assert.deepEqual(tableCells(tight, { narrowGaps: true })!.map(text), [['Model', 'Acc', 'Cost'], ['Dense', '91.0', '1.0'], ['Light', '91.5', '0.4']]);
+});
+
+test('cell lines and captions below: a wrapped cell reads line by line; a caption printed under its table follows it', () => {
+  const L = 60;
+  const table = [...line('Model', L, 100), ...line('Acc', 150, 100), ...line('Cost', 200, 100),
+    ...line('Dense', L, 115), ...line('91.0', 150, 115), ...line('1.0', 200, 115),
+    ...line('Sparse', L, 130), ...line('91.5', 150, 130), ...line('0.4', 200, 130), ...line('mixture', L, 141)];
+  const caption = line('Table 1: Results on the benchmark.', L, 165, 9);
+  const pages = [page([...table, ...caption], [det('table', extent(table, 2)), det('caption', extent(caption))])];
+  const read = (rules: object) => new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', ...rules }), host(pages)).members.get('index.html')!);
+  const off = read({});
+  assert.ok(!off.includes('Sparse mixture'), 'the reference sorts the two lines\' glyphs by x together');
+  assert.match(off, /<p class="reader-caption">Table 1: Results on the benchmark\.<\/p><table>/);
+  const on = read({ cellLines: true, tableCaptionBelow: true });
+  assert.match(on, /<td>Sparse mixture<\/td>/);
+  assert.match(on, /<\/table><p class="reader-caption">Table 1: Results on the benchmark\.<\/p>/);
+  // A caption above its table stays first.
+  const above = [page([...line('Table 2: Above.', L, 80, 9), ...table], [det('caption', extent(line('Table 2: Above.', L, 80, 9))), det('table', extent(table, 2))])];
+  const first = new TextDecoder().decode(composeDevicePDFReader(input(1, { title: 'T', tableCaptionBelow: true }), host(above)).members.get('index.html')!);
+  assert.match(first, /<p class="reader-caption">Table 2: Above\.<\/p><table>/);
 });

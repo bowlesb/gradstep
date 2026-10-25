@@ -449,6 +449,11 @@ for entire PDFs is too ambitious" and the Mathpix research
   be the scorer's on inspection. The earlier rule that a lower gate is the owner's choice is respected in that the gate is
   unchanged; turning `verifyGlyphs` off (one name in `DeviceModelReading.rules`) restores the previous behaviour.
   `displayLines` is built and off (more displays found, slightly lower typeset precision on every corpus).
+- 2026-10-24 (tables; agent decisions, reversible, [review](reviews/DEVICE_PDF_TABLES_20261024.md)): `tableColumns`,
+  `cellLines` and `tableCaptionBelow` are on in the app (each won on all three corpora's cell, row or table-word measures;
+  shared-content F1 moves by under 0.001). `narrowCellGaps` is built and off (wins on labelled tables and the arXiv test
+  corpus, loses slightly on venue PDFs). No table structure model for now: the rules reach 0.92–0.93 cell F1 on labelled
+  tables and the remaining table losses on papers are mostly layout boxes; the proposal waits for a free GPU.
 
 
 ## Subfigures: rough zoom is the goal (owner, 2026-10-21)

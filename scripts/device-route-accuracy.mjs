@@ -210,6 +210,51 @@ export function lcsPairs(a, b, maxD = 12000) {
 }
 
 const WORD = /[\p{L}]+/gu;
+/** A table's grid as rows of cell keys: each cell's letters and digits from its text (formulas, which the two readers
+ * show differently, and pictures left out), lower case; cells with none are left out. Rows of a nested table are not
+ * the outer table's. */
+function tableRows(table) {
+  const rows = [];
+  const cellText = n => {
+    if (n.type === 'text') return n.data;
+    if (n.type !== 'tag' || n.attribs['data-reader-equation'] !== undefined || n.name === 'img' || (n.attribs.class ?? '').includes('reader-tag')) return ' ';
+    return n.children.map(cellText).join(n.name === 'br' ? ' ' : '');
+  };
+  const walk = n => {
+    if (n.type !== 'tag' && n.type !== 'root') return;
+    if (n.type === 'tag' && n.name === 'tr') {
+      const cells = n.children.filter(c => c.type === 'tag' && (c.name === 'td' || c.name === 'th'))
+        .map(c => (cellText(c).normalize('NFC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join(' ')).filter(Boolean);
+      if (cells.length) rows.push(cells);
+      return;
+    }
+    for (const c of n.children ?? []) walk(c);
+  };
+  walk(table);
+  return rows;
+}
+/** Cells and rows of the truth's tables found again in the device's: each truth table paired with the device table
+ * sharing most of its cells (at least a fifth), then cells (a cell's letters and digits) and whole rows matched as
+ * multisets within the pair. Recall over all truth tables (a table the device did not read as cells counts as missed),
+ * precision over the device's table cells. */
+export function tableCellScores(truthBlocks, deviceBlocks) {
+  const T = truthBlocks.filter(b => b.kind === 'table' && b.rows?.length), D = deviceBlocks.filter(b => b.kind === 'table' && b.tag !== 'figure' && b.rows?.length);
+  const bagMatch = (a, b) => { const m = new Map(); for (const x of b) m.set(x, (m.get(x) ?? 0) + 1); let n = 0; for (const x of a) if (m.get(x) > 0) { n++; m.set(x, m.get(x) - 1); } return n; };
+  const used = new Set();
+  const out = { truth_cell_count: 0, device_cell_count: 0, cells_matched: 0, truth_rows: 0, device_rows: 0, rows_matched: 0 };
+  for (const d of D) { out.device_cell_count += d.rows.flat().length; out.device_rows += d.rows.length; }
+  for (const t of T) {
+    const cells = t.rows.flat();
+    out.truth_cell_count += cells.length; out.truth_rows += t.rows.length;
+    let best = null, bestN = 0;
+    for (const d of D) { if (used.has(d)) continue; const n = bagMatch(cells, d.rows.flat()); if (n > bestN) { best = d; bestN = n; } }
+    if (!best || bestN < 0.2 * cells.length) continue;
+    used.add(best);
+    out.cells_matched += bestN;
+    out.rows_matched += bagMatch(t.rows.map(r => r.join(' | ')), best.rows.map(r => r.join(' | ')));
+  }
+  return out;
+}
 /** A bundle's page as blocks of tokens in reading order: words (letters only, lower case) and formulas. */
 export function readBundle(html, { device = false } = {}) {
   const root = parseHTML(html);
@@ -250,7 +295,7 @@ export function readBundle(html, { device = false } = {}) {
         const cut = tokens.findIndex((t, i) => (t.w === 'cited' && tokens[i + 1]?.w === 'by') || (t.w === 'external' && tokens[i + 1]?.w === 'links'));
         if (cut >= 0) tokens = tokens.slice(0, cut);
       }
-      blocks.push({ id: n.attribs['data-reader-block'], kind, tag: n.name, tokens });
+      blocks.push({ id: n.attribs['data-reader-block'], kind, tag: n.name, tokens, ...(kind === 'table' ? { rows: tableRows(n) } : {}) });
       return;
     }
     for (const c of n.children ?? []) walk(c);
@@ -406,6 +451,7 @@ export function compare(truthBlocks, deviceBlocks) {
   const tableWords = bs => bs.filter(b => b.kind === 'table').flatMap(b => b.tokens.filter(t => t.w).map(t => id(t.w)));
   const ttw = tableWords(truthBlocks), dtw = tableWords(deviceBlocks);
   tables.word_f1 = round(2 * (lcsPairs(ttw, dtw)?.length ?? 0) / Math.max(1, ttw.length + dtw.length));
+  Object.assign(tables, tableCellScores(truthBlocks, deviceBlocks));
   const figures = { truth: truthBlocks.filter(b => b.kind === 'figure').length, device: deviceBlocks.filter(b => b.kind === 'figure').length };
   return { text, order, headings, equations: eq, tables, figures, misses, unpaired, pairs: pairRecords };
 }
@@ -450,7 +496,10 @@ async function score() {
       block_recall: mean(r => r.order.block_recall), whole_blocks: mean(r => r.order.whole_blocks), adjacent_in_order: mean(r => r.order.adjacent_in_order),
       pairs_in_order: mean(r => r.order.pairs_in_order), headings_recall: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.truth))),
       headings_precision: round(sum(r => r.headings.matched) / Math.max(1, sum(r => r.headings.device))),
-      equations: total, tables: { truth: sum(r => r.tables.truth), cells: sum(r => r.tables.device_cells), images: sum(r => r.tables.device_images), word_f1: mean(r => r.tables.word_f1) },
+      equations: total, tables: { truth: sum(r => r.tables.truth), cells: sum(r => r.tables.device_cells), images: sum(r => r.tables.device_images), word_f1: mean(r => r.tables.word_f1),
+        ...(() => { const g = k => sum(r => r.tables[k] ?? 0), f1 = (m, t, d) => round(2 * g(m) / Math.max(1, g(t) + g(d)));
+          return { cell_recall: round(g('cells_matched') / Math.max(1, g('truth_cell_count'))), cell_precision: round(g('cells_matched') / Math.max(1, g('device_cell_count'))),
+            cell_f1: f1('cells_matched', 'truth_cell_count', 'device_cell_count'), row_f1: f1('rows_matched', 'truth_rows', 'device_rows') }; })() },
       figures: { truth: sum(r => r.figures.truth), device: sum(r => r.figures.device) } };
   };
   const aggregate = aggregateOf(rows);
