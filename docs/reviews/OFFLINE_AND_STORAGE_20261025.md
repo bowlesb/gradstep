@@ -103,7 +103,7 @@ saves it again on Try again without asking twice. The gaps:
 | Model download, disk nearly full | Fails after downloading: "Not enough free space on this device for the model." | Refused before downloading: "…Free up 583 MB and try again." | UI `testAFullDiskIsSaidBeforeTheModelDownloads`; app `testTheModelDownloadSaysHowMuchToFreeBeforeDownloading` |
 | Model install fills the disk | Raw error or "couldn’t be prepared" | Out of space; nothing half-installed; installs once space is freed | Core `theModelInstalledOnAFullDiskLeavesNothingHalfDone` |
 | Chat question on a full disk | "This operation could not finish. Your existing saved data has been preserved." | "This device is out of space. Free up 120 MB…"; the question stays in the box; sends once later | UI `testAChatOnAFullDiskKeepsTheQuestionAndSendsOnceThereIsRoom`; Core `theEncryptedStoreFailsCleanlyWhenFullAndRecoversWhenSpaceIsFreed` |
-| Draft typed on a full disk | "Draft not saved on this device…" | Unchanged; the last saved draft is what reopens | Core `aDraftSavedOnAFullDiskKeepsTheLastSavedText` |
+| Draft typed on a full disk | "Draft not saved on this device. Try saving it again." | "Draft not saved: this device is out of space."; the last saved draft is what reopens | Core `aDraftSavedOnAFullDiskKeepsTheLastSavedText`; app `testSyncSaysOfflineAndResumesByItself`; seen in UI `testAChatOnAFullDisk…` |
 | PDF or paper saved on a full disk | "could not be saved securely" / "(storageUnavailable)" + PDF offer | Out of space with the amount; others still read; nothing half-written | Core `aPDFSavedOnAFullDiskSaysHowMuchToFreeAndKeepsTheOthers`; app (fallback `.space`) |
 | Crash during a paper/PDF write | Hidden temp file (≤ 64 MB) kept forever | Removed when the store next opens | Core `aCrashedWritesTemporaryFileIsSweptAtOpen` |
 | AI explanation saved on a full disk | Lost silently, still listed | Says so; stays open for the session; not listed | Not automated (one `do/catch`) |
@@ -141,9 +141,22 @@ a failed offline question automatically once the network returns (spends credits
 - The reconnect hook end to end with a signed-in account (the fixtures that run offline have no sync).
 - The physical iPhone is paused at the owner's request; nothing was run on it.
 
-## Evidence
+## Evidence (2026-10-25, worktree branch, Debug)
 
-Screenshots under `.artifacts/offline-storage-20261025/`. Commands: `swift test --filter StorageFullTests` in
-`apps/apple/ScienceReaderCore`; `xcodebuild test … -only-testing:ScienceReaderTests/OfflineAndStorageTests` and
-`-only-testing:ScienceReaderUITests/OfflineAndStorageJourneyTests` on an iPhone Simulator
-(`TEST_RUNNER_GS_SCREENSHOT_DIR` for screenshots).
+- **Core** (`swift test` in `apps/apple/ScienceReaderCore`): 492 Swift Testing tests in 67 suites and 99 XCTest
+  cases pass, including `StorageFullTests` (9 tests, 11 cases, real ENOSPC on a 20 MB APFS disk image). Before the
+  store fix, `aStoreSavedEarlierOpensOnAFullDisk` failed at open with `DatabaseFailure(4618)` (SQLITE_IOERR_SHMOPEN),
+  then `DatabaseFailure(13)` (SQLITE_FULL) once the journal files existed.
+- **App-hosted** (iPhone 17 Pro Max Simulator, iOS 26.4): `OfflineAndStorageTests` 8/8; `ResilienceTests`,
+  `ArxivCompilerFailureTests`, `DevicePDFFetcherTests`, `SourceMetadataReporterTests`, `PDFUploadTests` pass.
+  `ChatGenerationTests.testDiscussReferenceQuotesTheEntryInThisPapersChatWithoutSending` fails on "The message box
+  takes the focus, once": unrelated and pre-existing (the 2026-10-24 owner change, "the keyboard waits for a tap" on
+  iPhone and iPad, made `discussReference` stop requesting focus there; the test still expects it).
+- **Journeys** (same Simulator): `OfflineAndStorageJourneyTests` 6/6 (138 s), and the existing
+  `ResilienceJourneyTests` 10/10 after the fault injector changed.
+- **Screenshots** (`.artifacts/offline-storage-20261025/`): `offline-launch-downloaded-paper.png`,
+  `offline-open-not-downloaded.png`, `chat-sent-offline.png`, `chat-answered-back-online.png`, `chat-disk-full.png`,
+  `model-download-interrupted.png`, `model-download-disk-full.png`.
+- Commands: `swift test --filter StorageFullTests`; `xcodebuild test … -only-testing:ScienceReaderTests/OfflineAndStorageTests`
+  and `-only-testing:ScienceReaderUITests/OfflineAndStorageJourneyTests` on an iPhone Simulator
+  (`TEST_RUNNER_GS_SCREENSHOT_DIR` for screenshots). No physical device, deploy or paid model call.

@@ -9,7 +9,9 @@ needs a device: [OFFLINE_AND_STORAGE_20261025.md](reviews/OFFLINE_AND_STORAGE_20
 - Offline: opening a paper that isn't downloaded says "Couldn’t reach arXiv · You’re offline…" with Try again (it
   offered the PDF); a question sent offline says so and is answered once on Try again; sync says "Offline" and resumes
   when the network returns; a captive Wi‑Fi page is named.
-- Real-ENOSPC Core tests on a disk image, app tests and six Simulator journeys; see the review for which passed where.
+- Verified: Core 492 + 99 pass (real ENOSPC on a disk image), app `OfflineAndStorageTests` 8/8, six new Simulator
+  journeys and the ten existing resilience journeys pass on iPhone. Not verified: real Airplane Mode, a real captive
+  portal and a full physical iPhone.
 
 **Native Google sign-in accepts its own return** (owner report, build 92). Details and evidence are in
 [native authentication](architecture/NATIVE_AUTHENTICATION.md#native-google-refused-its-own-return-testflight-92-report-2026-10-25).

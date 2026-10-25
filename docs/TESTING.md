@@ -7,7 +7,7 @@ privately and deletes; about 20 s; skips where `hdiutil` can't run): the encrypt
 without a relaunch, opens on a completely full disk (three cases), drafts, PDFs, crash leftovers and the model install.
 App-hosted `-only-testing:ScienceReaderTests/OfflineAndStorageTests` (wording, the reader's offline and full-disk
 screens, dropped and short PDFs, a captive Wi‑Fi page, the model's space check). Slow, opt-in, iPhone Simulator:
-`-only-testing:ScienceReaderUITests/OfflineAndStorageJourneyTests` (six journeys, about 4 minutes;
+`-only-testing:ScienceReaderUITests/OfflineAndStorageJourneyTests` (six journeys, about 2½ minutes;
 `TEST_RUNNER_GS_SCREENSHOT_DIR` for screenshots). Launch arguments (Debug, fixture host): `--network-offline[=<s>]`,
 `--storage-full-fixture[=<s>]`, `--backend-fault=<prefix>:offline|dns|tls|lost|html` (any session; `*` or a host prefix),
 `--chat-fixture-mode=offline`, `--device-model-download-fixture=fail_once|full`, `--offline-reader-unprepared`. Review:

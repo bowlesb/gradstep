@@ -5684,6 +5684,11 @@ final class ReaderModel {
         storeSummary = summary
     }
 
+    /// The draft line under the message box when a checkpoint fails: a full disk says so (the text stays in the box).
+    static func draftIssue(_ error: Error) -> String {
+        StorageSpace.isOutOfSpace(error) ? "Draft not saved: this device is out of space." : "Draft not saved on this device. Try saving it again."
+    }
+
     func show(_ error: Error) {
         // A full disk or a failed connection says so, in one line (docs/reviews/OFFLINE_AND_STORAGE_20261025.md); a
         // URLError or SQLite error has no words of its own and used to get the generic line.
@@ -5711,8 +5716,8 @@ final class ReaderModel {
             case .success(let stored):
                 self.updateDraftQuietly { $0.acknowledge(checkpoint, stored: stored) }
                 if self.chatWorkspace.checkpoint(for: requested.id) != stored { self.queueDraft(requested.id) }
-            case .failure:
-                self.updateDraftQuietly { $0.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.") }
+            case .failure(let error):
+                self.updateDraftQuietly { $0.failCheckpoint(checkpoint, message: Self.draftIssue(error)) }
             }
         }
     }
@@ -5741,7 +5746,7 @@ final class ReaderModel {
         do { try draftQueue.save(checkpoint.draft) }
         catch {
             pendingDraftCheckpoints.removeValue(forKey: id)
-            updateDraftQuietly { $0.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.") }
+            updateDraftQuietly { $0.failCheckpoint(checkpoint, message: Self.draftIssue(error)) }
         }
     }
 

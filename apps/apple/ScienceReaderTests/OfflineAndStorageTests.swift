@@ -75,6 +75,8 @@ final class OfflineAndStorageTests: XCTestCase {
         XCTAssertEqual(ReaderModel.syncIssue(for: BackendError.rejected("network_sign_in")), ConnectionText.networkSignIn)
         XCTAssertEqual(ReaderModel.syncIssue(for: POSIXError(.ENOSPC)), "This device is out of space. Free up some space and try again.")
         XCTAssertEqual(ReaderModel.syncIssue(for: ReaderError.cursorGap), ReaderError.cursorGap.errorDescription, "other causes keep their words")
+        XCTAssertEqual(ReaderModel.draftIssue(StorageFullError(needed: 1)), "Draft not saved: this device is out of space.")
+        XCTAssertEqual(ReaderModel.draftIssue(ReaderError.storageUnavailable), "Draft not saved on this device. Try saving it again.")
     }
 
     /// Offline with an expired token on a new device: the refresh's connection failure is retried like any other, never
