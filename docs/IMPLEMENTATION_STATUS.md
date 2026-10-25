@@ -113,6 +113,22 @@ pass in the iOS 26.4 Simulator; the review tool on the owner's session flags "Vi
 session cut from it lines both parts up and reports the gap; `npm test` passes. Not run: `DeviceModelJourneyTests`
 (updated for the one row; needs the model pack in the build); `PassageJourneyTests/testTabletSplitLinksChatAndPassage`
 failed before its theme step, at the selection menu's "Explain in Chat" (untouched here).
+Owner session on 91 (iPad sideways, recording 20261024-160529), three findings:
+- **Places menu gap**: the menu was two sections (Snippets | Search); now one list (`PlacesMenuButton`).
+- **Why column**: "Category: cs.LG" → "New in Machine learning", "Popular ▲ 232" → "Popular: 232 upvotes"
+  (`FeedReason.shortLabel`); an ⓘ after the Why header and on each List section header explains the reasons; the
+  Popularity column is headed Upvotes.
+- **Figure-open animation**: opening (and closing) a figure, table or equation page or an AI Explainer beside the paper
+  no longer slides the list out, the paper across and the page in; the slots change at once (`TwoSlotLayout.slides`,
+  `ExplainerCompanion`). A Simulator recording shows Library | paper in one frame and Paper | figure page in the next.
+Verified: `swift test` (FeedWhyTests 9/9 with new label and ⓘ tests); new UI tests `IPadShapesJourneyTests.
+testThePlacesMenuIsOneList`, `testAFigureOpensBesideThePaperAtOnce` (slot animation slowed ×12 with
+`--slot-animation-slow`, frames final at the first look), `FeedForYouTests.testTheWhyColumnExplainsItself*`,
+`testTheListHeadersExplainThemselves*` failed on the old code and pass (iPad Pro 13-inch (M5) Simulator). Affected
+suites pass: `FeedForYouTests` (iPad 11/11; iPhone 17 Pro all run, the ⓘ tests re-run once after an accessibility-server
+error under load), `IPadShapesJourneyTests` 18/18 (5 re-run on a quiet Simulator after load-average-500 timeouts),
+`MenusJourneyTests.testAnAppSheetUprightSpansTheWindow`, `FeedPersonalizationTests` and `PaperTableTests`. Screens before/after: `.artifacts/sessions/20261024-160529/fixes/`. Needs the owner's eye on a device: whether
+the instant change feels right.
 
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 

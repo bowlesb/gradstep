@@ -28,16 +28,45 @@ final class FeedWhyTests: XCTestCase {
         XCTAssertEqual(try reason("added", muffin, "Because you added “Muffin…”").shortLabel, "Like: Muffin – A Shared Memory…")
         XCTAssertEqual(try reason("more_like", "Mamba", "More like “Mamba”").shortLabel, "Like: Mamba")
         XCTAssertEqual(try reason("author", "Tri Dao", "By Tri Dao, an author in your library").shortLabel, "Author: Tri Dao")
-        XCTAssertEqual(try reason("trending", "48", "Popular on Hugging Face Papers").shortLabel, "Popular ▲ 48")
+        // Owner, TestFlight 91: "Popular ▲ 232" and "Category: cs.LG" made no sense; they say what they mean.
+        XCTAssertEqual(try reason("trending", "48", "Popular on Hugging Face Papers").shortLabel, "Popular: 48 upvotes")
+        XCTAssertEqual(try reason("trending", "1", "Popular on Hugging Face Papers").shortLabel, "Popular: 1 upvote")
         XCTAssertEqual(try reason("trending", "many", "Popular on Hugging Face Papers").shortLabel, "Popular")
         XCTAssertEqual(try reason("popular", "3", "Added by several readers this week").shortLabel, "Readers are adding")
-        XCTAssertEqual(try reason("category", "cs.CL", "New in Natural language processing").shortLabel, "Category: cs.CL")
+        XCTAssertEqual(try reason("category", "cs.CL", "New in Natural language processing").shortLabel, "New in Natural language processing")
+        XCTAssertEqual(try reason("category", "cs.LG", "New in Machine learning").shortLabel, "New in Machine learning")
         XCTAssertEqual(try reason("explore", "cs.RO", "Something different: Robotics").shortLabel, "Explore")
         XCTAssertEqual(try reason("future_kind", "x", "A reason from a later server").shortLabel, "A reason from a later server",
                        "an unknown kind shows the server's sentence")
         XCTAssertEqual(try reason("added", "Mamba", "x").group, .like)
         XCTAssertEqual(try reason("trending", "1", "x").group, .popular)
         XCTAssertEqual(try reason("future_kind", "x", "y").group, .other)
+    }
+
+    /// The Why column never shows a raw arXiv code (owner, TestFlight 91: "What does that even mean category CSLG?"): the
+    /// server's name, else the app's own name for the code, else the code.
+    func testCategoryReasonsUseTheReadersName() throws {
+        XCTAssertEqual(try reason("category", "stat.ML", "A later wording").shortLabel, "New in Machine learning",
+                       "a sentence without the prefix: the app's name for the code")
+        XCTAssertEqual(try reason("category", "cs.AI", "New in ").shortLabel, "New in Artificial intelligence")
+        XCTAssertEqual(try reason("category", "q-bio.XX", "A later wording").shortLabel, "New in q-bio.XX", "an unknown code stays")
+        XCTAssertEqual(try reason("category", "", "A later wording").shortLabel, "New in a field you read")
+        XCTAssertFalse(try reason("category", "cs.LG", "New in Machine learning").shortLabel.contains("cs."))
+    }
+
+    /// The ⓘ beside the Why column's header and on the List's headers: what each reason means, popularity's ▲ included.
+    func testTheInfoExplainsEveryReasonAndTheUpvotes() {
+        let info = FeedWhy.info
+        for words in ["Your tag", "Like", "Author", "Popular", "Hugging Face Papers", "▲", "Readers are adding",
+                      "New in", "Explore"] {
+            XCTAssertTrue(info.contains(words), "the ⓘ explains \(words): \(info)")
+        }
+        XCTAssertFalse(info.contains("cs."), "no arXiv codes")
+        for group in FeedWhyGroup.allCases {
+            XCTAssertFalse(group.explanation.isEmpty, "\(group) explains itself")
+        }
+        XCTAssertTrue(FeedWhyGroup.popular.explanation.contains("Hugging Face Papers"))
+        XCTAssertTrue(FeedWhyGroup.category.explanation.contains("arXiv"))
     }
 
     func testShortTitlesCutAtAWord() {
