@@ -52,6 +52,12 @@ public struct InterestTopicSlice: Sendable, Equatable, Identifiable {
     public let terms: [String]
     public var count: Int { papers.count }
     public var isOther: Bool { id == Self.otherID }
+
+    public init(id: Int, label: String, computedLabel: String, renamed: Bool, papers: [UUID], share: Double, colour: Int?,
+                hidden: Bool, terms: [String]) {
+        self.id = id; self.label = label; self.computedLabel = computedLabel; self.renamed = renamed; self.papers = papers
+        self.share = share; self.colour = colour; self.hidden = hidden; self.terms = terms
+    }
 }
 
 public struct InterestLibraryTopics: Sendable, Equatable {

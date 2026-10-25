@@ -666,7 +666,7 @@ struct ChatPaperContext {
         if let paper = model.papers.first(where: { $0.sourceID == source }) {
             model.select(paper)
         } else {
-            model.searchExternal = false; model.libraryFilter = .all; model.libraryTagFilter = nil
+            model.searchExternal = false; model.libraryFilter = .all; model.libraryTagFilter = nil; model.libraryTopicFilter = nil
             model.libraryQuery = source; model.tab = .library
         }
     }

@@ -90,6 +90,13 @@ enum LibraryTags {
         let own = distinct(paper.tags).filter(PaperKeywords.allowed)
         if paper.tagsCustomized { return own }
         let derived = PaperKeywords.derive(title: paper.title, abstract: paper.abstract)
+        // The interest index's keywords for the paper (its own most distinctive phrases, from its full text when it was
+        // read here; LibraryInterest.swift) first, then the vocabulary's names.
+        if let specific = InterestKeywordStore.shared.keywords(for: paper.id), !specific.isEmpty {
+            var seen = Set<String>(), merged: [String] = []
+            for name in specific.prefix(4) + derived.prefix(2) where seen.insert(name.lowercased()).inserted { merged.append(name) }
+            return merged
+        }
         if !derived.isEmpty { return derived }
         // Catalog tags the reader didn't choose keep only the specific ones (builds 70 and 75: no LLM, Reasoning...).
         let catalog = own.filter(PaperKeywords.distinctive)

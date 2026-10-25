@@ -389,7 +389,12 @@ final class ReaderModel {
             librarySearchSourceChanged()
         }
     }
-    var libraryFiltered: Bool { libraryFilter != .all || libraryTagFilter != nil }
+    /// The Library list narrowed to one of the reader's topics (a chart slice; LibraryInterest.swift). Cleared with the
+    /// tag filter, by a search, a catalog change or Clear.
+    var libraryTopicFilter: LibraryTopicFilter? = nil {
+        didSet { if libraryTopicFilter != oldValue { librarySearchSourceChanged() } }
+    }
+    var libraryFiltered: Bool { libraryFilter != .all || libraryTagFilter != nil || libraryTopicFilter != nil }
     /// The table's columns, per width class (Library options › Columns).
     var libraryColumns = LibraryColumnSettings.load(from: .standard) { didSet { libraryColumns.save(to: .standard) } }
     /// Papers marked archived, including changes still syncing (for row labels and actions).
@@ -454,7 +459,7 @@ final class ReaderModel {
     }
     func selectCatalog(_ id: UUID) {
         selectedCatalogID = libraryCatalogs.resolved(id)
-        libraryTagFilter = nil; libraryQuery = ""; librarySearchSourceChanged()
+        libraryTagFilter = nil; libraryTopicFilter = nil; libraryQuery = ""; librarySearchSourceChanged()
     }
     private func writeCatalog(_ operations: [LibraryCatalogBatch.Operation]) async throws {
         let previous = catalogWriteTail, scope = sessionID
@@ -471,6 +476,28 @@ final class ReaderModel {
         let scope = sessionID, persistence = localPersistence
         let event = try LibraryCatalogBatch(operations: operations).event(in: privateState)
         _ = try await persistence.acceptWrite { try await $0.append(event, deviceID: device.deviceID) }.value
+        let snapshot = await store.snapshot()
+        guard sessionID == scope else { throw CancellationError() }
+        publish(snapshot)
+        Task { [weak self] in guard let self, self.sessionID == scope else { return }; await self.synchronize() }
+    }
+    /// Writes interest registry records (InterestRegistry.swift) as encrypted `note` events through the journal and
+    /// outbox, like catalog batches. Fixture runs without a store apply them to the private state directly.
+    func persistInterestRecords(_ records: [InterestRegistryRecord]) async throws {
+        guard !records.isEmpty else { return }
+        let created = PrivateEvent.timestamp(Date())
+        #if DEBUG && FIXTURE_HOST
+        if store == nil, ProcessInfo.processInfo.environment["INTEREST_FIXTURE_DIR"] != nil {
+            for record in records { try privateState.apply(AppliedEvent(id: UUID(), deviceID: record.device, payload: try record.event(createdAt: created))) }
+            return
+        }
+        #endif
+        guard canManageCatalogs, let device, let store else { throw LibraryCatalogError.unavailable }
+        let scope = sessionID, persistence = localPersistence
+        for record in records {
+            let event = try record.event(createdAt: created)
+            _ = try await persistence.acceptWrite { try await $0.append(event, deviceID: device.deviceID) }.value
+        }
         let snapshot = await store.snapshot()
         guard sessionID == scope else { throw CancellationError() }
         publish(snapshot)
@@ -1000,6 +1027,8 @@ final class ReaderModel {
             }
             let summaries = privateState.conversationSummaries()
             if summaries != conversationSummaries { conversationSummaries = summaries }
+            let registry = InterestRegistry(privateState)
+            if registry != interestRegistry { interestRegistry = registry; scheduleInterestUpdate() }
             let notesRevision = notes.stateRevision
             notes.update(privateState)
             // Notes and snippets are indexed with their paper.
@@ -1362,7 +1391,11 @@ final class ReaderModel {
         }
         if !sameText || librarySearchSourceDirty { librarySearchSourceChanged() }
         if !sameText || previous.count != papers.count { fullTextIndexer.schedule() }
+        scheduleInterestUpdate()
     }
+
+    /// The term layer chose new keywords: rows, filters and search fields show them.
+    func interestKeywordsChanged() { librarySearchSourceChanged() }
 
     private func librarySearchSourceChanged() {
         librarySearchSourceRevision &+= 1
@@ -1450,13 +1483,14 @@ final class ReaderModel {
         // Archive changes waiting to sync already apply here, so a swipe hides the row at once.
         let pendingArchive = pendingArchiveOverrides()
         // The quick filter and tag filter decide which rows are candidates; search and sort then run over them.
-        let filter = libraryFilter, tagFilter = libraryTagFilter
+        let filter = libraryFilter, tagFilter = libraryTagFilter, topicFilter = libraryTopicFilter
         func tagged(_ tags: [String]) -> Bool { tagFilter.map(tags.contains) ?? true }
         for paper in papers where catalogContains(catalogKey(paper)) {
             let activity = readingActivity[paper.id]
             let tags = LibraryTags.tags(for: paper)
             guard filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived, opened: activity?.openedAt,
-                                       progress: activity?.progress), tagged(tags) else { continue }
+                                       progress: activity?.progress), tagged(tags),
+                  topicFilter.map({ $0.papers.contains(paper.id) }) ?? true else { continue }
             let keys = LibrarySortKeys(authors: (paper.authorNames.first.map(LibraryFormat.familyName)) ?? (paper.authors.isEmpty ? nil : paper.authors),
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
                                        chats: paperChatCounts[paper.id] ?? 0, tag: tags.first, pages: paper.pageCount,
@@ -1466,7 +1500,7 @@ final class ReaderModel {
         }
         for item in libraryImports where catalogContains(catalogKey(item)) {
             let tags = LibraryTags.tags(for: item)
-            guard filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically), tagged(tags) else { continue }
+            guard topicFilter == nil, filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically), tagged(tags) else { continue }
             let reference = (item.sourceID ?? "") + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
             let keys = LibrarySortKeys(authors: item.metadata?.authors.first.map(LibraryFormat.familyName),
                                        year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) }, tag: tags.first,
@@ -1477,7 +1511,7 @@ final class ReaderModel {
                    kinds: [.identifier, .title, .abstract] + Array(repeating: .authors, count: authors.count),
                    sequence: item.createdSequence, keys: keys)
         }
-        for command in libraryCommands where filter.includesQueued && tagFilter == nil {
+        for command in libraryCommands where filter.includesQueued && tagFilter == nil && topicFilter == nil {
             // Cached mappings suppress duplicate presentation only; they do
             // not resolve the durable command or authorize a mutation.
             guard case .beginImport(let source, let revision, _) = command.mutation,
@@ -2343,6 +2377,7 @@ final class ReaderModel {
         flushReadingActivity()
         readingResort?.cancel(); readingResort = nil
         readingActivity = [:]; latestLocationKeys = [:]; readingDirty = false
+        interest.reset(); libraryTopicFilter = nil
         if let authentication {
             authentication.invalidate()
             retainAuthenticationRetirement(authentication)
@@ -2555,12 +2590,12 @@ final class ReaderModel {
     /// ML paper search for `query`: find similar, an author, a shared link, a keyword. A Library tag filter never
     /// carries into search (build 75: "I somehow got here, I wonder if a search was not escaped").
     func searchPapers(_ query: String) {
-        libraryTagFilter = nil; libraryQuery = ""
+        libraryTagFilter = nil; libraryTopicFilter = nil; libraryQuery = ""
         discoveryQuery = query; searchExternal = true; tab = .library; runDiscovery()
     }
     /// The Library's papers with this keyword (a keyword's "Show library papers tagged").
     func showLibraryPapers(taggedWith tag: String) {
-        searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all; libraryTagFilter = tag
+        searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all; libraryTagFilter = tag; libraryTopicFilter = nil
         tab = .library
     }
     func runDiscovery() {
@@ -2720,7 +2755,11 @@ final class ReaderModel {
     /// Every Feed result this session has shown (For you, topics, categories), newest kept: what related papers can be
     /// told about without asking anyone (FeedRelated.swift).
     @ObservationIgnored private var feedKnown: [String: DiscoveryResult] = [:]
-    @ObservationIgnored private let feedRelated = FeedRelatedService()
+    @ObservationIgnored let feedRelated = FeedRelatedService()
+    /// The Library's topics (interest index step 3): computed on this device; see LibraryInterest.swift.
+    let interest = LibraryInterest()
+    /// The synced topic registry (names, hidden flags, colours, shown topics, reading levels), from the private state.
+    @ObservationIgnored var interestRegistry = InterestRegistry()
 
     /// Related papers for a Feed paper's details, worked out on this device (FeedRelated.swift): the server never learns
     /// which paper was opened.
