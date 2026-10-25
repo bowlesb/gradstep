@@ -1,6 +1,6 @@
 # Implementation status
 
-## After TestFlight 93 — 2026-10-25: adding rows keep their height without Progress; the double-tap journey (built, not in a build)
+## After TestFlight 93 — 2026-10-25: adding rows keep their height without Progress; the double-tap journey; For you without headings (built, not in a build)
 
 - **Library table, Progress column hidden** (JUDGMENT_LOG 17, 27): an import's spinner (regular, 20 pt) and one word
   ("Adding", with its ⓘ), or its problem in the Progress column's words and a mini Retry, sit in its title's reserved
@@ -14,7 +14,15 @@
   (JUDGMENT_LOG 29): the test, not the app, was at fault. Its dismissing tap hit the selected word, which iOS keeps
   selected (a diagnostic run on both devices: the tap hides the menu, a second brings it back, a double tap there
   doesn't open Contents, by the build-78 rule). It now dismisses and double-taps on the paragraph's first words.
-- Screenshots: `.artifacts/tf93-followups/` (before: the TestFlight 93 gate's and today's failing runs).
+- **For you List without group headings** (owner, TestFlight 92: "Like papers you added not needed"; JUDGMENT_LOG 30):
+  the order by why stays (`FeedWhy.ordered`); each card says why in the server's whole sentence; Feed ⋯ › About For
+  you (`feed.aboutForYou`, where papers say why) opens the ⓘ bubble with what each why line means (`FeedWhy.aboutForYou`).
+  `FeedWhy.sections`/`line`, `FeedSection` and `FeedSectionHeader` are gone. Core `swift test --filter FeedWhyTests`
+  passes (6); `FeedForYouTests` (`testForYouListInWhyOrderWithoutHeadingsLight`, `testAboutForYouExplainsTheWhyLines*`,
+  and the List, Why-column and ⓘ journeys) pass on iPhone 17 Pro (8) and iPad Pro 13-inch (4: two columns upright,
+  sideways, the bubble).
+- Screenshots: `.artifacts/tf93-followups/` (before: the TestFlight 93 gate's and today's failing runs, and the owner's
+  TestFlight 92 Feed screenshot).
 
 ## TestFlight 93 — 2026-10-25 UTC (iOS and Mac uploaded)
 

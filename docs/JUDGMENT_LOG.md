@@ -6,6 +6,15 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-25
 
+30. **The For you List has no group headings** (owner, TestFlight 92: "Like papers you added not needed"): the papers
+    keep the order by why (each tag's papers, papers like yours, authors, popular, category, something different: the
+    Why sort's order) and each card's why line is now the server's whole sentence ("In your tag: RLHF", "Because you
+    added “…”"), since no heading says it. What the headings' ⓘs said moved to **Feed ⋯ › About For you** (the ⓘ
+    bubble, at the ⋯ button; offered where papers say why, not for a category). *Why ⋯ rather than an ⓘ beside the
+    For you chip:* nothing on screen moves or is added; on an iPhone the chip row has no room for an ⓘ without pushing
+    "More topics" under the edge fade. The Table keeps its Why column and its ⓘ. *Undo:* the headings (and their ⓘs)
+    from the commit before this one, or an ⓘ beside the chip instead of the menu row.
+
 27. **A failed import without the Progress column puts its problem in that column's words and a mini Retry in its
     title's second line** ("⚠ Download failed · Retry"; VoiceOver reads the full sentence), so it keeps a ready row's
     height too, as 17 does for an adding paper (whose line keeps its "Why does this take a minute?" ⓘ). *Why:* one line

@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import ScienceReaderCore
 
-/// The Feed grouped by why each paper is suggested (owner, 2026-10-24: "Let's try having a column in Table for the reason
-/// and having grouped lists in list view"): the Why column's labels and order, the List's sections, their merge rule
-/// and the rows' trimmed why lines.
+/// The Feed by why each paper is suggested (owner, 2026-10-24: "Let's try having a column in Table for the reason and
+/// having grouped lists in list view"): the Why column's labels, the order by why (the List's and the Why sort's) and the
+/// ⓘ texts. The List's group headings went after TestFlight 92 (JUDGMENT_LOG 30).
 final class FeedWhyTests: XCTestCase {
     private func results(_ reasons: [(String, String, String)?]) throws -> [DiscoveryResult] {
         let rows = reasons.enumerated().map { index, reason -> [String: Any] in
@@ -54,7 +54,7 @@ final class FeedWhyTests: XCTestCase {
         XCTAssertFalse(try reason("category", "cs.LG", "New in Machine learning").shortLabel.contains("cs."))
     }
 
-    /// The ⓘ beside the Why column's header and on the List's headers: what each reason means, popularity's ▲ included.
+    /// The ⓘ beside the Why column's header: what each label means, popularity's ▲ included.
     func testTheInfoExplainsEveryReasonAndTheUpvotes() {
         let info = FeedWhy.info
         for words in ["Your tag", "Like", "Author", "Popular", "Hugging Face Papers", "▲", "Readers are adding",
@@ -62,11 +62,19 @@ final class FeedWhyTests: XCTestCase {
             XCTAssertTrue(info.contains(words), "the ⓘ explains \(words): \(info)")
         }
         XCTAssertFalse(info.contains("cs."), "no arXiv codes")
-        for group in FeedWhyGroup.allCases {
-            XCTAssertFalse(group.explanation.isEmpty, "\(group) explains itself")
-        }
-        XCTAssertTrue(FeedWhyGroup.popular.explanation.contains("Hugging Face Papers"))
-        XCTAssertTrue(FeedWhyGroup.category.explanation.contains("arXiv"))
+    }
+
+    /// Feed ⋯ › About For you: how each of the server's why sentences starts, and what it means, in the List's order.
+    func testAboutForYouExplainsEveryWhyLineInTheListsOrder() {
+        let about = FeedWhy.aboutForYou
+        let starts = ["In your tag", "Like “…”", "Because you added", "More like", "By …", "Popular on Hugging Face Papers", "▲",
+                      "Added by several readers", "New in", "Something different"]
+        for words in starts { XCTAssertTrue(about.contains(words), "About For you explains \(words): \(about)") }
+        let order = ["In your tag", "Like “…”", "By …", "Popular on", "New in", "Something different"]
+            .map { about.range(of: $0)!.lowerBound }
+        XCTAssertEqual(order, order.sorted(), "in the List's order")
+        XCTAssertFalse(about.contains("cs."), "no arXiv codes")
+        XCTAssertFalse(about.contains("Like papers you added"), "not the heading the owner found redundant")
     }
 
     func testShortTitlesCutAtAWord() {
@@ -76,8 +84,8 @@ final class FeedWhyTests: XCTestCase {
         XCTAssertLessThanOrEqual(FeedWhy.shortTitle(String(repeating: "x", count: 80), limit: 28).count, 28)
     }
 
-    /// Sorting by Why groups rows (tags, like papers, authors, popular, category, explore; no reason last) and keeps the
-    /// server's order within each group; reversed, the groups reverse and no reason stays last.
+    /// The List, and sorting by Why, group rows (tags, like papers, authors, popular, category, explore; no reason
+    /// last), keeping the server's order within each group; reversed, the groups reverse and no reason stays last.
     func testWhyOrderGroupsAndKeepsTheServersOrder() throws {
         let rows = try results([
             ("explore", "cs.RO", "Something different: Robotics"),   // 1
@@ -95,82 +103,5 @@ final class FeedWhyTests: XCTestCase {
         let ids = { (list: [DiscoveryResult]) in list.map { Int($0.sourceID.suffix(5))! } }
         XCTAssertEqual(ids(FeedWhy.ordered(rows)), [3, 8, 6, 5, 10, 2, 7, 11, 9, 1, 4])
         XCTAssertEqual(ids(FeedWhy.ordered(rows, ascending: false)), [1, 9, 7, 11, 2, 5, 10, 6, 3, 8, 4])
-    }
-
-    func testSectionsFollowTheGroupsOrderAndTheServersOrderWithin() throws {
-        let rows = try results([
-            ("author", "Tri Dao", "By Tri Dao, an author in your library"), // 1
-            ("tag", "RLHF", "In your tag: RLHF"),                         // 2
-            ("added", muffin, "Because you added “Muffin…”"),              // 3
-            ("tag", "RLHF", "In your tag: RLHF"),                         // 4
-            ("explore", "cs.RO", "Something different: Robotics"),        // 5
-            ("trending", "48", "Popular on Hugging Face Papers"),         // 6
-            ("tag", "SSMs", "In your tag: SSMs"),                         // 7
-            ("popular", "3", "Added by several readers this week"),       // 8
-            ("category", "cs.CL", "New in Natural language processing"),  // 9
-            ("tag", "SSMs", "In your tag: SSMs"),                         // 10
-            ("more_like", "Mamba", "More like “Mamba”"),                   // 11
-        ])
-        let sections = try XCTUnwrap(FeedWhy.sections(rows))
-        XCTAssertEqual(sections.map(\.title), ["RLHF", "SSMs", "Like papers you added", "From authors you read", "Popular this week",
-                                               "By category", "Something different"])
-        XCTAssertEqual(sections.map { $0.results.map { Int($0.sourceID.suffix(5))! } }, [[2, 4], [7, 10], [3, 11], [1], [6, 8], [9], [5]])
-        XCTAssertEqual(sections.reduce(0) { $0 + $1.results.count }, rows.count, "every paper once")
-        XCTAssertEqual(Set(sections.map(\.id)).count, sections.count)
-    }
-
-    /// Two or more tags with one paper each share one "Your tags" section after the tags with several; one keeps its name.
-    func testOnePaperTagsMerge() throws {
-        let rows = try results([
-            ("tag", "Tokenization", "In your tag: Tokenization"), // 1
-            ("tag", "RLHF", "In your tag: RLHF"),                 // 2
-            ("tag", "SSMs", "In your tag: SSMs"),                 // 3
-            ("tag", "RLHF", "In your tag: RLHF"),                 // 4
-            ("author", "Tri Dao", "By Tri Dao"),                  // 5
-        ])
-        let sections = try XCTUnwrap(FeedWhy.sections(rows))
-        XCTAssertEqual(sections.map(\.title), ["RLHF", "Your tags", "From authors you read"])
-        XCTAssertEqual(sections[1].results.map(\.sourceID), ["2610.00001", "2610.00003"])
-        XCTAssertNil(sections[1].tag)
-        let one = try XCTUnwrap(FeedWhy.sections(results([("tag", "RLHF", "In your tag: RLHF"), ("author", "Tri Dao", "By Tri Dao")])))
-        XCTAssertEqual(one.map(\.title), ["RLHF", "From authors you read"], "a single one-paper tag keeps its name")
-    }
-
-    /// One kind of reason (a category chip's papers, or none at all): no headers.
-    func testOneReasonShowsNoHeaders() throws {
-        XCTAssertNil(FeedWhy.sections(try results([nil, nil, nil])))
-        XCTAssertNil(FeedWhy.sections(try results([("category", "cs.CL", "New in NLP"), ("category", "cs.LG", "New in Machine learning")])))
-        XCTAssertNil(FeedWhy.sections(try results([("trending", "48", "x"), ("popular", "3", "y")])), "popular and trending are one section")
-        XCTAssertNil(FeedWhy.sections(try results([("tag", "RLHF", "In your tag: RLHF"), ("tag", "rlhf", "In your tag: rlhf")])))
-        XCTAssertNil(FeedWhy.sections([]))
-        XCTAssertNil(FeedWhy.sections(try results([("tag", "RLHF", "x"), ("tag", "SSMs", "y")])), "two one-paper tags are one section")
-        XCTAssertNotNil(FeedWhy.sections(try results([("tag", "RLHF", "x"), ("tag", "SSMs", "y"), ("tag", "RLHF", "x")])))
-    }
-
-    /// A row's why line drops what its header says and keeps the specific anchor.
-    func testRowLinesDropWhatTheHeaderSays() throws {
-        let rows = try results([
-            ("tag", "RLHF", "In your tag: RLHF"), ("tag", "RLHF", "In your tag: RLHF"),
-            ("tag", "SSMs", "In your tag: SSMs"), ("tag", "Tokenization", "In your tag: Tokenization"),
-            ("added", muffin, "Because you added “Muffin…”"), ("more_like", "Mamba", "More like “Mamba”"),
-            ("author", "Tri Dao", "By Tri Dao, an author in your library"),
-            ("trending", "48", "Popular on Hugging Face Papers"), ("popular", "3", "Added by several readers this week"),
-            ("category", "cs.CL", "New in Natural language processing"), ("explore", "cs.RO", "Something different: Robotics"),
-        ])
-        let sections = try XCTUnwrap(FeedWhy.sections(rows))
-        func line(_ index: Int) -> String? {
-            let result = rows[index]
-            let section = sections.first { $0.results.contains(result) }!
-            return FeedWhy.line(result.reason!, in: section)
-        }
-        XCTAssertNil(line(0), "under “RLHF”, not “In your tag: RLHF” again")
-        XCTAssertEqual(line(2), "SSMs", "under “Your tags”, which tag")
-        XCTAssertEqual(line(4), "Like “Muffin – A Shared Memory Architecture for Long-Horizon…”")
-        XCTAssertEqual(line(5), "More like “Mamba”")
-        XCTAssertEqual(line(6), "By Tri Dao")
-        XCTAssertEqual(line(7), "On Hugging Face Papers")
-        XCTAssertEqual(line(8), "Added by several readers")
-        XCTAssertEqual(line(9), "Natural language processing")
-        XCTAssertEqual(line(10), "Robotics")
     }
 }
