@@ -1,6 +1,27 @@
 # Implementation status
 
-## AI provider reliability: fallback, model health, busy retry — 2026-10-25 UTC (local; nothing deployed)
+## TestFlight 93 — 2026-10-25 UTC (iOS and Mac uploaded)
+
+Uploaded from main 1c87b2af: iOS 18:58 UTC, Mac 19:09 UTC ("Uploaded build 93", "Uploaded Mac build 93"). Contents (sections
+below marked "In TestFlight 93"): Google sign-in that ignores a stray "#" in the return; Feed asks at sign-in; Flash
+"waiting" and "switching" status lines; aligned equations and accents (reader revision 26, device port 14); AI usage
+ranges, day sections and links; Download your assets with breakdown pictures; minimal Acknowledgements with the missing
+licence texts; Recommended papers card under the title; tag choices (Filter, Filter + related, Search ML papers) and the
+centred Device column; offline and full-disk handling; the Feed's last page kept for an offline start. New on-device
+models (tagger v5a, continuous-batching recogniser) and global search with the More bar are not in this build.
+
+Release gate on 1c87b2af: xcodegen (no diff), `npm test`, `swift test` (518 Swift Testing in 70 suites + XCTest),
+`npm run test:imports` 15/15. Reader sweep: revision 26's run of 30 fresh papers (0 failures) reused, reader code unchanged
+since. Pre-release Simulator run (iPad Pro 13 then iPhone 17 Pro, suites touched today; logs in the session scratchpad
+gate93/ and fix93/): every failure triaged — none a regression from today; stale, long-standing and flaky tests fixed
+(test-only changes). `PaperToolsTests/testDoubleTapOpensContentsDeepInThePaperAfterAnEquationMenuAndAFling` still fails
+on both devices, as it does on TestFlight 91's code. Not tried on a device (physical iPhone work paused).
+
+Server state at upload: migrations through 0161 applied to staging; `chat`, `recommend` and the pipeline worker deployed
+with the labelled Haiku fallback on. Waiting for the owner: the website (privacy page, then the interest flip to `all`)
+and the admin site deploys.
+
+## AI provider reliability: fallback, model health, busy retry — 2026-10-25 UTC (0161 applied 16:53 UTC; chat, recommend and worker deployed; app part in TestFlight 93)
 
 - **Owner report (TestFlight 92, 16:05 UTC):** a figure explainer on Gemini Flash failed twice: HTTP 429 from the pinned
   Google Vertex US endpoint in 2 s, neither retried (OpenRouter names a generation even on a refusal; our retry needed
@@ -27,7 +48,7 @@
 - **Checks:** `npm test`; database `--model-health-only` (and 0161 in the full phase) on PostgreSQL 17 + pgvector;
   `swift test` (ScienceReaderCore). No Simulator, device or paid check of the fallback itself.
 
-## Account-deletion sweep listing — 2026-10-25 UTC (local; nothing deployed)
+## Account-deletion sweep listing — 2026-10-25 UTC (0159 applied 14:51 UTC, worker deployed; `deletion.sweep` passes; admin site and scheduled check image not yet deployed)
 
 - **Found (staging, read-only):** the worker's `worker_account_deletions_pending` call has failed every minute since
   2026-10-12 14:01 UTC (last HTTP 200; first 500 on 2026-10-09 14:03): `canceling statement due to statement timeout`
@@ -72,7 +93,7 @@
   current-schema suites on PostgreSQL 17 + pgvector; `swift test` (ScienceReaderCore: 484 Swift Testing, 99 XCTest). No paid request, Simulator or
   device.
 
-## After TestFlight 92 — 2026-10-25: a tag's choices and the Device column (app local, not released)
+## In TestFlight 93 — 2026-10-25: a tag's choices and the Device column
 
 Owner feedback on TestFlight 92 (iPhone). Decisions in [DECISIONS.md](DECISIONS.md#a-tags-choices-filter-filter--related-search-ml-papers-owner-feedback-on-testflight-92-2026-10-25);
 the related-papers rule and its measurements in
@@ -98,7 +119,7 @@ the related-papers rule and its measurements in
   fingerprint rule inside the running app with real fingerprints (the UI fixture's tags add papers by their words; the
   fingerprint rule is covered by unit tests and the Core measurements).
 
-## After TestFlight 92 — 2026-10-25
+## In TestFlight 93 — 2026-10-25
 
 **The Feed's last page is kept on the device** (owner decision; apps only, built on a branch, not released). Details:
 [PERSONALIZED_FEED.md](architecture/PERSONALIZED_FEED.md#the-last-page-kept-on-the-device-owner-2026-10-25-apple-apps-local-not-released).
@@ -146,7 +167,7 @@ needs a device: [OFFLINE_AND_STORAGE_20261025.md](reviews/OFFLINE_AND_STORAGE_20
   - a real Google sign-in on a device with this change (the physical iPhone is paused);
   - the reference line's look (no Simulator UI run).
 
-## After TestFlight 92 — 2026-10-25 (branch; not yet in a build)
+## In TestFlight 93 — 2026-10-25: aligned equations and accents (reader revision 26, device port 14)
 
 Owner feedback on 92 (iPhone screenshot, 2610.27450v1 "Ask to Distill"): "Is this equation displayed correctly?"
 Equation (2), an `align` with two column pairs, read as eight centred lines (every LaTeXML cell its own display), and
@@ -163,7 +184,7 @@ screenshots before/after (bundles compiled by revisions 25 and 26) on iPhone 17 
 in the main checkout's `.artifacts/tf92-equations/` (`ReaderNavigationTests.testTestFlight92AlignedEquationAndBar`).
 Not verified: the Mac app itself, a physical device.
 
-## After TestFlight 92 — owner's iPhone feedback (2026-10-25; branch, not released)
+## In TestFlight 93 — owner's iPhone feedback (2026-10-25)
 
 Decisions: [DECISIONS.md](DECISIONS.md) "TestFlight 92 feedback". The client changes need no server deploy. The usage
 token total's fix is one migration, 0160 (last item).
