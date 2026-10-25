@@ -59,8 +59,19 @@ final class RecommendationJourneyTests: XCTestCase {
         let footer = element("recommend.footer", app)
         XCTAssertTrue(footer.waitForExistence(timeout: 8))
         XCTAssertEqual(footer.label, "Added 3 papers · 1 credit")
-        // The phone's sheet opens at half height; pull it up to see every row.
-        if device == "iphone" { app.navigationBars["Recommended papers"].swipeUp() }
+        // The phone's sheet opens at half height; pull it up to see every row. A quick swipe sometimes doesn't take
+        // (the sheet stays at half height, its last row past the screen's edge), so drag the bar to the top until the
+        // sheet is large.
+        if device == "iphone" {
+            let bar = app.navigationBars["Recommended papers"]
+            let large = NSPredicate { _, _ in bar.frame.minY < app.frame.height * 0.3 }
+            for _ in 0..<3 where !large.evaluate(with: nil) {
+                bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.04)))
+                _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: large, object: nil)], timeout: 3)
+            }
+            XCTAssertTrue(large.evaluate(with: nil), "The sheet is pulled up (its bar at \(bar.frame.minY) pt)")
+        }
         XCTAssertTrue(element("recommend.row.2006.04768", app).waitForExistence(timeout: 5))
         for source in added.keys { XCTAssertTrue(element("recommend.row.\(source)", app).exists, source) }
         XCTAssertTrue(app.staticTexts["Same attention, made sparse so it reaches long documents"].exists, "Why it was chosen")

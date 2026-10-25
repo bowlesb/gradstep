@@ -33,11 +33,14 @@ final class ResilienceJourneyTests: XCTestCase {
         app.buttons["chat.send"].tap()
     }
 
-    /// On iPhone the tab bar steps aside while the keyboard is up: put the keyboard away before leaving chat.
+    /// The bar of places steps aside while a software keyboard is up: put the keyboard away before leaving chat. The
+    /// composer's Dismiss keyboard button is the iPhone's; on iPad the keyboard's own Hide keyboard key.
     private func leaveChat(_ app: XCUIApplication, to place: String) {
         if app.keyboards.firstMatch.exists {
-            let dismiss = app.buttons["chat.dismissKeyboard"]
-            if dismiss.exists { dismiss.tap() } else { app.tables["chat.transcript"].swipeDown() }
+            let dismiss = app.buttons["chat.dismissKeyboard"], hide = app.keyboards.buttons["Hide keyboard"].firstMatch
+            if dismiss.exists { dismiss.tap() }
+            else if hide.exists { hide.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            else { app.tables["chat.transcript"].swipeDown() }
             _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
         }
         app.show(place)

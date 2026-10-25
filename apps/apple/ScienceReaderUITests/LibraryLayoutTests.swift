@@ -374,7 +374,7 @@ final class LibraryLayoutTests: XCTestCase {
     }
 
     /// The Feed's Table layout is the same table: chosen from the Feed's "…" menu, sorted by its headers; a row's
-    /// tap shows its abstract.
+    /// tap shows its abstract in its details, and its long-press menu shows it under the row.
     func testFeedTableSortsAndShowsAnAbstract() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
@@ -402,10 +402,23 @@ final class LibraryLayoutTests: XCTestCase {
 
         let abstract = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "We show that expert routing")).firstMatch
         XCTAssertFalse(abstract.exists, "Abstracts are tucked away")
+        // A row's tap opens its details with the whole abstract (owner, 2026-10-24: the large sheet in Tall).
         row("2610.01234").tap()
-        XCTAssertTrue(abstract.waitForExistence(timeout: 5), "A row's tap shows its abstract")
+        XCTAssertTrue(abstract.waitForExistence(timeout: 5), "A row's tap shows its abstract in its details")
+        XCTAssertTrue(app.descendants(matching: .any)["feed.detail"].exists, "in the details")
+        attach(app, "Feed table details")
+        app.buttons["sheet.close"].tap()
+        XCTAssertTrue(abstract.waitForNonExistence(timeout: 5))
+        // The abstract under the row is in the row's long-press menu.
+        row("2610.01234").press(forDuration: 1.2)
+        let show = app.buttons["Show abstract"]
+        XCTAssertTrue(show.waitForExistence(timeout: 5), "Show abstract in the row's menu"); show.tap()
+        XCTAssertTrue(abstract.waitForExistence(timeout: 5), "Show abstract shows it under the row")
+        XCTAssertFalse(app.descendants(matching: .any)["feed.detail"].exists, "under the row, not in the details")
         attach(app, "Feed table abstract")
-        row("2610.01234").tap()
+        row("2610.01234").press(forDuration: 1.2)
+        let hide = app.buttons["Hide abstract"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide abstract in the row's menu"); hide.tap()
         XCTAssertTrue(abstract.waitForNonExistence(timeout: 5))
     }
 
