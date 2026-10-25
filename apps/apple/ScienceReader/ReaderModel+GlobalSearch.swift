@@ -17,17 +17,22 @@ extension ReaderModel {
         everythingIndexer.progress = { [weak self] value in self?.globalSearch.indexing = value }
         notes.recognisedChanged = { [weak self] in self?.everythingIndexer.noteChange() }
         #if DEBUG && FIXTURE_HOST
-        // `--global-search[=words]`: open global search at launch (UI tests and screenshots, until the bar has 🔍).
-        if let argument = ProcessInfo.processInfo.arguments.first(where: { $0 == "--global-search" || $0.hasPrefix("--global-search=") }) {
-            Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(600))
-                guard let self else { return }
-                self.openGlobalSearch(scopePaper: ProcessInfo.processInfo.arguments.contains("--global-search-scoped") ? self.selectedPaper?.id : nil)
-                if let words = argument.split(separator: "=", maxSplits: 1).dropFirst().first { self.globalSearch.query = String(words) }
-            }
+        // Without a fixture account (whose activation opens it when ready), a moment after launch.
+        if !ProcessInfo.processInfo.arguments.contains("--draft-fixture") {
+            Task { [weak self] in try? await Task.sleep(for: .milliseconds(600)); self?.openGlobalSearchIfAskedAtLaunch() }
         }
         #endif
     }
+
+    #if DEBUG && FIXTURE_HOST
+    /// `--global-search[=words]` (and `--global-search-scoped`): global search at launch, for UI tests and screenshots until
+    /// the bar has its 🔍.
+    func openGlobalSearchIfAskedAtLaunch() {
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0 == "--global-search" || $0.hasPrefix("--global-search=") }) else { return }
+        openGlobalSearch(scopePaper: ProcessInfo.processInfo.arguments.contains("--global-search-scoped") ? selectedPaper?.id : nil)
+        if let words = argument.split(separator: "=", maxSplits: 1).dropFirst().first { globalSearch.query = String(words) }
+    }
+    #endif
 
     /// Opens global search (⌘K, the bar's 🔍, a paper's "Search in this paper"); scoped to a paper when given.
     func openGlobalSearch(scopePaper: Paper.ID? = nil) {
@@ -125,7 +130,7 @@ extension ReaderModel {
         for note in notes.state.notes {
             let edited = Date(timeIntervalSince1970: Double(note.lastEdited) / 1_000)
             dated.append((edited, GlobalSearchRow(id: "recent.collection:\(note.id.wire)", group: .snippets, symbol: "folder", title: note.title,
-                                                  subtitle: "\(note.entries.count) \(note.entries.count == 1 ? "snippet" : "snippets")",
+                                                  subtitle: NoteCollectionLine.detail(entryCount: note.entries.count),
                                                   target: .collection(note.id))))
         }
         // Explanations: the newest few files, opened for their subjects (off the main actor).
@@ -191,7 +196,13 @@ extension ReaderModel {
             if kind == .paperExplainer, let paper = papers.first(where: { $0.id == subject.paperID }) {
                 select(paper); openPaperExplainer(paper, requesting: false)
             } else if !openExplanation(subject) {
-                error = "The paper this explanation is about isn’t in your library on this device."; return
+                // The reader's sample (Settings' list leaves it out; a search finds what was explained in it too).
+                guard let sample = papers.first(where: { $0.id == subject.paperID }) else {
+                    error = "The paper this explanation is about isn’t in your library on this device."; return
+                }
+                pendingLocalAIChoice = .some(subject.localModelID)
+                pendingExplanation = subject
+                select(sample)
             }
         case .diagram(let id):
             openDiagram(id)

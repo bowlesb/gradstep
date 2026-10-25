@@ -5974,6 +5974,7 @@ final class ReaderModel {
         StorageFullFixture.arm()
         checkpointAllDrafts()
         tab = .library
+        openGlobalSearchIfAskedAtLaunch()
     }
     #endif
 

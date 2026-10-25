@@ -1,5 +1,20 @@
 # Fast and slow tests
 
+## Global search — October 25
+
+Fast: Core `swift test --filter "GlobalSearchTests|EverythingBenchTests|FullTextSearchTests|NoteSearchTests"` (tokenizer v2,
+typos, ranking, grouping and collapse, scope, partial results, incremental updates, nothing plaintext on disk, closing,
+recent searches, the sealed ML cache). App-hosted, one Simulator: `-only-testing:ScienceReaderTests/GlobalSearchAppTests`
+and `DeviceSearchTests` (the indexer over real private state, the engine, each result's route, Settings rows exist).
+Slow, opt-in: `-only-testing:ScienceReaderUITests/GlobalSearchJourneyTests` on an iPhone Simulator (six journeys, about
+3 minutes; `testWideShowsTheResultBesideTheList` runs on an iPad, sideways); `TEST_RUNNER_GS_SCREENSHOT_DIR` saves
+`iphone-…`/`ipad-…` screenshots. Launch arguments (Debug, fixture host): `--global-search[=words]`, `--global-search-scoped`
+(In this paper, the open paper), `--search-fixture` (a kept equation explanation). Speed, opt-in, release:
+`swift run -c release FullTextBenchTool everything owner heavy`, or
+`EVERYTHING_BENCH=owner,heavy swift test -c release -Xswiftc -enable-testing --filter EverythingBenchTests` (fails over
+100 ms p95). Rerun `SearchMatchJourneyTests`, `LibraryFullTextJourneyTests` and
+`SnippetsFeedbackTests/testSearchCoversEveryTextOfASnippet` after a tokenizer change.
+
 ## Aligned equations and accents (reader revision 26, device port 14) — October 25
 
 Fast (in `npm test`): `tests/backend/arxiv-equations.test.ts` (LaTeXML align with two column pairs, separately numbered

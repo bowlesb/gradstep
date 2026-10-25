@@ -73,6 +73,16 @@ the related-papers rule and its measurements in
 
 ## After TestFlight 92 — 2026-10-25
 
+**Global search, phase 1's search** (owner request; native apps, local, not released; the bar's 🔍 is the navigation
+branch). As built: [GLOBAL_SEARCH.md](architecture/GLOBAL_SEARCH.md).
+- One field over papers (the Library's index), chats and their answers, kept explanations, snippets with their recognised
+  text, diagrams, the Feed's page, tags and Settings, on the device; a second sealed index (`everything-index/`),
+  tokenizer v2 (α = alpha, LaTeX layout dropped), typo correction, grouped results, In this paper, the ML row; a message
+  result lands on the message. ML paper search's cache is sealed and removed at sign-out.
+- Verified: Core `swift test` (GlobalSearchTests and the rest), app `GlobalSearchAppTests` and `DeviceSearchTests`, the
+  journeys on an iPhone Simulator, the Wide journey on an iPad Simulator, the Mac Catalyst build; the release benchmark
+  (GLOBAL_SEARCH.md "Measurements"). Not verified: a physical device (paused), a ⌘K press on the Mac.
+
 **No network and a full disk** (owner request; apps only, not released). Details, the results table and what still
 needs a device: [OFFLINE_AND_STORAGE_20261025.md](reviews/OFFLINE_AND_STORAGE_20261025.md).
 - A full disk no longer closes the private library at launch (SQLite's journal files are kept; fallbacks when they

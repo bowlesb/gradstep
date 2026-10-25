@@ -2,6 +2,27 @@
 
 Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Global search: phase 1's search built (owner asked 2026-10-25 for "a global search that cuts across everything"; agent decisions, reversible)
+
+Built from [GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md) section B; as built:
+[GLOBAL_SEARCH.md](architecture/GLOBAL_SEARCH.md). The bar and More screen are a separate branch; the screen is
+`GlobalSearchView`, entered through `ReaderModel.openGlobalSearch(scopePaper:)`.
+
+| Decision | Choice |
+|---|---|
+| Where an item's kind, paper, container and date live | In the everything index's sealed manifest beside its words (`FullTextDocument.info`), not a second `catalog.bin`: one atomic write. |
+| Sign-out | Closes the index, clears the screen, its rows and caches, and removes ML paper search's cached results. The sealed index and recent searches stay with the account's other sealed local data (as `private-state.enc` and the Library's index do; PRIVACY_AND_SYNC "Ordinary sign-out retains the account-partitioned local key/store"); account deletion removes them. |
+| ML paper search cache | Sealed under the account's local-store key in `Caches/arxiv-search/<account>/` (kept for its day across launches, as before), in memory only while signed out; removed at sign-out. Plaintext files from earlier builds are deleted. |
+| Typos | Only when nothing matches; words of 4+ letters; the closest indexed word first, then the most frequent (the proposal ranked by frequency alone; closest-first avoids "atention" → "retention"). Then, for 2+ words, results with some of the words. |
+| A conversation's title | Indexed as the conversation's own words only when it is a topic title or the reader's name for it; a title that is the first question is found once, as that message (no duplicate rows). |
+| Snippets | A collection's name is in its snippets' tags field (weight 3), not their title (6), so a collection name ranks the collection first; All shows one row per collection with "+N more", as Chats does per conversation. |
+| "See all" | A chip: every item of the kind, uncollapsed, 50 at a time; the chats header says "N messages in M chats". |
+| Match line | Papers (and partial results) show the strength ("100% · full text") as the Library does; chats, explanations and snippets show the excerpt alone (a field name means little for a chat message). |
+| Math | Tokenizer v2 as proposed (`\sqrt`, `\frac`, `\operatorname` are no longer words, in Snippets' search too); the Library's paper text reads LaTeX as math, so excerpts show "softmax(QK⊤/√d_k)". |
+| Recently opened | Only from what the app already has (papers read here, chats used, collections edited, explanations kept); nothing new is recorded. |
+| Wide | The results list at 36% of the window (320–440 pt) beside the picked paper, chat or collection; the divider is fixed until the places branch adds `wide.divider.search`. Diagrams, Feed, tags and Settings go to their places. |
+| The sample paper | Its kept explanations open from search (Settings' list leaves the sample out). |
+
 ## Account-deletion sweep: listing fixed and watched (2026-10-25; agent decisions, reversible)
 
 From 2026-10-12 14:01 UTC (first on 2026-10-09 14:03) every listing of the worker's deletion sweep timed out at the

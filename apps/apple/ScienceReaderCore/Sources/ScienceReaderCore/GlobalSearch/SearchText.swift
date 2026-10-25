@@ -155,6 +155,10 @@ public enum SearchText {
         "odot": "⊙", "otimes": "⊗", "oplus": "⊕", "top": "⊤", "intercal": "⊤", "ell": "ℓ", "pm": "±", "langle": "⟨", "rangle": "⟩",
     ]
 
+    /// Commands whose braced argument is dropped with them.
+    private static let withoutArgument: Set<String> = ["begin", "end", "label", "tag", "ref", "eqref", "cite", "citep", "citet", "hspace",
+                                                       "vspace", "color", "textcolor"]
+
     /// LaTeX as one line of readable text: Greek letters and common symbols as characters (`\alpha` → α, `\sum` → ∑),
     /// a transpose as ⊤ (`QK^\top` → QK⊤, so "top" is never a word), layout commands dropped with their arguments kept
     /// (`\mathrm{softmax}` → softmax, `\frac{a}{b}` → a b), other commands as their names (`\log` → log), braces gone.
@@ -176,6 +180,15 @@ public enum SearchText {
                     index = min(scalars.count, end + 1); continue
                 }
                 let name = String(String.UnicodeScalarView(scalars[(index + 1)..<end]))
+                // `\begin{equation}`, `\label{eq:x}`, `\cite{…}`: the command and its argument are structure, not words.
+                if withoutArgument.contains(name) {
+                    var next = end
+                    while next < scalars.count, scalars[next] == " " { next += 1 }
+                    if next < scalars.count, scalars[next] == "{", let close = scalars[next...].firstIndex(of: "}") { index = close + 1 }
+                    else { index = end }
+                    if name == "begin" || name == "end" { out += " " }
+                    continue
+                }
                 if let letter = greek[name] { out += letter }
                 else if let symbol = symbols[name] { out += symbol }
                 else if FullTextTokenizer.layoutCommands.contains(name) { out += " " }
@@ -187,8 +200,9 @@ public enum SearchText {
             out.unicodeScalars.append(scalar)
             index += 1
         }
-        // `^{⊤}` and `^⊤` read as a transpose mark.
-        return out.replacingOccurrences(of: "^⊤", with: "⊤").split(whereSeparator: { $0 == " " }).joined(separator: " ")
+        // `^{⊤}` and `^⊤` read as a transpose mark; a script's dropped command leaves no gap.
+        return out.replacingOccurrences(of: "^⊤", with: "⊤").replacingOccurrences(of: "^ ", with: "^").replacingOccurrences(of: "_ ", with: "_")
+            .split(whereSeparator: { $0 == " " }).joined(separator: " ")
     }
 
     // MARK: Diagrams

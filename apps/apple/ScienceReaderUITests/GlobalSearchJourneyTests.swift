@@ -57,14 +57,18 @@ final class GlobalSearchJourneyTests: XCTestCase {
         XCTAssertLessThan(explanations.frame.minY, snippets.frame.minY)
         XCTAssertTrue(app.buttons["search.chip.chats"].exists, "Chips once there is a query")
         capture(app, "search-typing")
-        // A chip lists every match of its kind.
+        // All shows a chat once ("+N more in this chat"); its chip lists every match.
+        let field = app.textFields["search.field"]
+        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5) + "dpo ")
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@", "search.row.message:", "search.row.conversation:"))
+        XCTAssertTrue(wait { rows.count >= 1 })
+        let collapsed = rows.count
         app.buttons["search.chip.chats"].tap()
-        XCTAssertTrue(wait { app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.row.")).count >= 4 })
+        XCTAssertTrue(wait { rows.count > collapsed && rows.count >= 4 }, "The Chats chip lists every message (\(rows.count) after \(collapsed))")
         capture(app, "search-chats-chip")
         app.buttons["search.chip.all"].tap()
         // A typo: the closest word is searched, and the screen says so.
-        let field = app.textFields["search.field"]
-        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5) + "atention ")
+        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "atention ")
         XCTAssertTrue(app.descendants(matching: .any)["search.correction"].waitForExistence(timeout: 10), "No exact matches · showing attention")
         capture(app, "search-typo")
     }
@@ -107,6 +111,28 @@ final class GlobalSearchJourneyTests: XCTestCase {
         capture(app, "search-scoped")
         scope.tap()
         XCTAssertTrue(wait { !passages.exists }, "The token removed: everything again")
+    }
+
+    /// iPad sideways: the results stay on the left and the picked chat shows on the right (Mail's two slots).
+    func testWideShowsTheResultBesideTheList() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("The Wide shape is the iPad's sideways (and the Mac's)") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication()
+        app.launchArguments = ["--draft-fixture", "--reset-draft-fixture", "--chat-history-fixture", "--snippets-fixture", "--search-fixture",
+                               "--global-search"]
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.textFields["search.field"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.descendants(matching: .any)["search.pickPlaceholder"].waitForExistence(timeout: 5), "The right slot waits for a pick")
+        type(app, "dpo")
+        let row = firstRow(app, "conversation:").exists ? firstRow(app, "conversation:") : firstRow(app, "message:")
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        capture(app, "search-wide-typing")
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.transcript"].waitForExistence(timeout: 10), "The chat beside the results")
+        XCTAssertTrue(app.textFields["search.field"].exists, "The results stay")
+        capture(app, "search-wide-picked")
     }
 
     func testTheLastRowSearchesMLPapers() throws {

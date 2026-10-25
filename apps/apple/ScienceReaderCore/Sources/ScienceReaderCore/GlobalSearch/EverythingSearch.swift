@@ -161,11 +161,13 @@ public enum EverythingSearch {
         // Fields in order of how many new words the index found there (all of them when it isn't known).
         let ranked = candidates.filter { !$0.2.isEmpty }.map { candidate -> (Int, (SearchMatchField, FullTextField, String)) in
             let bits = fieldClauses.indices.contains(candidate.1.rawValue) ? fieldClauses[candidate.1.rawValue] : .max
-            return ((bits & ~titleBits).nonzeroBitCount, candidate)
+            return ((bits & ~(title == item.title ? titleBits : 0)).nonzeroBitCount, candidate)
         }.sorted { $0.0 > $1.0 }
         for (found, candidate) in ranked where found > 0 || fieldClauses.isEmpty {
             guard let excerpt = SearchHighlighter.excerpt(query, in: candidate.2) else { continue }
-            if SearchHighlighter.clauses(query, in: excerpt.text).subtracting(inTitle).isEmpty && !inTitle.isEmpty { continue }
+            // Words the title already shows are not worth a line, unless the row's title is another's (a message's row
+            // is titled by its chat): then its own words are the line.
+            if title == item.title, SearchHighlighter.clauses(query, in: excerpt.text).subtracting(inTitle).isEmpty, !inTitle.isEmpty { continue }
             result.excerpt = excerpt; result.excerptField = candidate.0
             return result
         }

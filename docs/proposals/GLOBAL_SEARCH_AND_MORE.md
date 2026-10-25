@@ -1,4 +1,7 @@
-# Global search and a "More" place (proposal, 2026-10-25; design only, nothing built)
+# Global search and a "More" place (proposal, 2026-10-25)
+
+**Status:** phase 1's search (section B) is built, as described in [GLOBAL_SEARCH.md](../architecture/GLOBAL_SEARCH.md)
+(local, not released); the navigation (section A) is a separate branch.
 
 Owner, 2026-10-25: *"One more feature - one of our UX issues is we have 6 icons but only room for 5. Lets change to the
 way Slack does it. slack has three at the bottom, a [fourth] icon with the words More, and then if you click you get a

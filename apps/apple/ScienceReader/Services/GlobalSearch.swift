@@ -223,9 +223,9 @@ enum GlobalSearchEngine {
                 let rows = group.hits.prefix(limit).compactMap { row($0, query: query, sources: input.sources, summaries: summaries, partial: partial) }
                 guard !rows.isEmpty || group.total > 0 else { continue }
                 var shown = GlobalSearchGroup(group: group.group, rows: rows, total: group.total)
-                if group.group == .chats {
-                    let messages = group.hits.isEmpty ? 0 : (input.chip == .all ? group.total : group.hits.filter { $0.info.kind == .message }.count)
-                    shown.summary = "\(messages) \(messages == 1 ? "match" : "matches") in \(group.containers) \(group.containers == 1 ? "chat" : "chats")"
+                if group.group == .chats, input.chip != .all {
+                    let messages = group.hits.filter { $0.info.kind == .message }.count
+                    shown.summary = "\(messages) \(messages == 1 ? "message" : "messages") in \(group.containers) \(group.containers == 1 ? "chat" : "chats")"
                 }
                 groups.append(shown)
             }
@@ -321,7 +321,7 @@ enum GlobalSearchEngine {
         switch info.kind {
         case .conversation:
             guard let id, let summary = summaries[id] else { return nil }
-            let item = SearchItem.conversation(id: id, title: summary.title, paperID: summary.documentID,
+            let item = SearchItem.conversation(id: id, title: EverythingIndexer.ownTitle(summary), paperID: summary.documentID,
                                                paperTitle: summary.documentID.flatMap { sources.paperTitles[$0] }, passage: summary.anchor?.quote, date: nil)
             return made(item, title: summary.title, symbol: "bubble.left.and.bubble.right",
                         subtitle: [summary.documentID.flatMap { sources.paperTitles[$0] }, when(summary.lastUsedAt)], target: .conversation(id))
@@ -348,7 +348,7 @@ enum GlobalSearchEngine {
         case .collection:
             guard let id, let note = sources.notes.note(id) else { return nil }
             let item = SearchItem.collection(id: id, name: note.title, date: nil)
-            return made(item, title: note.title, symbol: "folder", subtitle: ["\(note.entries.count) \(note.entries.count == 1 ? "snippet" : "snippets")"],
+            return made(item, title: note.title, symbol: "folder", subtitle: [NoteCollectionLine.detail(entryCount: note.entries.count)],
                         target: .collection(id))
         case .snippet:
             guard let id, let found = sources.notes.entry(id) else { return nil }

@@ -51,6 +51,7 @@ struct GlobalSearchView: View {
             let words = search.results.isEmpty ? "No results" : "\(search.results.total) \(search.results.total == 1 ? "result" : "results")"
             if announced != words { announced = words; AccessibilityNotification.Announcement(words).post() }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("search.screen")
     }
 
@@ -115,7 +116,8 @@ struct GlobalSearchView: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(GlobalSearchChip.allCases) { chip in
+                // In this paper: its own kinds (no Papers, Feed, tags or Settings).
+                ForEach(GlobalSearchChip.allCases.filter { search.scope == nil || [.all, .chats, .explanations, .snippets].contains($0) }) { chip in
                     let selected = search.chip == chip
                     Button { search.chip = chip } label: {
                         Text(chip.title).font(.subheadline.weight(selected ? .semibold : .regular))

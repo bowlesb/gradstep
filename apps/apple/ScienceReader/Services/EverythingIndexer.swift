@@ -140,7 +140,9 @@ final class EverythingIndexer {
         var conversationPapers: [UUID: UUID] = [:]
         for summary in sources.summaries {
             if let paper = summary.documentID { conversationPapers[summary.id] = paper }
-            let item = SearchItem.conversation(id: summary.id, title: summary.title, paperID: summary.documentID,
+            // A title that is the first question is that message's words: indexed once, as the message (a topic title or
+            // the reader's own name is the conversation's).
+            let item = SearchItem.conversation(id: summary.id, title: Self.ownTitle(summary), paperID: summary.documentID,
                                                paperTitle: summary.documentID.flatMap { sources.paperTitles[$0] },
                                                passage: summary.anchor?.quote, date: summary.lastUsedAt ?? summary.startedAt)
             out.append(Stub(group: item.group, fingerprint: item.contentFingerprint) { item })
@@ -205,6 +207,12 @@ final class EverythingIndexer {
             }
         }
         return out
+    }
+
+    /// The conversation's own title: a topic title or the reader's name for it; not the first question it was named
+    /// after (that is the message's words, found once, as the message).
+    nonisolated static func ownTitle(_ summary: ConversationSummary) -> String {
+        summary.hasTopicTitle || !summary.questions.contains(summary.title) ? summary.title : ""
     }
 
     /// A kept explanation's item, read from its sealed file.

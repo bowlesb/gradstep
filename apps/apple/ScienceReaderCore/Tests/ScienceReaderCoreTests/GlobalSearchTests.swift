@@ -174,6 +174,10 @@ import Testing
         let marked = excerpt.highlights.map { String(decoding: Array(excerpt.text.utf16)[$0], as: UTF16.self) }
         #expect(marked == ["softmax", "saturating"])
         #expect(shown.titleHighlights.isEmpty)
+        // A message's row is titled by its chat: its own words are the line even when the title shows the word too.
+        let titled = EverythingSearch.display(item, title: "Why softmax saturates", query: FullTextQuery("softmax "),
+                                              match: SearchMatch(clauseFields: [.fullText]), fieldClauses: [0, 0, 0, 0, 0, 1])
+        #expect(titled.excerpt?.text.contains("keeps the softmax") == true)
     }
 
     @Test func itemsAreAddedReplacedAndRemovedIncrementally() async throws {
@@ -280,6 +284,7 @@ import Testing
         #expect(terms(text).contains("alpha") && !terms(text).contains("top") && !terms(text).contains("mathrm"))
         #expect(SearchText.chat("It costs $5 and $10.") == "It costs $5 and $10.")
         #expect(SearchText.math(#"\frac{\partial L}{\partial \theta}"#) == "∂ L ∂ θ")
+        #expect(SearchText.math(#"\begin{equation}\label{eq:attention} x^{\mathsf{T}} y_{\mathrm{t}} \end{equation}"#) == "x^T y_t")
     }
 
     @Test func diagramsGiveTheirLabels() throws {
