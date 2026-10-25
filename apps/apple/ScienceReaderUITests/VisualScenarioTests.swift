@@ -21,6 +21,7 @@ final class VisualScenarioTests: XCTestCase {
     private static let feedTableFixture = metadataFixture + ["--feed-fixture", "--feed-layout=table"]
     private static let mathpixFixture = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture"]
     private static let historyFixture = chatFixture + ["--chat-history-fixture"]
+    private static let snippetsFixture = ["--draft-fixture", "--reset-draft-fixture", "--snippets-fixture"]
 
     /// The catalogue. Keep steps short and deterministic; wait for the state, never for time alone when avoidable.
     private var scenarios: [String: Scenario] {
@@ -331,6 +332,30 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
                 XCTAssertTrue(app.navigationBars["Acknowledgements"].waitForExistence(timeout: 5)); sleep(1)
             },
+            // Snippets (owner feedback on TestFlight 91, 2026-10-24) over the seeded collections: the list, a collection,
+            // the empty one, a search for a word that is only in an image, and drawing a snippet.
+            "snippets-list": Scenario(arguments: Self.snippetsFixture) { app in self.go(app, "notes"); sleep(2) },
+            "snippets-collection": Scenario(arguments: Self.snippetsFixture) { app in self.openCollection(app, "Quick snippets") },
+            "snippets-empty": Scenario(arguments: Self.snippetsFixture) { app in self.openCollection(app, "New collection") },
+            "snippets-search": Scenario(arguments: Self.snippetsFixture) { app in
+                self.go(app, "notes")
+                let field = app.searchFields.firstMatch.exists ? app.searchFields.firstMatch : app.textFields["notes.search"]
+                XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("kaleido")
+                sleep(3)
+            },
+            "snippets-capture": Scenario(arguments: Self.snippetsFixture) { app in
+                self.openSample(app)
+                if app.wideShape, !app.buttons["Paper options"].exists { app.choosePlace("paper") }
+                let options = app.buttons["Paper options"].firstMatch
+                XCTAssertTrue(options.waitForExistence(timeout: 8)); options.tap()
+                let draw = app.buttons.matching(NSPredicate(format: "label == %@", "Draw snippet")).firstMatch
+                XCTAssertTrue(draw.waitForExistence(timeout: 5)); draw.tap()
+                let overlay = app.descendants(matching: .any)["capture.overlay"]
+                XCTAssertTrue(overlay.waitForExistence(timeout: 5))
+                overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.25))
+                    .press(forDuration: 0.05, thenDragTo: overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45)))
+                sleep(1)
+            },
             "chat-title": Scenario(arguments: Self.historyFixture) { app in
                 self.openHistory(app)
                 let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000005"]
@@ -389,6 +414,14 @@ final class VisualScenarioTests: XCTestCase {
 
     private func openSample(_ app: XCUIApplication) {
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10)); app.buttons[sampleID].tap()
+        sleep(2)
+    }
+
+    /// Snippets › a collection from the list (Tall pushes it; Wide shows it beside the list).
+    private func openCollection(_ app: XCUIApplication, _ title: String) {
+        go(app, "notes")
+        let row = app.buttons["notes.row.\(title)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8)); row.tap()
         sleep(2)
     }
 

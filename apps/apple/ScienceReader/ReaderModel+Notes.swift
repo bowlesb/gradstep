@@ -168,7 +168,45 @@ extension ReaderModel {
         let data = try await noteImageData(media)
         let image = try await Task.detached(priority: .userInitiated) { try SnippetImageEncoder.decode(data, media: media) }.value
         notes.cache(image, for: media)
+        // A full image that wasn't on this device when its words were last looked for: read them now.
+        if notes.recogniseMissing.remove(media.blobID) != nil { recogniseSnippetTextSoon() }
         return image
+    }
+
+    /// Snippets' search reads the words in each region's image once, on this device (Vision), and keeps them sealed with
+    /// the account's local key (`SnippetTextStore`). Only images already on this device are read: nothing is downloaded
+    /// for this. Runs one image at a time at utility priority after the collections change.
+    func recogniseSnippetTextSoon() {
+        if notes.recognising != nil { notes.recogniseAgain = true; return }
+        guard let store, let accountID, let textStore = snippetTextStore() else { return }
+        if !notes.recognisedLoaded { notes.setRecognised(textStore.load()); notes.recognisedLoaded = true }
+        let wanted = notes.state.notes.flatMap(\.entries).compactMap { $0.record.kind == .region ? $0.record.media?.full : nil }
+            .filter { notes.recognised[$0.blobID] == nil && !notes.recogniseMissing.contains($0.blobID) }
+        guard !wanted.isEmpty else { return }
+        let scope = sessionID
+        notes.recognising = Task { [weak self] in
+            var unsaved = 0
+            for media in wanted {
+                guard !Task.isCancelled, let current = self, current.sessionID == scope else { return }
+                guard let data = try? await NoteAssetSync.image(media, accountID: accountID, store: store, transport: nil) else {
+                    current.notes.recogniseMissing.insert(media.blobID); continue
+                }
+                let text = await Task.detached(priority: .utility) { () -> String? in
+                    guard let image = try? SnippetImageEncoder.decode(data, media: media).cgImage else { return nil }
+                    return SnippetTextRecognizer.text(in: image)
+                }.value
+                guard let current = self, current.sessionID == scope, let text else { continue }
+                var texts = current.notes.recognised
+                texts[media.blobID] = text
+                current.notes.setRecognised(texts)
+                unsaved += 1
+                if unsaved >= 8 { try? textStore.save(texts); unsaved = 0 }
+            }
+            guard let self, self.sessionID == scope else { return }
+            if unsaved > 0 { try? textStore.save(self.notes.recognised) }
+            self.notes.recognising = nil
+            if self.notes.recogniseAgain { self.notes.recogniseAgain = false; self.recogniseSnippetTextSoon() }
+        }
     }
 
     /// The image's verified bytes (PNG or JPEG as captured): this device's encrypted copy, else a download.

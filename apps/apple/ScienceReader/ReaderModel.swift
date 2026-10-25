@@ -982,7 +982,11 @@ final class ReaderModel {
             let notesRevision = notes.stateRevision
             notes.update(privateState)
             // Notes and snippets are indexed with their paper.
-            if notes.stateRevision != notesRevision { fullTextIndexer.schedule() }
+            if notes.stateRevision != notesRevision {
+                fullTextIndexer.schedule()
+                // Text in snippet images is read once, on this device, for Snippets' search.
+                recogniseSnippetTextSoon()
+            }
         }
     }
     /// All chats' rows: one summary per saved conversation, computed once per history change (one pass over the
@@ -1282,6 +1286,10 @@ final class ReaderModel {
         podcasts.host = self
         fullTextIndexer.inputs = { [weak self] in self?.fullTextInputs() ?? .init() }
         fullTextIndexer.changed = { [weak self] in self?.fullTextIndexChanged() }
+        // Snippets' search reads the reading under a drawn region when that paper's reading is on this device.
+        notes.readingIndex = { [weak self] manifest in
+            self?.papers.first { $0.readerBundle?.manifestSHA256 == manifest }?.readerBundle?.index
+        }
         // The Feed's former "Hide papers in your library" choice: hiding is now the only behaviour (owner, 2026-10-24).
         UserDefaults.standard.removeObject(forKey: "feed.hidesLibrary")
     }
@@ -4511,6 +4519,21 @@ final class ReaderModel {
         paperExplainerAnswers[key] = answer
         try? paperExplainerResultStore()?.write(answer, for: key)
     }
+    /// The sealed store of text recognised in snippet images for the signed-in account (ReaderModel+Notes); nil before
+    /// activation.
+    func snippetTextStore() -> SnippetTextStore? {
+        if let existing = notes.textStore { return existing }
+        guard let configuration, let device, let accountID, device.accountID == accountID,
+              let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
+        let directory = base.appendingPathComponent("\(configuration.environment)/\(accountID.wire)/snippet-text", isDirectory: true)
+        #if DEBUG && FIXTURE_HOST
+        // Journeys start without recognised text, as with their kept answers.
+        if ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture") { try? FileManager.default.removeItem(at: directory) }
+        #endif
+        notes.textStore = try? SnippetTextStore(directory: directory, accountID: accountID, localKey: device.localStoreKey)
+        return notes.textStore
+    }
+
     func paperExplainerResultStore() -> EquationResultStore? {
         if let paperExplainerStore { return paperExplainerStore }
         guard let configuration, let device, let accountID, device.accountID == accountID,
@@ -5654,6 +5677,9 @@ final class ReaderModel {
             try configureChatPaperNavigationFixture(pending: kind.hasSuffix("=pending"))
         }
         if Self.chatHistoryFixtureEnabled { try await installChatHistoryFixture(into: local, deviceID: fixtureDevice.deviceID) }
+        if ProcessInfo.processInfo.arguments.contains("--snippets-fixture") {
+            try await installSnippetsFixture(into: local, deviceID: fixtureDevice.deviceID, accountID: fixtureAccount)
+        }
         let scrollAuditConversation = ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--chat-scroll-audit=") })
             ? try await installScrollAuditFixture(into: local, deviceID: fixtureDevice.deviceID) : nil
         let snapshot = await local.snapshot()

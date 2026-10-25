@@ -2,6 +2,13 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+OpenRouter reconciler (pipeline worker revision gradstep-pipeline-00056-wcj, deployed 2026-10-25 04:25 UTC via Cloud
+Build): it now also accepts a record whose model is the dispatched slug without its date. Forcing a retry of the stuck
+2026-10-22 DeepSeek attempt (f92ab6d2, $0.049 held) still ended in `mismatch`, so the date was not the cause. The worker
+does not log what the record named, and no OpenRouter key is on the Mac. After its 12th try it moves to Health ›
+Attention for manual reconciliation. The 2026-10-24 Gemini attempt (9975bf7c) is `not_found` at OpenRouter: the stream
+was cut before the record was written. Next step if this recurs: record the observed model and provider on a mismatch.
+
 AI Explainers on every on-device model reading (TestFlight 91 known gap; branch `worktree-agent-a8df15119d43dcfc0`;
 [decision](DECISIONS.md#explainers-on-every-on-device-model-reading-testflight-91-known-gap-agent-decisions-2026-10-24-reversible),
 DEVICE_PDF_ROUTE.md "Explainers on every model reading"). Neither gap was the converter's port revision: nothing on the
@@ -106,6 +113,36 @@ pass in the iOS 26.4 Simulator; the review tool on the owner's session flags "Vi
 session cut from it lines both parts up and reports the gap; `npm test` passes. Not run: `DeviceModelJourneyTests`
 (updated for the one row; needs the model pack in the build); `PassageJourneyTests/testTabletSplitLinksChatAndPassage`
 failed before its theme step, at the selection menu's "Explain in Chat" (untouched here).
+Owner session on 91 (iPad sideways, recording 20261024-160529), three findings:
+- **Places menu gap**: the menu was two sections (Snippets | Search); now one list (`PlacesMenuButton`).
+- **Why column**: "Category: cs.LG" → "New in Machine learning", "Popular ▲ 232" → "Popular: 232 upvotes"
+  (`FeedReason.shortLabel`); an ⓘ after the Why header and on each List section header explains the reasons; the
+  Popularity column is headed Upvotes.
+- **Figure-open animation**: opening (and closing) a figure, table or equation page or an AI Explainer beside the paper
+  no longer slides the list out, the paper across and the page in; the slots change at once (`TwoSlotLayout.slides`,
+  `ExplainerCompanion`). A Simulator recording shows Library | paper in one frame and Paper | figure page in the next.
+Verified: `swift test` (FeedWhyTests 9/9 with new label and ⓘ tests); new UI tests `IPadShapesJourneyTests.
+testThePlacesMenuIsOneList`, `testAFigureOpensBesideThePaperAtOnce` (slot animation slowed ×12 with
+`--slot-animation-slow`, frames final at the first look), `FeedForYouTests.testTheWhyColumnExplainsItself*`,
+`testTheListHeadersExplainThemselves*` failed on the old code and pass (iPad Pro 13-inch (M5) Simulator). Affected
+suites pass: `FeedForYouTests` (iPad 11/11; iPhone 17 Pro all run, the ⓘ tests re-run once after an accessibility-server
+error under load), `IPadShapesJourneyTests` 18/18 (5 re-run on a quiet Simulator after load-average-500 timeouts),
+`MenusJourneyTests.testAnAppSheetUprightSpansTheWindow`, `FeedPersonalizationTests` and `PaperTableTests`. Screens before/after: `.artifacts/sessions/20261024-160529/fixes/`. Needs the owner's eye on a device: whether
+the instant change feels right.
+Snippets, owner feedback on 91 (recorded iPad session; native apps; spec and causes in
+[NOTES_AND_SNIPPETS.md](architecture/NOTES_AND_SNIPPETS.md#snippets-owner-feedback-on-testflight-91-2026-10-24-native-local-source-not-released)):
+the open collection's name is renamed in place (a UIKit field in its bar or Wide row; Return or leaving saves, Escape or
+an empty name restores; ⋯ › Rename collection focuses it). Search (`NoteSearch`) matches word beginnings, case and
+diacritics folded, over names, comments, quotations, paper titles, authors, arXiv IDs, sections, labels, the reading's
+text and LaTeX under a drawn region, and text Vision recognises in each image once on the device (sealed
+`SnippetTextStore`, never synced); placeholder "Names, comments, text, papers". Rows are two lines (name, "N snippets" or
+"No snippets yet"). Collapse all / Expand all are one step (the animated `LazyVStack` change was reproduced frame by
+frame). Drawing a snippet shows the box and Use snippet in the bottom-right corner only. Verified: Core `swift test`
+Notes suites (36 tests, including new `NoteSearchTests`, `NoteCollectionLineTests`); UI `SnippetsFeedbackTests` (6) on
+iPad Pro 13-inch upright and iPhone 17 Pro, rename and capture also sideways; `NotesJourneyTests` rename, collapse and
+cards journeys. Not verified: Escape with a hardware keyboard (the Simulator's on-screen keyboard drops a synthesized
+Escape; the empty-name path is tested instead), the Mac, the physical device. `NotesJourneyTests.testNotesInTheWideLayout`
+fails at Settings in the collection's ⋯ (the menu, unchanged here, opens without Settings in view sideways).
 
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
