@@ -248,7 +248,7 @@ enum FigureViewOutcome {
 
     /// The local framing record (FigureFramingRecorder): arXiv figures only, geometry only, in memory, never sent.
     private func record(boxed: [Int], sections: [FigureWalkthrough.Section], boxes: [CropRect]) {
-        guard let local = context.localContext else { return }
+        guard let local = context.localContext, !local.isOwnPDF else { return }
         let figure = ArxivFigure(sourceID: local.sourceID, revision: local.revision, figure: context.label)
         for (k, index) in boxed.enumerated() {
             guard let part = framed[index], let key = recordKey(.walkthrough, index) else { continue }

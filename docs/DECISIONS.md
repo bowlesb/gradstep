@@ -24,6 +24,17 @@ Last updated: 2026-10-24 UTC. Requirements below come from the current user conv
   then". The privacy-notice draft in INTEREST_INDEX.md §5 gains one sentence for it. Serving to `all` still waits for
   the owner's approval of that notice wording.
 
+## Explainers on every on-device model reading (TestFlight 91 known gap; agent decisions 2026-10-24, reversible)
+
+- **Another arXiv revision's reading** is the paper's text for its explainers and chat; the request names the library
+  membership as it is (server unchanged). The arXiv HTML reading stays exact to the membership's revision.
+- **A PDF the reader added** gets cloud explainers and chat from its on-device reading. The request carries only the
+  numbered text (`source: "local"`): no paper id, title, or digest of the PDF or the reading, which the server refuses.
+  The server has no membership to check (the entry is end-to-end encrypted) and needs none: the text is held in request
+  memory under the reader's AI consent, as an arXiv paper's is, and metered by the same server-side holds. The paper's
+  own printed title can be in its text, as with any paper; the reader's library title for it is never sent.
+- Details: [DEVICE_PDF_ROUTE.md](architecture/DEVICE_PDF_ROUTE.md#explainers-on-every-model-reading--2026-10-24-after-testflight-91).
+
 ## Library search over every paper's text: an encrypted on-device index (owner question 2026-10-24; agent decisions, reversible)
 
 Owner: *"is our search engine good enough, ie is it searching full text from all papers instantly?"* It wasn't: a
