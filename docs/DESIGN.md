@@ -368,6 +368,15 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   Text never takes a series colour. Tapping a named segment or legend row chooses its chip. The ring's accessibility
   label is the whole chart in words. Code: `Views/AIUsageRing.swift`; browser `UsageRing` in `ui/UsageDialog.tsx`;
   slices `AIUsageFormat.slices` / `usageSlices`.
+- **Library topics** (Library › All, owner decision 4, 2026-10-24): under the filter chips, so a chip never moves; one
+  header row (chevron, "Topics" and the count, the chosen topic as a ✕ chip, ⓘ) that collapses the chart (remembered).
+  Open: the Credits by activity ring at 104 pt (inner radius 72 %), the papers in topics in its centre, and a legend
+  (swatch, label on one line, "papers · share" trailing; two columns at regular width with more than four topics). Up
+  to eight largest topics coloured by size from the chart palette's eight slots — light `#2a78d6 #eb6834 #1baf7a
+  #eda100 #e87ba4 #008300 #6250d6 #e34948`, dark `#3987e5 #d95926 #199e70 #c98500 #d55181 #008300 #9085e9 #e66767`
+  (adjacent pairs validated on white and black) — or the reader's colour; the rest is a neutral Other whose row opens
+  the smaller topics, "Outside topics" and hidden ones. A slice or row filters the list (selected row tinted, other
+  slices dimmed); touch and hold: Rename…, Colour, Hide topic. Code: `Views/LibraryTopicsChart.swift`.
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.
