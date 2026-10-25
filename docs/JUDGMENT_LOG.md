@@ -6,6 +6,17 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-25
 
+22. **Global search keeps its sealed index on the device after sign-out** (cleared from memory and screen; removed
+    with the account), like the encrypted chat store and the Library's index. The ML paper search cache is deleted at
+    sign-out. *Undo:* delete the index at sign-out (a full rebuild, a few seconds, at the next sign-in).
+23. **Search typo correction** picks the closest word, then the most common; words under 4 letters are never
+    corrected; "No exact matches · showing attention" says so.
+24. **Search results show the "100% · full text" strength only on papers**; other kinds show just the excerpt.
+25. **A chat is found once**, by its first question, unless it has a generated or renamed title; snippets collapse to
+    one row per collection with "+N more", like chats per conversation.
+26. **Paper excerpts read LaTeX as math in the Library's own search too** (shared tokenizer), so Library excerpts change
+    slightly.
+
 18. **When Gemini Flash fails before writing anything, Claude Haiku 5.5 answers instead, labelled** ("by Claude Haiku
     5.5", and "Switching to Claude Haiku 5.5…" while it happens). Same zero-retention Google endpoint and terms, same
     consent; the reader pays only for the answer they got, never above the hold. *Why:* Gemini on that endpoint
