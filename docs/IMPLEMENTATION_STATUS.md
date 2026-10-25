@@ -53,7 +53,7 @@
   deploy suite the deploy scripts run locally has it already). Then `node scripts/workflow-checks.mjs
   --only=deletion.sweep` should pass, and the gateway should show 200s for the listing.
 
-## Two waits from TestFlight 92 — 2026-10-25 UTC (local; nothing deployed)
+## Two waits from TestFlight 92 — 2026-10-25 UTC (chat deployed 14:13 UTC, 0158 applied 14:10 UTC; app part in TestFlight 93)
 
 - **Explain in Chat stuck on "Thinking…" (13:01 UTC):** Gemini Flash sent no data for 119.5 s until the reader left; no
   OpenRouter record; not charged; the retry took 18.7 s. "132k in · 10k out" on the usage screen are the hold's

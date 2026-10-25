@@ -6,6 +6,22 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-25
 
+18. **When Gemini Flash fails before writing anything, Claude Haiku 5.5 answers instead, labelled** ("by Claude Haiku
+    5.5", and "Switching to Claude Haiku 5.5…" while it happens). Same zero-retention Google endpoint and terms, same
+    consent; the reader pays only for the answer they got, never above the hold. *Why:* Gemini on that endpoint
+    answered 81 % of calls in the last day (Haiku 37/37, p90 2.7 s). It relaxes the 2026-10-18 "no silent fallback" rule
+    only in being automatic; it is never silent. *Undo:* `chat_fallback: "off"` in infra and redeploy `chat`.
+19. **Flash stays on the US zero-retention endpoint for a week, watched by the new model-health check.** If it is still
+    under 90 % by 2026-11-01, move it to Google's global zero-retention endpoint (88.5 % up, 9 % cheaper, may process
+    outside the US; the privacy page doesn't promise US processing), and consider the priority endpoint (99.9 %, 1.64×
+    price) only if that degrades too. *Undo / change:* the route in `chat-profiles.ts`.
+20. **Figure explainers keep Gemini Flash as the default** (it cites about three times as many paragraphs as Haiku);
+    the fallback covers its failures. *Undo:* make Haiku the figures default (faster, about one-sixth the cost).
+21. **Planned, not built:** an attempt that received no bytes and still has no OpenRouter record after its 12
+    reconciliation tries settles at zero automatically, counted in Health so an unexpected bill would stand out.
+    Three such attempts hold $0.39 today. *Why:* they need manual work otherwise and OpenRouter can't bill a
+    generation it has no record of. *Undo:* back to manual reconciliation.
+
 13. **Global search: the bar is Library · Paper · Chat · More, with 🔍 beside it** (iPhone, and iPad windows too narrow
     for six). Feed, Snippets and Settings move under More. *Why:* the app opens to the Library, Paper ↔ Chat is the
     reading loop (about 25 code routes land there against 2 for Feed), and those three get the most owner feedback.
