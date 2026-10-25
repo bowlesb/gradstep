@@ -241,8 +241,14 @@ def notes():
     return [('line', union([page, rings, box, line])), ('point', disc(70, 52, 8))]
 
 
+def more():
+    """More (2026-10-25, Slack's "a fourth icon with the words More"): three dots in a row, as the chat bubble's answer
+    arriving; the last is the amber point. Its word under it in the bar tells it from the screens' ⋯ circle."""
+    return [('line', union([disc(12, 50, 11.5), disc(50, 50, 11.5)])), ('point', disc(88, 50, 11.5))]
+
+
 GLYPHS = {
-    'notes': notes,
+    'notes': notes, 'more': more,
     'library_valley': library_valley, 'library_amber_spine': library_amber_spine, 'library_stack': library_stack,
     'feed': feed, 'feed_cards': feed_cards, 'library': library, 'paper': paper, 'chat': chat, 'chat_two': chat_two,
     'settings': settings, 'gear': gear, 'nabla': nabla, 'chat_new': chat_new, 'chat_history': chat_history,

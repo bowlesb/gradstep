@@ -26,6 +26,51 @@ HTTP 429s that our same-model retry skipped because OpenRouter names a generatio
 | Not changed (owner decisions, measured in CHAT.md) | Gemini's pinned Vertex **US** endpoint (alternatives: `google-vertex/global`, ZDR, 88.5 % uptime, 9 % cheaper; `google-vertex/global/priority`, ZDR, 99.9 %, 1.64× the US price; both outside the US), the figures and chat defaults (Gemini Flash) |
 | No output, no record (decided on the owner's behalf, [JUDGMENT_LOG](JUDGMENT_LOG.md) 21; migration 0162, local, not applied) | An OpenRouter attempt left `unknown` that no model output ever reached (no `first_data_ms`, no receipt) and that OpenRouter answers 404 for on or after its 12th reconciliation try (or whose generation id was never issued) settles at zero automatically: its own audit trail (`openrouter-no-record:` evidence, `settled_reason: no_record_no_bytes`, units marked `estimated`, never provider-reported), the hold released, never charged to the reader, counted on Health, `budget.health` and Spending against the month, and corrected if a late record turns up. Anything that received output, ever had a record read, or was not read cleanly keeps manual reconciliation. [Assumed zero](architecture/PROVIDER_SPENDING.md#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied) |
 
+## The bar: Library · Paper · Chat · More, with 🔍 (owner request 2026-10-25; judgment calls; apps built, not yet in a build)
+
+Owner: *"we have 6 icons but only room for 5. Lets change to the way Slack does it. slack has three at the bottom, a
+[fourth] icon with the words More, and then if you click you get a screen with the other three options. For the fifth,
+it's a search icon."* Then: *"Just make a good judgment and keep a log."* Design:
+[GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md) A; calls: [JUDGMENT_LOG.md](JUDGMENT_LOG.md) 13–16 and
+32–42; as built: [DESIGN.md › Tall and Wide › The bar, More and 🔍](DESIGN.md). 🔍 opens global search (part B,
+[GLOBAL_SEARCH.md](architecture/GLOBAL_SEARCH.md)), merged on the same branch.
+
+| Surface | Choice |
+|---|---|
+| iPhone, and Tall windows too narrow for six | **Library · Paper · Chat · More** in the capsule; **🔍** its own glass circle beside it. More lists **Feed, Snippets, Settings**; Feed and Snippets open as places with More highlighted, More again returns to its list; Settings opens over the list. No badges. |
+| iPad upright (≥ 730 pt wide and 600 tall) | All six places (Feed · Library · Paper · Chat · Snippets · Settings) **and 🔍**; no More |
+| iPad sideways (Wide) | The places menu keeps all six rows (no More); **a 🔍 circle beside it** in the top-left corner; the leftmost slot's row starts 104 pt in (was 52) |
+| Mac | The five-place toolbar unchanged, **a search field** at its trailing edge, **⌘K** (Edit › Search Everything…); ⌘F, ⌥⌘F, ⇧⌘F and ⌘1–⌘5 keep their meanings; Settings stays ⌘, and the last section of every ⋯ |
+| Settings | Under More on iPhone (and narrow iPad windows), a place on iPad; **in no ⋯ menu on iPhone or iPad** |
+| Keys (iPhone and iPad) | ⌘1…⌘5, ⌘, and ⌘K work in both shapes (they were the Wide places menu's, so upright they did nothing) |
+| Routes | **None changed.** Every "go to X" lands where it did; only which bar item is highlighted is derived differently (unit test per route group) |
+
+*Supersedes:* "No Search place on iPad (G6)" (2026-10-24, [below](#ipad-places-settings-beside-snippets-no-search-place-feed-hides-library-papers-owner-session-2026-10-24-testflight-91)):
+🔍 is a destination on every surface; the Library's own field and its Library / ML switch stay. Also "the iPhone keeps
+five tabs with Settings as every ⋯'s last section" (2026-10-20 and 2026-10-24) and the places menu's "no Search". The
+browser (paused) is unchanged; parity notes are in DESIGN.md.
+
+## Global search: phase 1's search built (owner asked 2026-10-25 for "a global search that cuts across everything"; agent decisions, reversible)
+
+Built from [GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md) section B; as built:
+[GLOBAL_SEARCH.md](architecture/GLOBAL_SEARCH.md). The bar and More screen are a separate branch; the screen is
+`GlobalSearchView`, entered through `ReaderModel.openGlobalSearch(scopePaper:)`.
+
+| Decision | Choice |
+|---|---|
+| Where an item's kind, paper, container and date live | In the everything index's sealed manifest beside its words (`FullTextDocument.info`), not a second `catalog.bin`: one atomic write. |
+| Sign-out | Closes the index, clears the screen, its rows and caches, and removes ML paper search's cached results. The sealed index and recent searches stay with the account's other sealed local data (as `private-state.enc` and the Library's index do; PRIVACY_AND_SYNC "Ordinary sign-out retains the account-partitioned local key/store"); account deletion removes them. |
+| ML paper search cache | Sealed under the account's local-store key in `Caches/arxiv-search/<account>/` (kept for its day across launches, as before), in memory only while signed out; removed at sign-out. Plaintext files from earlier builds are deleted. |
+| Typos | Only when nothing matches; words of 4+ letters; the closest indexed word first, then the most frequent (the proposal ranked by frequency alone; closest-first avoids "atention" → "retention"). Then, for 2+ words, results with some of the words. |
+| A conversation's title | Indexed as the conversation's own words only when it is a topic title or the reader's name for it; a title that is the first question is found once, as that message (no duplicate rows). |
+| Snippets | A collection's name is in its snippets' tags field (weight 3), not their title (6), so a collection name ranks the collection first; All shows one row per collection with "+N more", as Chats does per conversation. |
+| "See all" | A chip: every item of the kind, uncollapsed, 50 at a time; the chats header says "N messages in M chats". |
+| Match line | Papers (and partial results) show the strength ("100% · full text") as the Library does; chats, explanations and snippets show the excerpt alone (a field name means little for a chat message). |
+| Math | Tokenizer v2 as proposed (`\sqrt`, `\frac`, `\operatorname` are no longer words, in Snippets' search too); the Library's paper text reads LaTeX as math, so excerpts show "softmax(QK⊤/√d_k)". |
+| Recently opened | Only from what the app already has (papers read here, chats used, collections edited, explanations kept); nothing new is recorded. |
+| Wide | The results list at 36% of the window (320–440 pt) beside the picked paper, chat or collection; the divider is fixed until the places branch adds `wide.divider.search`. Diagrams, Feed, tags and Settings go to their places. |
+| The sample paper | Its kept explanations open from search (Settings' list leaves the sample out). |
+
 ## Account-deletion sweep: listing fixed and watched (2026-10-25; agent decisions, reversible)
 
 From 2026-10-12 14:01 UTC (first on 2026-10-09 14:03) every listing of the worker's deletion sweep timed out at the
@@ -2549,7 +2594,9 @@ From the owner's recorded iPad session (upright, Tall; findings G5, G6, G17). Sp
   searching is the Library's own field with its Library / ML paper search switch, as on iPhone. Routes that searched
   already land there with the query (an author's "Find papers by", Find similar papers, a tag's ML paper search, a
   chat's paper link). The Mac keeps its Edit menu's Search Library (⌘F / ⌥⌘F) and Search ML Papers (⇧⌘F). *Supersedes*
-  "Search in the places menu is the Library with its field focused".
+  "Search in the places menu is the Library with its field focused". *Superseded 2026-10-25 by global search: 🔍 is a
+  place on every surface, beside the places menu sideways ([The bar](#the-bar-library--paper--chat--more-with--owner-request-2026-10-25-judgment-calls-apps-built-not-yet-in-a-build));
+  the Library's field stays.*
 - **The Feed always leaves out papers in your library (G17).** "you actually should, but you don't need the setting here
   for this. Just do it by default… you already have something in your library, don't need to show it again in the
   feed." The Feed's ⋯ (and the Mac's View menu) lose "Hide papers in your library"; the stored choice

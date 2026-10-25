@@ -1122,7 +1122,7 @@ struct NoteVersionsSheet: View {
     }
 }
 
-/// The Snippets list's search drawer (Tall); Wide searches from the places capsule instead.
+/// The Snippets list's search drawer (Tall); Wide searches from the field in its own row instead (`NotesSearchField`).
 private struct NotesSearchable: ViewModifier {
     let enabled: Bool
     @Binding var text: String

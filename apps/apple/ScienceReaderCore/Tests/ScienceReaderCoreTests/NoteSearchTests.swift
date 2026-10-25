@@ -67,9 +67,11 @@ import Testing
         let index = try JSONDecoder().decode(ReaderBundleIndex.self, from: Data(json.utf8))
         let anchor = NoteAnchor(manifestSHA256: manifest, rendererRevision: 1, blockIDs: ["b1", "b2", "b3"], rects: [], viewport: nil, quote: nil)
         let words = NoteSearch.words(NoteSearch.bundleText(anchor, in: index))
-        for term in ["attention", "sqrt", "d_k", "softmax", "kaleido", "heads"] {
+        // Tokenizer v2 (2026-10-25): layout commands such as `\sqrt` and `\frac` are not words; their arguments are.
+        for term in ["attention", "qk", "d_k", "softmax", "kaleido", "heads"] {
             #expect(NoteSearch.matches(NoteSearch.terms(term), in: words), "\(term)")
         }
+        #expect(!NoteSearch.matches(["sqrt"], in: words) && !NoteSearch.matches(["frac"], in: words))
         #expect(!NoteSearch.matches(["elsewhere"], in: words), "only the blocks under the region")
     }
 

@@ -34,7 +34,7 @@ final class AssetsExportJourneyTests: XCTestCase {
 
         // A collection to find in the zip.
         let wide = app.wideShape
-        if wide { app.choosePlace("notes") } else { app.buttons["tab.notes"].tap() }
+        app.show("notes")
         app.buttons["notes.new"].firstMatch.tap()
         let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5)); name.typeText("Export check")

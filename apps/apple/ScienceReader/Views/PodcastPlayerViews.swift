@@ -421,7 +421,7 @@ struct PodcastMiniPlayer: View {
             }
             .padding(.leading, 10).padding(.trailing, 4)
             .frame(height: Self.height - 6)
-            .frame(maxWidth: wide ? 640 : ChromeMetrics.tabBarMaxWidth)
+            .frame(maxWidth: wide ? 640 : ChromeMetrics.tabBarMaxWidth(items: 5))
             .chromeSurface(Capsule(), interactive: true)
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .accessibilityElement(children: .contain)
@@ -560,7 +560,8 @@ struct PodcastPresenter: ViewModifier {
             .overlay(alignment: .bottom) {
                 if let ready = center.readyNotice, !center.showPlayer, center.generation == nil {
                     GeometryReader { proxy in
-                        let tabs = !(proxy.size.width >= 850 || Platform.isMac)
+                        // The tab bar is Tall's (the shared shape rule, not a width of its own).
+                        let tabs = !WindowShape.isWide(proxy: proxy)
                         // Clear of the mini-player: on the tab bar, or docked along the bottom in the wide layout.
                         let mini = center.nowPlaying != nil ? PodcastMiniPlayer.height + 12 : 0
                         PodcastReadyToast(center: center, notice: ready)

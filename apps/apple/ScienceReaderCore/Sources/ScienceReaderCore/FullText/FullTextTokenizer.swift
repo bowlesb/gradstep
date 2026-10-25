@@ -8,9 +8,16 @@ import Foundation
 /// position and also its joined form ("selfattention") at the first part's position, so "self-attention",
 /// "self attention" and "selfattention" find each other. A light English plural stemmer runs on plain ASCII letters
 /// ("networks" → "network", "studies" → "study", "matches" → "match"). Index and query use the same rules.
+///
+/// Version 2 (2026-10-25, docs/architecture/GLOBAL_SEARCH.md "Tokenizer v2") reads scientific text: a Greek letter is its
+/// name ("α", "ϵ", "\alpha" and "alpha" are all `alpha`; a capital too: "Σ" is `sigma`); ∇ ∂ ∞ ∑ ∏ ∫ are words of their own
+/// (`nabla`, `partial`, `infinity`, `sum`, `prod`, `integral`); a LaTeX command (a word right after a backslash) that only
+/// lays out or decorates (`\mathrm`, `\top`, `\frac`, `\left`, `\cdot`…) is dropped without taking a position, so
+/// "\mathrm{softmax}(QK^\top)" is `softmax qk`; and a word splits where a Greek letter meets a Latin letter or digit
+/// ("α̅ₜ" is `alpha t`, "θ2" is `theta 2`).
 public enum FullTextTokenizer {
     /// Any change to these rules changes this number; a stored index of another version is rebuilt.
-    public static let version = 1
+    public static let version = 2
     /// Longer words (base64, hashes, long formulas) are skipped; they still take a position.
     public static let maximumTermBytes = 64
     /// Compounds of more parts than this keep their parts only.
@@ -25,6 +32,75 @@ public enum FullTextTokenizer {
         public let start: Int
         public let end: Int
         public let joined: Bool
+        /// A name given to a symbol (a Greek letter, ∇, a LaTeX command): never a prefix of a longer word while typing.
+        public let mapped: Bool
+        init(term: String, position: Int, start: Int, end: Int, joined: Bool, mapped: Bool = false) {
+            self.term = term; self.position = position; self.start = start; self.end = end; self.joined = joined; self.mapped = mapped
+        }
+    }
+
+    // MARK: Symbols (version 2)
+
+    /// Greek letters (folded: lower case, variants and math alphabets already mapped by NFKC) by name.
+    static let greekNames: [Unicode.Scalar: String] = [
+        "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon", "ζ": "zeta", "η": "eta", "θ": "theta",
+        "ι": "iota", "κ": "kappa", "λ": "lambda", "μ": "mu", "ν": "nu", "ξ": "xi", "ο": "omicron", "π": "pi", "ρ": "rho",
+        "σ": "sigma", "ς": "sigma", "τ": "tau", "υ": "upsilon", "φ": "phi", "χ": "chi", "ψ": "psi", "ω": "omega",
+    ]
+    /// Mathematical operators that are words of their own.
+    static let symbolNames: [Unicode.Scalar: String] = [
+        "\u{2207}": "nabla", "\u{2202}": "partial", "\u{221E}": "infinity", "\u{2211}": "sum", "\u{220F}": "prod",
+        "\u{222B}": "integral", "\u{222C}": "integral", "\u{222E}": "integral",
+    ]
+    /// LaTeX commands with another name: Greek variants and the operators above, so `\varepsilon`, `ϵ` and "epsilon" agree.
+    static let commandNames: [String: String] = [
+        "varepsilon": "epsilon", "vartheta": "theta", "varphi": "phi", "varsigma": "sigma", "varpi": "pi", "varrho": "rho",
+        "varkappa": "kappa", "infty": "infinity", "int": "integral", "iint": "integral", "iiint": "integral", "oint": "integral",
+        "upalpha": "alpha", "upbeta": "beta", "upmu": "mu", "uppi": "pi",
+    ]
+    /// LaTeX commands that only lay out, space, decorate or relate: dropped (their arguments stay). Named functions and
+    /// symbols (`\log`, `\exp`, `\max`, `\nabla`, `\partial`, `\sum`, Greek letters) are kept as words.
+    static let layoutCommands: Set<String> = [
+        "mathrm", "mathbf", "mathit", "mathcal", "mathbb", "mathsf", "mathtt", "mathfrak", "mathscr", "boldsymbol", "bm",
+        "operatorname", "text", "textrm", "textbf", "textit", "textsf", "texttt", "mbox", "emph", "displaystyle", "textstyle",
+        "scriptstyle", "left", "right", "middle", "big", "Big", "bigg", "Bigg", "bigl", "bigr", "Bigl", "Bigr", "biggl", "biggr",
+        "frac", "dfrac", "tfrac", "cfrac", "sqrt", "top", "intercal", "quad", "qquad", "cdot", "cdots", "ldots", "dots", "vdots",
+        "ddots", "times", "hat", "widehat", "tilde", "widetilde", "bar", "overline", "underline", "vec", "dot", "ddot", "prime",
+        "overbrace", "underbrace", "begin", "end", "label", "tag", "nonumber", "notag", "limits", "nolimits", "hspace", "vspace",
+        "le", "leq", "ge", "geq", "ne", "neq", "approx", "sim", "simeq", "equiv", "propto", "in", "notin", "subset", "subseteq",
+        "to", "rightarrow", "leftarrow", "Rightarrow", "Leftarrow", "leftrightarrow", "mapsto", "mid", "vert", "Vert", "lvert",
+        "rvert", "lVert", "rVert", "langle", "rangle", "lfloor", "rfloor", "lceil", "rceil", "odot", "otimes", "oplus", "circ",
+        "ast", "star", "pm", "mp", "cdotp", "colon", "coloneqq", "triangleq", "forall", "exists", "land", "lor", "neg",
+        "cup", "cap", "setminus", "emptyset", "varnothing", "ll", "gg", "lesssim", "gtrsim", "stackrel", "overset", "underset",
+        "substack", "phantom", "hphantom", "vphantom", "mathop", "mathbin", "mathrel", "kern", "mkern", "hbox", "boxed",
+    ]
+
+    /// Which alphabet a word character belongs to, for the Greek | Latin split.
+    enum Script: Equatable { case greek, other, mark }
+    static func script(_ scalar: Unicode.Scalar) -> Script {
+        let v = scalar.value
+        if (0x0370...0x03FF).contains(v) || (0x1F00...0x1FFF).contains(v) || (0x1D6A8...0x1D7C9).contains(v) || v == 0x00B5 { return .greek }
+        switch scalar.properties.generalCategory {
+        case .nonspacingMark, .spacingMark, .enclosingMark: return .mark
+        default: return .other
+        }
+    }
+
+    static let greekNameSet = Set(greekNames.values)
+
+    /// The plural stemmer on a folded word (ASCII letters only; anything else unchanged).
+    static func stemmed(_ word: String) -> String {
+        guard word.utf8.count >= 4, word.utf8.last == 115, word.utf8.allSatisfy({ $0 >= 97 && $0 <= 122 }) else { return word }
+        var bytes = Array(word.utf8)
+        let count = bytes.withUnsafeMutableBufferPointer { stemmedCount($0) }
+        return String(decoding: bytes[0..<count], as: UTF8.self)
+    }
+
+    /// A folded word's name when it is one Greek letter.
+    static func greekName(_ folded: String) -> String? {
+        var scalars = folded.unicodeScalars.makeIterator()
+        guard let first = scalars.next(), scalars.next() == nil else { return nil }
+        return greekNames[first]
     }
 
     /// Every token of `text`, in order.
@@ -64,7 +140,8 @@ public enum FullTextTokenizer {
             let before = scanner.position
             let offset = scanner.skipToWord()
             guard offset < bytes.count else { break }
-            if before >= next { out.append((before, offset)); next = before + every }
+            // Never at a LaTeX command: resuming there without its backslash would read it as a word.
+            if before >= next && !(offset > 0 && bytes[offset - 1] == 0x5C) { out.append((before, offset)); next = before + every }
             guard scanner.nextGroup({ _ in true }) != nil else { break }
         }
         return out
@@ -126,15 +203,17 @@ public enum FullTextTokenizer {
         let stem: Bool
         var terms = true
 
-        /// Advances to the next word character; returns its offset (or the end).
+        /// Advances to the next word character (or a symbol that is a word: ∇, ∂…); returns its offset (or the end).
         mutating func skipToWord() -> Int {
             while index < bytes.count {
                 let (scalar, length) = decode(at: index)
-                if Self.isWordStart(scalar) { return index }
+                if Self.isWordStart(scalar) || FullTextTokenizer.symbolNames[scalar] != nil { return index }
                 index += length
             }
             return index
         }
+
+        static func isASCIILetter(_ byte: UInt8) -> Bool { (byte >= 97 && byte <= 122) || (byte >= 65 && byte <= 90) }
 
         /// Reused between groups: the folded-input bytes of the current group and its parts' bounds.
         private var raw: [UInt8] = []
@@ -154,22 +233,65 @@ public enum FullTextTokenizer {
 
         /// Visits the next word group's tokens. Returns nil at the end, false when `visit` asked to stop.
         mutating func nextGroup(_ visit: (Token) -> Bool) -> Bool? {
-            guard skipToWord() < bytes.count else { return nil }
-            let groupStart = index
+            while true {
+                guard skipToWord() < bytes.count else { return nil }
+                let groupStart = index
+                let (lead, leadLength) = decode(at: index)
+                // ∇, ∂, ∞, ∑, ∏, ∫: one word each.
+                if let name = FullTextTokenizer.symbolNames[lead] {
+                    index += leadLength
+                    let at = position
+                    position += 1
+                    return visit(Token(term: terms ? name : "", position: at, start: groupStart, end: index, joined: false, mapped: true))
+                }
+                // A LaTeX command: the letters after a backslash. Layout commands are dropped (no token, no position).
+                if groupStart > 0, bytes[groupStart - 1] == 0x5C, Self.isASCIILetter(bytes[groupStart]) {
+                    var end = groupStart
+                    while end < bytes.count && Self.isASCIILetter(bytes[end]) { end += 1 }
+                    index = end
+                    let slice = UnsafeBufferPointer(rebasing: bytes[groupStart..<end])
+                    let name = String(decoding: slice, as: UTF8.self)
+                    if FullTextTokenizer.layoutCommands.contains(name) { continue }
+                    let at = position
+                    position += 1
+                    guard terms else { return visit(Token(term: "", position: at, start: groupStart, end: end, joined: false)) }
+                    let folded = name.lowercased()
+                    if let mapped = FullTextTokenizer.commandNames[name] ?? FullTextTokenizer.commandNames[folded]
+                        ?? (FullTextTokenizer.greekNameSet.contains(folded) ? folded : nil) {
+                        return visit(Token(term: mapped, position: at, start: groupStart, end: end, joined: false, mapped: true))
+                    }
+                    guard let term = FullTextTokenizer.fold(slice, ascii: true, stem: stem) else { return true }
+                    return visit(Token(term: term, position: at, start: groupStart, end: end, joined: false))
+                }
+                return wordGroup(groupStart, visit)
+            }
+        }
+
+        /// A word, or a hyphenated compound, from `groupStart`.
+        private mutating func wordGroup(_ groupStart: Int, _ visit: (Token) -> Bool) -> Bool {
             raw.removeAll(keepingCapacity: true); parts.removeAll(keepingCapacity: true)
             var partStart = index, partEnd = index, rawStart = 0, ascii = true
             var previous: Unicode.Scalar = " "
             var hyphenated = false
+            // Greek | Latin: a word ends where the alphabet changes ("αt" is two words).
+            var script: FullTextTokenizer.Script?
             while index < bytes.count {
                 let lead = bytes[index]
                 // ASCII letters and digits: the common case.
                 if lead < 0x80 {
                     if (lead >= 97 && lead <= 122) || (lead >= 65 && lead <= 90) || (lead >= 48 && lead <= 57) {
+                        if script == .greek && raw.count > rawStart { break }
+                        script = .other
                         raw.append(lead); index += 1; partEnd = index; previous = Unicode.Scalar(lead); continue
                     }
                 }
                 let (scalar, length) = decode(at: index)
                 if lead >= 0x80, Self.isWordCharacter(scalar) {
+                    let kind = FullTextTokenizer.script(scalar)
+                    if kind != .mark {
+                        if let script, script != kind, raw.count > rawStart { break }
+                        script = kind
+                    }
                     for offset in 0..<length { raw.append(bytes[index + offset]) }
                     ascii = false; index += length; partEnd = index; previous = scalar
                     continue
@@ -184,7 +306,7 @@ public enum FullTextTokenizer {
                 }
                 if (scalar == "-" || scalar == "\u{2010}" || scalar == "\u{2011}") && raw.count > rawStart && Self.isWordStart(next) {
                     parts.append((partStart, partEnd, rawStart, raw.count, ascii))
-                    rawStart = raw.count; ascii = true
+                    rawStart = raw.count; ascii = true; script = nil
                     index += length; partStart = index; partEnd = index; previous = scalar; hyphenated = true
                     continue
                 }
@@ -196,14 +318,31 @@ public enum FullTextTokenizer {
             let parts = parts, raw = raw
             position = first + parts.count
             return raw.withUnsafeBufferPointer { rawBytes -> Bool in
+                // Each part's term (a Greek letter as its name), and unstemmed for the joined form.
+                var plain: [String?] = []
+                var mapped: [Bool] = []
+                if terms {
+                    for part in parts {
+                        let slice = UnsafeBufferPointer(rebasing: rawBytes[part.rawStart..<part.rawEnd])
+                        let folded = FullTextTokenizer.fold(slice, ascii: part.ascii, stem: false)
+                        let name = part.ascii ? nil : folded.flatMap(FullTextTokenizer.greekName)
+                        plain.append(name ?? folded); mapped.append(name != nil)
+                    }
+                }
                 for (offset, part) in parts.enumerated() {
-                    let slice = UnsafeBufferPointer(rebasing: rawBytes[part.rawStart..<part.rawEnd])
-                    if let term = terms ? FullTextTokenizer.fold(slice, ascii: part.ascii, stem: stem) : "",
-                       !visit(Token(term: term, position: first + offset, start: part.start, end: part.end, joined: false)) { return false }
+                    let term: String?
+                    if !terms { term = "" }
+                    else if mapped[offset] || !stem { term = plain[offset] }
+                    else { term = plain[offset].map(FullTextTokenizer.stemmed) }
+                    if let term, !visit(Token(term: term, position: first + offset, start: part.start, end: part.end, joined: false,
+                                              mapped: terms && mapped[offset])) { return false }
                     if offset == 0 && joinable {
-                        let whole = UnsafeBufferPointer(rebasing: rawBytes[parts[0].rawStart..<parts[parts.count - 1].rawEnd])
-                        if let term = terms ? FullTextTokenizer.fold(whole, ascii: parts.allSatisfy(\.ascii), stem: stem) : "",
-                           !visit(Token(term: term, position: first, start: groupStart, end: parts[parts.count - 1].end, joined: true)) { return false }
+                        let whole: String?
+                        if !terms { whole = "" } else if plain.contains(where: { $0 == nil }) { whole = nil } else {
+                            let joined = plain.compactMap { $0 }.joined()
+                            whole = joined.utf8.count <= FullTextTokenizer.maximumTermBytes ? (stem ? FullTextTokenizer.stemmed(joined) : joined) : nil
+                        }
+                        if let whole, !visit(Token(term: whole, position: first, start: groupStart, end: parts[parts.count - 1].end, joined: true)) { return false }
                     }
                 }
                 return true
@@ -312,7 +451,8 @@ public struct FullTextQuery: Equatable, Sendable {
         var result: [[Slot]] = []
         if !partIndexes.isEmpty {
             var slots = partIndexes.map { Slot(terms: [stemmed[$0].term], prefix: nil) }
-            if prefix, let last = partIndexes.last, plain[last].term.utf8.count >= minimumPrefixBytes { slots[slots.count - 1].prefix = plain[last].term }
+            // A symbol's name (α as `alpha`) is the whole word, never the start of a longer one.
+            if prefix, let last = partIndexes.last, !stemmed[last].mapped, plain[last].term.utf8.count >= minimumPrefixBytes { slots[slots.count - 1].prefix = plain[last].term }
             // Positions skipped by an over-long word break a phrase there; keep the sequence contiguous by
             // requiring consecutive positions only between kept parts.
             result.append(slots)

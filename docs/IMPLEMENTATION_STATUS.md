@@ -100,6 +100,49 @@ and the admin site deploys.
 
 ## Account-deletion sweep listing — 2026-10-25 UTC (0159 applied 14:51 UTC, worker deployed; `deletion.sweep` passes; admin site and scheduled check image not yet deployed)
 
+## After TestFlight 93 — 2026-10-25: global search, and the bar with More and 🔍 (apps, one branch; not in a build)
+
+Phase 1 of [GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md), both halves merged on one branch; calls in
+JUDGMENT_LOG 13–16 and 32–42. Navigation as built: DESIGN.md › Tall and Wide › The bar, More and 🔍
+([DECISIONS.md](DECISIONS.md#the-bar-library--paper--chat--more-with--owner-request-2026-10-25-judgment-calls-apps-built-not-yet-in-a-build));
+search as built: [GLOBAL_SEARCH.md](architecture/GLOBAL_SEARCH.md).
+- **iPhone (and Tall windows under 730 pt wide or 600 tall):** Library · Paper · Chat · More, 🔍 in its own circle
+  beside the capsule; More lists Feed, Snippets, Settings (`MoreView`); More stays highlighted for Feed and Snippets and
+  returns to its list when tapped again; Settings opens over the list. Settings is in no iPhone or iPad ⋯ menu.
+- **iPad upright:** six places and 🔍. **Sideways:** 🔍 beside the places menu (leading reserve 104 pt). ⌘1…⌘5, ⌘, and ⌘K
+  now work upright too (root shortcuts).
+- **Mac:** a "Search everything" field at the toolbar's trailing edge (global search's own words); Edit › Search
+  Everything… ⌘K; places and other shortcuts unchanged.
+- **Search** is a place (`ReaderTab.search`, `GlobalSearchView`) reached through `openGlobalSearch(scopePaper:)` from
+  every entry point; Cancel returns to where it was opened; Wide keeps Search as the place with the picked result beside
+  the list; ↓/↑ and Return with a hardware keyboard; 🔍 returns at the result opened last. The search itself (indexes,
+  ranking, rows, routes, Settings rows) is the search branch's, unchanged apart from these.
+- No route changed: the bar's highlight is derived (`ReaderTab.barSelection`). The podcast toast and the new-device
+  banner now use the shared shape rule; stale comments fixed; `gradstep.more` drawn with `tools/icons`.
+- Browser (paused): unchanged.
+- **Verified (merged branch):**
+  - Core `swift test`: 535 Swift Testing and 101 XCTest (3 skipped) pass, `TallBarTests` and `GlobalSearchTests` included.
+  - App-hosted, iPhone 17 Simulator: `PlacesNavigationTests` 11/11 (bars, the highlight for every place, More's rows,
+    one test per route group, state kept across bar switches), `GlobalSearchAppTests`, `DeviceSearchTests`, 21/21.
+  - UI, iPhone 17 Simulator: `PlacesBarJourneyTests` (5 iPhone journeys), `GlobalSearchJourneyTests` (5; the Wide one is
+    iPad's), `MenusJourneyTests`, `TableColumnsTests`, `FeedForYouTests`, `SnippetsFeedbackTests`, `SettingsTests`,
+    `NotesJourneyTests/testSettingsFromEveryMenuReturnsToItsOrigin` pass.
+  - UI, iPad Pro 11-inch (M5) Simulator: the same suites plus `IPadShapesJourneyTests` (23) and the iPad journeys (narrow
+    window, upright ⌘1/⌘5/⌘K/⌘2/⌘,, ↓/↑ and Return in Search, 🔍 sideways, the Wide search beside the list) pass;
+    `IPadShapesJourneyTests/testTheListTogglePromotesAndDemotesKeepingThePlace` missed its 60 pt tolerance by 3 pt once
+    under heavy load and passed alone.
+  - `PaperToolsTests` fails as before on both devices in two tests not touched here:
+    `testDoubleTapOpensContentsDeepInThePaperAfterAnEquationMenuAndAFling` (recorded failing the same way on TestFlight
+    91's code) and `testReportedQuantumPaperEquationsFinishAndCanReopen` (needs the pinned device corpus).
+  - Mac Catalyst builds; the toolbar field was photographed on the Library and on the Search place.
+  - Screenshots: `.artifacts/global-search-nav/` in this branch's worktree (iPhone bar, More, Feed from More, Settings
+    over More, Search and Search again, landscape, largest text; iPad upright, narrow, sideways Search, ↓ choice; Mac).
+- **Not verified:** a physical device (paused); a click or ⌘K on the Mac (no Catalyst UI-test target); a hardware Return
+  key in the Simulator (`typeKey(.return)` never reached the field, so the journey presses Return through the field);
+  VoiceOver itself (labels, values and traits are asserted, not listened to).
+
+## Account-deletion sweep listing — 2026-10-25 UTC (local; nothing deployed)
+
 - **Found (staging, read-only):** the worker's `worker_account_deletions_pending` call has failed every minute since
   2026-10-12 14:01 UTC (last HTTP 200; first 500 on 2026-10-09 14:03): `canceling statement due to statement timeout`
   (57014) after the gateway's 8 s. The sweep returned silently. Cause: per-row evaluation of the earlier list in the

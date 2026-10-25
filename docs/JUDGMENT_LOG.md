@@ -6,6 +6,39 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-25
 
+32. **The six-place bar is chosen by the window's size alone: at least 730 pt wide and 600 pt tall** (`TallBar` in
+    ScienceReaderCore). Every iPad upright gets six; Split View, Slide Over and a phone sideways (up to 956 pt wide, but
+    at most 440 tall) get Library · Paper · Chat · More. *Why:* the shape rule already reads only the window (owner,
+    2026-10-22), and a phone sideways must keep its bar (proposal A.6). *Undo:* change `TallBar.of(window:)`.
+33. **A window that grows to six places, or turns sideways, while the More list shows goes to the Library.** Feed and
+    Snippets opened from More stay where they are. *Why:* the list exists only beside More; the Library is the app's first
+    place. *Undo:* `tallBarChanged` in `ReaderModel+Places.swift`.
+34. **Sideways, while Search is the place, the places button shows ≡ and no row is checked** (VoiceOver: "Places,
+    Search"); 🔍 is lit. *Why:* the proposal's drawing "(≡)(🔍)"; a place's symbol would claim a place you aren't in.
+    *Undo:* `PlacesMenuButton`'s label.
+35. **The Mac's search field is a 220 pt field at the toolbar's right, "Search everything" (the Library's own field
+    says "Search"); a click or ⌘K opens Search, and its words stay when you leave** (as Mail's). Catalyst has no
+    `NSSearchToolbarItem`, so it is a `UISearchTextField` in the toolbar. *Undo:* drop `gradstep.search` from the
+    toolbar's items.
+36. **🔍 from the Paper place starts with that paper in scope** ("In this paper", proposal B.5), from the bar, sideways,
+    ⌘K and the Mac's field alike. *Undo:* `searchScopePaperID` returns nil.
+37. **⌘1…⌘5, ⌘, and ⌘K also work on an iPhone with a hardware keyboard**, as on iPad (they are on the root now), and
+    stay off in reading mode as before. A bar word that doesn't fit at the largest text sizes shrinks to 80 % rather than
+    being cut. *Undo:* gate `PlaceShortcuts` with `Platform.isPad`; remove `minimumScaleFactor` in `TabBarItem`.
+38. **Search's Cancel (and Escape) go back to the place Search was opened from, keeping the words** for the next 🔍.
+    *Why:* the search screen behaved so before it became a place, and the proposal's Escape "clears the field and then
+    leaves Search". *Undo:* `closeGlobalSearch` in `ReaderModel+GlobalSearch.swift` (e.g. clear the words, or stay).
+39. **Sideways and on the Mac, a paper, chat or collection picked from the results shows beside them and Search stays the
+    place** (its 🔍 lit); other results go to their place. A Setting opens over Search, so Done returns to the results.
+    *Why:* "Search lives at the top of the left list, like Mail" (2026-10-22). *Undo:* `openSearchResult`'s last lines.
+40. **On the Mac you type in the toolbar's field; the Search place's own row keeps only "In this paper", ⓘ and Cancel**
+    (one field, not two). ↓/↑, Return and Escape work in the toolbar field. *Undo:* show the place's own field on the Mac
+    (`GlobalSearchView.header`) and make the toolbar field a button that opens Search.
+41. **↓/↑ with a hardware keyboard choose a result (highlighted), Return opens it; ↑ from the first goes back to the
+    field.** *Why:* the proposal's keyboard rule (A.6); cheap once Search was a place. *Undo:* the two `onKeyPress` lines.
+42. **🔍 brings the results back scrolled to the result opened last** (centred), not to the exact offset. *Why:* the place
+    is rebuilt on every visit, and the opened row is what you were looking at. *Undo:* `returnRowID` in GlobalSearchView.
+
 27. **Paper AI Explainer: "Go deeper" on each key concept** (owner, TestFlight 93: "an option … to request more
     elaboration on each concept, and then another screen in front. Then when we swipe away we get the entire overview
     behind"). Each Key concept gets a "Go deeper ›" that opens a card in front: the concept explained in this paper's

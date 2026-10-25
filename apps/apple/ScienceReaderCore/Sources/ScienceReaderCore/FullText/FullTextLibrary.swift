@@ -5,12 +5,15 @@ import Foundation
 public enum FullTextLibrary {
     /// The paper's reading text: each block's text in reading order (a figure's caption when its block has no
     /// text), without the chat context's `[¶N]` markers or heading marks, so a number in a marker is never a match.
+    /// LaTeX reads as math (`SearchText.math`: Greek letters and symbols, layout commands dropped), so an excerpt shows
+    /// "softmax(QK⊤/√d_k)" rather than its source (global search, 2026-10-25).
     public static func bodyText(_ index: ReaderBundleIndex) -> String {
         let captions = Dictionary(index.figures.map { ($0.blockID, $0.caption.isEmpty ? $0.alt : $0.caption) }, uniquingKeysWith: { first, _ in first })
         var parts: [String] = []
         parts.reserveCapacity(index.blocks.count)
         for block in index.blocks {
-            let text = block.text.isEmpty && block.kind == "figure" ? (captions[block.id] ?? "") : block.text
+            var text = block.text.isEmpty && block.kind == "figure" ? (captions[block.id] ?? "") : block.text
+            if block.kind == "equation" || text.contains("\\") { text = SearchText.math(text) }
             if !text.isEmpty { parts.append(text) }
         }
         return parts.joined(separator: "\n\n")

@@ -75,7 +75,7 @@ final class TableColumnsTests: XCTestCase {
         // Start with the same two choices on both devices; iPad's normal defaults already include Authors.
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture", "--feed-columns=topic,published"]
         app.launch()
-        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") } else { app.choosePlace("feed") }
+        if app.tallBar.waitForExistence(timeout: 15) { app.show("feed") } else { app.choosePlace("feed") }
         let options = app.buttons["Feed options"]
         XCTAssertTrue(options.waitForExistence(timeout: 5)); options.tap()
         app.buttons["View as"].firstMatch.tap()
@@ -249,7 +249,7 @@ final class TableColumnsTests: XCTestCase {
         waitFor("A+ scales the complete abstract") { abstract.frame.height > before + 20 }
         app.buttons["feed.textSize.smaller"].tap(); app.buttons["feed.textSize.smaller"].tap()
         waitFor("A- restores the complete abstract") { abs(abstract.frame.height - before) < 3 }
-        let bottom = app.buttons["tab.feed"].exists ? app.buttons["tab.feed"].frame.minY : app.windows.firstMatch.frame.maxY - 30
+        let bottom = app.tallBar.exists ? app.tallBar.frame.minY : app.windows.firstMatch.frame.maxY - 30
         for _ in 0..<6 where abstract.frame.maxY > bottom { app.swipeUp(velocity: .slow) }
         XCTAssertLessThanOrEqual(abstract.frame.maxY, bottom, "The ending can be brought above the floating controls")
         attach(app, "Full Feed abstract ending")
@@ -282,7 +282,7 @@ final class TableColumnsTests: XCTestCase {
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture",
                                "--feed-layout=table", "--feed-columns=abstract"]
         app.launch()
-        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") } else { app.choosePlace("feed") }
+        if app.tallBar.waitForExistence(timeout: 15) { app.show("feed") } else { app.choosePlace("feed") }
         let abstract = app.descendants(matching: .any)["feed.table.header.abstract"].firstMatch
         let add = app.buttons["discover.add.2610.01234"]
         XCTAssertTrue(abstract.waitForExistence(timeout: 5))
