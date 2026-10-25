@@ -234,7 +234,9 @@ final class IPadShapesJourneyTests: XCTestCase {
         assertAtTheRightEdge(app.buttons["Chat options"], app)
         assertAfterThePlaces(app.buttons["paper.contents"], app)
         XCTAssertGreaterThanOrEqual(composer(app).frame.maxY, app.frame.maxY - 90, "The message box at the bottom, nothing under it")
-        XCTAssertFalse(app.buttons["Settings"].exists, "No gear: Settings is in the places menu")
+        // (The places menu's hidden keyboard shortcuts — ⌘1…⌘5, ⌘, — are zero-size buttons named after their places.)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", "Settings")).allElementsBoundByIndex.contains { $0.frame.width > 0 },
+                       "No gear: Settings is in the places menu")
         save("\(device)-turn-3-sideways-discuss")
 
         // Upright again: Discuss is the Chat tab, with its draft and Back to the paper, which kept its place.
@@ -318,7 +320,7 @@ final class IPadShapesJourneyTests: XCTestCase {
         settingsBar.buttons["Done"].firstMatch.tap()
         XCTAssertTrue(settingsBar.waitForNonExistence(timeout: 5))
         wait("Still the Library") { app.currentPlace == "Library" }
-        element("tab.feed", app).tap()
+        choose("feed", app)
         wait("Feed") { app.currentPlace == "Feed" }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.placesMenu.frame, corner, "The same spot"); assertNothingUnderThePlaces(app)
