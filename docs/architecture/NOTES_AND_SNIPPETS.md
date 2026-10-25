@@ -9,6 +9,58 @@ The owner requested the end-to-end experience and examination of the current app
 This document separates that direction from recommended details and implementation gates. Current released
 clients remain TestFlight 77 and browser Pages `27c45ca0` as recorded in IMPLEMENTATION_STATUS.md.
 
+## Snippets: owner feedback on TestFlight 91 (2026-10-24; native, local source, not released)
+
+From a recorded iPad session (upright). Native apps only; the browser client (paused) is unchanged.
+
+- **Rename in place.** "I should be able to just relabel it right in place there." The open collection's name is a text
+  field where it is shown: the bar's title (Tall, the Mac) and the collection's row (Wide). A tap puts the caret in it;
+  Return or leaving the field saves (one rename; empty or unchanged does nothing); Escape puts the name back; the 80-scalar
+  bound stops typing. ⋯ › Rename collection focuses that field instead of an alert; a list row's Rename keeps the alert
+  in Tall (the name isn't on screen) and focuses the field in Wide when that collection is open (`CollectionTitleField`,
+  `NotesCenter.renameRequest`). Scrolling the stream ends editing (and saves). The field is UIKit (`InPlaceTextField`,
+  Escape a priority key command): SwiftUI's `TextField` kept the app from ever going idle under UI tests while focused,
+  and its own Escape handling ends editing. Escape is not verified in the Simulator (its on-screen keyboard drops a
+  synthesized Escape); the empty-name restore is tested instead.
+- **Rows** are two lines: the name (with "2 versions" on a conflict) and `NoteCollectionLine.detail` — "6 snippets",
+  "1 snippet", or "No snippets yet" for an empty collection, never also "0 snippets". No date (the owner: "how's the user
+  going to interpret what that date even is"), no preview of the latest snippet ("Snippet from …"), no per-row waiting
+  state (the list's top line already says "N waiting to sync").
+- **Search** (`NoteSearch` in Core). Before: a case-insensitive substring of the collection name, a snippet's comment,
+  its quotation and its paper's title. Now every query word must begin a word (case, diacritics and width folded as the
+  Library's full-text index folds them, no stemming) of the collection's name or of one snippet together with its
+  collection's name. A snippet's words: comment, quotation, the anchor's quotation, paper title, authors, arXiv ID, section,
+  figure/table label; for a drawn region whose reading is on this device, the reader blocks under it (their text, an
+  equation block's LaTeX, the equations' LaTeX, figure captions and alt text, table captions); and the text Vision
+  recognised in its image. Recognition runs once per image, on this device, at utility priority, only for images already
+  on this device (nothing is downloaded for it; a later download triggers it); results are one file sealed with the
+  account's local key (`SnippetTextStore`, `snippet-text/recognised.sealed`, AES-GCM with the account bound, complete file
+  protection, excluded from backup, 4 KiB per image, "" meaning none found); never synced or sent, and no record format
+  changes. Opening a result opens the collection at its first snippet that matched. The field's placeholder is "Names,
+  comments, text, papers"; with no match the empty state says in full what was searched.
+- **Collapse all.** Cause (`NotesScreenMenu.setAll`, `withAnimation(.snappy(duration: 0.25))` over the `LazyVStack`
+  stream): every card changed height inside one animation while scrolled part-way. Reproduced on the iPad Pro 13-inch
+  Simulator upright with the seeded collection, frame by frame from a screen recording: expanded and collapsed cards
+  cross-faded at different positions, then for a few frames only the two last cards showed with the rest of the stream
+  blank above them (cards that had not been laid out yet arrived late and the offset was clamped to the shorter content),
+  then everything jumped into place: "jaggedy… at multiple stages", and in dark appearance the blank area is black. Now
+  Collapse all and Expand all are one change without animation (a transaction with animations disabled): the next frame
+  is the settled stream. A single card's chevron still animates. (Keeping the top card in place with
+  `scrollPosition(id:)` was tried and dropped: it shifted the stream's centred column to the leading edge.) Frames:
+  `.artifacts/snippets-20261024/collapse-all/`.
+- **Capture.** "You just need the button, Use snippet… in the bottom right… you don't need the enclosure." Drawing shows
+  the box with its four corners, the bar's Cancel and title, and Use snippet alone in the page's bottom-right corner (16 pt
+  in). Gone: the panel, the size readout, the hints ("Draw a box…", "Drag corners to adjust", the bar's "Drag around
+  anything on the page"), Whole page and Adjust edges with its sliders. A problem (the page changed size, a capture
+  failed) shows in a small capsule beside the button. Drawing is still never the only way: VoiceOver's actions on the
+  area choose the whole page or move each edge a step (a twentieth of the page, at least 16 pt), and with a keyboard ⌘A
+  chooses the whole page and Escape cancels (Use snippet keeps its Return shortcut, which did not fire in the Simulator
+  while the page had focus; not investigated). The save flow after it is unchanged.
+
+Tests: Core `NoteSearchTests` and `NoteCollectionLineTests`; UI `SnippetsFeedbackTests` over `--snippets-fixture` (three
+seeded collections; one image carries a word only in its pixels); `NotesJourneyTests` with the rename step in place.
+Visual scenarios `snippets-list`, `snippets-collection`, `snippets-empty`, `snippets-search`, `snippets-capture`.
+
 ## Collapsible snippet cards (owner, 2026-10-22; local source, not released)
 
 Owner: "having the ability to collapse individual snippets would be helpful (so you can just see the date/times), also
@@ -373,7 +425,7 @@ action and the same menu entry; no global keyboard shortcut is assigned until ex
 ### Drawing
 
 Entering capture fixes the current paper viewport and dismisses its transient menus. Show **Cancel · Draw snippet**
-and a concise hint, then let a single drag create a rectangle in either direction. Dim outside the rectangle.
+(no hint since TestFlight 91 feedback, above), then let a single drag create a rectangle in either direction. Dim outside the rectangle.
 Release exposes four draggable corner handles and **Use snippet**; dragging inside moves the box. Use 44 pt
 effective handle targets, keep the visible marks small, and prevent overlap when the box is very small. A tiny
 or empty rectangle cannot advance. Cancel and Escape restore the reading/selection state.

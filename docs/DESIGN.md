@@ -360,6 +360,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   edge; Mac hover a quiet fill. Solid in every mode (nothing changes with Reduce Transparency); Increase Contrast draws
   an opaque edge. Swipe and long-press actions work as on rows. Code: `ContentCard` / `.contentCard(selected:)` in
   `DesignSystem.swift`; browser `.note-row` in `notes.css`. Paper tables and chat lists stay rows.
+  A collection's card is two lines (owner, TestFlight 91): its name, then "N snippets" ("No snippets yet" when empty);
+  no date, preview or papers. The open collection's name is edited in place where it is shown (its bar or row), Return
+  or leaving the field saves, Escape restores.
   *Snippet entries* (owner, 2026-10-22: "a bit cleaner separation still between the cards with the actual snippet itself
   being a slightly more clear 'box' in a card"): each entry in a collection's stream is the same card (10 pt apart, the
   day label 6 pt above its first card; no timeline line), and its crop or quotation sits in an inner **snippet box**:
@@ -368,7 +371,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   snippet"/"Expand snippet", value Collapsed/Expanded) folds the card to one line — time · short paper title (20
   characters on a phone, 32 wider) · first words of the comment, wrapping to three lines at accessibility sizes; the
   line itself also expands it. Remembered per device, never synced; the collection's ⋯ starts with **Collapse all** /
-  **Expand all** (each only when it changes something). No animation with Reduce Motion. Code: `NoteEntryView`,
+  **Expand all** (each only when it changes something; one step without animation). No
+  animation with Reduce Motion. *Drawing a snippet* shows only the box with its corners and **Use snippet** in the
+  page's bottom-right corner (owner, TestFlight 91); Cancel is the bar's. Code: `NoteEntryView`,
   `.snippetBox()` in `NotesViews.swift`, `NoteCollapsedLine` in Core; browser `.note-entry`, `.snippet-frame`.
 
 Each UI change follows the [visual check loop](VISUAL_CHECK.md); significant redesigns get an independent audit

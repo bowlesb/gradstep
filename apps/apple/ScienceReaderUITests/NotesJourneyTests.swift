@@ -149,13 +149,14 @@ final class NotesJourneyTests: XCTestCase {
         app.buttons["note.text.save"].tap()
         waitFor("The edited comment shows") { app.staticTexts["entry.comment.1"].label.hasSuffix("Compare with the smaller model.") }
 
-        // Rename from the note's ⋯.
+        // Rename from the note's ⋯: the name in the bar takes the caret (owner, TestFlight 91: in place, no alert).
         app.buttons["note.options"].tap()
         menuItem(app, "Rename collection").tap()
-        let name = app.alerts.textFields.firstMatch
+        let name = app.textFields["note.title"].firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5))
-        replaceText(name, with: "Preference learning", app: app)
-        app.alerts.buttons["Save"].tap()
+        waitFor("The name is being edited") { (name.value(forKey: "hasKeyboardFocus") as? Bool) == true }
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "Alignment ideas".count) + "Preference learning\n")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
         XCTAssertTrue(app.navigationBars["Preference learning"].waitForExistence(timeout: 10))
         capture("Renamed note")
 
