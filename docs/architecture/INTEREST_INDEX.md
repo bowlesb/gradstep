@@ -1,5 +1,11 @@
 # Interest index: server layer (step 2)
 
+Update, 2026-10-25: **the owner approved the §5 privacy notice and serving to `all`** ("2 and 3 sure";
+[DECISIONS.md](../DECISIONS.md#interest-index-privacy-notice-approved-serving-may-go-to-all-owner-2026-10-25)). The
+notice is placed on gradstep.ai/privacy and in the apps' Privacy & data (not deployed). Readiness fixes 0156 and 0157
+are written and tested locally, not applied. Serving is still `staff`; the flip and its checks are in
+[Serving to all](#serving-to-all-prepared-2026-10-25-not-run).
+
 Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00055-vzm`,
 Edge function `interest-index`; serving `staff`). Evidence and as-built differences are in
 [Phase B as built](#phase-b-as-built-staging-2026-10-24). The lead's interim decisions are recorded in
@@ -303,9 +309,9 @@ not database RPCs, `v1_…` RPCs for authenticated reads, and `worker_…` RPCs 
 
 | Call | Who | Returns |
 |---|---|---|
-| `GET /functions/v1/interest-index` | Signed-in reader. Gate: `interest_policy.serving` `off`/`staff`/`all`, as `feed_serves`. Rate rule `interest-index`: 120 per account an hour, 2,000 for the environment | Manifest: `{format:1, model:{version, dim:384, text_recipe}, map:{version, built_at, artifact}, terms:{version, artifact}, shards:[{id, sha256, bytes, fp_seq_from, fp_seq_to, oldest_on, newest_on}], window_days:14}`, where `artifact = {id, sha256, bytes}`. `Cache-Control: private, max-age=600`. `404 interest_unavailable` when not served |
+| `GET /functions/v1/interest-index` | Signed-in reader. Gate: `interest_policy.serving` `off`/`staff`/`all`, as `feed_serves`. Rate rule `interest-index` (manifest and artifacts alike): 240 per account an hour, 10,000 for the environment (0152 shipped 240 / 4,000; 0157 raises the environment limit for serving to `all`) | Manifest: `{format:1, model:{version, dim:384, text_recipe}, map:{version, built_at, artifact}, terms:{version, artifact}, shards:[{id, sha256, bytes, fp_seq_from, fp_seq_to, oldest_on, newest_on}], window_days:14}`, where `artifact = {id, sha256, bytes}`. `Cache-Control: private, max-age=600`. `404 interest_unavailable` when not served |
 | `GET /functions/v1/interest-index?artifact=<id>` | Same | The artifact's bytes: `application/octet-stream`, `ETag` = SHA-256, `Cache-Control: private, max-age=31536000, immutable`. The device verifies the SHA-256 before use |
-| `rpc v1_interest_library_fingerprints(p_source_ids text[] default null, p_after text default null, p_limit int default 500)` | Signed-in reader, same gate. Rate rule `interest-library`: 60 an hour | `{model_version, map_version, items:[{source_id, q8, leaf_id, terms, pending?}], next}`. **Only** papers that are visible in the caller's library (`library_query_entries`) or are the caller's in-flight imports, never `upload:%`. Other IDs in `p_source_ids` are silently omitted, so the call can never reveal whether a paper is in someone else's library. `pending: true` while not yet embedded |
+| `rpc v1_interest_library_fingerprints(p_source_ids text[] default null, p_after text default null, p_limit int default 500)` | Signed-in reader, same gate. Rate rule `interest-library`: 60 per account an hour, 5,000 for the environment (1,000 before 0157) | `{model_version, map_version, items:[{source_id, q8, leaf_id, terms, pending?}], next}`. **Only** papers that are visible in the caller's library (`library_query_entries`) or are the caller's in-flight imports, never `upload:%`. Other IDs in `p_source_ids` are silently omitted, so the call can never reveal whether a paper is in someone else's library. `pending: true` while not yet embedded |
 | `worker_interest_*` | Service role (worker, cron) | `sync`, `embed_claim`, `embed_store`, `rebuild_claim`, corpus pages (fingerprints as base64 of `halfvec_send`, 2,000 rows a page), `stage_store`, `publish`, `shard_publish`, `status`, `kick`, `set_policy`, `request_rebuild` |
 
 **Artifacts live in the database**, in `app_private.interest_artifacts` (`id uuid`, `kind` map/terms/shard, `version`,
@@ -321,7 +327,9 @@ leaves the 14-day window. If artifacts ever pass 16 MiB, they move to a private 
 clients would not change.
 
 **Serving off by default.** The migration ships `enabled=false, serving='off'`. Phase B turns on `enabled` (backfill
-and build), then sets `serving='staff'`. `all` waits for step 3's device layer and the privacy-notice line below.
+and build), then sets `serving='staff'`. `all` waits for step 3's device layer and the privacy-notice line below. Both
+are now done: the device layer shipped in TestFlight 92 and the owner approved the notice on 2026-10-25. The flip is
+operator SQL, as `staff` was ([Serving to all](#serving-to-all-prepared-2026-10-25-not-run)).
 
 ## 5. Privacy
 
@@ -374,10 +382,24 @@ leaves every artifact byte-identical.
 **Deletion.** There are no per-account rows in any new table. Account deletion is unchanged; the rate windows and
 activity days are already covered.
 
-**Privacy notice, when serving goes to `all` (owner approval needed before public release):** "To find your topics, your devices download a public map of recent
+**Privacy notice, approved by the owner on 2026-10-25** ("2 and 3 sure", with serving to `all`; it was the draft for
+"when serving goes to `all`"): "To find your topics, your devices download a public map of recent
 arXiv research from our servers, the same file for everyone. Your topics are worked out on your devices; our servers
 don't receive them. For you also ranks new papers by how close they are to the arXiv papers in your library, using their
 public titles and abstracts; nothing from that comparison is kept."
+
+Where it appears, word for word:
+
+- **gradstep.ai/privacy** (`web/site/privacy/index.html`): a "Topics and For you" section after Papers. The Papers
+  paragraph's library sentence now ends "used for synchronization and to rank the Feed's For you list", so that "For
+  you also" follows from it.
+- **The redesign draft** (`web/site-next/privacy/index.html`): Your library, after its For you sentence. That sentence
+  said For you is ranked "without an AI model"; it now says "without sending it to an AI provider", because the
+  fingerprints come from gte-small.
+- **Settings › Privacy & data**: a "Topics and For you" section in the apps (`PrivacyView`, RootView.swift) and the
+  browser (`PrivacyData.tsx`, `privacy-topics`).
+- The Library topics ⓘ already says topics are "worked out on this device from its arXiv papers and a public map of
+  recent research"; it is unchanged.
 
 ## 6. Cost and operations
 
@@ -551,7 +573,7 @@ through `account-delete`; script in the session scratchpad):
   full re-embedding; it is not needed for the daily ≈ 750 papers.
 - The admin Health card is built and type-checks, but the admin site was not redeployed (the database side, including
   Attention items, is live through `v1_admin_health`).
-- The first client (Related papers in the app, 2026-10-24) reads the manifest and shards; step 3 adds the map and terms. The privacy line in §5 needs owner approval before public release.
+- The first client (Related papers in the app, 2026-10-24) reads the manifest and shards; step 3 adds the map and terms. The privacy line in §5 was approved by the owner on 2026-10-25.
 
 ## ONNX Runtime telemetry (closed 2026-10-24; worker revision `gradstep-pipeline-00055-vzm`)
 
@@ -768,10 +790,75 @@ over those and a Feed presentation; nothing in step 3 needs to change.
 - Topics cover every catalog; the chart filters the current catalog's list.
 - Uploaded PDFs (above). The browser client is not built (step 5).
 
+## Serving to all (prepared 2026-10-25; not run)
+
+Owner approval: the §5 notice and `serving='all'`, 2026-10-25
+([DECISIONS.md](../DECISIONS.md#interest-index-privacy-notice-approved-serving-may-go-to-all-owner-2026-10-25)).
+
+**How `staff` was set.** By operator SQL, not by a migration or the admin site (Health only reads `serving`):
+`public.worker_interest_set_policy(p_enabled, p_serving, …)` (0152, service role only). Staging's
+`interest_policy.updated_at` is 2026-10-24 14:59:09 UTC, the start of the backfill, when Phase B set `enabled=true`
+with `serving='staff'`. `staff` means an account with an `app_private.app_roles` row; on staging that is one account,
+the owner's, of 51 open accounts. The flip uses the same function.
+
+**What `all` changes.**
+
+- Every signed-in reader on TestFlight 92 gets Library topics, and a Feed paper's details get related papers from the
+  index (instead of the Feed-results fallback). Builds before 92 never call the index, and the browser doesn't use it yet
+  (step 5).
+- There is no client-side gate. The apps rely on the server's `404 interest_unavailable` (`InterestIndexError.notServed`)
+  and ask again an hour later or at the next launch, so readers pick it up within about an hour.
+- For you's similarity (`worker_feed_candidates_v2`, 0155) applies to every reader For you serves. For you itself is
+  still `feed_policy.serving='staff'` on staging, so For you changes for nobody until the Feed's own switch moves
+  (PERSONALIZED_FEED.md "Rollout", step 5: its own notice text, and `discover`'s limit below).
+- Embedding is unchanged: catalog papers in any library are already embedded, whatever the serving.
+
+**Readiness for 100–1,000 readers** (staging, read-only, 2026-10-25):
+
+| Check | Finding | Action |
+|---|---|---|
+| What the app asks for (TestFlight 92) | `interest-index`: a manifest at most every 10 minutes while topics or related papers are worked out (≤ 6 in an hour of use). Each artifact is fetched once per digest and kept on disk: on first use the map (143 KB) and terms (285 KB), plus the window's shards (3, 2.6 MB) once related papers are opened; then about one shard a day, and map and terms after each rebuild. `interest-library`: at least one call per launch (a page per 500 papers), and at most one every 10 minutes while a paper has no fingerprint. Owner's measured peak: 12 and 7 requests in an hour | — |
+| `interest-index` rule: 240 / 4,000 an hour (this document said 120 / 2,000) | About 650 readers using the app in the same clock hour fill the environment limit. It is shared, so past it every reader gets 429 for the rest of that hour | 0157: 10,000 (the column's maximum, as `library-read` and `sync-read`) |
+| `interest-library` rule: 60 / 1,000 | One launch each by 1,000 readers in the same hour fills it | 0157: 5,000 |
+| At a limit | A kept manifest whose artifacts are on disk still answers. Otherwise topics hide and related papers use the Feed results. No error is shown | — |
+| Cache headers | Manifest `private, max-age=600`; artifacts `private, max-age=31536000, immutable` with `ETag` = SHA-256. The app keeps its own 600 s manifest and keeps artifacts by digest, so it never revalidates. For a later browser client: `If-None-Match` is compared only after the RPC has read the artifact from the database, so a 304 still costs that read and counts toward the limit | Note for step 5 |
+| 0155 similarity per For you request | The similar tier (EXPLAIN ANALYZE of 0155's CTEs; synthetic libraries of embedded papers; 8,230 window papers): a 70-paper library takes 84–88 ms. At the 300-paper cap it took 1.28–3.80 s: the grouping sorted both fingerprints of 117 thousand pairs, about 175 MB, against a 3.5 MB work_mem | 0156: cosine first, 235–243 ms at 300 papers, same results |
+| For you volume | `discover`: 60 per account, 600 for the environment an hour, shared by For you, topic chips, category chips and older builds' search. A For you request is about 0.45 s for the owner's 70 papers (PERSONALIZED_FEED.md timing) and about 0.6 s at 300 after 0156. 600 an hour is about 6 database-minutes an hour. At 1,000 readers the limit binds before the query does | The Feed's rollout decides; not this flip |
+| Egress and invocations | About 16–22 MB a month per active device; 1,000 devices ≈ 20 GB of the plan's 250 GB. About 2–5 Edge calls per device a day | $0 |
+
+**Steps for the lead after review** (staging `coxhjvqpflgxkleydati`; from the main checkout, which holds
+`.env.staging`):
+
+1. Merge the branch.
+2. `python3 scripts/backup.py staging`: an encrypted backup (note its folder under `.artifacts/backups/`).
+3. `python3 scripts/migrate-supabase.py staging`. This applies exactly 0156 and 0157; staging's ledger ends at 0155.
+   Read back
+   `select route, account_limit, environment_limit from app_private.api_rate_rules where route like 'interest-%';`:
+   expect 240 / 10000 and 60 / 5000.
+4. No Edge function deploy. 0156 keeps `worker_feed_candidates_v2`'s signature and result. `interest-index` and
+   `discover` (ranking v3, deployed 2026-10-25 00:08 UTC) are unchanged.
+5. Website before the flip, so the notice is live first: `node scripts/deploy-web.mjs site`. Then
+   `curl -s https://gradstep.ai/privacy/ | grep -c 'Topics and For you'` should print 1.
+6. The flip, through the Management API's SQL as for `staff`: `select public.worker_interest_set_policy(null, 'all');`
+   (`null` keeps `enabled`). Read back `select enabled, serving, updated_at from app_private.interest_policy;`, which
+   should show `true`, `all`.
+7. Checks: `node scripts/workflow-checks.mjs --only=interest.health`. After some hours of use,
+   `select public.worker_interest_status()->'delivery';` should show more than one account in 24 hours. Admin Health's
+   Interest index card shows the same.
+8. Optional, not needed for the flip:
+   - `node scripts/deploy-web.mjs app` puts the section in the browser's Privacy & data (the browser doesn't use the
+     index).
+   - The apps' Settings › Privacy & data section ships in the next TestFlight build.
+
+**Rollback:** `select public.worker_interest_set_policy(null, 'staff');`. The apps get `404 interest_unavailable`,
+delete their kept index files and hide topics, and For you's similarity stops for readers without a role. 0156 and
+0157 can stay.
+
 ## Decisions taken for Phase B (lead's interim decisions; the owner can revisit)
 
 1. **Corpus window 180 days.**
 2. **Rebuild every two weeks until the corpus reaches about 50,000 papers, then weekly**, warm-started; successors kept
    so synced topic IDs migrate (`rebuild_days_growing` 14, `rebuild_days` 7, `weekly_after_papers` 50,000).
 3. **The privacy-notice line (§5) needs the owner's approval before public release**; it does not block staging.
+   *Approved 2026-10-25, with serving to `all`.*
 4. **Local database tests use Homebrew PostgreSQL 17 with pgvector** (docs/TESTING.md).

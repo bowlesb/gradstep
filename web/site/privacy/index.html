@@ -14,7 +14,7 @@
 <main>
   <header class="brand"><a href="/" style="display:flex;align-items:center;gap:10px;color:inherit;text-decoration:none"><img class="mark" src="/brand/icon.svg" alt="" width="28" height="28">Gradstep</a></header>
   <h1>Privacy</h1>
-  <p class="muted">Private beta · last updated 16 October 2026</p>
+  <p class="muted">Private beta · last updated 25 October 2026</p>
   <p>Gradstep is an app for reading machine-learning papers on iPhone, iPad, Mac and in a browser. This page explains what data the app and its servers handle during the private beta, who processes it, and the choices you have.</p>
 
   <h2>Your notes and conversations</h2>
@@ -25,7 +25,10 @@
   <p>When a question needs the web, the searches the model writes go to Tavily or, for Claude, Anthropic's search provider as a backup; search services see the searches, which can include words from your question or paper. Our servers pass chat requests through without saving the text. The named providers process requests under their own terms and may retain them; we do not promise zero retention. The app asks for consent before cloud AI use and again when the consent changes to name a new processor. Saved conversations are encrypted on your device.</p>
 
   <h2>Papers</h2>
-  <p>Your device downloads the exact official arXiv HTML revision and prepares it for reading locally. PDFs are downloaded and processed only on your device. Gradstep's servers never contact arXiv and keep no PDF, HTML or reader-bundle copies. The shared Feed uses public metadata from DataCite. Your library membership, archive state and topic tags are service-visible metadata used for synchronization. To suggest catalog tags, a paper's public title and abstract are sent to Anthropic.</p>
+  <p>Your device downloads the exact official arXiv HTML revision and prepares it for reading locally. PDFs are downloaded and processed only on your device. Gradstep's servers never contact arXiv and keep no PDF, HTML or reader-bundle copies. The shared Feed uses public metadata from DataCite. Your library membership, archive state and topic tags are service-visible metadata used for synchronization and to rank the Feed's For you list. To suggest catalog tags, a paper's public title and abstract are sent to Anthropic.</p>
+
+  <h2>Topics and For you</h2>
+  <p>To find your topics, your devices download a public map of recent arXiv research from our servers, the same file for everyone. Your topics are worked out on your devices; our servers don't receive them. For you also ranks new papers by how close they are to the arXiv papers in your library, using their public titles and abstracts; nothing from that comparison is kept.</p>
 
   <h2>Podcasts</h2>
   <p>If you request a private episode, your device sends the paper's text to make it. The quote names the providers: Anthropic or DeepSeek writes the script, and Google generates the speech. Source text is temporarily stored for that job and scheduled for deletion when no unfinished job needs it; cleanup retries if deletion fails. The episode's audio and script are stored so you can play them. These episode files are private to your account but do not use your conversation encryption keys. Shared episodes are available to other readers.</p>

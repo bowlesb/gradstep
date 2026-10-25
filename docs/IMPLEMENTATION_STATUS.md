@@ -26,6 +26,38 @@ migrations 0154 and 0155, `discover`, `chat`, and pipeline worker 00056.
     (ReplayKit doesn't run in the Simulator), the topics chart on real data, related papers on staging shards;
   - the Mac app (it compiles and was uploaded; no Mac UI run).
 
+## Interest index to every reader: notice placed, readiness fixes (2026-10-25; nothing applied or deployed)
+
+The owner approved the interest index's privacy notice and serving it to `all` ("2 and 3 sure"; DECISIONS.md). On a
+branch, for the lead to review and run (steps in INTEREST_INDEX.md "Serving to all"):
+
+- **Notice:**
+  - The approved text, word for word, as a "Topics and For you" section on gradstep.ai/privacy (`web/site/privacy/`).
+    The library sentence now adds "and to rank the Feed's For you list".
+  - The redesign draft (`web/site-next/privacy/`).
+  - Settings › Privacy & data in the apps (`PrivacyView`) and the browser (`PrivacyData`; the owner-58 journey's
+    heading list updated).
+- **0156:** For you's similar tier computes each pair's cosine before grouping. At the 300-paper library cap, its CTEs
+  took 1.28–3.80 s on staging (a sort of about 175 MB of fingerprints spilled past the 3.5 MB `work_mem`) and now take
+  235–243 ms with identical results. 70 papers are unchanged (84–88 ms).
+- **0157:** environment limits `interest-index` 4,000 → 10,000 and `interest-library` 1,000 → 5,000 an hour (per-account
+  limits unchanged). Expected cost is unchanged ($0); the worst-case misuse ceiling is about $1.4 instead of about
+  $0.5 an hour of egress past the allowance.
+- **Found:**
+  - For you is still `feed_policy.serving='staff'` on staging, and only the owner has a role. Flipping the index alone
+    gives every reader topics and related papers. For you's similarity reaches readers only after the Feed's own
+    rollout step 5.
+  - This document had stated the `interest-index` rule as 120 / 2,000 an hour; it was 240 / 4,000.
+- **Verification:**
+  - `npm test` passes.
+  - `swift test` passes: 483 Swift Testing tests in 66 suites, and 97 XCTest with 3 skipped. The app's change is one
+    text section, syntax-checked; no Simulator.
+  - On local PostgreSQL 17 + pgvector, `scripts/test-database.py --feed-only` (feed_v4_library, feed_similarity) and
+    `--interest-only` pass, with the new rate-rule assertions.
+  - Timings are read-only EXPLAIN ANALYZE on staging.
+- **Not done:** the flip, migrations, the website deploy and the app releases. The owner-58 browser journey was updated
+  but not run.
+
 ## In TestFlight 92 (formerly "After TestFlight 91" — 2026-10-24)
 
 iPad places (owner session 2026-10-24, G5/G6/G17 and the All chats decision;
@@ -396,7 +428,7 @@ pending owner approval, Homebrew PostgreSQL 17 + pgvector for local tests) are i
       deleted.
     - Details: INTEREST_INDEX.md "ONNX Runtime telemetry".
   - No device or browser consumes the index (step 3).
-  - The privacy-notice line needs owner approval before `serving='all'`.
+  - The privacy-notice line needs owner approval before `serving='all'`. *Approved 2026-10-25 (entry above).*
 
 - **Feed grouped by why** (branch `worktree-agent-ac55b186b5ae6f69c`; owner decision 2026-10-24, DECISIONS.md, PERSONALIZED_FEED.md
   "Client presentation"): the Table has a **Why** column ("Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao",

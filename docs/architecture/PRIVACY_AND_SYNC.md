@@ -52,6 +52,7 @@ Email delivery must use a verified sender with bounded sending/verification rate
 | Library membership, file size, timing, devices, usage, subscription | Service-visible metadata needed for access, synchronization, and billing |
 | Archive state and personal topic tags (2026-10-07) | Service-visible library-item fields, synced through the server; not end-to-end encrypted ([Topic tags](TAGS.md)) |
 | Paper title and abstract for catalog tags | Public catalog metadata sent to Anthropic (Claude Haiku) once per paper version; no reader data |
+| Library topics and For you similarity (interest index; notice approved by the owner 2026-10-25) | Devices download the same public map, term statistics and pool fingerprints as every reader. They work out topics, names, hidden flags and reading levels themselves and sync them only inside end-to-end encrypted events; the server never receives them. For you compares the public fingerprints of the reader's own library papers, from membership the service already holds, with new papers per request, and keeps nothing. Uploads are left out ([Interest index §5](INTEREST_INDEX.md#5-privacy)) |
 | AI requests and responses | Selected plaintext visible to the chosen cloud provider and processing service during the request |
 | Submitted bug screenshots/notes | Explicitly shared with support after preview; separate support retention/access policy |
 
