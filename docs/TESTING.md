@@ -93,7 +93,8 @@ Fast (in `npm test`): backend `tests/backend/ai-usage.test.ts` (every chat actio
 reader-facing name; server, browser and Swift names identical; no dollar or private fields); browser `ai-usage.test.ts`
 (writes `tests/fixtures/ai-usage.json` expectations with `UPDATE_USAGE_FIXTURE=1`) and `note-collapse.test.ts`. Core
 `swift test --filter "AIUsageTests|NoteCollapseTests"` (same fixtures). Database: `npm run test:database`, or alone
-`python3 scripts/test-database.py --account-usage-only` (`tests/database/account_usage.sql`). Slow, opt-in: Playwright
+`python3 scripts/test-database.py --account-usage-only` (`tests/database/account_usage.sql`, and
+`ai_usage_reported_tokens.sql` for migration 0160: only provider-reported tokens counted). Slow, opt-in: Playwright
 `npx playwright test ai-usage.spec.ts notes.spec.ts --project=desktop --project=phone` (screenshots under
 `.artifacts/ai-usage-20261022/` and `.artifacts/snippets-20261022/`); native, one at a time on an iPhone Simulator,
 `-only-testing:ScienceReaderUITests/AIUsageJourneyTests/<test>` and `NotesJourneyTests/testSnippetCardsCollapseAndRemember`,

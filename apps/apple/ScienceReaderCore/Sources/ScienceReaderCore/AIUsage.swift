@@ -62,9 +62,10 @@ public enum AIUsageOutcome: String, Decodable, Sendable {
         }
     }
     public var isProblem: Bool { self == .failed || self == .checking }
-    /// Whether the row's tokens are what the provider reported for a finished request. A request that didn't finish, wasn't
-    /// charged, or hasn't been settled carries what was set aside for it (its input estimated from its size, its whole
-    /// output allowance), not what was used (TestFlight 92: a failed question read "132k in · 10k out"); those aren't shown.
+    /// Whether the row's tokens are what the provider reported for a finished request. Before migration 0160 a request that
+    /// didn't finish, wasn't charged, or hasn't been settled carried what was set aside for it (its input estimated from its
+    /// size, its whole output allowance), not what was used (TestFlight 92: a failed question read "132k in · 10k out");
+    /// those aren't shown. Since 0160 the server counts only provider-reported tokens.
     public var reportsTokens: Bool { !(self == .failed || self == .notCharged || self == .inProgress || self == .checking) }
     /// Said where the parts' tokens would be, when they aren't shown.
     public var unreportedTokens: String? {
@@ -397,8 +398,8 @@ public enum AIUsageFormat {
         return seconds < 60 ? "\(seconds) s audio" : "\(Int64((Double(seconds) / 60 + 0.5).rounded(.down))) min audio"
     }
 
-    /// Tokens used, short ("1.6k in · 20k cached · 750 out · 1 search · 5 min audio") or exact; "≈" when Gradstep's
-    /// estimate stands in for an unreported usage; "—" when nothing has been reported yet.
+    /// Tokens used, short ("1.6k in · 20k cached · 750 out · 1 search · 5 min audio") or exact; "≈" when some of its calls
+    /// have no provider count (left out of the figures since migration 0160); "—" when nothing has been reported yet.
     public static func tokensText(_ t: some AIUsageTokens, estimated: Bool, exact: Bool = false) -> String {
         let number: (Int64) -> String = { exact ? grouped($0) : compact($0) }
         var pieces: [String] = []

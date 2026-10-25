@@ -198,8 +198,9 @@ const PART_LABELS: Record<UsagePartName, string> = {
 export function partLabel(part: UsagePartName): string { return PART_LABELS[part]; }
 
 /** A short word beside the credits when the row isn't an ordinary finished charge. */
-/** Whether a row's tokens are what the provider reported for a finished request (Swift `AIUsageOutcome.reportsTokens`). A
- * request that didn't finish, wasn't charged or hasn't been settled carries what was set aside for it, not what was used. */
+/** Whether a row's tokens are what the provider reported for a finished request (Swift `AIUsageOutcome.reportsTokens`).
+ * Before migration 0160 a request that didn't finish, wasn't charged or hasn't been settled carried what was set aside for
+ * it, not what was used; since 0160 the server counts only provider-reported tokens. */
 export function reportsTokens(outcome: UsageOutcome): boolean {
   return !(outcome === 'failed' || outcome === 'not_charged' || outcome === 'in_progress' || outcome === 'checking');
 }
@@ -243,9 +244,9 @@ export function compact(n: number): string {
   return `${rounded}${unit}`;
 }
 
-/** Tokens a row or part used, short: "1.6k in · 20k cached · 750 out · 1 search · 5 min audio"; "≈" when the provider
- * reported no usage and Gradstep's estimate stands in; "—" when nothing has been reported yet. Cache writes count as
- * input (they are input tokens kept for the next question). */
+/** Tokens a row or part used, short: "1.6k in · 20k cached · 750 out · 1 search · 5 min audio"; "≈" when some of its
+ * calls have no provider count (left out of the figures since migration 0160); "—" when nothing has been reported yet.
+ * Cache writes count as input (they are input tokens kept for the next question). */
 export function tokensText(t: UsageTokens & { estimated: boolean }, exact = false): string {
   const number = exact ? grouped : compact;
   const pieces: string[] = [];

@@ -113,7 +113,8 @@ Not verified: the Mac app itself, a physical device.
 
 ## After TestFlight 92 — owner's iPhone feedback (2026-10-25; branch, not released)
 
-Decisions: [DECISIONS.md](DECISIONS.md) "TestFlight 92 feedback". Client-only; no server change, deploy or migration.
+Decisions: [DECISIONS.md](DECISIONS.md) "TestFlight 92 feedback". The client changes need no server deploy. The usage
+token total's fix is one migration, 0160 (last item).
 
 - Recommended papers: the card sits directly under the sheet's title and stays put as papers arrive.
 - Your AI usage: Day · Week · Month · Year at the top (the last 24 hours worked out on the device); the list in days;
@@ -124,8 +125,16 @@ Decisions: [DECISIONS.md](DECISIONS.md) "TestFlight 92 feedback". Client-only; n
 - Acknowledgements: one row per item with the full notice one tap away; the missing license texts are now in the app.
 - **Not verified:** on a device; the Mac app beyond a Catalyst build (no Mac UI run); links for requests asked on another device
   against real synced history (unit-tested with synthetic history); the browser's usage screen in a browser.
-- **Server note:** `v1_ai_usage` reports unfinished attempts' reserved units as tokens and counts them in the window's
-  token total (DECISIONS.md); the clients now hide them per row, the total still includes them.
+- **Server (migration `202610250160_ai_usage_reported_tokens.sql`, local, not applied):** `v1_ai_usage` counts only
+  provider-reported units, so the token total no longer includes hold estimates. Unreported calls are flagged
+  (`estimated`; added `unreported_calls`, totals' `unreported_operations`), and the response stays compatible with
+  TestFlight 92 and the browser. Evidence: `tests/database/ai_usage_reported_tokens.sql` fails at 0159 ("the hold
+  estimate is not used") and passes with 0160. It runs with `account_usage.sql` (`--account-usage-only`) on PostgreSQL
+  17.11 + pgvector, and `default_privileges.sql` also passes. `tests/backend/ai-usage.test.ts` 6/6 (each function read
+  from its newest migration); `npm test` passes. Staging, read-only aggregates: only the owner's account is affected.
+  Week and Month go from 2,679,911 to 2,368,624 tokens (−311,287: three `unknown` chat calls with 283,287 estimated in
+  and 28,000 out), and the last 24 hours from 414,500 to 209,087. To deploy: encrypted backup, then the migration (no
+  function or client change needed).
 
 ## TestFlight 92 — 2026-10-25 UTC (iOS and Mac uploaded)
 
