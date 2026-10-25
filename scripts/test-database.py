@@ -114,6 +114,7 @@ parser.add_argument('--general-only', action='store_true', help='Run only the ge
 parser.add_argument('--pricing-only', action='store_true', help='Run the free AI pool, pricing, switches and spend alert fixtures (migration 0150) only.')
 parser.add_argument('--interest-only', action='store_true', help='Run the interest index fixture (migration 0152) only.')
 parser.add_argument('--feed-only', action='store_true', help='Run the For you fixtures (v4 library, migration 0154; library similarity, 0155) only.')
+parser.add_argument('--deletion-sweep-only', action='store_true', help='Run the account-deletion sweep fixtures (migrations 128 and 0159) and the deletion suites they share functions with.')
 args = parser.parse_args()
 # Migration 0152 enables pgvector: the server must offer it (docs/TESTING.md).
 _vector = subprocess.run([str(BIN / 'psql'), *BASE, '-X', '-At', '-d', 'postgres', '-c',
@@ -163,6 +164,11 @@ if args.interest_only:
 if args.feed_only:
     phase([*all_migrations, ROOT / 'tests/database/feed_v4_library.sql', ROOT / 'tests/database/feed_similarity.sql'], [])
     raise SystemExit(0)
+if args.deletion_sweep_only:
+    phase([*all_migrations, *[ROOT / 'tests/database' / name for name in ['account_deletion_sweep.sql', 'account_deletion_sweep_speed.sql', 'note_assets.sql',
+           'account_deletion_episode_folders.sql', 'podcast_device_source_deletion.sql', 'recommendations.sql']]], [])
+    current_schema_phase(all_migrations, ['test_user_deletion', 'test_library_query_edges'])
+    raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/beta_admission_revocation.sql'], [])
     raise SystemExit(0)
@@ -199,6 +205,7 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql', ROOT / 'tests/database/interest_index.sql', ROOT / 'tests/database/interest_rebuild_due.sql', ROOT / 'tests/database/feed_v4_library.sql', ROOT / 'tests/database/feed_similarity.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
-# beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.
-phase([*all_migrations, ROOT / 'tests/database/podcast_device_source_deletion.sql', ROOT / 'tests/database/podcast_source_reservation.sql', ROOT / 'tests/database/beta_admission_revocation.sql', ROOT / 'tests/database/account_deletion_sweep.sql'], [])
+# beta-admission revocation, and the account-deletion sweep's back-off and stall alert (and its listing's speed and
+# reports, migration 0159); after every migration.
+phase([*all_migrations, ROOT / 'tests/database/podcast_device_source_deletion.sql', ROOT / 'tests/database/podcast_source_reservation.sql', ROOT / 'tests/database/beta_admission_revocation.sql', ROOT / 'tests/database/account_deletion_sweep.sql', ROOT / 'tests/database/account_deletion_sweep_speed.sql'], [])
 current_schema_phase(all_migrations, CURRENT_GENERAL)

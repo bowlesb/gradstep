@@ -28,6 +28,10 @@ at least 5), podcast failures, open reports. Every number has its window and def
 deletion is unfinished (personal rows, a linked login or files left), the ones the worker's sweep is retrying with
 back-off, and the stalled ones (over 30 days after closing), with the oldest closing date and the commonest failure
 code; Attention names a stall ([PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#account-deletion-implemented-2026-10-05)).
+**Added 2026-10-25 (migration 0159).** `account_deletions` also carries `untried_over_1h` (unfinished more than an hour
+after closing and never tried by the sweep) and `sweep` (the worker's last good listing, failures in a row with their
+SQLSTATE or `list_failed`, the last duration). Attention names three failed listings in a row, no good listing for 15
+minutes, or an untried deletion: from 2026-10-12 every listing timed out and nothing on Health showed it.
 
 **Added 2026-10-24 (migration 0152, [INTEREST_INDEX.md](INTEREST_INDEX.md)).** `admin_health_extra` carries
 `interest_index` (`app_private.interest_health()`): papers embedded, pending and failed (pool and catalog), the last

@@ -635,6 +635,32 @@ check('interest.health', { title: 'Interest index: embeddings current, map on sc
   return h.attention?.length ? fail(`${summary}; attention: ${h.attention.map(a => a.kind).join(', ')}`) : pass(summary);
 });
 
+// Account deletion sweep (migration 0159, docs/architecture/PRIVACY_AND_SYNC.md): the worker lists unfinished deletions
+// every minute. From 2026-10-12 every listing hit the gateway's 8 s statement timeout and only the gateway logs showed
+// it. Free and read-only: this run's own listing (same RPC, same role), then the worker's reported listings and the
+// deletions waiting (counts, times and codes only).
+check('deletion.sweep', { title: 'Account deletion sweep lists pending deletions in time; none waiting on it', suites: ALL, timeout: 60 }, async () => {
+  const started = Date.now();
+  let due;
+  try { due = await rpc('worker_account_deletions_pending', { p_limit: 1 }, { service: true }); }
+  catch (e) { return fail(`the sweep's listing failed after ${Date.now() - started} ms (${e.message}); unfinished deletions are not being finished`); }
+  const ms = Date.now() - started;
+  let h;
+  try { h = await rpc('worker_account_deletion_health', {}, { service: true }); }
+  catch (e) { if (e.status === 404) return ms > 2000 ? warn(`listing took ${ms} ms (the gateway cancels at 8 s); server predates migration 0159`) : pass(`listing ${ms} ms; server predates migration 0159`); throw e; }
+  const s = h.sweep ?? {}, problems = [], notes = [];
+  const minutesSince = at => at ? Math.round((Date.now() - Date.parse(at)) / 60_000) : null;
+  if (Number(s.failures_in_row) >= 3) problems.push(`the worker's last ${s.failures_in_row} listings failed (${s.last_code}), the last ${minutesSince(s.last_failed_at)} min ago`);
+  // The worker runs every minute; a database before the worker's deploy has never been reported to (no alarm).
+  if (s.last_ok_at && minutesSince(s.last_ok_at) > 15) problems.push(`the worker last listed ${minutesSince(s.last_ok_at)} min ago`);
+  if (Number(h.untried_over_1h) > 0) problems.push(`${h.untried_over_1h} deletion(s) unfinished over an hour after closing and never tried by the sweep`);
+  if (Number(h.stalled) > 0) problems.push(`${h.stalled} deletion(s) unfinished more than 30 days after closing (most often ${h.top_code ?? 'no code'})`);
+  if (ms > 2000) notes.push(`listing took ${ms} ms (the gateway cancels at 8 s)`);
+  const summary = `listing ${ms} ms, ${due.length ? 'a deletion' : 'none'} due; ${h.unfinished} unfinished, ${h.retrying} retrying; worker ${s.last_ok_at ? `listed ${minutesSince(s.last_ok_at)} min ago in ${s.last_ms} ms` : 'has not reported a listing yet'}`;
+  if (problems.length) return fail(`${summary}; ${problems.join('; ')}`);
+  return notes.length || !s.last_ok_at ? warn(`${summary}${notes.length ? `; ${notes.join('; ')}` : ''}`) : pass(summary, { listing_ms: ms, unfinished: Number(h.unfinished) });
+});
+
 check('budget.health', {title:'Platform budget is enabled, under 80 %, without aged liability, with next month ready',suites:ALL,timeout:30},async()=>{
  const h=await rpc('worker_budget_health',{},{service:true});
  if(!h||h.missing)return fail('No platform budget row for this month: every paid request would be refused');

@@ -1,5 +1,31 @@
 # Implementation status
 
+## Account-deletion sweep listing — 2026-10-25 UTC (local; nothing deployed)
+
+- **Found (staging, read-only):** the worker's `worker_account_deletions_pending` call has failed every minute since
+  2026-10-12 14:01 UTC (last HTTP 200; first 500 on 2026-10-09 14:03): `canceling statement due to statement timeout`
+  (57014) after the gateway's 8 s. The sweep returned silently. Cause: per-row evaluation of the earlier list in the
+  032/095 wrappers (quadratic, then cubic in accounts); PRIVACY_AND_SYNC.md "The sweep lists in milliseconds".
+- **Affected:** none waiting. 832 closed accounts (667 closed since 2026-10-12 14:01), all finished: 0 logins, 0
+  personal rows, 0 tracked files not deleted, 0 Storage objects in their folders, 0 rows in `account_deletion_sweeps`;
+  `account-delete` returned no server error and logged no incomplete deletion from 2026-10-12 to 25.
+- **Change:** migration 0159 (same lists and steps; hoisted wrappers, lookup indexes, index-backed
+  `account_deletion_objects`, listing reports, Health fields); the worker logs and reports each listing; Admin Health
+  Attention items; workflow check `deletion.sweep` (it fails on staging now: "listing failed after 8321 ms … statement
+  timeout").
+- **Evidence (local PostgreSQL 17):** `account_deletion_sweep_speed.sql` fails before 0159 (017's list evaluated per
+  pair of account rows; with the call-count check removed, the 1,500-account listing is cancelled at 6 s) and passes
+  after (listing 163 ms, Health 172 ms); `--deletion-sweep-only` passes (sweep, note images, episode folders, podcast
+  sources, recommendations, user deletion, library query edges), as do `default_privileges.sql`, `admin_health.sql`
+  and `sql_hot_paths.sql`. The same logic read-only on staging without the indexes: 0.53 s.
+- **Deploy order:** (1) migration 0159 (`scripts/deploy-staging.py` / `migrate-supabase.py`): the deployed worker's
+  next run lists again and catches up by itself (3 accounts a run, never-tried first; none are waiting today);
+  (2) the Cloud Run worker (`scripts/deploy-pipeline-worker.py`) for the listing log and reports; (3) the admin site
+  (`node scripts/deploy-web.mjs admin`); (4) a rebuilt workflow-checks image (`services/workflow-checks/Dockerfile`)
+  refreshed with `scripts/refresh-workflow-job-image.py`, so the scheduled 6-hourly canary runs `deletion.sweep` (the
+  deploy suite the deploy scripts run locally has it already). Then `node scripts/workflow-checks.mjs
+  --only=deletion.sweep` should pass, and the gateway should show 200s for the listing.
+
 ## Two waits from TestFlight 92 — 2026-10-25 UTC (local; nothing deployed)
 
 - **Explain in Chat stuck on "Thinking…" (13:01 UTC):** Gemini Flash sent no data for 119.5 s until the reader left; no

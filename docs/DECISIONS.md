@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Account-deletion sweep: listing fixed and watched (2026-10-25; agent decisions, reversible)
+
+From 2026-10-12 14:01 UTC (first on 2026-10-09 14:03) every listing of the worker's deletion sweep timed out at the
+gateway's 8 s; no deletion was left unfinished (all 832 closed staging accounts finished on 2026-10-25). Evidence and
+cause: [PRIVACY_AND_SYNC.md](architecture/PRIVACY_AND_SYNC.md#account-deletion-implemented-2026-10-05).
+
+| Decision | Choice |
+|---|---|
+| Fix | Migration 0159: the same lists, order and deletion steps. Each wrapper reads the list below it once (an initplan); four lookup indexes; `account_deletion_objects` as two index-backed arms returning the same rows. Not rewritten as one set-based query, so 128's contract stays (new conditions belong in `account_deletion_unfinished`; earlier lists remain inputs) |
+| Visibility | The worker logs and reports each listing (SQLSTATE or `list_failed`, never error text). Health Attention: 3 failed listings in a row, no good listing for 15 min, an unfinished deletion over an hour old that the sweep never tried. Workflow check `deletion.sweep` in every suite |
+
 ## Gemini Flash starts sooner; a silent model is ended; For you asks at sign-in (owner reports on TestFlight 92, 2026-10-25; agent decisions, reversible)
 
 Owner: *"Been sitting here over ten seconds"* (Explain in Chat on an equation, "Thinking…") and *"Stuck here for like 10
