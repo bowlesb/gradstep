@@ -5,6 +5,7 @@
 // blank pixels of the asked size; a tagger line or crop the record lacks counts as a miss (printed).
 //
 //   node scripts/device-route-replay.mjs --from <variant with record.json> --to <new variant> [--only id,…] [--set transcribe=true …]
+//     [--page-rules <dir>]  each page's ruling lines (<dir>/<key>.json) added to the record (tableRules)
 //     [--also <variant>,…]  more recorded runs of the same papers whose tagger lines and crops are added to the record's
 //                            (a rule that changes crops, replayed with and without it from two real runs)
 //   then: node scripts/device-route-accuracy.mjs score --variant <new variant>
@@ -44,6 +45,13 @@ for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record
     const more = recordAt(join(ROOT, '.artifacts/device-route/accuracy', other, key));
     if (!more) continue;
     record.tags = [...more.tags, ...record.tags]; record.recognitions = [...more.recognitions, ...record.recognitions]; // the record's own win
+  }
+  // --page-rules <dir>: each page's ruling lines from <dir>/<key>.json ([[x0, top, x1, bottom], …] per page, points;
+  // scripts/device-route-pdf-rules.py), for the tableRules rule before a host supplies them.
+  const pageRules = arg('--page-rules');
+  if (pageRules && existsSync(join(pageRules, `${key}.json`))) {
+    const byPage = JSON.parse(readFileSync(join(pageRules, `${key}.json`), 'utf8'));
+    record.pages.forEach((p, i) => { if (p && byPage[i]) p.rules = byPage[i]; });
   }
   let distinct = 0;
   const host = replayHost(record, r => {

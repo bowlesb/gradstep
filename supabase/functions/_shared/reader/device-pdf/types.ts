@@ -40,6 +40,9 @@ export interface PageInput {
   width: number; height: number; image_width: number; image_height: number; scale: number;
   glyphs: { text: string[]; x0: number[]; top: number[]; x1: number[]; bottom: number[]; size: number[]; font: string[]; upright: (boolean | number)[] };
   detections: { cls: string; score: number; box: number[] }[];
+  /** The page's ruling lines, optional: thin filled rectangles and straight stroked lines, [x0, top, x1, bottom] in
+   * points from the top left (the glyphs' coordinates). Read by the `tableRules` rule. */
+  rules?: number[][];
 }
 export interface TagLine { x: number[]; font: number[]; cls: number[]; char: number[] }
 /** `display`: the formula is a display (the host groups crops of like length into its batches). `cost`: the formula's glyph
@@ -142,6 +145,14 @@ export interface DevicePDFInput {
   compounds?: boolean;
   /** A glyph returning to the left below its line's own text starts a new line, whatever its scripts widened (linesOf). */
   lineReturns?: boolean;
+  /** Table columns from the lines with the most cells (tables.TableOptions.columns). */
+  tableColumns?: boolean;
+  /** A table cell of several lines read line by line (tables.TableOptions.cellLines). */
+  cellLines?: boolean;
+  /** A wrapped text line continues its table row (tables.TableOptions.rows). */
+  tableRows?: boolean;
+  /** The page's ruling lines separate a table's rows and columns (tables.TableOptions.rules; needs the host's `rules`). */
+  tableRules?: boolean;
 }
 
 export interface Formula {
