@@ -79,13 +79,6 @@ extension ReaderModel {
     /// iPad Wide's Discuss is showing (the paper on the left, its chat on the right).
     var discussShown: Bool { !compactLayout && !Platform.isMac && wideDiscuss }
 
-    /// The Mac's Search Library (Edit menu, ⌘F): the Library place with its field focused; results in its list, the one
-    /// picked on the right. (The iPad has no Search place: the Library's own field, owner 2026-10-24.)
-    func searchFromPlaces() {
-        if widePlace != .library { showPlace(.library) }
-        MacCommandRequests.shared.librarySearch = UUID()
-    }
-
     /// iPad Wide: "Paper can also be a left primary item" (owner, 2026-10-23). The paper's list toggle (Hide library, Hide
     /// feed) or dragging the divider past the list's minimum: the list slides away and the paper, the same view at the
     /// same place, becomes the Paper place. Its toggle (Show library, Show feed) returns it to where it came from.
