@@ -10,6 +10,7 @@ struct AssetsExportRow: View {
     @Bindable var model: ReaderModel
     @State private var exporter = AssetsExporter()
     @State private var presenting = false
+    @State private var saveIssue: String?
 
     static let info = "A .zip of your chats, diagrams, snippets (with their images) and the explanations kept on this device, put together here. Downloaded papers aren’t included."
 
@@ -31,7 +32,9 @@ struct AssetsExportRow: View {
                 }
                 .accessibilityIdentifier("settings.downloadAssets.progress")
             }
-            if case .failed(let message) = exporter.state {
+            if let saveIssue {
+                Text(saveIssue).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("settings.downloadAssets.failure")
+            } else if case .failed(let message) = exporter.state {
                 Text(message).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("settings.downloadAssets.failure")
             } else if !exporter.isPreparing, !exporter.skipped.isEmpty {
                 // What the last export left out, as its README lists it.
@@ -42,7 +45,11 @@ struct AssetsExportRow: View {
         .onChange(of: exporter.state) { _, state in if case .ready = state { presenting = true } }
         .onChange(of: presenting) { _, now in if !now { exporter.finish() } }
         #if targetEnvironment(macCatalyst)
-        .fileExporter(isPresented: $presenting, document: ZipFile(url: readyURL), contentType: .zip, defaultFilename: readyURL?.lastPathComponent) { _ in }
+        // A save that failed (a full disk) says so; it used to look like success (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+        .fileExporter(isPresented: $presenting, document: ZipFile(url: readyURL), contentType: .zip, defaultFilename: readyURL?.lastPathComponent) { result in
+            if case .failure(let error) = result { saveIssue = StorageSpace.message(for: error) ?? "The zip couldn’t be saved there. Try again." }
+            else { saveIssue = nil }
+        }
         #else
         .sheet(isPresented: $presenting) {
             if let url = readyURL { AssetsShareSheet(url: url).presentationDetents([.medium, .large]).ignoresSafeArea() }

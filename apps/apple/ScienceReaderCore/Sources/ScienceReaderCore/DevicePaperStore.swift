@@ -318,6 +318,7 @@ public actor DevicePaperStore {
                 throw LocalPaperStoreError.storageUnavailable
             }
             let handle = try FileHandle(forWritingTo: temporary)
+            defer { try? handle.close() }
             try handle.write(contentsOf: data)
             try handle.synchronize()
             try handle.close()
@@ -332,12 +333,19 @@ public actor DevicePaperStore {
             throw error
         } catch {
             try? manager.removeItem(at: temporary)
+            // A full disk says so, with about how much to free (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+            if StorageSpace.isOutOfSpace(error) { throw StorageSpace.fullError(writing: Int64(data.count), at: url) }
             throw LocalPaperStoreError.storageUnavailable
         }
     }
 
     private static func removeOrphans(in directory: URL, referenced: Set<String>) throws {
         let manager = FileManager.default
+        // A write interrupted by a crash leaves its hidden temporary file (up to the 64 MB limit); none is in use while
+        // the store is being opened.
+        for name in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where name.hasPrefix(".") && name.hasSuffix(".tmp") {
+            try? manager.removeItem(at: directory.appendingPathComponent(name))
+        }
         guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return }
         for url in files where url.lastPathComponent.hasPrefix(blobPrefix) && url.pathExtension == String(blobSuffix.dropFirst())
             && !referenced.contains(url.lastPathComponent) {

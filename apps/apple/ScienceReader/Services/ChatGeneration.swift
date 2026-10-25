@@ -180,7 +180,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
     let code: String
     /// What the failed answer cost, when the server said (0: the provider never started it; servers from 2026-10-14).
     var credits: Int? = nil
-    /// `reader_unprepared`: why the paper couldn't be prepared on this device (build 78).
+    /// `reader_unprepared`: why the paper couldn't be prepared on this device (build 78); `storage`: the full disk's line.
     var detail: String? = nil
     /// The answer asked a premium model (Sonnet, Opus), which free AI never pays for.
     var premium = false
@@ -196,7 +196,9 @@ struct ChatAnswerIssue: Equatable, Sendable {
         case "reader_unprepared": "\(detail ?? "This paper couldn’t be prepared on this device.") No answer was requested; your question is saved."
         case "consent_declined", "answer_withdrawn": "Your question is saved. No answer was requested."
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
-        case "storage": "The answer couldn’t be saved on this device. Try again saves it; it isn’t asked for again."
+        // `detail`: the full disk's line (how much to free), 2026-10-25.
+        case "storage": detail.map { $0 + " Then Try again saves the answer; it isn’t asked for again." }
+            ?? "The answer couldn’t be saved on this device. Try again saves it; it isn’t asked for again."
         case "diagram_storage": "The answer was saved, but its diagram couldn’t be: this device’s unsynced storage is full."
         default: credits == 0 ? ChatFailureText.message(for: code) + " No credits were used." : ChatFailureText.message(for: code)
         }

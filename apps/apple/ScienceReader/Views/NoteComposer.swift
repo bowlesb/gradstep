@@ -220,7 +220,8 @@ struct NoteComposerView: View {
                                                      waiting: model.syncIssue != nil || model.backend == nil, origin: snippet.origin)
                 close(endCapture: true)
             } catch {
-                issue = "Couldn’t save on this device. " + ((error as? LocalizedError)?.errorDescription ?? "Your snippet and comment are still here.")
+                issue = StorageSpace.message(for: error).map { $0 + " Your snippet and comment are still here." }
+                    ?? "Couldn’t save on this device. " + ((error as? LocalizedError)?.errorDescription ?? "Your snippet and comment are still here.")
             }
         }
     }

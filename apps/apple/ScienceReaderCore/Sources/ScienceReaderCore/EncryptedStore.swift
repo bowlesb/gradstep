@@ -106,7 +106,10 @@ private enum JournalRecord { case event(EventEnvelope), replacement(ReplacementM
 /// Immutable sealed records and an encrypted cursor/outbox checkpoint share one
 /// SQLite transaction. Private text never enters SQLite, including its WAL.
 public actor EncryptedStore {
-    private let database: SQLiteConnection
+    private var database: SQLiteConnection
+    private let location: URL
+    /// Opened read-only on a full disk (`openDatabase`); see `reopenWritable`.
+    private var isSnapshot = false
     private let localKey: SymmetricKey
     private let accountID: UUID
     private var keys: KeyBundle
@@ -157,8 +160,8 @@ public actor EncryptedStore {
             let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
             guard try file.read(upToCount: 16) == Data("SQLite format 3\0".utf8) else { throw ReaderError.unsupportedFormat }
         }
-        database = try SQLiteConnection(url: url)
-        try database.execute("PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=128;")
+        location = url
+        (database, isSnapshot) = try Self.openDatabase(url)
         if !exists {
             try database.execute("BEGIN IMMEDIATE; CREATE TABLE records(ordinal INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, sealed BLOB NOT NULL); CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), sealed BLOB NOT NULL); CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); PRAGMA application_id=1397903940; PRAGMA user_version=6;")
             do {
@@ -287,10 +290,11 @@ public actor EncryptedStore {
         // Only a fresh store owner may collect coordination rows. Its metadata
         // generation change fences any previous actor still holding callbacks.
         // Ordinary same-account activation reuses this actor and never prunes.
-        let pruned = drafts.filter { $0.value.discarded || $0.value.draft.text.isEmpty }.map(\.key)
-        if exists {
+        var pruned = drafts.filter { $0.value.discarded || $0.value.draft.text.isEmpty }.map(\.key)
+        if exists, !isSnapshot {
             guard loaded.generation < Int64.max else { throw ReaderError.storageUnavailable }
             var migrated = loaded
+            let opened = commands
             try database.execute("BEGIN IMMEDIATE")
             do {
                 guard try Self.readMetadata(database, key: symmetricKey, accountID: accountID) == loaded else { throw ReaderError.storeChanged }
@@ -325,7 +329,16 @@ public actor EncryptedStore {
                 try database.execute("PRAGMA user_version=6")
                 try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(Self.sealMetadata(migrated, key: symmetricKey))])
                 try database.execute("COMMIT")
-            } catch { if database.inTransaction { try? database.execute("ROLLBACK") }; throw error }
+            } catch {
+                if database.inTransaction { try? database.execute("ROLLBACK") }
+                // A full disk at launch (docs/reviews/OFFLINE_AND_STORAGE_20261025.md): what's saved opens as it is on
+                // disk, without this owner's clean-up (pruning empty drafts, retiring a previous process's library
+                // attempts; the next launch does both). Every later save is still one checked transaction, and the first
+                // one after space is freed advances the generation, fencing any older writer. Only a store of the current
+                // format: a schema migration must not be skipped.
+                guard loaded.format == 7, StorageSpace.isOutOfSpace(error) else { throw error }
+                migrated = loaded; commands = opened; pruned = []
+            }
             loaded = migrated
             for id in pruned { drafts.removeValue(forKey: id); sizes.removeValue(forKey: id) }
         }
@@ -1090,6 +1103,7 @@ public actor EncryptedStore {
                         cache: OfflineCacheMutation? = nil,
                         noteRows: [(id: UUID, sealed: Data)] = [], deleteNoteRows: [UUID] = []) throws {
         guard !needsReopen, metadata.generation < Int64.max else { throw ReaderError.storageUnavailable }
+        if isSnapshot { try reopenWritable() }
         try database.execute("BEGIN IMMEDIATE")
         do {
             guard try Self.readMetadata(database, key: localKey, accountID: accountID) == metadata else { throw ReaderError.storeChanged }
@@ -1168,6 +1182,55 @@ public actor EncryptedStore {
                                            authenticating: libraryCommandAAD(id: row.id, scope: row.scope)).combined,
               sealed.count <= LibraryCommandJournal.maximumRowBytes else { throw LibraryCommandError.capacityExceeded }
         return sealed
+    }
+
+    /// WAL, with its journal files kept between launches (`keepWALFiles`). On a nearly full disk
+    /// (docs/reviews/OFFLINE_AND_STORAGE_20261025.md) what's saved must still open:
+    /// 1. A store last closed cleanly by an earlier build has no shared-memory file, and the disk may have no room for
+    ///    one: the index then lives in this connection's memory (`locking_mode=EXCLUSIVE` before the first WAL access;
+    ///    the connection excludes others until the app restarts). Saves work again once space is freed.
+    /// 2. With no room even for an empty -wal file (and no -wal file, so everything is in the main file): a read-only
+    ///    snapshot (`snapshot: true`); the store then swaps in a writable connection at its first save after space is
+    ///    freed (`reopenWritable`).
+    private static func openDatabase(_ url: URL) throws -> (database: SQLiteConnection, snapshot: Bool) {
+        let settings = "PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=128;"
+        let database = try SQLiteConnection(url: url)
+        database.keepWALFiles()
+        do {
+            try database.execute(settings)
+            return (database, false)
+        } catch let failure as DatabaseFailure where SQLiteConnection.isOutOfRoom(failure)
+                    && (StorageSpace.available(at: url) ?? .max) < Self.nearlyFull {
+            database.close()
+            do {
+                let fallback = try SQLiteConnection(url: url)
+                fallback.keepWALFiles()
+                try fallback.execute("PRAGMA locking_mode=EXCLUSIVE; " + settings)
+                return (fallback, false)
+            } catch let again as DatabaseFailure where SQLiteConnection.isOutOfRoom(again) {
+                let wal = url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + "-wal")
+                let walBytes = (try? wal.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? nil
+                // Unchecked journal content would be missed by a snapshot: then this is a failure like any other.
+                guard walBytes == nil || walBytes == 0 else { throw again }
+                let snapshot = try SQLiteConnection(url: url, snapshot: true)
+                try snapshot.execute("PRAGMA trusted_schema=OFF; PRAGMA temp_store=MEMORY;")
+                return (snapshot, true)
+            }
+        }
+    }
+    /// Below this much free space an open that can't make its journal files is the disk being full.
+    private static let nearlyFull: Int64 = 8 * 1024 * 1024
+
+    /// Opened as a read-only snapshot on a full disk: the first save after space is freed opens a writable connection
+    /// (nothing was written meanwhile, so memory and disk still agree); until then a save says the disk is full.
+    private func reopenWritable() throws {
+        let reopened = try Self.openDatabase(location)
+        guard !reopened.snapshot else { throw StorageFullError() }
+        guard try Self.readMetadata(reopened.database, key: localKey, accountID: accountID) == metadata else {
+            needsReopen = true; throw ReaderError.storeChanged
+        }
+        database.close()
+        database = reopened.database; isSnapshot = false
     }
 
     private static func readMetadata(_ database: SQLiteConnection, key: SymmetricKey, accountID: UUID) throws -> LocalMetadata {

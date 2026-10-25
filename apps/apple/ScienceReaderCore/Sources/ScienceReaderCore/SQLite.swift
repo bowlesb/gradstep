@@ -11,20 +11,50 @@ final class SQLiteConnection: @unchecked Sendable {
     private var handle: OpaquePointer?
     var inTransaction: Bool { handle.map { sqlite3_get_autocommit($0) == 0 } ?? false }
 
-    init(url: URL) throws {
+    /// `snapshot`: read-only and immutable (`mode=ro&immutable=1`), for a WAL database with no -wal file (everything is
+    /// in the main file) on a disk too full for SQLite to create one. Reads only; never use it beside a writer.
+    init(url: URL, snapshot: Bool = false) throws {
         // Foundation keeps Darwin's /var alias in some normalized URLs, whereas
         // SQLite NOFOLLOW rejects it. Resolve existing parents with realpath;
         // leave the final component unresolved so SQLite still rejects a link.
         guard let parent = realpath(url.deletingLastPathComponent().path, nil) else { throw ReaderError.storageUnavailable }
         defer { free(parent) }
-        let path = String(cString: parent) + "/" + url.lastPathComponent
-        let result = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW, nil)
+        var path = String(cString: parent) + "/" + url.lastPathComponent
+        var flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW
+        if snapshot {
+            var components = URLComponents()
+            components.scheme = "file"; components.path = path
+            components.queryItems = [URLQueryItem(name: "mode", value: "ro"), URLQueryItem(name: "immutable", value: "1")]
+            guard let uri = components.string else { throw ReaderError.storageUnavailable }
+            path = uri; flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW | SQLITE_OPEN_URI
+        }
+        let result = sqlite3_open_v2(path, &handle, flags, nil)
         guard result == SQLITE_OK else { if let handle { sqlite3_close_v2(handle) }; handle = nil; throw DatabaseFailure(code: result) }
         sqlite3_extended_result_codes(handle, 1)
         sqlite3_busy_timeout(handle, 5_000)
     }
 
-    deinit { if let handle { sqlite3_close_v2(handle) } }
+    deinit { close() }
+
+    func close() {
+        if let handle { sqlite3_close_v2(handle) }
+        handle = nil
+    }
+
+    /// Keeps the -wal and -shm files after the last connection closes (SQLITE_FCNTL_PERSIST_WAL): a later launch on a
+    /// full disk then reads what's saved without having to create them (docs/reviews/OFFLINE_AND_STORAGE_20261025.md).
+    func keepWALFiles() {
+        var on: Int32 = 1
+        _ = sqlite3_file_control(handle, "main", SQLITE_FCNTL_PERSIST_WAL, &on)
+    }
+
+    /// SQLite couldn't make room for its journal or shared-memory index: the disk is full.
+    static func isOutOfRoom(_ failure: DatabaseFailure) -> Bool {
+        // SQLITE_IOERR_SHMOPEN, _SHMSIZE and _SHMMAP (the extended codes aren't imported into Swift).
+        [SQLITE_FULL, SQLITE_IOERR | (18 << 8), SQLITE_IOERR | (19 << 8), SQLITE_IOERR | (21 << 8)].contains(failure.code)
+            // …or couldn't even create its empty -wal file.
+            || failure.code & 0xff == SQLITE_CANTOPEN
+    }
 
     func execute(_ sql: String) throws {
         let result = sqlite3_exec(handle, sql, nil, nil, nil)

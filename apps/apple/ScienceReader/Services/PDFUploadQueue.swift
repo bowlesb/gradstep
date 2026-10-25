@@ -282,7 +282,8 @@ final class PDFUploadCenter {
         } catch {
             guard context?.accountID == account, activationID == activation, let index = fetches.firstIndex(where: { $0.id == fetch.id }) else { return }
             fetches[index].progress = nil
-            fetches[index].issue = (error as? DeviceFetchError)?.message ?? (error as? PDFFileProblem)?.message ?? DeviceFetchError.failed.message
+            fetches[index].issue = (error as? DeviceFetchError)?.message ?? (error as? PDFFileProblem)?.message
+                ?? StorageSpace.message(for: error) ?? DeviceFetchError.failed.message
         }
     }
 
@@ -326,7 +327,7 @@ final class PDFUploadCenter {
                 self?.remove(id)
             } catch {
                 guard let self, let index = self.jobs.firstIndex(where: { $0.id == id }) else { return }
-                self.jobs[index].issue = (error as? PDFFileProblem)?.message
+                self.jobs[index].issue = (error as? PDFFileProblem)?.message ?? StorageSpace.message(for: error)
                     ?? "This file couldn’t be saved on this device. Remove it and add the PDF again."
             }
         }

@@ -388,9 +388,12 @@ struct PaperView: View {
                         // One screen whatever stopped the reader (owner, build 62: "there should be just one — with the pdf
                         // option and the on device option"; "remove the try again"): the paper's PDF, or the on-device model
                         // reading it. Only when arXiv was busy or unreachable is Try again the useful action.
-                        let network = model.readerOpenFallback == .none
+                        // A full disk (2026-10-25) is the same screen: its line says how much to free, then Try again.
+                        let space = model.readerOpenFallback == .space
+                        let network = model.readerOpenFallback == .none || space
                         ContentUnavailableView {
-                            Label(network ? "Couldn’t reach arXiv" : "Read this paper as its PDF", systemImage: network ? "wifi.exclamationmark" : "doc.richtext")
+                            Label(space ? "Not enough space" : network ? "Couldn’t reach arXiv" : "Read this paper as its PDF",
+                                  systemImage: space ? "externaldrive.badge.exclamationmark" : network ? "wifi.exclamationmark" : "doc.richtext")
                         }
                             description: {
                                 Text(network ? issue : model.readerOpenFallback == .pdfOnly ? "arXiv has no web version of this paper."
@@ -399,6 +402,7 @@ struct PaperView: View {
                             actions: {
                                 if network {
                                     Button("Try again") { model.retryOpeningSelectedPaper() }.buttonStyle(.borderedProminent)
+                                        .accessibilityIdentifier("paper.retryOpen")
                                 } else {
                                     if model.isDownloadingPDF(selected) {
                                         ProgressView("Downloading PDF…").accessibilityIdentifier("paper.downloadingPDF")

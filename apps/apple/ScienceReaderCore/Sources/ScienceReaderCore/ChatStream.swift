@@ -527,6 +527,10 @@ public enum ChatFailureText {
         case "operation_replayed": "This answer was already requested. Try again to request a new one."
         case "authentication_required": "Sign in again to get answers."
         case "transport": "The connection was interrupted before the answer finished."
+        // docs/reviews/OFFLINE_AND_STORAGE_20261025.md: the request never reached Gradstep, so nothing was asked or charged.
+        case "offline": "You’re offline. Your question is saved; try again when you’re connected."
+        case "unreachable": "Couldn’t reach Gradstep. Your question is saved; try again in a moment."
+        case "network_sign_in": "This Wi‑Fi needs you to sign in. Open Safari to sign in, then try again. Your question is saved."
         case "local_mac_only": "Local models are available in Gradstep for Mac. Choose a cloud model to continue here. Your question is saved."
         case "local_model_missing": "Download a model from the Local AI choice before asking. Your question is saved."
         case "local_model_invalid": "The local model failed verification. Remove its download and download it again."

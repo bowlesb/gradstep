@@ -271,7 +271,7 @@ extension ReaderModel {
             } catch {
                 guard let self, self.readerSessionID == scope else { return }
                 self.finishLocalPaperDownload(key)
-                self.error = "The PDF could not be saved on this device. Your library is unchanged."
+                self.error = ConnectionText.message(for: error, reaching: "arXiv") ?? "The PDF could not be saved on this device. Your library is unchanged."
             }
         }
     }

@@ -91,6 +91,9 @@ struct DataCiteSearchClient: Sendable {
         config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = 30
         #if DEBUG
         if let protocols = Self.fixtureProtocolClasses { config.protocolClasses = protocols }
+        #if DEBUG && FIXTURE_HOST
+        BackendFaultProtocol.install(in: config)
+        #endif
         #endif
         let session = URLSession(configuration: config, delegate: SearchNoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }

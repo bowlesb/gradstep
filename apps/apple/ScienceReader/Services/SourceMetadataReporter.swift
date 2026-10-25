@@ -137,6 +137,9 @@ actor ArxivMetadataFetcher {
         config.timeoutIntervalForRequest = 30; config.timeoutIntervalForResource = 60
         #if DEBUG
         if let protocols = Self.fixtureProtocolClasses { config.protocolClasses = protocols }
+        #if DEBUG && FIXTURE_HOST
+        BackendFaultProtocol.install(in: config)
+        #endif
         #endif
         let session = URLSession(configuration: config, delegate: MetadataNoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }

@@ -7,6 +7,8 @@ enum ArxivHTMLError: Error, Sendable {
     case unavailable, retryLater, retrieval, invalid, tooLarge
     /// arXiv refused this device (403): no arXiv request from it for a day (`ArxivDeviceRefusal`).
     case refused
+    /// The device has no network (docs/reviews/OFFLINE_AND_STORAGE_20261025.md); other connection failures are `retrieval`.
+    case offline
     /// The device compiler refused the paper with one of its finite reason codes (never source text).
     case compiler(String)
     /// One image arXiv didn't serve (not found, not an image, too large on its own): its figure says so and the paper
@@ -23,6 +25,7 @@ enum ArxivHTMLError: Error, Sendable {
         case .retryLater: "arxiv_busy"
         case .refused: "arxiv_refused"
         case .retrieval: "retrieval"
+        case .offline: "offline"
         case .invalid: "invalid"
         case .tooLarge: "too_large"
         case .compiler(let code): code
@@ -36,6 +39,7 @@ enum ArxivHTMLError: Error, Sendable {
         case .retryLater: "arXiv is busy. Please try preparing this paper again later."
         case .refused: "arXiv refused requests from this device, so Gradstep won’t ask arXiv from it again for a day. Papers already on this device still open."
         case .retrieval: "Couldn’t retrieve this paper from arXiv. Check your connection and try again."
+        case .offline: "You’re offline. This paper downloads from arXiv when you’re back online; papers on this device still open."
         case .invalid, .assetMissing, .stopped: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
         case .tooLarge: "This paper exceeds the device reader’s current preparation limits. You can still open its PDF."
         case .compiler(let code): ArxivCompilerFailure.message(for: code)
@@ -51,12 +55,17 @@ enum ReaderOpenFallback: Equatable, Sendable {
     case pdf
     /// arXiv has no HTML for this version (404): only its PDF; trying again can't help.
     case pdfOnly
+    /// The device is out of space: Try again once some is freed (a PDF would need room too).
+    case space
 
     init(_ error: Error) {
+        if StorageSpace.isOutOfSpace(error) { self = .space; return }
+        // A connection that failed before arXiv answered (the device's, not the paper's): its PDF would fail the same way.
+        if ConnectionText.isConnection(error) { self = .none; return }
         switch error as? ArxivHTMLError {
         case .unavailable: self = .pdfOnly
         // arXiv busy, refused or unreachable: its PDF would fail the same way.
-        case .retryLater, .refused, .retrieval: self = .none
+        case .retryLater, .refused, .retrieval, .offline: self = .none
         default: self = .pdf
         }
     }
@@ -209,12 +218,16 @@ private actor ArxivHTMLAcquisition {
         config.urlCache = nil; config.httpCookieStorage = nil; config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 30; config.timeoutIntervalForResource = 90
         if let fixtureProtocols { config.protocolClasses = fixtureProtocols }
+        #if DEBUG && FIXTURE_HOST
+        BackendFaultProtocol.install(in: config)
+        #endif
         let session = URLSession(configuration: config, delegate: ArxivNoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue(document ? "text/html" : "image/png,image/jpeg,image/svg+xml", forHTTPHeaderField: "Accept")
         request.setValue(ArxivAcquisitionPolicy.userAgent, forHTTPHeaderField: "User-Agent")
-        let (stream, response) = try await session.bytes(for: request)
+        let (stream, response): (URLSession.AsyncBytes, URLResponse)
+        do { (stream, response) = try await session.bytes(for: request) } catch { throw Self.connection(error) }
         defer { stream.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw ArxivHTMLError.stopped("response_not_http") }
         guard http.url == url else { throw ArxivHTMLError.stopped(document ? "html_response_url" : "asset_response_url") }
@@ -237,13 +250,28 @@ private actor ArxivHTMLAcquisition {
         let tooLarge = maximum >= ArxivAcquisitionPolicy.assetBytes ? missing(.tooLarge) : ArxivHTMLError.tooLarge
         guard http.expectedContentLength <= maximum else { throw tooLarge }
         var data = Data(); data.reserveCapacity(min(maximum, max(0, Int(http.expectedContentLength))))
-        for try await byte in stream {
-            guard data.count < maximum else { throw tooLarge }
-            data.append(byte)
-            if data.count % 65_536 == 0 { try Task.checkCancellation() }
-        }
+        do {
+            for try await byte in stream {
+                guard data.count < maximum else { throw tooLarge }
+                data.append(byte)
+                if data.count % 65_536 == 0 { try Task.checkCancellation() }
+            }
+        } catch let error as URLError { throw Self.connection(error) }
+        // A connection that ended early without an error is a failed download, never a shorter paper or figure (only
+        // checkable when the body wasn't compressed in transit: then the length is the decoded one).
+        let encoding = http.value(forHTTPHeaderField: "Content-Encoding")?.lowercased() ?? "identity"
+        if encoding == "identity", http.expectedContentLength > 0, Int64(data.count) < http.expectedContentLength { throw ArxivHTMLError.retrieval }
         guard !data.isEmpty else { throw missing(.stopped("html_empty")) }
         return data
+    }
+}
+
+extension ArxivHTMLAcquisition {
+    /// A connection that failed (offline, timed out, dropped, a captive Wi‑Fi's broken TLS): the paper's download failed,
+    /// not the paper; never a figure's quiet loss. Cancellation stays cancellation.
+    static func connection(_ error: Error) -> Error {
+        guard let url = error as? URLError, url.code != .cancelled else { return error }
+        return ConnectionText.isOffline(url) ? ArxivHTMLError.offline : ArxivHTMLError.retrieval
     }
 }
 
