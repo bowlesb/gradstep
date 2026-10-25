@@ -1034,7 +1034,8 @@ struct FeedView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .slotSheet(isPresented: $showColumns) { feedColumnsSheet }
             // Tall: a card's details fill the screen (FeedPaperDetails); turned sideways, they move to the right slot.
-            .appSheet(item: Binding(get: { wideBar ? nil : model.feedDetail }, set: { model.feedDetail = $0 })) { result in
+            // (Turning sideways closes the sheet; its paper moves to the right slot below, so that close keeps it.)
+            .appSheet(item: Binding(get: { wideBar ? nil : model.feedDetail }, set: { if $0 != nil || !wideBar { model.feedDetail = $0 } })) { result in
                 FeedDetailSheet(model: model, root: result)
             }
             .onChange(of: wideBar, initial: true) { _, wide in

@@ -505,6 +505,70 @@ ranked list (`ScienceReaderCore/FeedWhy.swift`); the response contract, ranking 
 - "New since last visit" marks are still not built in the app (see above), so there is nothing to keep beside the
   headers.
 
+### Paper details and related papers (owner, 2026-10-24)
+
+Owner: *"We have the abstract expansion UX but if you click on the rest of the card, nothing happens. Instead I want the
+screen to fill with a panel showing details of that paper that you can easily push down when done. Async, it could start
+a search for related papers below using a heuristic we come up with. iPhone and iPad."* Built in the app only
+(`Views/FeedPaperDetails.swift`, `Services/FeedRelated.swift`, `ScienceReaderCore/Interest/`); no server change.
+
+- **Tap.** A List card or Table row opens its details on a tap anywhere but the card's Full abstract, Add and links.
+  **Tall** (iPhone, iPad upright): a large sheet (`.presentationDetents([.large])`, grabber, the glass Sheet top row with
+  Back and ✕) swiped down when done. **Wide** (iPad sideways): the right slot (`FeedAbstractPane`) shows the same view;
+  turning sideways with the sheet open moves its paper there. The List's Full abstract still expands in place; the
+  Table's abstract-under-the-row moved to its long-press menu (Show abstract / Hide abstract), since the row's tap now
+  opens the details. VoiceOver: a card's title is its default action (hint "Shows its details"); Full abstract stays its
+  own button; table rows keep their button with the new hint.
+- **Details.** Title; every author (six, then "and N more", which shows the rest); month, arXiv number and ▲ upvotes;
+  topics and category names; the full For you reason (`reason.text`, never shortened); Add (then its progress, then
+  Read) and View on arXiv; the whole abstract; then **Related papers**.
+- **Related papers, on the device.** A quiet "Finding related papers…" line, then up to ten rows (title, first authors, a
+  short reason, Add); a row's tap replaces the details with that paper, with Back to the one before. Nothing found:
+  "No related papers in this week's feed". The opened paper's identifier is never sent to our server for this:
+  1. *Fingerprints.* The interest index's pool shards (the 14-day window, the same bytes for every device;
+     INTEREST_INDEX.md "Device client") give the nearest papers by cosine (one `vDSP_mmul` over the window).
+  2. *Titles.* From the Feed results this device has seen this session (For you, topics, categories); for the 20 nearest
+     it lacks, **one `id_list` request from the device to arXiv's export API** through its single paced queue
+     (`ArxivMetadataFetcher`: 3 s spacing, back-off, the Gradstep User-Agent), only while device search is on
+     (`searchesOnDevice`) — the person's own action, like their own search. arXiv, not Gradstep, sees those 20 IDs.
+     Papers with no title from either source can't be shown and are skipped.
+  3. *Ranking* (`RelatedPapers.rank`): score = cosine + 0.03 for shared authors + 0.01 per shared specific topic (at
+     most 0.02). Shown on closeness alone from **0.88** ("Close in topic"; **"Very close in topic"** from **0.92**); from
+     **0.86** only with a shared specific topic ("Shares Mixture of experts") or a rare shared author; two or more
+     shared authors from **0.84** ("Same authors: Chongkai Gao"). A single shared name counts only when the known papers
+     carry it at most 3 times and it isn't an initial or one word (namesakes). Specific = not a vocabulary area and not
+     Large language models, Reasoning, Evaluation, AI agents, Fine-tuning, Vision-language models or Transformers (each on
+     more than 5 % of the window), nor a topic on more than 30 % of the papers known here. Never the paper itself, a paper
+     in the reader's library (any version), or another identifier of the same work (cosine ≥ 0.97 to it or to a better
+     pick, or the same title).
+  4. *Fallback* (`rankByMetadata`) when the index isn't served to the account (non-staff while serving is `staff`;
+     asked again after an hour), can't be fetched, or doesn't hold the paper (older than the window): the Feed results
+     here, by shared specific topics (Jaccard) and shared authors (two or more names, or one rare name on a paper that
+     also shares a topic).
+- **Calibration (2026-10-24, staging pool, 14-day window of 8,230 papers, q8; script and data in the session
+  scratchpad).** Random pairs: p50 0.782, p99 **0.858**. Top-1 neighbour p10/p50/p90 0.872 / 0.899 / 0.923. Pairs judged
+  by title, 12 per band: 0.84–0.86 about 4 related; 0.86–0.88 about 3 (6 of 12 when they share a specific topic);
+  0.88–0.90 about 10; 0.90–0.92 about 11; 0.92–0.965 12. No two distinct papers reached 0.98; the one pair at 0.975 was a
+  paper submitted twice. Authors: 25,873 of 31,670 names are on one window paper; common names pair unrelated papers
+  (Hao Wang on 28 papers, Yang Liu on 26; pairs at 0.74–0.78), and single rare names below 0.86 were mostly another
+  subject (Dawn Song 0.840, Aaron Roth 0.786). Coverage over 1,000 opened papers: 0.88 alone shows nothing for 16.7 %;
+  the rule above 11.2 % (median 10 shown); 0.86 alone 2.8 % but only about a quarter related in 0.86–0.88. Top-10
+  neighbours share a specific topic 55 % of the time against 16 % for random pairs.
+- **Measured.** Download (staging, `interest-index`, one synthetic tester account deleted afterwards, three runs from
+  the Mac): manifest 1,310 B in 0.30–0.46 s; three shards 620,423 + 1,372,058 + 621,907 = **2.61 MB** for 8,230 papers
+  in **2.0–2.6 s**, once (kept on disk by digest; later only new shards). Ranking on the real shards (Mac, debug build):
+  decode once ≈ 0.87 s (release: see IMPLEMENTATION_STATUS), nearest **2.6 ms per paper** over 8,230 × 384; on 8,000
+  random vectors 1.7 ms. With every title known, 200 opened papers showed a median of 10 related, none for 27, fewer
+  than 3 for 55. Examples: "Beyond Perfect Teammates: Multi-Agent Collaboration with Unreliable Colleagues" →
+  "Training LLMs for Multi-Agent Collaboration with Verifiable Information Rewards" (0.919), "Competence-Aware
+  Orchestration for LLM-Based Multi-Agent Systems" (0.911); a video-action corpus → five temporal action papers
+  ("Shares Video understanding", 0.874–0.884).
+- **iPad upright List** (owner, same session: "take the whole screen… a lot of space is not being well used"): in Tall
+  on an iPad at least 760 pt wide, the List's cards sit two to a row across the window (28 pt edges, 32 pt between),
+  each about an iPhone row's width, instead of one 720 pt column between empty margins; section headers and the chips
+  row span the window. One column on iPhone, iPad mini upright, in Wide's slot, on the Mac and at accessibility text
+  sizes. The Table already spans the window.
+
 ## Privacy
 
 - Proposed notice text (gradstep.ai/privacy and Settings › Privacy & data), to add when serving goes to `all`:

@@ -4,7 +4,7 @@ Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, w
 Edge function `interest-index`; serving `staff`). Evidence and as-built differences are in
 [Phase B as built](#phase-b-as-built-staging-2026-10-24). The lead's interim decisions are recorded in
 [DECISIONS.md](../DECISIONS.md#interest-index-server-layer-agent-design-2026-10-24-phase-b-built-on-staging-the-same-day).
-No client uses it yet (step 3). Proposal and owner decisions:
+The first client is the app's Related papers (device client below, 2026-10-24); step 3 reuses it. Proposal and owner decisions:
 [proposals/INTEREST_INDEX.md](../proposals/INTEREST_INDEX.md). Offline reference code: `tools/interest-eval/`
 (`topic_map.py`, `topic_rule2.py`, `terms.py`, `embed.py`, `common.py`).
 
@@ -551,7 +551,7 @@ through `account-delete`; script in the session scratchpad):
   full re-embedding; it is not needed for the daily ≈ 750 papers.
 - The admin Health card is built and type-checks, but the admin site was not redeployed (the database side, including
   Attention items, is live through `v1_admin_health`).
-- No client uses the index yet (step 3). The privacy line in §5 needs owner approval before public release.
+- The first client (Related papers in the app, 2026-10-24) reads the manifest and shards; step 3 adds the map and terms. The privacy line in §5 needs owner approval before public release.
 
 ## ONNX Runtime telemetry (closed 2026-10-24; worker revision `gradstep-pipeline-00055-vzm`)
 
@@ -606,6 +606,30 @@ On Cloud Run, revision 00055 loaded the model and embedded 3 re-pended papers at
   library, OS and CPU facts, a hashed device id and gte-small's file name and hashes, never paper text.
 - I deleted the state they left (`~/Library/Application Support/Microsoft/DeveloperTools/.onnxruntime`). The slow parity
   test now sets the opt-out itself.
+
+## Device client (built 2026-10-24; first used by the Feed's Related papers)
+
+`apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/Interest/` (tests in `InterestIndexClientTests`,
+`RelatedPapersTests`; opt-in real-shard measurement `RelatedPapersMeasurementTests` with `INTEREST_MEASURE_DIR`):
+
+- `InterestIndexClient` (actor): the manifest through an `InterestIndexTransport` (the app's `BackendClient` with the
+  reader's session; `404 interest_unavailable` → `notServed`), kept for `max-age` 600 s in memory and on disk
+  (`Caches/interest-index/manifest.json`). Each artifact is fetched once by `?artifact=<id>`, checked against the
+  manifest's SHA-256 and size before use or storage, kept as `<sha256>.gsi`, and removed when the manifest no longer
+  lists it. A damaged file on disk is fetched again; bytes that don't match are refused (`integrity`). When the server
+  can't be reached, a kept manifest whose artifacts are all on disk still answers. `notServed` deletes the folder.
+  Manifest bounds: format 1, 384 dimensions, lower-case hex digests, 1 B–16 MiB per artifact, at most 400 shards.
+- `InterestArtifact` reads the `GSI1` gzip container (zlib, CRC checked, inflated size capped at 96 MiB);
+  `InterestShard` its shard body; `InterestQ8` decodes q8 to floats (normalised). The format test reads a fixture made
+  by the server's own `codec.ts` (`Fixtures/interest-shard-v1.gsi`).
+- `InterestPool`: the window's shards as one contiguous normalised matrix (8,230 × 384 floats ≈ 12.6 MB); a paper
+  listed twice keeps its later fingerprint; versions are stripped from IDs. `similarities(to:)` is one `vDSP_mmul`.
+- Not yet: the map and term statistics are downloadable with `artifact(_:)` but not decoded into models (step 3);
+  library fingerprints (`v1_interest_library_fingerprints`) aren't called.
+- Measured on staging (one synthetic tester account, deleted afterwards): manifest 1,310 B in 0.30–0.46 s; three
+  shards, 2,614,388 B for 8,230 papers, in 2.0–2.6 s sequentially from the Mac; nearest over the window 2.6 ms per
+  paper (debug build, Mac).
+- Privacy: unchanged from §5. The device downloads the same bytes as everyone; which paper it ranks stays on it.
 
 ## Decisions taken for Phase B (lead's interim decisions; the owner can revisit)
 

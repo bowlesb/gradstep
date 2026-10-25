@@ -2,6 +2,19 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+Feed card details and related papers (owner, 2026-10-24; DECISIONS.md "Feed: a card's details…"): a tap on a List card
+or Table row (not Full abstract, Add or links) opens its details — Tall a large sheet swiped down, Wide the right slot
+(`Views/FeedPaperDetails.swift`, `FeedAbstractPane`). Below the abstract, up to ten related papers worked out on the
+device (`Services/FeedRelated.swift`): the interest index's pool shards through the new device client
+(`ScienceReaderCore/Interest/`: manifest, shards cached by SHA-256, q8 decode, `vDSP` ranking), titles from the Feed
+results here or one paced `id_list` request from the device to arXiv, the calibrated heuristic in `RelatedPapers`
+(closeness ≥ 0.88, "Very close" ≥ 0.92, 0.86 with a shared topic or rare author), and a Feed-results fallback when the
+index isn't served. The Table's abstract-under-the-row is in its long-press menu now. iPad upright List: two cards per
+row across the window. Measured on staging: shards 2.61 MB for 8,230 papers, 2.0–2.6 s once; nearest 2.6 ms per paper
+(Mac, debug). Verified: `swift test` (ScienceReaderCore: XCTest 96 + Swift Testing 460 pass); the real-shard measurement
+test. **Pending:** the UI suites (`FeedDetailTests`, `FeedForYouTests`, `TableColumnsTests`, `IPadShapesJourneyTests`
+Feed cases) and screenshots wait for a Simulator turn; nothing deployed (no server change).
+
 OpenRouter reconciler (pipeline worker revision gradstep-pipeline-00056-wcj, deployed 2026-10-25 04:25 UTC via Cloud
 Build): it now also accepts a record whose model is the dispatched slug without its date. Forcing a retry of the stuck
 2026-10-22 DeepSeek attempt (f92ab6d2, $0.049 held) still ended in `mismatch`, so the date was not the cause. The worker
