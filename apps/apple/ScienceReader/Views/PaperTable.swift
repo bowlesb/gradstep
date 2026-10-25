@@ -593,7 +593,8 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
 
     /// The row as one element: title, subtitle and every column's value (including columns too wide to show).
     @ViewBuilder private func tappable<Content: View>(_ row: Row, @ViewBuilder content: () -> Content) -> some View {
-        let label = ([title(row).title, title(row).subtitle] + columns.filter { !$0.isControl }.map { spoken(row, $0.id) })
+        let match = title(row).match.map { $0.match.spokenLabel + ($0.excerpt.map { ". " + $0.text } ?? "") }
+        let label = ([title(row).title, match, title(row).subtitle] + columns.filter { !$0.isControl }.map { spoken(row, $0.id) })
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
         // A revealed row is selected while its tint shows.
         let revealed: AccessibilityTraits = reveal?.row == row.id ? .isSelected : []
@@ -615,7 +616,8 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
 struct PaperTableTitleCell: View {
     let title: PaperTableTitle
     var body: some View {
-        let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil
+        // A row with a search match has something to show (its match line), even with nothing else yet.
+        let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil && title.match == nil
         ZStack(alignment: .leading) {
         VStack(alignment: .leading, spacing: 2) {
             // One line limit: an expanded title is whole; a row being added keeps two lines' room.

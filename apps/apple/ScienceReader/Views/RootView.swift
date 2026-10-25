@@ -908,10 +908,12 @@ struct SearchMatchLine: View {
     let match: SearchResultMatch
     /// ML paper search shows its abstract itself (marked); only the strength here.
     var showsExcerpt = true
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         let excerpt = showsExcerpt ? match.excerpt : nil
+        // One more line at accessibility sizes, so "100% · title, abstract" stays whole.
         Text(Self.line(match.match, excerpt: excerpt)).font(.footnote).foregroundStyle(.secondary)
-            .lineLimit(excerpt == nil ? 1 : 2).truncationMode(.tail)
+            .lineLimit((excerpt == nil ? 1 : 2) + (dynamicTypeSize.isAccessibilitySize ? 1 : 0)).truncationMode(.tail)
             .accessibilityLabel(match.match.spokenLabel + (excerpt.map { ". " + $0.text } ?? ""))
             .accessibilityIdentifier("search.match")
     }

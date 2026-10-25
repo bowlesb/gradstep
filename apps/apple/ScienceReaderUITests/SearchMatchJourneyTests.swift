@@ -22,7 +22,9 @@ final class SearchMatchJourneyTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--draft-fixture", "--reset-draft-fixture"] + extra
         app.launch()
-        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15))
+        // The List's row, or the table's (`--library-layout=table`).
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15)
+                      || app.descendants(matching: .any)["library.table.paper/aaaaaaaa-0000-0000-0000-000000000001"].waitForExistence(timeout: 5))
         app.show("library")
         return app
     }
@@ -58,6 +60,18 @@ final class SearchMatchJourneyTests: XCTestCase {
         info.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "share of your search words")).firstMatch.waitForExistence(timeout: 5))
         capture(app, "Match explained")
+    }
+
+    /// The table (the iPad's usual Library layout): the title cell shows the same line, and VoiceOver reads it with the row.
+    func testTheTableShowsTheMatchUnderTheTitle() throws {
+        let app = launch(["--library-layout=table"])
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("compatibility")
+        let row = app.descendants(matching: .any)["library.table.paper/aaaaaaaa-0000-0000-0000-000000000001"].firstMatch
+        XCTAssertTrue(wait(20) { row.exists && row.label.contains("Matches your search word, in the full text") && row.label.contains("compatibility scores") },
+                      "Table row: \(row.exists ? row.label : "no row")")
+        capture(app, "Table: the match under the title")
     }
 
     func testSwitchingToMLPaperSearchKeepsTheWordsAndSearchesThem() throws {

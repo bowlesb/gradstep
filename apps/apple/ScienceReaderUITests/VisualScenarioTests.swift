@@ -64,6 +64,9 @@ final class VisualScenarioTests: XCTestCase {
             "search-match-text": Scenario(arguments: Self.searchFixture) { app in self.searchLibrary(app, "compatibility", until: "compatibility") },
             "search-match-table": Scenario(arguments: Self.searchFixture + ["--library-layout=table"]) { app in
                 self.searchLibrary(app, "compatibility", until: nil)
+                let row = app.descendants(matching: .any)["library.table.paper/aaaaaaaa-0000-0000-0000-000000000001"].firstMatch
+                let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in row.exists && row.label.contains("full text") }, object: nil)
+                _ = XCTWaiter.wait(for: [shown], timeout: 20)
             },
             "search-match-abstract": Scenario(arguments: Self.searchFixture) { app in self.searchLibrary(app, "local equations", until: nil) },
             // Typed in the Library, then the switch to ML paper search: the words stay and are searched there.
