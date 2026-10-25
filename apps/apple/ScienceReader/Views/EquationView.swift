@@ -857,6 +857,9 @@ struct ContextualChatComposer: View {
         .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 6)
         .background(.regularMaterial)
         .onChange(of: focusRequest) { _, _ in focused = true }
+        // Continue in Chat keeps the keyboard up only if the reader was typing here (ReaderModel.focusComposerOnOpen).
+        .onChange(of: focused) { _, now in model.contextualComposerFocused = now }
+        .onDisappear { model.contextualComposerFocused = false }
         .slotSheet(isPresented: $choosing) {
             AIChoiceView(model: model, chat: true, needsVision: needsVision) { id in
                 model.localAIModelID = id; modelChanged()

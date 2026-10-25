@@ -826,4 +826,32 @@ final class FigureViewJourneyTests: XCTestCase {
                       "The composer starts with the figure: \(composer.value as? String ?? "")")
         capture(app, "Ask in chat from a figure")
     }
+
+    /// Owner, session 2026-10-24 (F6): "I didn't ask for the keyboard to come up… wait for the person to click on the
+    /// keyboard". Continue in Chat with nothing typed in the explainer leaves the keyboard down until the message box is
+    /// tapped; the Chat tab later still shows that conversation (F7, Tall).
+    func testContinueInChatLeavesTheKeyboardDownUntilTheMessageBoxIsTapped() throws {
+        let app = launch()
+        openFigureOne(app)
+        app.buttons["figureView.askInChat"].tap()
+        let context = app.descendants(matching: .any).matching(identifier: "contextChat.composer").firstMatch
+        XCTAssertTrue(context.waitForExistence(timeout: 8), "The figure's chat")
+        XCTAssertEqual(app.keyboards.count, 0, "Nothing typed in the explainer")
+        app.buttons["figureView.openInChat"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.promotedContext"].waitForExistence(timeout: 8))
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 2), "Continue in Chat leaves the keyboard down")
+        capture(app, "Continue in Chat, keyboard down")
+        composer.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "A tap brings the keyboard")
+        if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        else if app.keyboards.buttons["Hide keyboard"].firstMatch.exists { app.keyboards.buttons["Hide keyboard"].firstMatch.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        // Tall: the Chat tab keeps the conversation it showed.
+        app.show("library")
+        app.show("chat")
+        XCTAssertTrue(app.descendants(matching: .any)["chat.promotedContext"].waitForExistence(timeout: 5), "The Chat tab keeps that chat")
+        XCTAssertEqual(app.keyboards.count, 0, "Returning to Chat leaves the keyboard down")
+    }
 }

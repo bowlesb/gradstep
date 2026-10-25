@@ -660,7 +660,7 @@ struct PaperView: View {
         case .paragraph(let paperID, let marker): model.goToCitedBlock(marker, paperID: paperID)
         case .askInChat(let context, let part): model.askAboutFigure(context, part: part)
         case .signIn: model.openSignIn()
-        case .continueChat: model.tab = .chat; model.readerChatHidden = false; model.requestComposerFocus()
+        case .continueChat: model.continueInChat()
         }
     }
 

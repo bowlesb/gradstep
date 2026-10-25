@@ -1229,7 +1229,7 @@ struct ChatView: View {
                 // Design audit F8: the paper a conversation is about sits under its title (one tap back).
                 ToolbarItem(placement: .principal) { titleView }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { model.newChat(general: model.generalChat); composerFocused = true } label: { Image(GradstepSymbol.newChat) }
+                    Button { startNewChat() } label: { Image(GradstepSymbol.newChat) }
                         .accessibilityLabel("New chat")
                         .background(ToolbarButtonBounds(layoutWidth: toolbarLayoutWidth) { newChatBounds = $0 })
                 }
@@ -1332,12 +1332,19 @@ struct ChatView: View {
                     .buttonStyle(.plain).keyboardShortcut(.cancelAction)
                     .accessibilityLabel("Close chat").accessibilityIdentifier("chat.close")
             } else {
-                Button { model.newChat(general: model.generalChat); composerFocused = true } label: { HeaderButtonLabel(image: GradstepSymbol.newChat) }
+                Button { startNewChat() } label: { HeaderButtonLabel(image: GradstepSymbol.newChat) }
                     .buttonStyle(.plain).accessibilityLabel("New chat")
             }
             Menu { optionsMenuContent } label: { HeaderButtonLabel(systemImage: "ellipsis") }
                 .buttonStyle(.plain).accessibilityLabel("Chat options")
         }
+    }
+
+    /// New chat. On iPhone and iPad the keyboard waits for a tap in the message box (owner, 2026-10-24: "wait for the person
+    /// to click on the keyboard before bringing the keyboard up"); the Mac's box takes the focus, as before.
+    private func startNewChat() {
+        model.newChat(general: model.generalChat)
+        if Platform.isMac { composerFocused = true }
     }
 
     /// Discuss's chat (WideSlots) and the Chats view's (beside All chats).
@@ -1355,6 +1362,9 @@ struct ChatView: View {
                 }.foregroundStyle(.primary)
                 if model.generalChat && lines == 1 {
                     Text("General chat").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                } else if chatsList, let paper = model.chatPaper {
+                    // A paper's chat beside All chats: which paper, as "General chat" says for the others.
+                    Text(paper.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .contentShape(Rectangle())
@@ -1401,10 +1411,13 @@ struct ChatView: View {
                         }
                         .accessibilityIdentifier("chat.paperChat.\(chat.id.wire)")
                     }
-                    MenuRow(chats.count == 1 ? "Show in All chats" : "All \(chats.count) chats about this paper", systemImage: GradstepSymbol.chats) {
-                        composerFocused = false; model.openAllChats(paper: paper, thisPaper: true)
+                    // Not beside All chats (iPad Wide's Chat place): the list is there.
+                    if !chatsList {
+                        MenuRow(chats.count == 1 ? "Show in All chats" : "All \(chats.count) chats about this paper", systemImage: GradstepSymbol.chats) {
+                            composerFocused = false; model.openAllChats(paper: paper, thisPaper: true)
+                        }
+                        .accessibilityIdentifier("chat.paperChats.all")
                     }
-                    .accessibilityIdentifier("chat.paperChats.all")
                 }
             }
         }
@@ -1499,7 +1512,7 @@ struct ChatView: View {
         // Discuss's bar has no New chat button of its own.
         if discussChat {
             Section {
-                MenuRow("New chat", systemImage: GradstepSymbol.newChat) { model.newChat(general: model.generalChat); composerFocused = true }
+                MenuRow("New chat", systemImage: GradstepSymbol.newChat) { startNewChat() }
                     .accessibilityIdentifier("chat.newChat")
             }
         }
@@ -1524,7 +1537,11 @@ struct ChatView: View {
         }
         Section {
             GoToPassageMenuRow(model: model) { composerFocused = false }
-            MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
+            // Beside All chats (iPad Wide's Chat place) the list is already there: no sheet repeating it (owner,
+            // 2026-10-24: "we're never gonna have this middle thing show up… it gets duplicated with what's on the left").
+            if !chatsList {
+                MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
+            }
             MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
         }
         // Beside the paper in Wide, the paper's ⋯ is the screen's menu: Report and Settings are there once (audit N4).

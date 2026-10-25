@@ -83,7 +83,8 @@ struct ChatHistoryView: View {
     /// Opened from a paper (its paper or chat screen): "This paper" is offered after All. Kept for the sheet's life, so
     /// the table doesn't change while it closes.
     @State private var paperID: UUID?
-    @State private var sort = ChatHistorySort.default
+    /// The sheet's order (a fresh one each time it opens); the Chat place's list keeps its own on the model.
+    @State private var localSort = ChatHistorySort.default
     @State private var deleting: ChatHistoryRow?
     @State private var renaming: UUID?
     /// The list's width; rows sit inside the 16 pt margins.
@@ -93,6 +94,12 @@ struct ChatHistoryView: View {
     /// iPad Wide's Chats view: the list in the left slot beside the open chat (no Close; its row is the slot's share of
     /// the one top row).
     private let embedded: Bool
+
+    /// The order shown: the Chat place's list (iPad Wide) keeps it while the reader goes elsewhere and back.
+    private var sort: ChatHistorySort {
+        get { embedded ? model.chatsListSort : localSort }
+        nonmutating set { if embedded { model.chatsListSort = newValue } else { localSort = newValue } }
+    }
 
     init(model: ReaderModel, paperID: UUID? = nil, startsOnPaper: Bool = false, embedded: Bool = false) {
         self.model = model
@@ -149,20 +156,33 @@ struct ChatHistoryView: View {
         } center: {
             EmptyView()
         } trailing: {
-            if tableShown && searchable {
+            // The list's own options beside the chat (owner, 2026-10-24: "Why are those options not on the list on the
+            // left?"), as the Library list's ⋯ has them: Sort by, with the order shown under it; Columns with a table.
+            if searchable {
                 Menu {
                     Menu {
                         Picker("Sort by", selection: Binding(get: { sort.field }, set: { field in
                             sort = ChatHistorySort(field: field, ascending: field.ascendingFirst)
                         })) {
-                            ForEach(ChatHistoryField.allCases, id: \.self) { Text($0.title).tag($0) }
+                            ForEach(sortFields, id: \.self) { Text($0.title).tag($0) }
                         }.pickerStyle(.inline)
-                    } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
-                    MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("chat.history.columns")
+                    } label: {
+                        Label { Text("Sort by"); Text(sort.field.title) } icon: { Image(systemName: "arrow.up.arrow.down") }
+                    }
+                    .accessibilityIdentifier("chat.history.sort")
+                    if tableShown {
+                        MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("chat.history.columns")
+                    }
                 } label: { HeaderButtonLabel(systemImage: "ellipsis") }
                 .buttonStyle(.plain).accessibilityLabel("All chats options").accessibilityIdentifier("chat.history.options")
             }
         }
+    }
+
+    /// What the list can be sorted by: with rows (the Chat place's narrow slot, accessibility sizes) what a row shows;
+    /// the table sorts by any of its columns.
+    private var sortFields: [ChatHistoryField] {
+        tableShown ? ChatHistoryField.allCases : [.lastUsed, .started, .messages, .conversation, .paper]
     }
 
     private var searchField: some View {
@@ -261,7 +281,7 @@ struct ChatHistoryView: View {
     private func table(rows: [ChatHistoryRow], drafts: [ChatWorkspace.UnsentDraft], titles: [UUID: String], total: Int,
                        arrangement: TableArrangement) -> some View {
         let visible = columns(arrangement.columns) + columns(arrangement.pinned)
-        return List {
+        return ScrollViewReader { proxy in List {
             // An empty first section takes the plain list's top header padding, so the content starts under the chips.
             Section { Color.clear.frame(height: 0).listRowInsets(EdgeInsets()).listRowSeparator(.hidden).accessibilityHidden(true) }
             if !drafts.isEmpty {
@@ -289,6 +309,8 @@ struct ChatHistoryView: View {
                     ForEach(rows) { row in
                         conversationRow(row, visible: visible, arrangement: arrangement)
                             .listRowInsets(Self.rowInsets)
+                            // The conversation beside the list, as the Feed's picked row (accent at 12%).
+                            .listRowBackground(isOpen(row) ? Color.accentColor.opacity(0.12) : nil)
                             .contextMenu { actions(row) }
                             // While the columns scroll, a sideways swipe scrolls them; Delete stays in the row's menu.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -309,7 +331,17 @@ struct ChatHistoryView: View {
         .environment(\.defaultMinListRowHeight, 0)
         .accessibilityIdentifier("chat.history.table")
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        // The Chat place opens on the conversation the reader was in (owner, 2026-10-24): its row is brought into view.
+        .task(id: embedded ? model.activeConversation : nil) {
+            guard embedded, let open = model.activeConversation, rows.contains(where: { $0.id == open }) else { return }
+            await Task.yield()
+            proxy.scrollTo(open)
+        }
+        } // ScrollViewReader
     }
+
+    /// The Chat place's list (iPad Wide): the row of the conversation shown beside it.
+    private func isOpen(_ row: ChatHistoryRow) -> Bool { embedded && model.activeConversation == row.id }
 
     private static let rowInsets = EdgeInsets(top: 7, leading: DesignMetrics.margin, bottom: 7, trailing: DesignMetrics.margin)
 
@@ -491,6 +523,7 @@ struct ChatHistoryView: View {
         .accessibilityLabel(row.title)
         .accessibilityValue(spokenValue(row))
         .accessibilityHint("Opens the conversation")
+        .accessibilityAddTraits(isOpen(row) ? .isSelected : [])
         .accessibilityIdentifier("chat.history.\(row.id.wire)")
         .accessibilityActions {
             if let paper = paper(for: row) { Button("Open paper") { model.select(paper); dismiss() } }

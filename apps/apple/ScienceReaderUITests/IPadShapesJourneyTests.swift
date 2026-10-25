@@ -178,7 +178,7 @@ final class IPadShapesJourneyTests: XCTestCase {
                                     file: file, line: line)
     }
 
-    /// A place straight from the places menu (Chat is the general chat there, whatever paper is open).
+    /// A place straight from the places menu (Chat is the conversation last shown, beside All chats; owner, 2026-10-24).
     private func choose(_ place: String, _ app: XCUIApplication) {
         let item = app.placeItem(place)
         XCTAssertTrue(item.waitForExistence(timeout: 3), "The places menu has \(place)")
@@ -719,6 +719,120 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertTrue(composer(app).waitForExistence(timeout: 5))
         wait("Discuss: the paper left, the chat right") { web.exists && web.frame.maxX <= self.composer(app).frame.minX + 1 }
         XCTAssertTrue(composerText(app).contains("Which part matters most?"), "The question came with it")
+    }
+
+    // MARK: - Chats: continuity (owner session 2026-10-24, TestFlight 91)
+
+    /// The selected row of the Chat place's list (All chats beside the conversation).
+    private func selectedChatRow(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND selected == true", "chat.history.")).firstMatch
+    }
+
+    /// F6: Continue in Chat from a figure's AI Explainer leaves the keyboard down ("wait for the person to click on the
+    /// keyboard before bringing the keyboard up"); a tap in the message box brings it up. F7: Chat in the places menu then
+    /// shows that same conversation beside All chats, its row selected and in view ("it needs to take me to the chat that I
+    /// was just looking at, and that specific chat should be selected… on the left").
+    func testContinueInChatWaitsForATapAndChatShowsThatChatSelected() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        let (app, web) = launchStudyPaperBesideLibrary()
+        let figure = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure")).firstMatch
+        for _ in 0..<8 where !(figure.exists && figure.isHittable) { web.swipeUp() }
+        XCTAssertTrue(figure.waitForExistence(timeout: 5), "A figure in the paper")
+        figure.tap()
+        // As in the session: the figure's AI Explainer, its walkthrough read, nothing typed.
+        let explain = app.buttons["figureView.explain"]
+        XCTAssertTrue(explain.waitForExistence(timeout: 5)); explain.tap()
+        if app.buttons["ai.chooseModel"].waitForExistence(timeout: 5) {
+            app.buttons["ai.chooseModel"].tap()
+            XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        }
+        XCTAssertTrue(element("figureView.section.1", app).waitForExistence(timeout: 15), "The walkthrough")
+        wait("The walkthrough is done", timeout: 20) { !self.element("figureView.progress", app).exists }
+        XCTAssertTrue(element("contextChat.composer", app).waitForExistence(timeout: 8), "The figure's chat, in the companion")
+        XCTAssertEqual(app.keyboards.count, 0, "Nothing typed in the explainer")
+        save("\(device)-f6-explainer")
+        let open = app.buttons["figureView.openInChat"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5)); open.tap()
+        XCTAssertTrue(element("chat.promotedContext", app).waitForExistence(timeout: 15), "The explainer's content heads the chat")
+        XCTAssertTrue(composer(app).waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 2), "Continue in Chat leaves the keyboard down")
+        XCTAssertFalse((composer(app).value(forKey: "hasKeyboardFocus") as? Bool) ?? false, "The message box waits for a tap")
+        save("\(device)-f6-continue-in-chat")
+
+        // A tap brings the keyboard; the question saves the conversation.
+        composer(app).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "A tap in the message box brings the keyboard")
+        composer(app).typeText("Which part matters most?")
+        app.buttons["chat.send"].tap()
+        let sent = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "You: Which part matters most?")).firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 15), "The question is in the conversation")
+        let hide = app.keyboards.buttons["Hide keyboard"].firstMatch
+        if hide.exists { hide.tap() }
+        _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 5)
+        sleep(2)
+
+        // Chat from the places menu: the same conversation, its row selected in the list beside it.
+        choose("chat", app)
+        wait("Chat") { app.currentPlace == "Chat" }
+        XCTAssertTrue(element("chat.history.table", app).waitForExistence(timeout: 5), "All chats on the left")
+        XCTAssertTrue(element("chat.promotedContext", app).waitForExistence(timeout: 5), "The figure's conversation, not a new chat")
+        XCTAssertNotEqual(app.buttons["chat.context"].label, "Conversation: New chat")
+        let row = selectedChatRow(app)
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "The conversation is selected in the list")
+        XCTAssertTrue(row.isHittable, "…and in view")
+        XCTAssertLessThan(row.frame.maxX, composer(app).frame.minX + 1, "The list left, the chat right")
+        XCTAssertEqual(app.keyboards.count, 0, "Going to Chat leaves the keyboard down")
+        save("\(device)-f7-chat-keeps-the-conversation")
+
+        // Another place and back: still that conversation.
+        app.show("library")
+        wait("Library") { app.currentPlace == "Library" }
+        choose("chat", app)
+        wait("Chat again") { app.currentPlace == "Chat" }
+        XCTAssertTrue(element("chat.promotedContext", app).waitForExistence(timeout: 5), "Still the figure's conversation")
+        XCTAssertTrue(selectedChatRow(app).waitForExistence(timeout: 5), "Still selected")
+    }
+
+    /// F8: beside the list, All chats is not in the chat's ⋯ (it opened a centred sheet duplicating the list: "we're never
+    /// gonna have this middle thing show up"); the list's own ⋯ has Sort by ("Why are those options not on the list on the
+    /// left?"). Picking a row selects it there.
+    func testAllChatsIsTheListBesideTheChatWithItsOwnSortBy() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        let app = launch(extra: ["--chat-history-fixture"])
+        turnWide(app)
+        choose("chat", app)
+        wait("Chat") { app.currentPlace == "Chat" }
+        func row(_ n: Int) -> XCUIElement { app.buttons[String(format: "chat.history.c4a7c4a7-0000-4000-8000-%012ld", n)] }
+        XCTAssertTrue(row(1).waitForExistence(timeout: 8), "The fixture's chats in the list")
+
+        app.buttons["Chat options"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Report this screen"].firstMatch.waitForExistence(timeout: 3), "The chat's ⋯ is open")
+        XCTAssertFalse(app.buttons["All chats"].exists, "No All chats in the chat's ⋯ beside the list")
+        save("\(device)-f8-chat-menu")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
+        wait("The ⋯ menu closed") { !app.descendants(matching: .any)["Report this screen"].firstMatch.exists }
+
+        // The list's own ⋯: Sort by.
+        let options = app.buttons["chat.history.options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 5), "The list has its options")
+        XCTAssertGreaterThan(options.frame.minX, element("chat.history.search", app).frame.maxX, "⋯ after the search field")
+        XCTAssertLessThan(options.frame.maxX, composer(app).frame.minX, "…in the list's slot")
+        options.tap()
+        let sortBy = app.buttons["chat.history.sort"].exists ? app.buttons["chat.history.sort"]
+            : app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Sort by")).firstMatch
+        XCTAssertTrue(sortBy.waitForExistence(timeout: 3), "Sort by in the list's ⋯")
+        save("\(device)-f8-list-menu")
+        sortBy.tap()
+        let byName = app.buttons["Conversation"].firstMatch
+        XCTAssertTrue(byName.waitForExistence(timeout: 3)); byName.tap()
+        XCTAssertTrue(row(27).waitForExistence(timeout: 5) && row(17).waitForExistence(timeout: 5))
+        XCTAssertLessThan(row(27).frame.minY, row(17).frame.minY, "A–Z: “Batch norm…” before “Bottleneck…”")
+        save("\(device)-f8-list-sorted")
+
+        // Picking a row opens it beside the list, selected there.
+        row(27).tap()
+        wait("The picked row is selected") { row(27).isSelected }
+        XCTAssertEqual(app.currentPlace, "Chat", "Still the Chat place")
     }
 
     // MARK: - Feed | abstract

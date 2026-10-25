@@ -2197,3 +2197,41 @@ request when it gave the go-ahead for Phase B (staging only):
    rebuild_days old; started in the weekend 06:00–10:00 UTC window, or at the next 10-minute tick once 24 hours overdue;
    failed, blocked or killed builds retry after 10 minutes, 1 hour, then 6 hours; Health names a missing kick heartbeat
    (1 hour), a post no run claims (30 minutes) and a map older than rebuild_days + 2 days (migration 0153).
+
+## Chat: the keyboard waits, Chat keeps the conversation, no All chats sheet beside the list (owner session 2026-10-24, TestFlight 91)
+
+From the owner's recorded iPad session (landscape, Wide). Decided for iPhone and iPad unless noted; spec in DESIGN.md ›
+Chat and › Tall and Wide (*Chat*):
+
+- **The keyboard waits for a tap (F6).** Continue in Chat from a figure's AI Explainer brought the keyboard up at once:
+  "I didn't ask for the keyboard to come up necessarily right away… I think you need to wait for the person to click on
+  the keyboard before bringing the keyboard up." Opening or moving to a chat never focuses the message box on iPhone or
+  iPad: Continue in Chat (figure, equation, paper explainers), Ask in chat about a figure or equation, a snippet's Chat,
+  a reference's Discuss in chat and New chat. Continue in Chat keeps the keyboard up only when it was already up in the
+  explainer's box (the reader was typing). *Supersedes* "the cursor after it" for Discuss in chat (owner feedback, build
+  21) and the composer focused on New chat and on promotion (build 73's "accept typing as soon as its sheet closes").
+  Agent choices (reversible): actions inside a chat or explainer whose purpose is typing there keep the cursor — Quote in
+  Chat, a tapped follow-up or starter, the explainer's Chat button and Ask about this part, and Chat about Equation (the
+  equation's menu item that opens its view to ask); the Mac (no on-screen keyboard) focuses as before; an iPad with a
+  hardware keyboard is treated as any iPad (no reliable signal).
+- **Chat keeps the conversation (F7).** "If I go to chat… it needs to take me to the chat that I was just looking at, and
+  that specific chat should be selected… on the left. So there's no continuity there at all." iPad Wide: Chat in the
+  places menu shows the conversation the reader was last in, a paper's chat included, beside All chats, its row tinted,
+  selected for VoiceOver and scrolled into view; picking any row (a paper's chat too) shows it there with the list kept,
+  where a paper's chat used to leave for Discuss. A paper's chat opened from the paper (Ask, Continue in Chat, a
+  selection) is still Discuss. *Supersedes* "Wide: Chat is the general chat" (agent's first pass, 2026-10-23) on iPad;
+  the Mac keeps it until its own step. Tall already kept the last conversation on the Chat tab (UI test added). Found
+  on the way: in Wide, Continue in Chat with nothing typed in the explainer landed on "New chat" (the explainer's view
+  starts its chat again as it closes, and an empty composer was replaced); the item's composer is now kept while it is
+  the one shown.
+- **No All chats sheet beside the list (F8).** "we're never gonna have this middle thing show up… it gets duplicated with
+  what's on the left… Why are those options not on the list on the left? They're just gone." The earlier statement is
+  [Prompts as on iPhone, never a centred card over two slots](#menus-explainers-and-prompts-on-ipad-owner-feedback-on-testflight-88-owner-direction-2026-10-24)
+  ("put the prompt in the middle of the screen over the two left and right underneath please fix that… find all
+  instances where this guidance applies"). Beside the list the chat's ⋯ has no All chats and its title menu no "All N
+  chats about this paper"; the list's own ⋯ (after its search field) has Sort by — Last read, Started, Messages,
+  Conversation, Paper, what its rows show — kept for the run. Its rows have no Columns (a narrow slot shows rows, as at
+  accessibility sizes). Tall keeps the All chats sheet (no list beside the chat).
+- Open for the owner: whether All chats from the Library's ⋯, Discuss's clock or a paper's "Chats about this paper" in
+  Wide should also go to the Chat place instead of the centred sheet (proposal: yes, with the list filtered to This
+  paper where it applies).

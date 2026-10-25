@@ -66,7 +66,8 @@ extension XCUIApplication {
     }
 
     /// A place chosen directly (the Mac's toolbar check box, the iPad's places menu row, the capsule's button): unlike
-    /// `show("chat")`, Chat here is always the general chat.
+    /// `show("chat")`, Chat here is the general chat on the Mac, and on iPad the conversation last shown (owner,
+    /// 2026-10-24), beside All chats in Wide.
     func choosePlace(_ place: String) {
         #if targetEnvironment(macCatalyst)
         let titles = ["feed": "Feed", "library": "Library", "paper": "Paper", "chat": "Chat", "notes": "Snippets"]
