@@ -340,7 +340,7 @@ enum GlobalSearchEngine {
                         subtitle: [event.payload.conversationID.flatMap { summaries[$0]?.title }], target: .diagram(id))
         case .equation, .figure, .paperExplainer:
             let store = info.kind == .equation ? sources.equations : info.kind == .figure ? sources.figures : sources.explainers
-            guard let store, let item = ExplanationCache.shared.item(info.kind, id: info.id, store: store) else { return nil }
+            guard let store, let item = ExplanationCache.shared.item(info.kind, id: info.id, store: store, stamp: info.date) else { return nil }
             let parts = item.title.components(separatedBy: " · ")
             let label = parts.first ?? item.title, paper = parts.dropFirst().joined(separator: " · ")
             let symbol = info.kind == .equation ? "function" : info.kind == .figure ? "photo" : "sparkles"
@@ -374,8 +374,9 @@ final class ExplanationCache: @unchecked Sendable {
     private var items: [String: SearchItem] = [:]
     private var order: [String] = []
 
-    func item(_ kind: SearchItemKind, id: String, store: EquationResultStore) -> SearchItem? {
-        let key = "\(kind.rawValue):\(id)"
+    /// `stamp`: when the answer was saved (a rewritten file is a new entry).
+    func item(_ kind: SearchItemKind, id: String, store: EquationResultStore, stamp: Date? = nil) -> SearchItem? {
+        let key = "\(kind.rawValue):\(id):\(stamp?.timeIntervalSince1970 ?? 0)"
         if let hit = lock.withLock({ items[key] }) { return hit }
         guard let item = EverythingIndexer.explanation(kind, id: id, store: store) else { return nil }
         lock.withLock {

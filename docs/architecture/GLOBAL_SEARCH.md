@@ -21,7 +21,7 @@ launch argument `--global-search` and the Mac's **⌘K** (Edit › Search Everyt
 | Source | Index | Fields (weights: title 6, tags 3, notes 2, body 1) | Opens |
 |---|---|---|---|
 | Library papers (metadata and the text of readings saved here) | the Library's `search-index/`, through `LibrarySearchEngine.run` (unchanged: results agree with the Library's field) | as the Library | `select(paper)`, with Find in paper for a match in its text |
-| Conversations | `everything-index/` | title · paper title · the passage it began from | `openConversation` |
+| Conversations | `everything-index/` | title (a topic title or the reader's; a title that is the first question is found as that message) · paper title · the passage it began from | `openConversation` |
 | Messages (questions and answers, every branch) | `everything-index/` | body: readable text (`SearchText.chat`) | the chat, its branch, **scrolled to the message and marked** |
 | Diagrams, visual answers, figure breakdowns | `everything-index/` | title · labels and notes (Mermaid syntax left out) | `openDiagram` |
 | Kept equation / figure / paper explanations | `everything-index/` | label and paper · symbols or parts or Key concepts · summary · the rest | `openExplanation` (the kept answer, no request) |
@@ -104,7 +104,7 @@ Still nothing with two or more words: results with some of the words, most words
   Settings. Empty groups are hidden. All shows each group's best 3 and "See all N".
 - All collapses Chats to one row per conversation (the conversation itself when its title matched, else its best message)
   with "+N more in this chat", and Snippets to one row per collection likewise. A chip lists every item, uncollapsed,
-  50 at a time (the next page loads at the end of the list); its header says "N matches in M chats".
+  50 at a time (the next page loads at the end of the list); its header says "N messages in M chats".
 - Rows have fixed heights: one title line with matched words marked, a quiet line (who and when, or the paper), and two
   reserved lines for the excerpt (`SearchHighlighter`'s excerpt with ranges in Find's yellow, as `SearchMatchLine`).
   Papers and partial results show the match strength; other rows show the excerpt alone (a "title, full text" label means
@@ -139,9 +139,35 @@ files an earlier build left are removed at activation and sign-out.
 ms). A deterministic synthetic corpus (`EverythingBench.corpus`): Zipf-like function words, ML vocabulary with compounds,
 model names, arXiv IDs and Greek letters, 14,000 rare words, equations in LaTeX and Unicode; messages alternate questions
 and 2–4 paragraph answers (a third with display math). M-series Mac, release build, 2026-10-25, while other agents loaded
-the machine (load average 9–70):
+the machine (load average about 19 during this run):
 
-MEASUREMENTS_TABLE
+| | Owner scale: 300 chats / 3,000 messages / 1,200 explanations / 1,200 snippets / 80 diagrams / 40 collections | Heavy: 1,000 / 12,000 / 4,000 / 4,000 / 300 / 150 |
+|---|---|---|
+| Items · text | 5,820 · 5.5 MB | 21,450 · 20.0 MB |
+| Items made (readable text) · index built (tokenize, seal, write) | 0.54 s · 0.79 s | 1.81 s · 4.84 s |
+| On disk (sealed) | 3.9 MB (667 B an item) | 11.5 MB (538 B an item) |
+| Open (manifest) · load all segments, cold | 24 ms · 27 ms | 89 ms · 99 ms |
+| One item committed (median · p95) | 25 · 61 ms | 90 · 192 ms |
+| Typo correction (a zero-result word) | 1.8 ms | 2.2 ms |
+
+Per query, median (p95), heavy profile; "matches" are chats/messages · explanations · snippets · diagrams:
+
+| Query | Matches | Index alone | Grouped + excerpts (a keystroke) | Owner scale, grouped |
+|---|---|---|---|---|
+| softmax | 4,283 · 3,173 · 1,383 · 23 | 4.0 (4.5) ms | 10.2 (11.9) ms | 2.8 (4.3) ms |
+| attention | 6,666 · 3,885 · 2,642 · 66 | 6.7 (7.3) | 15.7 (16.6) | 4.3 (4.8) |
+| kl divergence | 2,075 · 2,122 · 387 · 0 | 5.9 (6.3) | 10.1 (12.0) | 4.1 (8.0) |
+| "policy gradient" | 62 · 60 · 23 · 1 | 1.7 (1.8) | 2.3 (2.5) | 2.0 (7.9) |
+| `\alpha` (= alpha) | 2,670 · 3,088 · 614 · 8 | 3.5 (4.2) | 8.3 (13.0) | 2.5 (2.9) |
+| α (the same matches) | 2,670 · 3,088 · 614 · 8 | 3.2 (3.6) | 7.5 (8.2) | 2.5 (2.9) |
+| transfo (typed prefix) | 5,995 · 3,750 · 2,277 · 48 | 4.9 (5.1) | 12.5 (14.1) | 3.9 (4.3) |
+| atention (→ attention) | as attention | 7.0 (8.0) | 17.1 (26.2) | 4.2 (4.5) |
+| learning rate | 2,301 · 2,319 · 454 · 1 | 6.1 (7.4) | 10.6 (11.4) | 4.1 (5.4) |
+| the | 9,037 · 4,000 · 3,729 · 117 | 9.3 (13.2) | 21.6 (24.1) | 5.7 (8.1) |
+
+The first version of the grouping sorted whole hits and hashed each hit's name: 92 ms (p95 102) for "the" at the heavy
+scale. It now sorts plain keys by index slot, with each item's info decoded once per snapshot (`EverythingSnapshot`), and
+excerpts only the one field the index found the words in.
 
 "Grouped + excerpts" is what a keystroke costs for the everything index: the query, ranking, grouping and collapsing every
 hit, and excerpts for each group's first three rows. The Library's papers run alongside through their own engine (measured
