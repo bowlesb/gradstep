@@ -614,7 +614,7 @@ final class PodcastJourneyTests: XCTestCase {
             XCTAssertTrue(element(app, "podcast.toast").waitForExistence(timeout: 60))
             sleep(1); visual("listen-ready-\(theme.lowercased())")
             app.show("settings")
-            let match = app.settingsTheme().buttons["Match device"]
+            let match = app.settingsTheme().buttons["System"]
             if match.waitForExistence(timeout: 5) { match.tap() }
             app.terminate()
         }
@@ -633,7 +633,7 @@ final class PodcastJourneyTests: XCTestCase {
         addTeardownBlock { @MainActor in
             if !app.buttons["tab.notes"].exists { return }
             app.show("settings")
-            let match = app.settingsTheme().buttons["Match device"]
+            let match = app.settingsTheme().buttons["System"]
             if match.waitForExistence(timeout: 5) { match.tap() }
         }
         for theme in ["Light", "Dark"] {

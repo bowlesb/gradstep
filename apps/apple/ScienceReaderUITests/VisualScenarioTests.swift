@@ -21,6 +21,7 @@ final class VisualScenarioTests: XCTestCase {
     private static let feedTableFixture = metadataFixture + ["--feed-fixture", "--feed-layout=table"]
     private static let mathpixFixture = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture"]
     private static let historyFixture = chatFixture + ["--chat-history-fixture"]
+    private static let snippetsFixture = ["--draft-fixture", "--reset-draft-fixture", "--snippets-fixture"]
     /// The encrypted draft fixture: a real full-text index on disk (the sample is indexed once opened).
     private static let searchFixture = ["--draft-fixture", "--reset-draft-fixture"]
 
@@ -308,6 +309,31 @@ final class VisualScenarioTests: XCTestCase {
                 for _ in 0..<6 { app.swipeUp() }
                 sleep(1)
             },
+            // Settings › Experimental and Reading (owner, TestFlight 91 session): the on-device PDF reader's one row
+            // (`--device-model-download-fixture`: a pack that downloads without On-Demand Resources), Theme and Underline
+            // passages with chats, each with its ⓘ.
+            "settings-reading": Scenario(arguments: Self.deviceModelSettings) { app in self.showReadingSettings(app) },
+            "settings-device-model-ask": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app)
+                app.switches["settings.deviceModel"].switches.firstMatch.tap()
+                XCTAssertTrue(app.alerts.buttons["Download"].firstMatch.waitForExistence(timeout: 5)); sleep(1)
+            },
+            "settings-device-model-downloading": Scenario(arguments: Self.deviceModelSettings.map { $0 == "--device-model-download-fixture" ? "--device-model-download-fixture=slow" : $0 }) { app in
+                self.showReadingSettings(app)
+                app.switches["settings.deviceModel"].switches.firstMatch.tap()
+                let download = app.alerts.buttons["Download"].firstMatch
+                XCTAssertTrue(download.waitForExistence(timeout: 5)); download.tap()
+                XCTAssertTrue(app.buttons["settings.deviceModelCancel"].waitForExistence(timeout: 5)); sleep(3)
+            },
+            "settings-device-model-info": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app); app.buttons["settings.deviceModel.info"].tap(); sleep(1)
+            },
+            "settings-theme-info": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app); app.buttons["settings.theme.info"].tap(); sleep(1)
+            },
+            "settings-passage-marks-info": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app); app.buttons["settings.passageMarks.info"].tap(); sleep(1)
+            },
             // Settings signed in (owner feedback, build 14 #8/#9): the Account row and its page, About and its
             // Acknowledgements; `chat-title` opens a selection-action conversation to show its short title.
             "settings-account": Scenario(arguments: Self.chatFixture) { app in self.go(app, "settings"); sleep(1) },
@@ -329,6 +355,30 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
                 XCTAssertTrue(app.navigationBars["Acknowledgements"].waitForExistence(timeout: 5)); sleep(1)
             },
+            // Snippets (owner feedback on TestFlight 91, 2026-10-24) over the seeded collections: the list, a collection,
+            // the empty one, a search for a word that is only in an image, and drawing a snippet.
+            "snippets-list": Scenario(arguments: Self.snippetsFixture) { app in self.go(app, "notes"); sleep(2) },
+            "snippets-collection": Scenario(arguments: Self.snippetsFixture) { app in self.openCollection(app, "Quick snippets") },
+            "snippets-empty": Scenario(arguments: Self.snippetsFixture) { app in self.openCollection(app, "New collection") },
+            "snippets-search": Scenario(arguments: Self.snippetsFixture) { app in
+                self.go(app, "notes")
+                let field = app.searchFields.firstMatch.exists ? app.searchFields.firstMatch : app.textFields["notes.search"]
+                XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("kaleido")
+                sleep(3)
+            },
+            "snippets-capture": Scenario(arguments: Self.snippetsFixture) { app in
+                self.openSample(app)
+                if app.wideShape, !app.buttons["Paper options"].exists { app.choosePlace("paper") }
+                let options = app.buttons["Paper options"].firstMatch
+                XCTAssertTrue(options.waitForExistence(timeout: 8)); options.tap()
+                let draw = app.buttons.matching(NSPredicate(format: "label == %@", "Draw snippet")).firstMatch
+                XCTAssertTrue(draw.waitForExistence(timeout: 5)); draw.tap()
+                let overlay = app.descendants(matching: .any)["capture.overlay"]
+                XCTAssertTrue(overlay.waitForExistence(timeout: 5))
+                overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.25))
+                    .press(forDuration: 0.05, thenDragTo: overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45)))
+                sleep(1)
+            },
             "chat-title": Scenario(arguments: Self.historyFixture) { app in
                 self.openHistory(app)
                 let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000005"]
@@ -341,6 +391,16 @@ final class VisualScenarioTests: XCTestCase {
     /// The places capsule in either shape (Wide: the paper's chat sits beside the paper), the Mac toolbar's places.
     private func go(_ app: XCUIApplication, _ tab: String) {
         app.show(tab)
+    }
+
+    private static let deviceModelSettings = ["--workflow-fixture", "--device-model-download-fixture"]
+    /// Settings scrolled until Experimental and Reading are on screen.
+    private func showReadingSettings(_ app: XCUIApplication) {
+        go(app, "settings")
+        let marks = app.switches["settings.passageMarks"]
+        for _ in 0..<6 where !(marks.exists && marks.isHittable) { app.swipeUp() }
+        XCTAssertTrue(app.switches["settings.deviceModel"].waitForExistence(timeout: 5))
+        sleep(1)
     }
 
     /// Scrolls the slow import's status into view (large text pushes it below the fold). VoiceOver reads the step and
@@ -377,6 +437,14 @@ final class VisualScenarioTests: XCTestCase {
 
     private func openSample(_ app: XCUIApplication) {
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10)); app.buttons[sampleID].tap()
+        sleep(2)
+    }
+
+    /// Snippets › a collection from the list (Tall pushes it; Wide shows it beside the list).
+    private func openCollection(_ app: XCUIApplication, _ title: String) {
+        go(app, "notes")
+        let row = app.buttons["notes.row.\(title)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8)); row.tap()
         sleep(2)
     }
 

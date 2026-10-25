@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reconcileOpenRouterAttempts } from '../../supabase/functions/_shared/openrouter-reconcile.ts';
+import { reconcileOpenRouterAttempts, sameModel } from '../../supabase/functions/_shared/openrouter-reconcile.ts';
 
 const account = 'aaaaaaaa-0000-4000-8000-000000000001', operation = 'bbbbbbbb-0000-4000-8000-000000000001';
 const claim = (n: number, extra: Record<string, unknown> = {}) => ({ attempt_id: `cccccccc-0000-4000-8000-00000000000${n}`, account_id: account, operation_id: operation,
@@ -43,4 +43,14 @@ test('A6: the run is bounded in time and survives a database refusal', async () 
     fetch: async url => Response.json(record(new URL(String(url)).searchParams.get('id')!)) }, { budgetMs: 30_000 });
   assert.equal(result.claimed, 3); assert.ok(result.failed + result.reconciled < 3, 'stops when the time budget is spent');
   assert.deepEqual(await reconcileOpenRouterAttempts({ keyFor: () => 'k', rpc: async () => null }), { claimed: 0, reconciled: 0, missing: 0, failed: 0 });
+});
+
+test('a dated slug and its undated name are the same model; anything else is a mismatch', () => {
+  assert.ok(sameModel('deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-1017'), 'read back without the dispatch date');
+  assert.ok(sameModel('google/gemini-3.8-flash-20261017', 'google/gemini-3.8-flash'), 'a dated release of the slug');
+  assert.ok(sameModel('anthropic/claude-sonnet-5.5', 'anthropic/claude-sonnet-5.5'));
+  assert.ok(sameModel('google/gemini-3.8-flash-preview-0915', 'google/gemini-3.8-flash'), 'a longer release, as before');
+  assert.ok(!sameModel('deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-lite'), 'only a date may be dropped');
+  assert.ok(!sameModel('deepseek/deepseek-v4.1', 'deepseek/deepseek-v4.1-flash-1017'));
+  assert.ok(!sameModel('openai/other-model', 'anthropic/claude-sonnet-5.5'));
 });

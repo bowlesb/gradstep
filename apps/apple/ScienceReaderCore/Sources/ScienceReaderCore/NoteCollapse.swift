@@ -90,3 +90,16 @@ public struct NoteCollapseMemory: @unchecked Sendable {
         else { defaults.set(kept.map { $0.uuidString.lowercased() }.sorted(), forKey: Self.key(noteID)) }
     }
 }
+
+/// A collection's row in the Snippets list (owner, TestFlight 91: "You just need two lines there, the title and then the
+/// number of snippets… I would honestly remove the date too"): its name, then how many snippets it holds. No date and
+/// no papers; an empty collection says so once.
+public enum NoteCollectionLine {
+    public static func detail(entryCount: Int) -> String {
+        switch entryCount {
+        case 0: "No snippets yet"
+        case 1: "1 snippet"
+        default: "\(entryCount) snippets"
+        }
+    }
+}

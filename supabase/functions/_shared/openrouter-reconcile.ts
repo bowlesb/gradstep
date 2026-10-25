@@ -15,6 +15,14 @@ export interface ReconcileDeps {
 }
 interface Claim { attempt_id: string; account_id: string; operation_id: string; generation_id: string; transport_model: string | null; feature: string | null }
 const PROVIDER = /^[a-zA-Z0-9 ./_-]{1,80}$/;
+/** The record's model is the one dispatched: the same slug, a longer release of it ("…-flash" → "…-flash-20261017"), or
+ * the slug without the date it was dispatched under ("…-v4.1-flash-1017" read back as "…-v4.1-flash"; 2026-10-22's
+ * DeepSeek attempt stayed `mismatch` for ten tries). Only a trailing date or release number may differ. */
+export function sameModel(recorded: string, expected: string): boolean {
+  // As before: the record may name a longer release of the dispatched slug. New: the record may drop a trailing date.
+  return recorded === expected || recorded.startsWith(`${expected}-`)
+    || (expected.startsWith(`${recorded}-`) && /^\d{3,8}$/.test(expected.slice(recorded.length + 1)));
+}
 
 export async function reconcileOpenRouterAttempts(deps: ReconcileDeps, limits: { batch?: number; budgetMs?: number } = {}) {
   const now = deps.now ?? Date.now, started = now(), budget = limits.budgetMs ?? 30_000;
@@ -34,7 +42,7 @@ export async function reconcileOpenRouterAttempts(deps: ReconcileDeps, limits: {
     const record = await lookupGeneration({ apiKey: key, fetch: deps.fetch }, claim.generation_id,
       { accountID: claim.account_id, operationID: claim.operation_id }, AbortSignal.timeout(10_000), 1);
     if (!record) { await miss('not_found'); continue; }
-    if (!expected || !(record.model === expected || record.model.startsWith(`${expected}-`)) || !PROVIDER.test(record.provider)) { await miss('mismatch'); continue; }
+    if (!expected || !sameModel(record.model, expected) || !PROVIDER.test(record.provider)) { await miss('mismatch'); continue; }
     const cached = Math.min(record.cachedTokens, record.promptTokens);
     try {
       const done = await deps.rpc('worker_openrouter_reconcile', { p_attempt_id: claim.attempt_id, p_generation_id: claim.generation_id,

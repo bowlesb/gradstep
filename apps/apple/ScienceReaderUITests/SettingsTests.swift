@@ -125,18 +125,114 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(app.buttons["account.row"].exists)
     }
 
-    /// Launched with the stored setting "dark" (argument domain, not saved); the only tap chooses Match device, the
-    /// default, so no other test inherits a forced theme.
+    /// Launched with the stored setting "dark" (argument domain, not saved); the only tap chooses System, the default, so
+    /// no other test inherits a forced theme. System was "Match device" until the TestFlight 91 session ("What's the
+    /// difference between Dark and Match device?"); its ⓘ says.
     func testThemeIsAVisibleChoice() {
         let app = openSettings(["--workflow-fixture", "-appearance", "dark"])
         let theme = app.settingsTheme()
         XCTAssertTrue(theme.waitForExistence(timeout: 5))
-        XCTAssertEqual(theme.buttons.allElementsBoundByIndex.map(\.label), ["Light", "Dark", "Match device"])
+        XCTAssertEqual(theme.buttons.allElementsBoundByIndex.map(\.label), ["Light", "Dark", "System"])
         XCTAssertTrue(theme.buttons["Dark"].isSelected, "The stored setting is shown")
         XCTAssertFalse(app.staticTexts["Appearance"].exists)
         attach("Theme: Dark")
-        theme.buttons["Match device"].tap()
-        XCTAssertTrue(theme.buttons["Match device"].isSelected, "“system” is Match device")
+        theme.buttons["System"].tap()
+        XCTAssertTrue(theme.buttons["System"].isSelected, "“system” is System")
+        showInfo("settings.theme.info", saying: "System follows this", in: app)
+        attach("Theme ⓘ")
+    }
+
+    /// Opens an ⓘ, checks its words and closes it.
+    private func showInfo(_ identifier: String, saying text: String, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let info = app.buttons[identifier]
+        XCTAssertTrue(info.waitForExistence(timeout: 5), identifier, file: file, line: line)
+        info.tap()
+        XCTAssertTrue(element(labelContaining: text, in: app).waitForExistence(timeout: 5), "ⓘ \(identifier) says “\(text)…”", file: file, line: line)
+        attach("ⓘ \(identifier)")
+        if app.descendants(matching: .any)["PopoverDismissRegion"].exists { app.descendants(matching: .any)["PopoverDismissRegion"].tap() }
+        else { app.tap() }
+        XCTAssertTrue(element(labelContaining: text, in: app).waitForNonExistence(timeout: 5), file: file, line: line)
+    }
+
+    /// The Experimental and Reading rows from the TestFlight 91 session, with the download faked
+    /// (`--device-model-download-fixture`): one row for the on-device PDF reader, off by default; turning it on asks,
+    /// Cancel keeps it off, Download shows progress and turns it on; off again removes the model. Each ⓘ says what it is.
+    func testOnDevicePDFReaderIsOneRowThatAsksBeforeDownloading() {
+        let app = openSettings(["--workflow-fixture", "--device-model-download-fixture"])
+        let reader = app.switches["settings.deviceModel"]
+        for _ in 0..<6 where !(reader.exists && reader.isHittable) { app.swipeUp() }
+        XCTAssertTrue(reader.waitForExistence(timeout: 5))
+        XCTAssertEqual(reader.value as? String, "0", "Off by default")
+        XCTAssertFalse(app.staticTexts["On-device PDF model"].exists, "No second row")
+        XCTAssertFalse(element(labelContaining: "Not downloaded", in: app).exists)
+        attach("Experimental: off")
+        showInfo("settings.deviceModel.info", saying: "Gradstep’s own models (takes longer, can be inaccurate)", in: app)
+
+        // On without the model: a question first; Cancel leaves it off.
+        flip(reader)
+        let download = app.alerts.buttons["Download"].firstMatch
+        XCTAssertTrue(app.alerts["Download the on-device PDF reader?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(element(labelContaining: "About 365 MB", in: app).exists, "The question says the size")
+        attach("Download the on-device PDF reader?")
+        app.alerts.buttons["Cancel"].firstMatch.tap()
+        XCTAssertEqual(reader.value as? String, "0", "Cancel: still off")
+
+        // Download: progress in the same row, then on.
+        flip(reader)
+        XCTAssertTrue(download.waitForExistence(timeout: 5)); download.tap()
+        let progress = app.staticTexts["settings.deviceModelProgress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 5), "The row shows the download")
+        XCTAssertTrue(progress.label.hasPrefix("Downloading · "), progress.label)
+        XCTAssertTrue(app.buttons["settings.deviceModelCancel"].exists, "…with Cancel")
+        attach("Downloading the on-device PDF reader")
+        XCTAssertTrue(reader.waitForExistence(timeout: 15))
+        let on = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: reader)
+        wait(for: [on], timeout: 15)
+        attach("Experimental: on")
+
+        // Off removes the model: on again asks again.
+        flip(reader)
+        XCTAssertEqual(reader.value as? String, "0")
+        flip(reader)
+        XCTAssertTrue(app.alerts["Download the on-device PDF reader?"].waitForExistence(timeout: 5), "Removed: it downloads again")
+        app.alerts.buttons["Cancel"].firstMatch.tap()
+
+        // Underline passages with chats says what it does.
+        let marks = app.switches["settings.passageMarks"]
+        for _ in 0..<4 where !(marks.exists && marks.isHittable) { app.swipeUp() }
+        showInfo("settings.passageMarks.info", saying: "Passages you’ve started a chat from are underlined", in: app)
+    }
+
+    /// A download that fails leaves the switch off with the reason under it; Cancel during a download leaves it off.
+    func testOnDevicePDFReaderDownloadFailureAndCancelLeaveItOff() {
+        var app = openSettings(["--workflow-fixture", "--device-model-download-fixture=fail"])
+        var reader = app.switches["settings.deviceModel"]
+        for _ in 0..<6 where !(reader.exists && reader.isHittable) { app.swipeUp() }
+        flip(reader)
+        XCTAssertTrue(app.alerts.buttons["Download"].firstMatch.waitForExistence(timeout: 5)); app.alerts.buttons["Download"].firstMatch.tap()
+        let note = app.staticTexts["settings.deviceModelNote"]
+        XCTAssertTrue(note.waitForExistence(timeout: 15), "The failure is said under the title")
+        XCTAssertTrue(note.label.contains("download stopped"), note.label)
+        XCTAssertEqual(reader.value as? String, "0")
+        attach("Download failed")
+        app.terminate()
+
+        app = openSettings(["--workflow-fixture", "--device-model-download-fixture=slow"])
+        reader = app.switches["settings.deviceModel"]
+        for _ in 0..<6 where !(reader.exists && reader.isHittable) { app.swipeUp() }
+        flip(reader)
+        XCTAssertTrue(app.alerts.buttons["Download"].firstMatch.waitForExistence(timeout: 5)); app.alerts.buttons["Download"].firstMatch.tap()
+        let cancel = app.buttons["settings.deviceModelCancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5)); cancel.tap()
+        XCTAssertTrue(reader.waitForExistence(timeout: 5))
+        XCTAssertEqual(reader.value as? String, "0", "Cancelled: off")
+        XCTAssertFalse(app.staticTexts["settings.deviceModelNote"].exists, "Cancel isn't a failure")
+    }
+
+    /// Taps a switch itself (the row's ⓘ is in its label).
+    private func flip(_ toggle: XCUIElement) {
+        let control = toggle.switches.firstMatch
+        if control.exists { control.tap() } else { toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap() }
     }
 
     func testAboutHoldsVersionPrivacyAndAcknowledgements() {

@@ -22,6 +22,9 @@ struct PaperTableColumn<Key: Hashable>: Identifiable {
     var ascendingFirst = false
     /// A control (Add) rather than a value: outside the row's tap area, and not read as part of the row.
     var isControl = false
+    /// What the column means, behind an ⓘ after its title (the Feed's Why; owner, TestFlight 91: "maybe have like a little
+    /// info icon that says what that even means").
+    var info: String? = nil
 }
 
 /// The current order: which key, which direction.
@@ -467,6 +470,20 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     private static var headerColor: Color { Color(uiColor: .secondaryLabel) }
 
     @ViewBuilder private func headerCell(_ column: PaperTableColumn<Key>) -> some View {
+        if let info = column.info {
+            // Beside the title, not inside its sort button.
+            HStack(spacing: 0) {
+                headerTitle(column)
+                InfoButton(text: info, identifier: "\(identifier.replacingOccurrences(of: ".table", with: "")).\(column.id).info")
+                    .padding(.vertical, -3)
+                Spacer(minLength: 0)
+            }
+        } else {
+            headerTitle(column)
+        }
+    }
+
+    @ViewBuilder private func headerTitle(_ column: PaperTableColumn<Key>) -> some View {
         if column.sortKey != nil {
             let current = column.sortKey == sort.key
             Button {
