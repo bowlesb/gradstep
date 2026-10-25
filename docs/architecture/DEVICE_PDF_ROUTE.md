@@ -364,3 +364,22 @@ carry `cost` (the formula's glyph count) and the background recogniser batches b
 | `displayLines` (off) | A numbered, indented, nearly-all-math paragraph line (or an unboxed line) becomes a display | displays found +0.010 / +0.009 / +0.010 but typeset precision −0.006 / −0.004 / −0.005 |
 
 Speed: fewer crops and better-filled batches, but no wall-time gain measurable on the loaded Mac (interleaved A/B ×1.04).
+
+## Tables — port revision 13, 2026-10-24
+
+[Review](../reviews/DEVICE_PDF_TABLES_20261024.md). Three converter rules for tables, on in the app (`tables.ts`,
+`convert.ts`, `emit.ts`; with none set the reference's `table_cells` runs unchanged):
+
+| Rule | What it does | Effect (test / dev / venue; real runs, each rule's own contribution) |
+|---|---|---|
+| `tableColumns` | Columns from the lines with the most common number of cells, so a spanning header no longer merges the columns under it; a run under a spanning cell joins it | cell F1 +0.053 / +0.082 / +0.099, whole rows +0.040 / +0.058 / +0.111 |
+| `cellLines` | A cell of several lines is tagged and written line by line (the reference interleaved the lines' words by x) | table word F1 +0.020 / +0.019 / +0.023 |
+| `tableCaptionBelow` | A caption printed under its table follows it | table word F1 +0.021 / +0.032 / +0.041, whole blocks +0.003 / +0.006 / +0.012 |
+| `narrowCellGaps` (off) | Cells apart at 0.45 glyph heights, not 0.6 | cell F1 +0.050 / ±0 / −0.003 |
+
+Together, cell F1 0.69 → 0.75 / 0.70 → 0.78 / 0.65 → 0.75; on 5,285 labelled arXiv tables (the desktop factory's grids,
+`scripts/device-route-table-bench.{py,mjs}`) 0.74–0.78 → 0.92–0.93. The scorers gained cell and row F1
+(`device-route-accuracy.mjs`); the weakness explorer files algorithms, prompts and code that arXiv's HTML writes as
+tables, and tables it has only as pictures, as truth. The PDF's ruling lines were tried (injected from pdfplumber) and
+not adopted, so the host is unchanged. A table structure model is proposed in the review, not built.
+
