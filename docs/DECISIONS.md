@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Gemini Flash starts sooner; a silent model is ended; For you asks at sign-in (owner reports on TestFlight 92, 2026-10-25; agent decisions, reversible)
+
+Owner: *"Been sitting here over ten seconds"* (Explain in Chat on an equation, "Thinking…") and *"Stuck here for like 10
+seconds"* (Feed › For you after signing in). Evidence: [CHAT.md](architecture/CHAT.md#gemini-flashs-effort-and-a-silent-model--testflight-92-2026-10-25-server-and-clients-local-not-deployed),
+[PERSONALIZED_FEED.md](architecture/PERSONALIZED_FEED.md#speed-for-you-right-after-sign-in-testflight-92-2026-10-25-migration-0158-and-an-app-change-local).
+
+| Decision | Choice |
+|---|---|
+| Flash's effort in chat | Low, unless the question asks for reasoning or the reader chose Detailed (medium). Study turns and the equation's background stay medium. Supersedes "medium for Flash, including automatic profiles" (2026-10-16). Basis: first words 2.3–11.5 s at low (figure runs; one explainer run 33.8 s) vs a 9.5 s median (4.3–17.3 s) at medium, same content in the equation and figure views; no paid check of chat answers at low was made. `minimal` (2.1–3.3 s in the explainer) is untried for chat |
+| A model that sends nothing | Ended at 60 s as the provider's failure (not charged; Try again), never resent automatically (a second attempt can't fit the hold while the first's cost is unknown). Counted as the provider's timeout by provider health |
+| Showing the wait | `status {kind: "waiting"}` after 12 s with nothing back ("Still waiting for the model…"), then `thinking` when it starts; older builds ignore both |
+| Logs | `chat_answer` gains `first_text_ms`, `answer_ms` and `no_response` (numbers only) |
+| For you after sign-in | The Feed asks again whenever the account changes, not only on appear (the request was never sent until a chip was tapped) |
+| For you's query | Migration 0158: the same results, about 4.5× faster for the owner (1.55–1.59 s → 0.33–0.35 s): combination tags parsed once, author hits through the author index, topics lower-cased once (on top of 0156's similar-tier sort) |
+
 ## Interest index privacy notice approved; serving may go to all (owner, 2026-10-25)
 
 Asked to "approve the interest-index privacy wording so topics and the new For you ranking can go beyond staff

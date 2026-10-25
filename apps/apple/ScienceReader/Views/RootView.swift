@@ -1093,7 +1093,9 @@ struct FeedView: View {
                 if model.feedResults.contains(where: { $0.sourceID == detail.sourceID }) { model.feedPickID = detail.sourceID; model.feedReading = false }
                 model.feedDetail = nil
             }
-            .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
+            // Again whenever the account changes, not only on appear (TestFlight 92, 2026-10-25: signing in from the Feed's
+            // "Sign in" left the Feed on "Finding new papers…" with no request sent, until a chip was tapped a minute later).
+            .task(id: model.accountID) { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
     }
 

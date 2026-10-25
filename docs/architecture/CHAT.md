@@ -870,6 +870,79 @@ Not changed: the model's thinking before round 1's text and Tavily's ~3.5 s are 
 later, each needing a measured check: show thinking progress (`thinking.display: "updates"` notes as status lines;
 app work), a shorter search allowance for Related, or a per-search time limit.
 
+## Gemini Flash's effort and a silent model — TestFlight 92, 2026-10-25 (server and clients local; not deployed)
+
+Owner, 13:03 UTC: *"Been sitting here over ten seconds"*: Explain in Chat on an equation in "Ask to Distill"
+("About Equation: What does the dot mean next to the q"), on "Thinking…". The AI usage row then read "Gemini 3.8
+Flash · 132k in · 10k out · Didn't finish · not charged".
+
+**What happened** (staging `provider_attempts`, their events, `chat_endings`, `chat_quotes`, function logs; read-only):
+
+| UTC | Event |
+|---|---|
+| 12:56:49 | The equation view's symbols on the same paper (`gemini-low-standard`): 473 input, **35,248 written to and read from the prompt cache**, 239 output; 24.3 s; 2 credits. The paper's cache was made by this first request. |
+| 13:01:46.9 | Explain in Chat: an ordinary answer with the equation as the selection, effort `auto` → **medium** (every Flash answer was medium), `max_tokens` 10,000 (6,000 answer + 4,000 thinking). Dispatched 13:01:47.087; OpenRouter answered with generation `gen-1792933307-…` and then **sent no data**. |
+| 13:03:46.5 | The reader's connection closed after **119.5 s** ("connection closed before message completed"). Ending `connection`, 0 credits. OpenRouter has no record of the generation (the chat's own lookup and the reconciler's three reads by 13:21: `not_found`), so the attempt stays `unknown` with its whole 155,545 µ$ ceiling as Gradstep's liability. The Haiku title finished in 2.1 s but was unusable (cut at its 40 tokens). |
+| 13:03:33 | The same question again: 225 input + **35,248 cached**, 408 output (thinking included), 18.7 s from sending to the end; 1 credit ($0.004777). |
+
+- **"132k in · 10k out" are not tokens sent or written.** An attempt without a final bill keeps the hold's estimates:
+  the byte-based input estimate (131,878 for a ~35,500-token prompt; it never undercounts) and the whole output
+  allowance. The usage screen shows them unmarked because `v1_ai_usage` sets `estimated` only from
+  `actual_units.estimated` (open item below). Nothing ran away: no output was observed at all.
+- **Caching is on from the first request.** The paper prefix carries `cache_control` on every request; Google wrote it
+  on the paper's first request (the equation view) and the retry read it. The stalled request went 4 min 58 s after the
+  cache was written, at the edge of its 5-minute life; with no bill we cannot tell whether it read it.
+- **Why it didn't finish: the provider sent nothing.** Not a client timeout (the app's resource limit is 15 minutes)
+  and not our 130 s deadline. The same route has done this before: 2026-10-24 19:40 a Flash answer broke after 38.5 s
+  with no record (8 lookups); slow successes 10-25 04:19 (the scheduled smoke: 107 s for 30 output tokens) and 10-24
+  19:38–19:39 (52.5 s and 47.3 s). Usually Flash on Vertex answers a paper chat in 2–20 s.
+- **Time to first words** was not recorded (now logged, below). Recorded evidence for Flash on paper questions: at
+  medium, first text 4.3–17.3 s (median 9.5 s, 27 bake-off answers), first chunk up to 25 s on the pinned Vertex route
+  (figure runs); its reasoning reaches us as one block just before the text, so nothing streams while it thinks and the
+  apps show only "Thinking…". At low, first words 2.3–11.5 s in seven figure runs and the equation summary in 4.5–5.3 s,
+  with the same content (DECISIONS.md "Equation explainer streamed", FIGURE_VIEW.md "Speed"); the explainer's seven low
+  runs took 1.5–9.4 s but once 33.8 s (`minimal` was 2.1–3.3 s there; untried for chat answers).
+
+**Changes** (`chat-profiles.ts geminiEffort`, `chat.ts`, `openrouter-chat.ts`; clients: `ChatStream.swift`, web `lib/chat.ts`):
+
+1. **Flash's effort.** Flash's profiles carry no effort choice, so the server decides: **low**, unless the question asks
+   for reasoning (`asksForReasoning`: derive, prove, why, compare, step by step, intuition, how it works, explain an
+   equation) or the reader chose Detailed (then medium, as before). An equation or figure in the selection alone no
+   longer means medium on Flash (Claude and DeepSeek keep `autoEffort`). The equation's background and a Study turn keep
+   medium (their instructions ask for intuition, worked examples, a tutor's step). The owner's question resolves to
+   `gemini-low-standard`: `max_tokens` 8,000 (6,000 answer + 2,000 thinking) and a smaller hold. The published table is
+   unchanged (its Flash estimates stay medium's, conservatively); the cached prefix is the same at any effort.
+2. **The model's progress.** When nothing has come back from the model 12 s after sending (OpenRouter's keep-alive
+   comments don't count), the answer's stream carries `status {kind: "waiting"}`; if data then comes before any words,
+   `status {kind: "thinking"}`. Apps show "Still waiting for the model…" then "Thinking…"; the browser adds the seconds
+   ("Still waiting for the model… 14 s", as its "Thinking… N s"). Builds up to TestFlight 92 ignore unknown kinds. The
+   equation, figure and explainer views keep their own progress (no statuses there).
+3. **A silent model is abandoned at 60 s** (`FIRST_DATA_DEADLINE_MS`): nothing at all back by then (no text, reasoning or
+   tool call) ends the request as the provider's failure: `error provider_unavailable {credits: 0, charged: false, reason:
+   "provider"}`, which every client already shows with Try again, instead of up to 130 s of "Thinking…". Slow starts that
+   still answered: 25 s (medium, a figure), 33.8 s (the explainer at low) and equation answers of 47–53 s in all on the
+   slow evening of 10-24; 60 s leaves room for them. The abort's reason is a `TimeoutError`, so provider health counts a
+   stall before OpenRouter's headers as the provider's timeout (the breaker), never as the reader leaving. Billing is unchanged: the attempt is left `unknown`
+   with its generation id and whole ceiling for the reconciler (no 7 s wait for a record a silent model has never left);
+   the reader pays nothing. No automatic resend (a second attempt would not fit the answer's hold while the first's cost
+   is unknown). Only the chat function sets this limit (every chat request: answers, the views, titles, suggestions);
+   podcast scripts, tags and recommendations through the same adapter keep no first-data limit.
+4. **Logged per answer:** `first_text_ms` and `answer_ms` (ms from sending to the first words and to the end of the
+   answer's rounds) and `no_response: true` for a stall, in `chat_answer` (numbers only, never text).
+
+**Measured before / expected after.** Before: the owner's answer had no first words in 119.5 s; the retry finished in
+18.7 s; Flash at medium starts writing after a median 9.5 s. After (no paid request was made for this change): the
+owner's question goes at low, where the first words came after 2.3–11.5 s in the recorded figure runs (with a rarer
+long tail: one explainer run at 33.8 s); a
+silent model is ended at 60 s with Try again; "Still waiting…" from 12 s. Verify after deploy from `chat_answer`'s
+`first_text_ms` for `gemini-low-standard` answers (and one paid smoke if the owner wants it).
+
+**Open items.** (a) The usage screen shows an unfinished attempt's hold estimates as token counts: mark units of
+`unknown` attempts as estimates in `v1_ai_usage` (a migration) or have clients omit them for `pending` rows. (b) A
+generation OpenRouter never records stays an unresolved liability (its whole ceiling) after the reconciler's twelve
+tries; two such Flash attempts are open now ($0.155545 and the 10-24 one). (c) The route's own slowness (107 s smoke)
+is Google Vertex's or OpenRouter's; only a different endpoint would change it, which is a privacy decision (ZDR route).
+
 ## Visual answers — 2026-10-15 (owner: "The chat needs a html tool… mermaid diagrams… an option for the users to disable")
 
 Beside an answer the model may show one visual: a Mermaid diagram (`create_diagram`, as before) or an HTML fragment

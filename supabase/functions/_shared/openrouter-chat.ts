@@ -174,10 +174,54 @@ function finishedCalls(calls: Iterable<{ id: string; name: string; arguments: st
   return out;
 }
 
+/** Nothing back from the model this long after sending (OpenRouter's keep-alive comments don't count): the reader is told
+ * it hasn't started yet (status `waiting`), and `thinking` once it does. At medium effort Gemini Flash's first chunk came
+ * after 3–25 s (FIGURE_VIEW.md "Speed"); at low its first words usually after 2–12 s. */
+export const WAITING_NOTICE_MS = 12_000;
+/** Nothing at all back from the model this long after sending: the request is abandoned as the provider's failure (the
+ * reader is not charged and can ask again at once). TestFlight 92, 2026-10-25 13:01 UTC: a Gemini Flash answer sent no
+ * data for 119 s until the reader left (OpenRouter never wrote a generation record for it); asked again it answered in
+ * 19 s. Slow starts that still answered: 25 s (Gemini at medium, a figure), 33.8 s (the explainer at low) and, on the slow
+ * evening of 2026-10-24, equation answers of 47–53 s in all; 60 s leaves room for those and still ends a stall well
+ * before the 130 s answer deadline would. */
+export const FIRST_DATA_DEADLINE_MS = 60_000;
+
 export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; now?: () => number;
   /** Waits between generation-record reads (tests replace it). */
-  sleep?: GenerationLookupOptions['sleep']; receiptWaitMs?: number }) {
+  sleep?: GenerationLookupOptions['sleep']; receiptWaitMs?: number;
+  /** The `waiting` notice's delay (WAITING_NOTICE_MS; given only to callers that pass `onStatus`, tests shorten it). */
+  waitingMs?: number;
+  /** End a request that sends nothing back within this many ms (the chat function passes FIRST_DATA_DEADLINE_MS).
+   * Absent: no such limit (the podcast scripts, tags and recommendations in the worker and `recommend` are unchanged). */
+  firstDataMs?: number }) {
+  const generate = streamOnce(options);
   return async (params: Params, stream: StreamOptions): Promise<ProviderOutcome> => {
+    // The model's first data, watched from the moment the request is sent until anything arrives.
+    const quiet = new AbortController();
+    const watch = { started: false, noticed: false, stalled: false };
+    const notice = stream.onStatus ? setTimeout(() => {
+      if (watch.started || stream.signal.aborted) return;
+      watch.noticed = true; stream.onStatus?.({ kind: 'waiting' });
+    }, options.waitingMs ?? WAITING_NOTICE_MS) : undefined;
+    // A TimeoutError reason: provider health counts it as the provider's timeout, never as the reader leaving.
+    const stall = options.firstDataMs === undefined ? undefined : setTimeout(() => {
+      if (watch.started) return;
+      watch.stalled = true; quiet.abort(new DOMException('no data from the model', 'TimeoutError'));
+    }, options.firstDataMs);
+    const first = () => {
+      if (watch.started) return;
+      watch.started = true; clearTimeout(stall); clearTimeout(notice);
+    };
+    try {
+      const outcome = await generate(params, stream, AbortSignal.any([stream.signal, quiet.signal]), watch, first);
+      return watch.stalled && outcome.status === 'failed' ? { ...outcome, failure: 'provider_error', stalled: true } : outcome;
+    } finally { clearTimeout(stall); clearTimeout(notice); }
+  };
+}
+
+/** One request and its stream (the body of openRouterChat, which watches for the model's first data). */
+function streamOnce(options: { apiKey: string; fetch?: typeof fetch; now?: () => number; sleep?: GenerationLookupOptions['sleep']; receiptWaitMs?: number }) {
+  return async (params: Params, stream: StreamOptions, signal: AbortSignal, watch: { started: boolean; noticed: boolean; stalled: boolean }, first: () => void): Promise<ProviderOutcome> => {
     const clock = options.now ?? Date.now;
     let id: string | null = null, attempt: ProviderAttempt | null = null, dispatched = false;
     // What this stream produced before it ended: characters of text, tool arguments and reasoning, when the first chunk
@@ -196,6 +240,9 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
     // settles as succeeded, nothing left to reconcile); without it the estimate keeps the whole ceiling unresolved.
     const cutShort = async (failure: ProviderOutcome['failure']): Promise<ProviderOutcome> => {
       if (attempt || !dispatched || !id || !stream.attribution) return failed(false, failure);
+      // A model that never sent anything leaves no record to wait for (none of the stalls seen had one): the reader hears
+      // at once and the reconciler reads the record later, as for any unresolved attempt.
+      if (watch.stalled) return failed(false, failure);
       const record = await lookupGeneration({ apiKey: options.apiKey, fetch: options.fetch, sleep: options.sleep }, id, stream.attribution,
         AbortSignal.timeout(options.receiptWaitMs ?? STOPPED_RECEIPT_WAIT_MS), STOPPED_RECEIPT_TRIES);
       const expected = transportModel(params.model);
@@ -216,7 +263,7 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
     try { body = openRouterChatParams(params); } catch { return { ...failed(true), cause: 'server' }; }
     let response: Response;
     try {
-      response = await openRouterPost(options, 'chat/completions', body, stream.signal, stream.attribution);
+      response = await openRouterPost(options, 'chat/completions', body, signal, stream.attribution);
     } catch (error) { return failed(error instanceof OpenRouterNotDispatched, stream.signal.aborted ? 'aborted' : 'provider_error'); }
     dispatched = true;
     id = response.headers.get('x-generation-id');
@@ -257,6 +304,14 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
           if (typeof event.provider === 'string' && /^[a-zA-Z0-9 ./_-]{1,80}$/.test(event.provider)) provider = event.provider;
           const choice = object(array(event.choices)[0]), delta = object(choice.delta);
           firstChunkAt ??= clock();
+          // The model's first real output (an empty opening chunk doesn't count) ends the watch for a silent model. After
+          // "waiting", say it has started; its words (when this chunk has some) say it themselves.
+          if (!watch.started && ((typeof delta.content === 'string' && delta.content !== '') || array(delta.tool_calls).length > 0
+            || array(delta.reasoning_details).length > 0 || (typeof delta.reasoning === 'string' && delta.reasoning !== '')
+            || typeof choice.finish_reason === 'string' || !!event.usage)) {
+            first();
+            if (watch.noticed && !(typeof delta.content === 'string' && delta.content.trim())) stream.onStatus?.({ kind: 'thinking' });
+          }
           if (typeof delta.content === 'string') {
             text += delta.content; observedChars += delta.content.length;
             if (delta.content.trim()) delivered = true;

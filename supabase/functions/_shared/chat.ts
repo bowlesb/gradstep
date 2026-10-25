@@ -683,8 +683,12 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The figure view, the equation's symbols and the paper's explainer think at low effort unless the reader chose one for
   // a Claude model (FIGURE_VIEW.md "Speed"; EQUATION_VIEW.md "Speed": Gemini at low wrote the same symbols, sources and
   // paragraphs as at medium, its summary sooner and steadier). The equation's background keeps the chat's effort.
+  // Gemini Flash answers at low unless the question asks for reasoning (chat-profiles.ts geminiEffort, 2026-10-25); the
+  // equation's background and a Study turn keep the medium they were measured at (their own instructions ask for
+  // intuition, worked examples and a tutor's step, whatever the question's words).
   const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler' || request.action === 'equation' || request.action === 'paper_explainer')
-    ? { ...resolved, effort: figureViewEffort(request.choice, resolved.effort) } : resolved;
+    ? { ...resolved, effort: figureViewEffort(request.choice, resolved.effort) }
+    : resolved?.model === 'gemini' && (request.action === 'equation_background' || request.action === 'study') ? { ...resolved, effort: 'medium' as const } : resolved;
   const profile = resolveProfile(choice);
   // Every answer goes to OpenRouter, so the reader's consent must name it (v5, or v6 which also names DeepSeek's route).
   if (![GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION].includes(request.consentVersion)) { await admitted(); throw new ChatFailure('consent_required'); }
@@ -861,6 +865,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
   let wroteText = false, answerTail = '', answerHead = '', heldText = '', notesRaw = null as string | null;
+  // When the first words (or held-back JSON) came, ms after the request went to the model: logged, never shown.
+  let firstTextMs = null as number | null, answerMs = null as number | null;
   const stats: SearchStats = { tavily: 0, credits: 0, failures: 0 };
   // Status lines go only to this reader's stream (the search query included); logs keep counts only.
   const status = (data: ChatStatus) => { if (!signal.aborted) emit({ event: 'status', data }); };
@@ -943,15 +949,18 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: raw => { const text = notesFilter ? notesFilter.push(raw) : raw;
-        if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
+        if (text.trim()) { wroteText = true; firstTextMs ??= now() - generationStarted; } answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
         if (heldBack) { heldText = (heldText + text).slice(0, 40_000); if (explainerOnly) relayExplainer(text); else { relayWalk('text', text); relaySymbols(text); } return; }
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       ...(walkStreams ? { onToolInput: (call: { index: number; name: string }, piece: string) => {
         if (call.name === FIGURE_WALKTHROUGH_TOOL.name) relayWalk('tool', piece);
       } } : {}),
-      onStatus: status,
+      // The model's own progress (`waiting` while nothing has come back, then `thinking`: openrouter-chat.ts) is said under
+      // an answer; the equation, figure and explainer views show their own progress instead.
+      onStatus: heldBack ? next => { if (next.kind !== 'waiting' && next.kind !== 'thinking') status(next); } : status,
     }, { tavily, cap: searchCap }, stats);
     leftDuringAnswer = signal.aborted;
+    answerMs = now() - generationStarted;
     // A held-back possible tag start that turned out to be words is shown now, before anything else.
     if (notesFilter) {
       const rest = notesFilter.finish();
@@ -1073,6 +1082,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
     // Whether the effort in `profile` was picked by the server (`auto`), and who answered.
     auto_effort: request.choice?.effort === 'auto', provider: profile.provider,
+    // Time to the first words and to the end of the answer (ms from sending; CHAT.md "Gemini Flash's effort"), and whether the
+    // model never answered at all (`no_response`: nothing came back within FIRST_DATA_DEADLINE_MS).
+    first_text_ms: firstTextMs, answer_ms: answerMs, ...(answer.stalled ? { no_response: true } : {}),
     // Whether a title was written (never the title itself), and how many follow-ups were suggested (never their text).
     title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed',
     ...(followUpHold ? { follow_ups: !suggested ? 'skipped' : suggested.questions ? 'written' : suggested.outcome.status === 'complete' ? 'unusable' : 'failed',

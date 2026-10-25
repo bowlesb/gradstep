@@ -147,6 +147,16 @@ import Testing
         #expect(ChatProgress(kind: .searching, query: String(repeating: "q", count: 500)).query?.count == ChatProgress.maximumQueryCharacters)
     }
 
+    /// Servers from 2026-10-25 say when the model hasn't sent anything back yet, then that it has started.
+    @Test func parserReadsTheModelsOwnProgress() throws {
+        var parser = ChatSSEParser()
+        let events = try parser.consume(Array("event: status\ndata: {\"kind\":\"waiting\"}\n\nevent: status\ndata: {\"kind\":\"thinking\",\"query\":\"x\"}\n\n".utf8))
+        #expect(events == [.status(ChatProgress(kind: .waiting)), .status(ChatProgress(kind: .thinking))])
+        #expect(ChatProgress(kind: .waiting).text == "Still waiting for the model…")
+        #expect(ChatProgress(kind: .thinking).text == "Thinking…")
+        #expect(ChatProgress(kind: .thinking, query: "x").query == nil)
+    }
+
     @Test func parserRejectsMalformedAndOversizedInput() throws {
         var malformed = ChatSSEParser()
         #expect(throws: ChatStreamError.malformed) { try malformed.consume(Array("event: delta\ndata: {\"txt\":1}\n\n".utf8)) }

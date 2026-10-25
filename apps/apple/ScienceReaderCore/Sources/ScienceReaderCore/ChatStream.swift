@@ -241,6 +241,8 @@ public enum ChatStreamEvent: Equatable, Sendable {
 public struct ChatProgress: Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable {
         case searching, reading, findingPaper = "finding_paper", addingPaper = "adding_paper"
+        /// The model hasn't sent anything back yet (servers from 2026-10-25, after 12 s), then it has started.
+        case waiting, thinking
         /// The device's own: a diagram that didn't parse is being redrawn (never sent by the server).
         case fixingDiagram = "fixing_diagram"
         /// The device's own: the figure the model asked for is attached and the question asked again.
@@ -269,6 +271,8 @@ public struct ChatProgress: Equatable, Sendable {
         case .reading: "Reading results…"
         case .findingPaper: "Finding the paper…"
         case .addingPaper: "Adding to your library…"
+        case .waiting: "Still waiting for the model…"
+        case .thinking: "Thinking…"
         case .fixingDiagram: "Fixing the diagram…"
         case .lookingAtFigure: query.map { "Looking at \($0)…" } ?? "Looking at the figure…"
         case .preparingPaper: "Preparing the paper on this device…"

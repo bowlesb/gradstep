@@ -4,7 +4,7 @@ import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
 import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { TranscriptFollow } from '../lib/chat-follow';
-import { answerActionPrompt, chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
+import { answerActionPrompt, chatTitle, composerPlaceholder, conversationPreview, failureText, progressText, waitingText } from '../lib/chat';
 import { answeredBy, profileID, profileSummary, modelOption } from '../lib/chat-profiles';
 import { WHERE_TO_BUY, type CreditBalance } from '../lib/account-summary';
 import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer, type FigureFacts } from '../lib/chat-session';
@@ -376,7 +376,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
         {diagrams.has(m.payload.entityID) && !inlineParts(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} caption={(manifest, blockID, paths) => chat.figureFacts(c.documentID, manifest, blockID, paths)} />}
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
-        <Answer text={stripPartMarkers(displayText, true)} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
+        <Answer text={stripPartMarkers(displayText, true)} streaming />{!c.liveText && <p className="fine" role="status">{waitingText(c.progress, waited)}</p>}</div>}
       {(c.followUps || studyOffered) && !c.study && !composerBusy(c) && !c.answer && !c.issue && last?.payload.role === 'assistant' && (() => {
         // The model's own picture question (2026-10-22: "Create a diagram explaining the background of X") replaces the
         // generic Draw a diagram / Create a visual explanation rows; Enter Study Mode is always the last (paper chats).
@@ -393,7 +393,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           {showFollowUps && studyOffered && <button type="button" className="follow-up follow-up-study" data-testid="study-entry" disabled={studyBusy}
             onClick={startStudy}><Icon name="cap" size={13} /> {STUDY_ENTRY}</button>}
         </div>; })()}
-      {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
+      {c.progress && c.liveText && c.progress.kind !== 'thinking' && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
       {c.issue && <div className="chat-issue" role="alert"><p>{freeRefusal ?? failureText(c.issue)}</p>
         {c.issue === 'local_save' && !retired && <button className="secondary small" onClick={() => void chat.retryDeviceSave(c)}>Retry device save</button>}
         {canAnswer && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}

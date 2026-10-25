@@ -1,5 +1,11 @@
 # Gemini Flash chat
 
+**2026-10-25 (TestFlight 92 owner report; local, not deployed):** Flash answers now think at **low** unless the question
+asks for reasoning or the reader chose Detailed (medium); Study and the equation's background stay medium. This
+supersedes "Use the tested medium effort for Flash, including automatic profiles" below. A request the model sends
+nothing back for in 60 s is ended as the provider's failure (not charged), and the reader is told "Still waiting for
+the model…" from 12 s. Evidence and the owner's stalled answer: [CHAT.md](CHAT.md#gemini-flashs-effort-and-a-silent-model--testflight-92-2026-10-25-server-and-clients-local-not-deployed).
+
 ## Build 68 follow-up: Claude on the funded router (2026-10-17; deployed and live-verified)
 
 Owner reports an unhelpful provider failure in AI Explainer and asks why Claude still uses direct Anthropic while

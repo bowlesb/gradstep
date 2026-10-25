@@ -265,6 +265,57 @@ To apply: `python3 scripts/backup.py staging`, `python3 scripts/migrate-supabase
 `discover` Edge function (it bundles `_shared/feed-rank.ts`). The migration alone is safe with the old ranking (new
 fields are ignored; tier sizes shrink only for readers the interest index serves).
 
+## Speed: For you right after sign-in (TestFlight 92, 2026-10-25; migration 0158 and an app change, local)
+
+Owner, 13:15 UTC on TestFlight 92: *"Stuck here for like 10 seconds"*: Feed › For you on "Finding new papers…" just
+after signing in.
+
+**What happened** (staging gateway, function and auth logs, read-only):
+
+| UTC | Event |
+|---|---|
+| 13:13:31 | Sign-out (the app returns to Library; the Feed state is reset to `idle`). |
+| 13:14:25 | Sign-in with Apple from the Feed's "Sign in" sheet (13:14:38 feedback shows the sheet over the Feed). |
+| 13:14:56, 13:15:37, 13:16:45 | The app's ordinary sync rounds (keys, library changes, events). No `discover` request. |
+| 13:15:56 | The owner's report: "Finding new papers…". |
+| 13:16:50 / 13:16:57 | `discover?category=cs.AI` (0.81 s), then `discover?feed=for_you` (2.32 s): the owner tapped chips. |
+
+The For you request was **never sent** until a chip was tapped, about 2.5 minutes after sign-in. Signing in from the
+Feed resets the Feed to `idle` (`beginAuthenticationContext` → `clearAccountView`); the Feed asks only in its view's
+`.task`, which runs on appear, and the Feed never disappeared under the sign-in sheet. `idle` shows the same spinner as
+`loading`. The client does not wait for library sync, the interest index or a profile rebuild: For you reads the
+server's library entries directly (0154).
+
+**Fix (app):** the Feed's task is keyed by the account (`.task(id: model.accountID)`), so it asks as soon as the
+account is accepted, under the closing sheet. iPhone, iPad and Mac share the view. A one-line SwiftUI change, not yet
+built into the app or run in a Simulator (none was used for this work): check it with the next build's Feed journeys.
+
+**Server time.** The one For you request took 2,320 ms in `discover`; `worker_feed_candidates_v2` alone 1,546 ms
+upstream (1.16–2.66 s for the eight For you calls of 10-24). Timed read-only on staging for the owner's account (84
+library papers, 293 author keys, 10 topics, 8,167 window papers, 15 combinations): 1,511–1,590 ms in five runs. Its
+parts (EXPLAIN ANALYZE of the same statement):
+
+| Part | Before | Why | After (0158) |
+|---|---|---|---|
+| Combination counts | ~1,080 ms | each combination's tag lists parsed again for every window paper (`feed_json_texts` sets its own search_path, so it is never inlined): 15 × 8,167 calls | ~57 ms: parsed once (`comp`) |
+| Author hits | ~240 ms | every window paper's keys compared with the whole 293-key list | one join through `feed_papers_authors` (`author_hits`) |
+| Topic counts | ~44 ms | the reader's topics lower-cased once per paper tag | once (`topic_set`) |
+| Similar tier, best match per paper | ~145 ms (0155's form) | both fingerprints of every pair sorted, spilled to disk | migration 0156, written separately the same day; the live function already has it, and 0158 keeps it |
+
+Migration `202610250158_feed_candidates_speed.sql` replaces 0156's function with those three changes only (same
+signature, result and order; topic chips unchanged). The For you statement generated from each migration's text, with
+the variables computed as the function does, returned the same candidates (390) and topic counts for the owner as the
+live function (equal MD5 of both, checked twice as the pool changed) and took **334–353 ms** against **1,562–1,660 ms**
+for 0156's (four steady runs each; the live function 1,549–1,589 ms in the same runs; staging had brief load spikes of
+up to 2.9 s for every version). Database fixtures `--feed-only` and the 23 current-schema suites (including
+`test_feed_topics_popularity`'s combination counts) pass on PostgreSQL 17 with pgvector. Expected For you after deploy:
+about 1 s in `discover` (authentication and rate limit ~0.4 s, candidates ~0.4 s, ranking and details ~0.1 s), so the
+first results about 1–1.5 s after sign-in on a good connection. To verify after deploy: the gateway's
+`x_envoy_upstream_service_time` for `worker_feed_candidates_v2` and `discover`'s execution time for `feed=for_you`.
+
+To apply: `python3 scripts/backup.py staging`, `python3 scripts/migrate-supabase.py staging` (0158 after 0156 and
+0157). No function deploy is needed for it (`discover` is unchanged); the app change ships with the next TestFlight build.
+
 ## Specific topics and popularity (owner feedback on build 21, 2026-10-08)
 
 Owner, on the Feed's chips (screenshot: "Natural language processing", "Machine learning", "Computer vision"):

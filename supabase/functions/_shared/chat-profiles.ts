@@ -188,10 +188,23 @@ export function autoEffort(lengthID: LengthChoice, signals: EffortSignals): Effo
   if (lengthID === 'detailed') return reasoning ? 'high' : 'medium';
   return reasoning || signals.figures > 0 || carriesEquation(signals.selection) || carriesEquation(signals.question) ? 'medium' : 'low';
 }
+/** Gemini Flash's effort for a chat answer (its profiles carry no effort choice: the server decides, whatever was sent).
+ * Owner, TestFlight 92 (2026-10-25): "Been sitting here over ten seconds" on "Thinking…" for a one-line question about a
+ * symbol. At medium, Flash thinks before its first word and nothing streams meanwhile: first text 4–17 s (median 9.5 s,
+ * the 27 bake-off answers) and up to 25 s before the first chunk on the pinned Vertex route (FIGURE_VIEW.md "Speed");
+ * at low the first words came in 2.3–11.5 s in the figure runs (one explainer run took 34 s) with the same content in the
+ * equation and figure views (DECISIONS.md). So:
+ * low, unless the question asks for reasoning (derive, prove, why, compare, step by step, intuition, how it works,
+ * explain an equation) or the reader chose Detailed. An equation or figure in the selection alone no longer asks for
+ * medium on Flash (it still does for Claude and DeepSeek, `autoEffort`). CHAT.md "Gemini Flash's effort". */
+export function geminiEffort(lengthID: LengthChoice, signals: EffortSignals): EffortChoice {
+  return lengthID === 'detailed' || asksForReasoning(signals.question) ? 'medium' : 'low';
+}
 /** A request's choice with `auto` resolved (null stays null: the default profile). */
 export function resolveChoice(requested: RequestedChoice | null, signals: EffortSignals): Choice | null {
   if (!requested) return null;
-  const chosen = requested.model === 'gemini' ? 'medium' : requested.effort === 'auto' ? autoEffort(requested.length, signals) : requested.effort;
+  const chosen = requested.model === 'gemini' ? geminiEffort(requested.length, signals)
+    : requested.effort === 'auto' ? autoEffort(requested.length, signals) : requested.effort;
   return { model: requested.model, effort: chosen, length: requested.length };
 }
 

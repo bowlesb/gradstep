@@ -1,5 +1,24 @@
 # Implementation status
 
+## Two waits from TestFlight 92 — 2026-10-25 UTC (local; nothing deployed)
+
+- **Explain in Chat stuck on "Thinking…" (13:01 UTC):** Gemini Flash sent no data for 119.5 s until the reader left; no
+  OpenRouter record; not charged; the retry took 18.7 s. "132k in · 10k out" on the usage screen are the hold's
+  estimates, not tokens. Changes: Flash answers at low unless the question asks for reasoning (or Detailed); "Still
+  waiting for the model…" after 12 s; a model that sends nothing is ended at 60 s as the provider's failure (Try again,
+  not charged); `chat_answer` logs `first_text_ms`/`answer_ms`/`no_response`. CHAT.md "Gemini Flash's effort and a
+  silent model".
+- **For you on "Finding new papers…" after sign-in (13:15 UTC):** the app never sent the request (the Feed loaded only
+  on appear and was reset under the sign-in sheet); it now asks whenever the account changes. Migration
+  `202610250158_feed_candidates_speed.sql` makes `worker_feed_candidates_v2` return the same results in 0.33–0.35 s
+  instead of 1.55–1.59 s for the owner. PERSONALIZED_FEED.md "Speed".
+- **To deploy:** back up, apply 0158 (after 0156 and 0157); deploy `chat` (it bundles `_shared/chat.ts`, `chat-profiles.ts`,
+  `openrouter-chat.ts`, `inference.ts`); browser for its status line; the app changes ship in the next TestFlight build.
+  `discover`, `recommend` and the pipeline worker need no deploy (they bundle the adapter but do not set its new limit).
+- **Checks:** `npm test` (797 backend, 732 browser units, edge and admin type checks); database `--feed-only` and the 23
+  current-schema suites on PostgreSQL 17 + pgvector; `swift test` (ScienceReaderCore: 484 Swift Testing, 99 XCTest). No paid request, Simulator or
+  device.
+
 ## After TestFlight 92 — 2026-10-25
 
 **Native Google sign-in accepts its own return** (owner report, build 92). Details and evidence are in

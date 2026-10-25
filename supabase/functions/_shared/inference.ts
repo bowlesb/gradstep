@@ -330,11 +330,16 @@ export interface ProviderOutcome {
   cause?: 'server' | 'limit';
   /** The generation receipt still being written (C6): awaited with the attempt's finish, never before the outcome returns. */
   receipt?: Promise<boolean>;
+  /** Nothing at all came back from the model within the first-data deadline, so the request was abandoned (a provider
+   * failure: openrouter-chat.ts FIRST_DATA_DEADLINE_MS). */
+  stalled?: boolean;
 }
 
 /** Server work during an answer, relayed to the reader's device as an SSE `status` event.
- * `query` (searching only) goes to that device alone; it is never logged. */
-export interface ChatStatus { kind: 'searching' | 'reading' | 'finding_paper' | 'adding_paper'; query?: string }
+ * `query` (searching only) goes to that device alone; it is never logged. Since 2026-10-25 also the model's own progress
+ * before its first words (openrouter-chat.ts): `waiting` when nothing has come back from it for a while, then `thinking`
+ * once it starts. Builds before them ignore unknown kinds. */
+export interface ChatStatus { kind: 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'waiting' | 'thinking'; query?: string }
 export const STATUS_QUERY_CHARS = 200;
 /** A search query for a status line: control characters removed, whitespace collapsed, bounded. */
 export function statusQuery(value: unknown): string | undefined {

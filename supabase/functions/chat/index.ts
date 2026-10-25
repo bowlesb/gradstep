@@ -10,7 +10,7 @@ import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedModelCalls, admittedTavily } from '../_shared/provider-spending.ts';
 import { publishedProfiles } from '../_shared/chat-profiles.ts';
 import { withCheapDefaults } from '../_shared/ai-switches.ts';
-import { openRouterChat } from '../_shared/openrouter-chat.ts';
+import { FIRST_DATA_DEADLINE_MS, openRouterChat } from '../_shared/openrouter-chat.ts';
 import { ACCEPT_MARGIN_MS, PUBLISH_MARGIN_MS, tariffOpen, tariffValidity } from '../_shared/openrouter-tariffs.ts';
 
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
@@ -83,7 +83,9 @@ Deno.serve(async request => {
   // This account's provider calls: counted, failed fast while a breaker is open, and reachable by a fault drill only
   // when the account is a test account (docs/architecture/RESILIENCE.md).
   const providerFetch = accountProviderFetch('chat', () => accountID, () => service);
-  const router = openrouterKey ? openRouterChat({ apiKey: openrouterKey, fetch: providerFetch }) : null;
+  // A model that sends nothing back within a minute is ended as the provider's failure (CHAT.md "Gemini Flash's effort and
+  // a silent model"): the reader is not charged and can ask again, instead of waiting out the 130 s deadline.
+  const router = openrouterKey ? openRouterChat({ apiKey: openrouterKey, fetch: providerFetch, firstDataMs: FIRST_DATA_DEADLINE_MS }) : null;
   const rpc: ChatDependencies['rpc'] = async (name, params) => {
     const { data, error } = await service.rpc(name, params);
     // A database exception carries a SQLSTATE; a fetch failure does not and

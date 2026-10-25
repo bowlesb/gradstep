@@ -577,7 +577,16 @@ function harness(options: { script?: Script; generate?: ChatDependencies['genera
     generate: generate ? async (params, stream) => { generations++; return generate(params, stream); } : null,
     sha256Hex: async bytes => createHash('sha256').update(bytes).digest('hex'),
     // Per-answer count lines go to `answers`; `logs` keeps the event-specific lines tests assert on.
-    log: entry => { (entry.event === 'chat_answer' ? answers : logs).push(entry); },
+    // Its timings (ms from sending to the first words and to the answer's end) are checked here and kept apart, so the
+    // count lines compare exactly whatever the clock.
+    log: entry => {
+      if (entry.event !== 'chat_answer') { logs.push(entry); return; }
+      const { first_text_ms: first, answer_ms: total, ...counts } = entry;
+      assert.ok(first === null || (Number.isSafeInteger(first) && (first as number) >= 0), 'first_text_ms is whole ms or null');
+      assert.ok(total === null || (Number.isSafeInteger(total) && (total as number) >= 0), 'answer_ms is whole ms or null');
+      assert.ok(first === null || total === null || (first as number) <= (total as number), 'the first words come before the end');
+      answers.push(counts);
+    },
     sleep: async () => {},
   };
   return { deps, calls, events, logs, answers, emit: (event: ChatEvent) => events.push(event), generations: () => generations };
@@ -2204,6 +2213,24 @@ test('the equation view reads the chat cache: same tools, shared instructions an
   assert.match(JSON.stringify((background.system as unknown[])[2]), /background to understand it/);
 });
 
+test('Flash answers at low unless the question asks for reasoning; Study and the equation background keep medium', async () => {
+  // TestFlight 92 (2026-10-25): "About Equation: What does the dot mean next to the q" sat on "Thinking…" at medium.
+  const sent: ModelRequest[] = [];
+  const h = studyHarness({ generate: async (params, stream) => { sent.push(params); stream.onText('An answer.'); return completeOutcome(); } });
+  h.deps.gemini = true;
+  const profile = { model: 'gemini', effort: 'auto', length: 'standard' };
+  const ask = (text: string, extra: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: studyContext, profile, consent_version: 'cloud-ai-v5',
+    messages: [{ role: 'user', text }], ...extra });
+  for (const body of [ask('About Equation: What does the dot mean next to the q', { selection: { quote: '\\dot{q}_\\theta = \\nabla q' } }),
+    ask('Derive the update rule step by step.'), ask('What is q?', { profile: { ...profile, length: 'detailed' } }),
+    studyBody({ profile, consent_version: 'cloud-ai-v5' })])
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+  assert.deepEqual(sent.map(p => p.output_config?.effort), ['low', 'medium', 'medium', 'medium']);
+  assert.deepEqual(sent.map(p => p.max_tokens), [8_000, 10_000, 14_000, 10_000], 'the hold follows the effort (answer + thinking allowance)');
+  const quotes = h.calls.filter(c => c.name === 'worker_reserve_chat').map(c => (c.params.p_quote as Record<string, unknown>).profile);
+  assert.deepEqual(quotes, ['gemini-low-standard', 'gemini-medium-standard', 'gemini-medium-detailed', 'gemini-medium-standard']);
+});
+
 test('Flash symbols reserve reasoning as well as the JSON answer, without changing the cached prefix', async () => {
   const sent: ModelRequest[] = [];
   const h = equationHarness({ generate: async (params, stream) => {
@@ -2622,16 +2649,19 @@ test('the figure view thinks at low effort unless the reader chose an effort for
   const gemini = { model: 'gemini', effort: 'medium', length: 'standard' };
   for (const body of [figureBody({ profile: gemini }), figureBody({ action: 'figure_simpler', selection: { quote: 'The encoder.' }, profile: gemini }),
     figureBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' } }), figureBody({ profile: { model: 'sonnet', effort: 'high', length: 'standard' } }),
+    // A chat question that asks for reasoning: Flash at medium (geminiEffort); a plain one is low (below).
+    paperBody({ document_id: null, local_context: figureContext, consent_version: CONSENT, capabilities: FIGURE_DEVICE, profile: gemini,
+      messages: [{ role: 'user', text: 'Why does the encoder use two stages?' }] }),
     paperBody({ document_id: null, local_context: figureContext, consent_version: CONSENT, capabilities: FIGURE_DEVICE, profile: gemini })]) {
     await runChat(h.deps, body, h.emit, new AbortController().signal);
   }
-  assert.deepEqual(sent.map(p => p.output_config?.effort), ['low', 'low', 'low', 'high', 'medium'], 'a chat question keeps the chat\'s effort');
+  assert.deepEqual(sent.map(p => p.output_config?.effort), ['low', 'low', 'low', 'high', 'medium', 'low'], 'a chat question keeps the chat\'s effort');
   assert.equal(sent[0].max_tokens, figureMaxTokens('low'));
   assert.equal((openRouterChatParams(sent[0]).reasoning as { effort: string }).effort, 'low', 'Gemini is asked for low reasoning');
   assert.equal((openRouterChatParams(sent[4]).reasoning as { effort: string }).effort, 'medium');
   const quotes = h.calls.filter(c => c.name === 'worker_reserve_chat').map(c => (c.params.p_quote as Record<string, unknown>));
   assert.deepEqual(quotes.map(q => [q.profile, q.effort]), [['gemini-low-standard', 'low'], ['gemini-low-standard', 'low'], ['sonnet-low-standard', 'low'],
-    ['sonnet-high-standard', 'high'], ['gemini-medium-standard', 'medium']]);
+    ['sonnet-high-standard', 'high'], ['gemini-medium-standard', 'medium'], ['gemini-low-standard', 'low']]);
   // The cached prefix is the chat's whatever the effort (Gemini caches the system message; Claude's thinking is adaptive).
   const prefix = (p: Params) => JSON.stringify({ model: p.model, thinking: p.thinking, tools: p.tools, system: (p.system as unknown[]).slice(0, 2) });
   assert.equal(prefix(sent[0]), prefix(sent[4]));

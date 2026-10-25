@@ -104,8 +104,9 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
 
 // ---------- Stream events ----------
 
-/** `looking_at_figure` is the browser's own: the figure a question names (or the model asked for) went with it. */
-export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'looking_at_figure';
+/** `looking_at_figure` is the browser's own: the figure a question names (or the model asked for) went with it. `waiting`
+ * and `thinking` (servers from 2026-10-25): the model hasn't sent anything back yet, then it has started. */
+export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'looking_at_figure' | 'waiting' | 'thinking';
 export interface Progress { kind: ProgressKind; query?: string }
 export type StreamEvent =
   | { type: 'delta'; text: string } | { type: 'diagram'; title: string; source: string } | { type: 'status'; progress: Progress }
@@ -160,7 +161,17 @@ export function progressText(p: Progress): string {
     case 'finding_paper': return 'Finding the paper…';
     case 'adding_paper': return 'Adding to your library…';
     case 'looking_at_figure': return p.query ? `Looking at ${p.query}…` : 'Looking at the figure…';
+    case 'waiting': return 'Still waiting for the model…';
+    case 'thinking': return 'Thinking…';
   }
+}
+
+/** The line under an answer before its first words: server work in progress, else "Thinking…" with the seconds waited after
+ * five (a model's own `thinking` is that same line; `waiting` says the model hasn't started, with the seconds too). */
+export function waitingText(p: Progress | null | undefined, waited: number): string {
+  const seconds = waited >= 5 ? ` ${waited} s` : '';
+  if (!p || p.kind === 'thinking') return `Thinking…${seconds}`;
+  return p.kind === 'waiting' ? `${progressText(p)}${seconds}` : progressText(p);
 }
 
 /** Incremental, bounded `text/event-stream` parser (ChatSSEParser): unknown events and comments are ignored; malformed known ones are fatal. */
@@ -228,7 +239,7 @@ export class SSEParser {
       case 'status': {
         // Informational: unknown kinds or malformed statuses are ignored, never fatal.
         const kind = v?.kind;
-        if (kind !== 'searching' && kind !== 'reading' && kind !== 'finding_paper' && kind !== 'adding_paper') return null;
+        if (kind !== 'searching' && kind !== 'reading' && kind !== 'finding_paper' && kind !== 'adding_paper' && kind !== 'waiting' && kind !== 'thinking') return null;
         const query = kind === 'searching' && typeof v?.query === 'string' ? v.query.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim().slice(0, 200) : '';
         return { type: 'status', progress: query ? { kind, query } : { kind } };
       }

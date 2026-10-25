@@ -153,7 +153,19 @@ test('Flash is opt-in on the server, consent v5 is mandatory, and older defaults
   assert.deepEqual(table.profiles.slice(0, old.profiles.length), old.profiles);
   assert.deepEqual(table.default_recommended, { model: 'gemini', effort: 'medium', length: 'standard' });
   assert.equal(providerForModel(GEMINI_MODEL), 'openrouter'); assert.ok(!old.models.some(m => m.id === 'gemini'));
-  assert.equal(resolveChoice({ model: 'gemini', effort: 'auto', length: 'brief' }, { question: 'Hi', selection: null, figures: 0 })?.effort, 'medium');
+  // Flash's effort is the server's (2026-10-25, TestFlight 92 "Been sitting here over ten seconds"): low, so the first words
+  // come without minutes of invisible thinking, unless the question asks for reasoning or the reader chose Detailed.
+  const flash = (length: 'brief' | 'standard' | 'detailed', question: string, selection: string | null = null, effort: 'auto' | 'medium' = 'auto') =>
+    resolveChoice({ model: 'gemini', effort, length }, { question, selection, figures: 0 })?.effort;
+  assert.equal(flash('brief', 'Hi'), 'low');
+  assert.equal(flash('standard', 'About Equation: What does the dot mean next to the q', '\\dot{q}_\\theta(x) = \\nabla_\\theta q'), 'low',
+    'an equation in the selection alone does not make Flash think at medium');
+  assert.equal(flash('standard', 'What does the dot mean?', null, 'medium'), 'low', 'the explicit (only published) Flash effort is the server\'s too');
+  assert.equal(flash('standard', 'Why does the KL term keep the policy close to the reference?'), 'medium');
+  assert.equal(flash('standard', 'Derive the gradient of this loss step by step.'), 'medium');
+  assert.equal(flash('detailed', 'What is q?'), 'medium');
+  assert.equal(resolveChoice({ model: 'sonnet', effort: 'auto', length: 'standard' }, { question: 'What is q?', selection: '\\dot{q}', figures: 0 })?.effort, 'medium',
+    'Claude keeps its automatic rules');
   const body = { operation_id: 'aaaaaaaa-0000-4000-8000-000000000001', mode: 'general', messages: [{ role: 'user', text: 'Hello' }],
     consent_version: 'cloud-ai-v4', profile: { model: 'gemini', effort: 'auto', length: 'standard' } };
   assert.throws(() => validateChatRequest(body), { code: 'consent_required' });
@@ -181,7 +193,7 @@ test('the enabled chat orchestrator quotes Flash and settles the reported cost',
       profile: { model: 'gemini', effort: 'auto', length: 'standard' } }, e => events.push(e), new AbortController().signal);
   assert.ok(!events.some(e => e.event === 'error'), JSON.stringify(events));
   const quote = calls.find(c => c.name === 'worker_reserve_chat')!.p.p_quote;
-  assert.equal(quote.profile, 'gemini-medium-standard'); assert.equal(quote.model, GEMINI_MODEL);
+  assert.equal(quote.profile, 'gemini-low-standard', 'a one-word question: Flash at low'); assert.equal(quote.model, GEMINI_MODEL);
   assert.equal(quote.tariff, 'openrouter-google-flash-vertex-us-20261017');
   assert.equal(calls.find(c => c.name === 'worker_provider_attempt_finish')!.p.p_actual_microusd, 1000);
   assert.ok(events.some(e => e.event === 'done' && e.data.model === GEMINI_MODEL && e.data.credits === 1));
@@ -366,4 +378,100 @@ test('without OpenRouter\'s record a Stop is charged for the streamed output onl
 test('a Stop before any text or tool call arrived costs the reader nothing, even with a record', async () => {
   const { settle } = await stoppedAnswer({ record: 'found', first: [{ id: 'gen-stop', model: SONNET, choices: [{ delta: { reasoning_details: [{ index: 0, type: 'reasoning.text', text: 'Thinking' }] }, finish_reason: null }] }], stopAtStart: true });
   assert.equal(settle.p_ending, 'stopped'); assert.equal(settle.p_actual_credits, 0); assert.equal(settle.p_absorbed_microusd, 120_000);
+});
+
+// TestFlight 92 (2026-10-25 13:01 UTC): a Gemini Flash answer sent nothing for 119 s ("Thinking…") until the reader left.
+// The adapter now says when the model hasn't started (status `waiting`), says `thinking` once it does, and abandons a
+// request that sends no data at all by FIRST_DATA_DEADLINE_MS as the provider's failure (not charged; ask again at once).
+import { FIRST_DATA_DEADLINE_MS, WAITING_NOTICE_MS } from '../../supabase/functions/_shared/openrouter-chat.ts';
+import type { ChatStatus } from '../../supabase/functions/_shared/inference.ts';
+/** OpenRouter's headers, then only its keep-alive comments until `after` ms, then `events` (never, without them). */
+function slow(signal: AbortSignal | null | undefined, after: number | null, events: unknown[] = []) {
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream({ start(c) {
+    c.enqueue(encoder.encode(': OPENROUTER PROCESSING\n\n'));
+    const timer = after === null ? undefined : setTimeout(() => {
+      c.enqueue(encoder.encode(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n')); c.close();
+    }, after);
+    signal?.addEventListener('abort', () => { clearTimeout(timer); c.error(signal.reason ?? new DOMException('stopped', 'AbortError')); }, { once: true });
+  } }), { headers: { 'x-generation-id': 'gen-test' } });
+}
+
+test('a model that sends nothing is told to the reader as waiting, then abandoned as the provider\'s failure', async () => {
+  assert.ok(WAITING_NOTICE_MS < FIRST_DATA_DEADLINE_MS && FIRST_DATA_DEADLINE_MS < 130_000, 'the stall ends before the answer deadline');
+  const statuses: ChatStatus[] = [], gets: string[] = [];
+  let reason: unknown = null;
+  const generate = openRouterChat({ apiKey: 'test-key', now: () => NOW, sleep: async () => {}, waitingMs: 10, firstDataMs: 40,
+    fetch: async (url, init) => {
+      if (String(url).includes('/generation?id=')) { gets.push(String(url)); return new Response(null, { status: 404 }); }
+      init?.signal?.addEventListener('abort', () => { reason = init.signal!.reason; }, { once: true });
+      return slow(init?.signal, null);
+    } });
+  const reader = new AbortController();
+  const outcome = await generate(params, { attribution, signal: reader.signal, inputEstimateTokens: 2000, onText: () => {}, onStatus: s => statuses.push(s) });
+  assert.deepEqual(statuses, [{ kind: 'waiting' }]);
+  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_error'); assert.equal(outcome.stalled, true);
+  assert.equal(reader.signal.aborted, false, 'the reader\'s own signal is untouched');
+  assert.equal((reason as { name?: string } | null)?.name, 'TimeoutError', 'provider health counts it as the provider\'s timeout');
+  // No record: the whole ceiling stays an unresolved liability (the reconciler's), never the reader's.
+  assert.equal(outcome.exact, false); assert.equal(outcome.attempts[0].estimated, true); assert.equal(outcome.attempts[0].readerMicrousd, 0);
+  assert.equal(gets.length, 0, 'no wait for a record a silent model never leaves: the reader hears at once');
+  assert.equal(outcome.requestID, 'gen-test', 'the generation id is kept, so the reconciler can read its record later');
+});
+
+test('an empty opening chunk does not count as the model starting', async () => {
+  const encoder = new TextEncoder(), statuses: ChatStatus[] = [];
+  const generate = openRouterChat({ apiKey: 'test-key', now: () => NOW, sleep: async () => {}, waitingMs: 10, firstDataMs: 40,
+    fetch: async (_url, init) => new Response(new ReadableStream({ start(c) {
+      c.enqueue(encoder.encode(`data: ${JSON.stringify(event({ role: 'assistant', content: '' }))}\n\n`));
+      init?.signal?.addEventListener('abort', () => c.error(init.signal!.reason), { once: true });
+    } }), { headers: { 'x-generation-id': 'gen-test' } }) });
+  const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {}, onStatus: s => statuses.push(s) });
+  assert.deepEqual(statuses, [{ kind: 'waiting' }]);
+  assert.equal(outcome.status, 'failed'); assert.equal(outcome.stalled, true); assert.equal(outcome.failure, 'provider_error');
+});
+
+test('a slow start says waiting then thinking, and the answer is unchanged', async () => {
+  const statuses: ChatStatus[] = [];
+  let text = '';
+  const generate = openRouterChat({ apiKey: 'test-key', now: () => NOW, waitingMs: 10, firstDataMs: 5_000,
+    fetch: async (_url, init) => slow(init?.signal, 40, [event({ reasoning_details: [{ index: 0, type: 'reasoning.text', text: 'Considering' }] }),
+      event({ content: 'The dot is a time derivative.' }), final()]) });
+  const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000,
+    onText: s => { text += s; }, onStatus: s => statuses.push(s) });
+  assert.deepEqual(statuses, [{ kind: 'waiting' }, { kind: 'thinking' }]);
+  assert.equal(outcome.status, 'complete'); assert.equal(outcome.stalled, undefined); assert.equal(text, 'The dot is a time derivative.');
+  // Without the chat function's deadline (podcast scripts, tags, recommendations) a slow start is never ended.
+  const unlimited = openRouterChat({ apiKey: 'test-key', now: () => NOW,
+    fetch: async (_url, init) => slow(init?.signal, 60, [event({ content: 'Late.' }), final()]) });
+  assert.equal((await unlimited(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {} })).status, 'complete');
+  // A prompt start says nothing extra.
+  const quick: ChatStatus[] = [];
+  const fast = openRouterChat({ apiKey: 'test-key', now: () => NOW, waitingMs: 1_000, firstDataMs: 5_000, fetch: async () => response([event({ content: 'Hi' }), final()]) });
+  assert.equal((await fast(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {}, onStatus: s => quick.push(s) })).status, 'complete');
+  assert.deepEqual(quick, []);
+});
+
+test('a stalled answer ends as the provider\'s failure: not charged, Try again offered, logged as no_response', async () => {
+  const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000009';
+  const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], logs: Record<string, unknown>[] = [];
+  const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
+    return name === 'worker_openrouter_dispatch' || name === 'worker_openrouter_receipt' ? true : name === 'worker_reserve_chat' ? { replayed: false }
+      : name === 'worker_openrouter_admit' ? { granted: true, dispatched: true } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
+  const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+  const generate = admittedModelCalls({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', sleep: async () => {},
+    waitingMs: 10, firstDataMs: 40, fetch: async (url, init) => String(url).includes('/generation?id=') ? new Response(null, { status: 404 }) : slow(init?.signal, null) }));
+  await runChat({ accountID, rpc, sha256Hex, generate, gemini: true, loadPaper: async () => null, log: e => logs.push(e), sleep: async () => {} },
+    { operation_id: operationID, consent_version: 'cloud-ai-v5', mode: 'general', messages: [{ role: 'user', text: 'What does the dot mean?' }],
+      profile: { model: 'gemini', effort: 'auto', length: 'standard' } }, e => events.push(e), new AbortController().signal);
+  assert.deepEqual(events.filter(e => e.event === 'status').map(e => e.data), [{ kind: 'waiting' }]);
+  const error = events.at(-1)!;
+  assert.equal(error.event, 'error'); assert.equal((error.data as any).code, 'provider_unavailable');
+  assert.equal((error.data as any).charged, false); assert.equal((error.data as any).credits, 0); assert.equal((error.data as any).reason, 'provider');
+  const settle = calls.find(c => c.name === 'worker_settle_chat')!.p;
+  assert.equal(settle.p_ending, 'provider'); assert.equal(settle.p_actual_credits, 0);
+  assert.equal(calls.find(c => c.name === 'worker_provider_attempt_finish')!.p.p_state, 'unknown', 'the liability stays for the reconciler');
+  const line = logs.find(l => l.event === 'chat_answer')!;
+  assert.equal(line.no_response, true); assert.equal(line.ending, 'provider'); assert.equal(line.first_text_ms, null);
+  assert.equal(line.profile, 'gemini-low-standard');
 });

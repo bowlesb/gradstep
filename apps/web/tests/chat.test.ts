@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SSEParser, answerActionPrompt, chatTitle, interruptionNote, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText, failureText, retryable } from '../src/lib/chat';
+import { SSEParser, answerActionPrompt, chatTitle, interruptionNote, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText, failureText, retryable, waitingText } from '../src/lib/chat';
 import { renderMarkdown } from '../src/lib/markdown';
 import { PrivateState, decodeDiagram, decodeEvent, encodeDiagram, encodeEvent, makeDiagram, type PrivateEvent } from '../src/lib/events';
 
@@ -225,3 +225,14 @@ describe('actions on selected answer text (B1)', () => {
   });
 });
 
+
+// Servers from 2026-10-25 say when the model hasn't sent anything back yet (`waiting`), then that it started (`thinking`).
+it('the model\'s own progress before its first words: waiting with the seconds, then Thinking…', () => {
+  const events = new SSEParser().consume(new TextEncoder().encode('event: status\ndata: {"kind":"waiting"}\n\nevent: status\ndata: {"kind":"thinking"}\n\n'));
+  expect(events).toEqual([{ type: 'status', progress: { kind: 'waiting' } }, { type: 'status', progress: { kind: 'thinking' } }]);
+  expect(waitingText(null, 2)).toBe('Thinking…');
+  expect(waitingText(null, 12)).toBe('Thinking… 12 s');
+  expect(waitingText({ kind: 'waiting' }, 13)).toBe('Still waiting for the model… 13 s');
+  expect(waitingText({ kind: 'thinking' }, 20)).toBe('Thinking… 20 s');
+  expect(waitingText({ kind: 'searching', query: 'dpo' }, 20)).toBe('Searching the web for “dpo”');
+});
