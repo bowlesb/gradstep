@@ -46,8 +46,9 @@ final class TableColumnsTests: XCTestCase {
         app.launch()
         let header = { (id: String) in app.descendants(matching: .any)["library.table.header.\(id)"].firstMatch }
         XCTAssertTrue(header("year").waitForExistence(timeout: 15))
-        // At rest it looks as before: Title, Year, Progress; the dates and chats are past the edge.
-        XCTAssertTrue(onScreen(header("year"), in: app)); XCTAssertTrue(onScreen(header("progress"), in: app))
+        // At rest: Title, Device, Progress; Authors, Year, the dates and chats are past the edge.
+        XCTAssertTrue(onScreen(header("device"), in: app)); XCTAssertTrue(onScreen(header("progress"), in: app))
+        XCTAssertFalse(onScreen(header("year"), in: app), "Year waits past the edge")
         XCTAssertFalse(onScreen(header("chats"), in: app), "Chats waits past the edge")
         let title = header("title"), titleX = title.frame.minX
         let row = app.descendants(matching: .any)["library.table.paper/\(attention)"].firstMatch

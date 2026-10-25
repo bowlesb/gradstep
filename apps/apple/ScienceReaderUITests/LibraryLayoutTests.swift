@@ -321,8 +321,10 @@ final class LibraryLayoutTests: XCTestCase {
         let app = launch()
         choose("Table", in: app, screenshot: "Library options menu (iPhone)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5), "A real table in portrait")
-        for title in ["Title", "Year", "Progress"] { XCTAssertTrue(onScreen(header(title, in: app), in: app), "Portrait shows \(title)") }
-        for title in ["Added", "Opened", "Chats"] {
+        // Device (kept longest) and Progress beside the title; Authors, Year, the dates and chats scroll in (since the
+        // separate Device and Authors columns, 2026-10-18).
+        for title in ["Title", "Device", "Progress"] { XCTAssertTrue(onScreen(header(title, in: app), in: app), "Portrait shows \(title)") }
+        for title in ["Year", "Added", "Opened", "Chats"] {
             XCTAssertFalse(onScreen(header(title, in: app), in: app), "\(title) scrolls in (or shows in landscape)")
         }
         // The order (Recent: the Added column) still shows while its column is hidden.
@@ -332,7 +334,7 @@ final class LibraryLayoutTests: XCTestCase {
         // One element per row, reading every chosen column, including those too wide to show.
         let row = cell(attention, in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 5))
-        for part in ["Attention Is All You Need", "Vaswani et al.", "2017", "Added today", "2 chats", "60 percent read"] {
+        for part in ["Attention Is All You Need", "On this device", "Vaswani, Shazeer", "2017", "Added today", "2 chats", "60 percent read"] {
             XCTAssertTrue(row.label.contains(part), "\(part) in \(row.label)")
         }
         attach(app, "Phone portrait table")

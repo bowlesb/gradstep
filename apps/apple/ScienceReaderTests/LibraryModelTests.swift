@@ -1040,7 +1040,12 @@ final class LibraryModelTests: XCTestCase {
         let server = LibraryModelServer(activated: true)
         server.metadataTitle = "Short title"
         let fixture = try fixture(server), model = fixture.model
-        await model.start(); model.libraryLayout = .table
+        await model.start()
+        // The test host is the app, so the model starts from the Library choices the last UI test launch saved on this
+        // Simulator: LibraryTopicsTests leaves the iPhone with Tags alone, where an import's status sits under its title
+        // (TestFlight 93's gate: rows 82 and 64 pt, a 14 pt spinner); others leave Device and Authors, or the Failed filter.
+        // This measures the default table, where Progress carries an import's spinner.
+        model.libraryLayout = .table; model.libraryColumns = LibraryColumnSettings(); model.libraryFilter = .all
         // Search runs off the main actor. A rendered filter row does not mean the paper rows have arrived.
         await model.waitForLibrarySearch()
         let window = try window(for: model)

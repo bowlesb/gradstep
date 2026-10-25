@@ -540,7 +540,10 @@ download/presentation and encrypted offline reopen. A real local PDF goes throug
 becomes a Library item and reopens; a damaged PDF is rejected without creating an item. It also replays all seven reported papers in
 `tests/corpus/import-regressions.json`, including DocPilot's algorithm/math badges, More Methods' absent HTML and
 FDE-Gym's leaked font preamble (including assertions that the unwanted text is absent).
-The Library row-height check renders the actual Library view.
+The Library row-height check renders the actual Library view. The test host is the app, so it names the default
+table (layout, columns, All) rather than inheriting the choices the last UI launch saved on that Simulator: TestFlight
+93's gate failed (rows 82/64 pt, a 14 pt spinner under the title) after LibraryTopicsTests left the iPhone with Tags
+alone, which moves an import's status under its title.
 
 Build 66 feedback adds six session-boundary checks to the seven import methods (13 required, none skipped):
 deleted-session refresh, exact rejection of an unexpired token, transient offline identity retention, model retirement
