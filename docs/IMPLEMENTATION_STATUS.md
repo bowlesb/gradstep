@@ -34,6 +34,25 @@ mode's section). UI test `PaperToolsTests.testContentsMarksTheSectionBeingRead` 
 `testContentsTabsListFiguresTablesAndEquations` (its X assertion was stale since build 78 removed the figure page's X on
 iPhone/iPad; now Mac-only).
 
+Owner session on 91 (iPad Settings; DECISIONS "One row for the on-device PDF reader…"). **On-device PDF reader** is one
+row: ⓘ "Reads a paper’s PDF on this device with Gradstep’s own models (takes longer, can be inaccurate)."; off by default
+(`reader.deviceModel` defaulted to on, so the owner saw it on beside "Not downloaded"); on only when chosen and the model
+is here; turning it on asks "Download the on-device PDF reader?" (About 365 MB), then the row shows the download with
+Cancel and the switch comes on; a failure or Cancel leaves it off; off removes the model; the Mac is the switch alone.
+Existing installs with the model downloaded stay on. Rules in `DeviceModelReaderSetting` (ScienceReaderCore); a
+`--device-model-download-fixture[=fail|slow|ready]` seam fakes the On-Demand Resources download in UI tests. **Theme**:
+"Match device" is now System, with an ⓘ; **Underline passages with chats** has an ⓘ (the web Settings gets the same two
+ⓘ). **Session recorder**: ReplayKit's picture stopped when the app went to the background (0:17) while the microphone
+ran on; the recorder now ends that file on the return and starts `screen-2.mp4`… with a sync band and `video_gap` /
+`video_segment` events, or shows a crossed-out camera on the strip if it can't restart; `tools/session-review` reads
+every part and flags gaps and pictures that stop before their sound. Not seen on a device yet (ReplayKit doesn't record
+in the Simulator). Verified: `swift test --filter DeviceModelReaderSettingTests` (11 pass); `SessionVideoSegmentTests`
+(3 pass, stand-in recorder) and `SettingsTests` (all 10 on iPad Pro 13-inch (M5); the 3 new/changed on iPhone 17 Pro)
+pass in the iOS 26.4 Simulator; the review tool on the owner's session flags "Video stopped at 00:18.2" and on a two-part
+session cut from it lines both parts up and reports the gap; `npm test` passes. Not run: `DeviceModelJourneyTests`
+(updated for the one row; needs the model pack in the build); `PassageJourneyTests/testTabletSplitLinksChatAndPassage`
+failed before its theme step, at the selection menu's "Explain in Chat" (untouched here).
+
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
 Release gate on the merged main: `npm test`, `npm run test:imports` 15/15, `swift test` 451 + 66 XCTest, all pass; the

@@ -277,6 +277,31 @@ final class VisualScenarioTests: XCTestCase {
                 for _ in 0..<6 { app.swipeUp() }
                 sleep(1)
             },
+            // Settings › Experimental and Reading (owner, TestFlight 91 session): the on-device PDF reader's one row
+            // (`--device-model-download-fixture`: a pack that downloads without On-Demand Resources), Theme and Underline
+            // passages with chats, each with its ⓘ.
+            "settings-reading": Scenario(arguments: Self.deviceModelSettings) { app in self.showReadingSettings(app) },
+            "settings-device-model-ask": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app)
+                app.switches["settings.deviceModel"].switches.firstMatch.tap()
+                XCTAssertTrue(app.alerts.buttons["Download"].firstMatch.waitForExistence(timeout: 5)); sleep(1)
+            },
+            "settings-device-model-downloading": Scenario(arguments: Self.deviceModelSettings.map { $0 == "--device-model-download-fixture" ? "--device-model-download-fixture=slow" : $0 }) { app in
+                self.showReadingSettings(app)
+                app.switches["settings.deviceModel"].switches.firstMatch.tap()
+                let download = app.alerts.buttons["Download"].firstMatch
+                XCTAssertTrue(download.waitForExistence(timeout: 5)); download.tap()
+                XCTAssertTrue(app.buttons["settings.deviceModelCancel"].waitForExistence(timeout: 5)); sleep(3)
+            },
+            "settings-device-model-info": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app); app.buttons["settings.deviceModel.info"].tap(); sleep(1)
+            },
+            "settings-theme-info": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app); app.buttons["settings.theme.info"].tap(); sleep(1)
+            },
+            "settings-passage-marks-info": Scenario(arguments: Self.deviceModelSettings) { app in
+                self.showReadingSettings(app); app.buttons["settings.passageMarks.info"].tap(); sleep(1)
+            },
             // Settings signed in (owner feedback, build 14 #8/#9): the Account row and its page, About and its
             // Acknowledgements; `chat-title` opens a selection-action conversation to show its short title.
             "settings-account": Scenario(arguments: Self.chatFixture) { app in self.go(app, "settings"); sleep(1) },
@@ -310,6 +335,16 @@ final class VisualScenarioTests: XCTestCase {
     /// The places capsule in either shape (Wide: the paper's chat sits beside the paper), the Mac toolbar's places.
     private func go(_ app: XCUIApplication, _ tab: String) {
         app.show(tab)
+    }
+
+    private static let deviceModelSettings = ["--workflow-fixture", "--device-model-download-fixture"]
+    /// Settings scrolled until Experimental and Reading are on screen.
+    private func showReadingSettings(_ app: XCUIApplication) {
+        go(app, "settings")
+        let marks = app.switches["settings.passageMarks"]
+        for _ in 0..<6 where !(marks.exists && marks.isHittable) { app.swipeUp() }
+        XCTAssertTrue(app.switches["settings.deviceModel"].waitForExistence(timeout: 5))
+        sleep(1)
     }
 
     /// Scrolls the slow import's status into view (large text pushes it below the fold). VoiceOver reads the step and

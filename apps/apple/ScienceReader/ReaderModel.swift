@@ -314,8 +314,12 @@ final class ReaderModel {
     /// Settings › Library (owner, build 44: "a setting that allows you to decide if you want to automatically download
     /// new papers"): a paper added here downloads and prepares on this device at once.
     var autoDownloadNewPapers = UserDefaults.standard.object(forKey: "library.autoDownload") as? Bool ?? true { didSet { UserDefaults.standard.set(autoDownloadNewPapers, forKey: "library.autoDownload") } }
-    /// The on-device PDF model (experimental; docs/architecture/DEVICE_PDF_ROUTE.md). On while it is being tested.
-    var deviceModelReader = UserDefaults.standard.object(forKey: "reader.deviceModel") as? Bool ?? true { didSet { UserDefaults.standard.set(deviceModelReader, forKey: "reader.deviceModel") } }
+    /// The on-device PDF reader (experimental; docs/architecture/DEVICE_PDF_ROUTE.md): the reader's choice. Off by default
+    /// (owner, TestFlight 91 session); Settings shows it on only when the models are on this device too
+    /// (`DeviceModelReaderSetting`, DeviceModelReading.swift).
+    var deviceModelReader = DeviceModelAssets.initialReaderPreference() { didSet { UserDefaults.standard.set(deviceModelReader, forKey: "reader.deviceModel") } }
+    /// Settings' "Download the on-device PDF reader?" is showing.
+    var deviceModelDownloadQuestion = false
     /// A reading by the on-device model in progress (one at a time).
     var deviceModelRun: DeviceModelRun? = nil
     /// The models' download, offered for this paper in the bar where a reading's progress shows (the models are a

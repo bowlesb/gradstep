@@ -67,14 +67,18 @@ reaches the app only through `device-models.mjs` and a lock update, and any chan
 - *Updates*: a build with a new description is a new version; at launch the old version is removed (it can't be used with
   the new converter) and, for a reader who had downloaded before, the new one downloads by itself at the first network
   answer that is not cellular or Low Data Mode; otherwise the offer appears where it is used.
-- *Removing*: Settings › Experimental › On-device PDF model › Remove deletes every version and stops automatic updates.
+- *Removing*: turning Settings › Experimental › On-device PDF reader off deletes every version and stops automatic
+  updates (2026-10-24 owner session; before that a separate row's Remove did).
 
 **Interface** (owner: minimal screens, controls where used). "Read with the on-device model" without the models shows,
 in the bar where the reading's progress shows, "Download PDF reading model (about 365 MB)" with Cancel and, on cellular,
 "Wi-Fi is better for a download this size"; during the download its percentage, a progress bar and Cancel; a failure says
-why with Try Again. When the models are in, the reading starts by itself. Settings › Experimental has one row under the
-toggle: "On-device PDF model — Downloaded · 364.6 MB" with Remove, "Not downloaded · about 365 MB" with Download, or
-"Downloading · n %" with Cancel; the row is not shown on the Mac.
+why with Try Again. When the models are in, the reading starts by itself. Settings › Experimental has one row (owner,
+TestFlight 91 session; DECISIONS "One row for the on-device PDF reader"): "On-device PDF reader", off by default and
+shown on only when chosen and the models are here. Turning it on without them asks "Download the on-device PDF reader?"
+(about 365 MB; Download, Cancel); the row then shows "Downloading · n% of 365 MB" with a bar and Cancel, and the switch
+comes on when they are installed; a failure or Cancel leaves it off (a failure's message under the title). Turning it
+off removes them. On the Mac it is the switch alone.
 
 **Verified** (2026-10-24, this Mac, iPhone 17 Simulator on iOS 26.4): the journey `DeviceModelJourneyTests` taps "Read
 with the on-device model" on a build without the models, gets the offer, downloads the asset pack through the
@@ -213,7 +217,7 @@ Built and running on this Mac and in the iOS Simulator; not yet tried on an iPho
 - **iOS Simulator**: the stateful recogniser does not load ("Network translation error"); the route reads the paper
   without it (formulas as page images) and the banner says the formula model can't run on this device. A real
   fixture paper's first three pages take 12 s there.
-- **App**: Settings › Experimental "On-device PDF reader" (on while testing); "Read with the on-device model" in a
+- **App**: Settings › Experimental "On-device PDF reader" (off by default since 2026-10-24); "Read with the on-device model" in a
   paper's options when its PDF is on the device, and in an added PDF's own view; a progress bar with the stage,
   elapsed time and Stop; the reading opens in the same reader under a banner (pages, time, formulas typeset) whose
   menu offers "Report a problem with this reading" (the report carries counts and times, never the paper's text)

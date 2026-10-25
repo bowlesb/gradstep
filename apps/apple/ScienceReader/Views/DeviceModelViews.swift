@@ -134,39 +134,55 @@ struct DeviceModelDownloadBar: View {
     }
 }
 
-/// Settings › Experimental: the on-device PDF model on this device, with the one action that applies (Download, Cancel
-/// or Remove). Not shown on the Mac, whose models are inside the app.
-struct DeviceModelSettingsRow: View {
-    let assets: DeviceModelAssets
+/// Settings › Experimental: the on-device PDF reader in one row (owner, TestFlight 91 session; DECISIONS "One row for the
+/// on-device PDF reader"). The switch is on only when chosen and the models are on this device; turning it on without
+/// them asks before the download (iPhone, iPad), the row then shows the download with Cancel and the switch comes on
+/// when it finishes. On the Mac the models are inside the app: the switch alone.
+struct DeviceModelReaderSettingsRow: View {
+    @Bindable var model: ReaderModel
+    static let info = "Reads a paper’s PDF on this device with Gradstep’s own models (takes longer, can be inaccurate)."
+
     var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("On-device PDF model")
-                Text(status).font(.footnote).foregroundStyle(.secondary).monospacedDigit()
-                    .accessibilityIdentifier("settings.deviceModelStatus")
-            }
-            Spacer(minLength: 0)
-            switch assets.state {
-            case .ready:
-                Button("Remove", role: .destructive) { assets.remove() }.buttonStyle(.borderless)
-                    .accessibilityIdentifier("settings.deviceModelRemove")
-            case .downloading:
-                Button("Cancel") { assets.cancel() }.buttonStyle(.borderless)
-                    .accessibilityIdentifier("settings.deviceModelCancel")
-            default:
-                Button("Download") { Task { await assets.ensureDownloaded() } }.buttonStyle(.borderless)
-                    .accessibilityIdentifier("settings.deviceModelDownload")
+        let assets = model.deviceModelAssets
+        Group {
+            switch model.deviceModelReaderRow {
+            case .toggle(let on, let note):
+                Toggle(isOn: Binding(get: { on }, set: { model.setDeviceModelReader($0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        title
+                        if let note {
+                            Text(note).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("settings.deviceModelNote")
+                        }
+                    }
+                }
+                .accessibilityIdentifier("settings.deviceModel")
+            case .downloading(let fraction):
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        title
+                        ProgressView(value: fraction).progressViewStyle(.linear)
+                        Text("Downloading · \(Int((fraction * 100).rounded(.down)))% of \(assets.approximateSize.replacingOccurrences(of: "about ", with: ""))")
+                            .font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+                            .accessibilityIdentifier("settings.deviceModelProgress")
+                    }
+                    Spacer(minLength: 0)
+                    Button("Cancel") { model.setDeviceModelReader(false) }.buttonStyle(.borderless)
+                        .accessibilityIdentifier("settings.deviceModelCancel")
+                }
+                .accessibilityElement(children: .contain)
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("settings.deviceModelFile")
+        .alert("Download the on-device PDF reader?", isPresented: $model.deviceModelDownloadQuestion) {
+            Button("Download") { model.confirmDeviceModelDownload() }.accessibilityIdentifier("settings.deviceModelDownload")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(assets.approximateSize.prefix(1).uppercased() + assets.approximateSize.dropFirst() + "."
+                 + (assets.onExpensiveNetwork ? " You’re on cellular data; Wi-Fi is better for a download this size." : ""))
+        }
     }
-    private var status: String {
-        switch assets.state {
-        case .ready(let bytes, _): "Downloaded · \(DeviceModelAssets.sizeText(bytes))"
-        case .downloading(let fraction): "Downloading · \(Int((fraction * 100).rounded(.down)))%"
-        case .failed(let message): message
-        case .notDownloaded, .unavailable: "Not downloaded · \(assets.approximateSize)" + (assets.onExpensiveNetwork ? " · Wi-Fi recommended" : "")
-        }
+
+    private var title: some View {
+        LabelWithInfo(title: "On-device PDF reader", info: Self.info, identifier: "settings.deviceModel.info")
     }
 }
