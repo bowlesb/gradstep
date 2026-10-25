@@ -58,6 +58,9 @@ Asked for "reasonable behavior" with no internet or a full disk ([review](review
   twice its size. Paper preparation fails cleanly and says the shortfall (its size isn't known in advance).
 - **Full disk at launch:** what is saved opens and reads; the store's open-time clean-up waits for the next launch with
   room; a store last closed by an earlier build opens exclusively, or read-only until space returns.
+- **Owner, 2026-10-25 ("I'll take your recommendations"):** an offline question is never answered automatically when
+  the network returns (it would spend credits without a tap; Try again stays); and the Feed's last page is kept on the
+  device across launches, so an offline cold start shows it rather than an empty Feed.
 
 ## Interest index privacy notice approved; serving may go to all (owner, 2026-10-25)
 
