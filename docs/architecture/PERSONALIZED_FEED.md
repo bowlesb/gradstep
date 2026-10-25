@@ -1,5 +1,12 @@
 # Personalized feed ("For you")
 
+Update, 2026-10-25 UTC: **migration `202610250156_feed_similar_tier_sort.sql` (written and tested locally, not
+applied)** keeps the similar tier fast for large libraries: at the 300-paper cap it took 1.28–3.80 s (a sort carrying
+both fingerprints of every pair spilled to disk) and now takes about 0.24 s, with identical results
+([Similarity to the library](#similarity-to-the-library-ranking-v3-migration-0155)). The owner approved the interest
+index's privacy notice, including its For you sentence, and serving the index to `all` (2026-10-25). **For you itself is
+still `feed_policy.serving='staff'`**, so its similarity reaches every reader only after [Rollout](#rollout) step 5.
+
 Update, 2026-10-24 UTC: **migration `202610240155_feed_library_similarity.sql` and ranking `feed-heuristic-v3` (written
 and tested locally, not applied to staging, `discover` not deployed)** rank For you by similarity to the reader's
 library, from the interest index's public gte-small fingerprints, wherever the interest index serves the reader. With
@@ -202,6 +209,19 @@ alone (same CTEs as plain SQL): similar tier 27,948 comparisons, ≈ 30 ms with 
 `interest_papers_pool`; exact nearest for 392 candidates × 70 library vectors ≈ 13 ms. Most of the function's time is
 0154's candidate CTEs, not similarity. Cost grows with library size × (mid nodes + 3 × window papers per mid node): at
 300 library papers and today's 68 mid nodes ≈ 20k centroid + ≈ 110k paper comparisons.
+
+**Large libraries (migration 0156, 2026-10-25).** Measured read-only with EXPLAIN ANALYZE of the similarity CTEs on
+staging, with synthetic libraries of embedded papers older than the window and 8,230 window papers:
+
+- A 70-paper library: the similar tier took 47–49 ms, all the similarity CTEs 84–88 ms.
+- A 300-paper library (the cap): 970–3,700 ms and 1.28–3.80 s. 0155 grouped the joined pairs (116,670 rows) before
+  computing their distance, so the sort carried both `halfvec(384)` fingerprints of every row, about 175 MB, against
+  staging's 3.5 MB `work_mem`, and spilled to disk.
+- 0156 computes each pair's cosine first (in a subquery fenced with `offset 0`) and groups only `(source_id, sim)`.
+  At 300 papers that is 141 ms and 235–243 ms in all; 70 papers are unchanged. The results are the same: 391
+  candidates, the same mean similarity, the same sum over the window.
+- `tests/database/feed_similarity.sql` passes on 0156.
+- Same signature and result, so `discover` needs no deploy.
 
 **Ranking (`_shared/feed-rank.ts`, `feed-heuristic-v3`).** With similarity (any candidate carries one):
 
@@ -571,6 +591,12 @@ a search for related papers below using a heuristic we come up with. iPhone and 
 
 ## Privacy
 
+- **Similarity to the library: notice approved and placed (owner, 2026-10-25).** The interest index's notice ends "For
+  you also ranks new papers by how close they are to the arXiv papers in your library, using their public titles and
+  abstracts; nothing from that comparison is kept." It is on gradstep.ai/privacy (not deployed yet) and in the apps'
+  and browser's Privacy & data ([INTEREST_INDEX.md §5](INTEREST_INDEX.md#5-privacy)). On the live page, the library
+  sentence now says that metadata is also used "to rank the Feed's For you list". The fuller For you text below is
+  still a proposal for when `feed_policy.serving` goes to `all`.
 - Proposed notice text (gradstep.ai/privacy and Settings › Privacy & data), to add when serving goes to `all`:
   "**For you** in the Feed suggests new arXiv papers using what our servers already keep for your library — the papers
   you add, their public titles, authors and arXiv categories, their topic tags and the tags you give them — and the

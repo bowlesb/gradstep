@@ -41,6 +41,11 @@ select test.assert(not has_table_privilege('authenticated','app_private.interest
 select test.assert((select not enabled and serving='off' from app_private.interest_policy),'off by default');
 select test.assert(public.worker_interest_claim(:'C1')->>'reason'='disabled','disabled policy claims nothing');
 select test.assert((select window_seconds=3600 and account_limit=60 from app_private.api_rate_rules where route='interest-library'),'library rate rule');
+-- 0157: environment limits sized for serving 'all' to 1,000 readers (per-account limits unchanged).
+select test.assert((select account_limit=240 and environment_limit=10000 from app_private.api_rate_rules where route='interest-index'),
+ 'index rate rule: 240 an account, 10,000 for the environment');
+select test.assert((select environment_limit=5000 from app_private.api_rate_rules where route='interest-library'),
+ 'library rate rule: 5,000 for the environment');
 
 -- ---------- fixtures: pool papers, catalog papers, libraries ----------
 insert into app_private.feed_papers(source_id,revision,title,authors,author_keys,abstract,categories,announced_on,announce_type) values

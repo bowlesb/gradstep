@@ -453,6 +453,8 @@ For you on the v4 library (migration 0154): `tests/database/feed_v4_library.sql`
 `--feed-only` (HTML-first imports in the profile, exclusions, the readers count, own-tag topics). Library similarity
 (migration 0155): `tests/database/feed_similarity.sql`, in the same places (the similar tier and its bound, exact
 nearest library paper, serving off/staff/all, no map, author counts); ranking v3: `tests/backend/feed-similarity.test.ts`.
+The same fixture covers 0156 (the similar tier's distances computed before grouping; same results). The rate rules
+0157 sets for serving the interest index to `all` are asserted in `tests/database/interest_index.sql`.
 
 **Interest index, slow and opt-in.** `INTEREST_MODEL_PATH=<Xenova/gte-small@5927d17 onnx/model.onnx> node --test
 tests/interest/embed-parity.test.ts` (after `npm ci` in `services/pipeline-worker`) checks the worker's embedder against

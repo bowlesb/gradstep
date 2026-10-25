@@ -2000,6 +2000,10 @@ struct PrivacyView: View {
                 Link("arXiv API Terms of Use", destination: URL(string: "https://info.arxiv.org/help/api/tou.html")!)
                 Text(ArxivAcknowledgement.statement).foregroundStyle(.secondary)
             } header: { Text("Papers and arXiv") }
+            // The interest index's notice, as the owner approved it on 2026-10-25 (docs/architecture/INTEREST_INDEX.md §5).
+            Section {
+                Text("To find your topics, your devices download a public map of recent arXiv research from our servers, the same file for everyone. Your topics are worked out on your devices; our servers don’t receive them. For you also ranks new papers by how close they are to the arXiv papers in your library, using their public titles and abstracts; nothing from that comparison is kept.")
+            } header: { Text("Topics and For you") }
             Section {
                 Text("A report you send, with its screenshot and notes, goes to Gradstep’s support so we can fix the problem, and is kept until you delete your account.")
             } header: { Text("Reports") }

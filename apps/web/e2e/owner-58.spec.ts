@@ -41,7 +41,9 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Settings, P
 
   await settings.getByTestId('privacy-data').click();
   const privacy = page.getByRole('dialog', { name: 'Privacy & data' });
-  await expect(privacy.getByRole('heading', { level: 3 })).toHaveText(['Your notes and conversations', 'AI answers', 'Papers and arXiv', 'Reports']);
+  await expect(privacy.getByRole('heading', { level: 3 })).toHaveText(['Your notes and conversations', 'AI answers', 'Papers and arXiv', 'Topics and For you', 'Reports']);
+  // The interest index's notice, as the owner approved it (2026-10-25).
+  await expect(privacy.getByTestId('privacy-topics')).toContainText('Your topics are worked out on your devices; our servers don’t receive them.');
   const arxiv = privacy.getByTestId('privacy-arxiv');
   await expect(arxiv).toContainText('Papers open from the official web version or PDF that arXiv publishes. Your device downloads them directly from arXiv when you open a paper, and prepares them for reading on the device, for you alone. A PDF you open comes straight from arXiv in a new tab.');
   await expect(arxiv).toContainText('Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv and keep no copies of papers; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.');

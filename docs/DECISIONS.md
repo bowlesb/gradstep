@@ -2,6 +2,41 @@
 
 Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Interest index privacy notice approved; serving may go to all (owner, 2026-10-25)
+
+Asked to "approve the interest-index privacy wording so topics and the new For you ranking can go beyond staff
+accounts" (and to move serving from staff to all), the owner answered: **"2 and 3 sure"**.
+
+- **Approved notice, verbatim** ([INTEREST_INDEX.md §5](architecture/INTEREST_INDEX.md#5-privacy)): "To find your
+  topics, your devices download a public map of recent arXiv research from our servers, the same file for everyone.
+  Your topics are worked out on your devices; our servers don't receive them. For you also ranks new papers by how
+  close they are to the arXiv papers in your library, using their public titles and abstracts; nothing from that
+  comparison is kept."
+- **Serving:** `interest_policy.serving` (read by `app_private.interest_serves`) may move from `staff` to `all`, so
+  every signed-in reader gets Library topics and the index path of a Feed paper's related papers, and For you's
+  similarity applies to every reader For you serves. Not flipped yet: the steps are in
+  [INTEREST_INDEX.md › Serving to all](architecture/INTEREST_INDEX.md#serving-to-all-prepared-2026-10-25-not-run).
+- **Where the notice appears** (agent placement, reversible): gradstep.ai/privacy (`web/site/privacy/`, a "Topics and
+  For you" section; the library sentence now also says the metadata ranks For you), the redesign draft
+  (`web/site-next/privacy/`, Your library), and Settings › Privacy & data in the apps (`PrivacyView`) and the browser
+  (`PrivacyData`), as a "Topics and For you" section. The Library topics ⓘ already says topics are worked out on the
+  device from a public map, so it is unchanged.
+- **Readiness fixes before the flip** (agent decisions, reversible; measured on staging read-only):
+  - Migration 0156: For you's similar tier sorted both fingerprints of every compared pair before grouping, which
+    spilled past staging's 3.5 MB work_mem. At the 300-paper library cap that part took 1.28–3.8 s (70 papers:
+    84 ms); computing each pair's cosine first takes it to 0.24 s with identical results.
+  - Migration 0157: environment limits `interest-index` 4,000 → 10,000 and `interest-library` 1,000 → 5,000 an hour
+    (per-account limits unchanged, 240 and 60). At 0152's limits, about 650 readers using the app in the same hour, or
+    one launch each by 1,000 readers, would turn every reader away for the rest of that hour. Expected cost is
+    unchanged, $0 (about 20 GB a month of egress at 1,000 devices, inside the plan's 250 GB). The ceiling on sustained
+    misuse rises from about $0.5 to about $1.4 an hour of egress past the allowance.
+- **Not changed by this decision:** For you itself still reaches only accounts with a role, because
+  `feed_policy.serving` is `staff` on staging (unchanged since 2026-10-09), and the owner's account is the only one
+  with a role. For you's similarity reaches every reader only when the Feed's own switch moves to `all`
+  ([PERSONALIZED_FEED.md › Rollout](architecture/PERSONALIZED_FEED.md#rollout), step 5). That step still needs the
+  owner's approval of For you's own notice text, and a decision on `discover`'s 600-an-hour environment limit, which
+  For you, topic chips and category chips share.
+
 ## Library topics on the device (interest index step 3, 2026-10-25; agent decisions, reversible)
 
 Under the approved proposal and owner decisions 1–4 ([proposal](proposals/INTEREST_INDEX.md)); design and evidence in
@@ -38,7 +73,7 @@ Under the approved proposal and owner decisions 1–4 ([proposal](proposals/INTE
   told it sends nothing new (membership and public titles/abstracts are already there; notes, chats, snippets,
   reading progress and uploads stay end-to-end encrypted and uploads are left out) and replied "I see, a sounds fine
   then". The privacy-notice draft in INTEREST_INDEX.md §5 gains one sentence for it. Serving to `all` still waits for
-  the owner's approval of that notice wording.
+  the owner's approval of that notice wording. *Approved 2026-10-25 ("2 and 3 sure"; the entry at the top).*
 
 ## Search results say how they matched; the scope switch keeps the words (owner session TestFlight 91, iPad, 2026-10-24; agent decisions, reversible)
 
@@ -2292,7 +2327,8 @@ request when it gave the go-ahead for Phase B (staging only):
    The successor map is kept so that topic IDs synced to devices migrate cleanly (`interest_policy.rebuild_days_growing`
    14, `rebuild_days` 7, `weekly_after_papers` 50,000).
 3. **Privacy notice:** the wording in [architecture/INTEREST_INDEX.md](architecture/INTEREST_INDEX.md) §5 stays marked
-   "owner approval needed before public release". It does not block staging.
+   "owner approval needed before public release". It does not block staging. *Approved by the owner 2026-10-25, with
+   serving to `all` (the entry at the top).*
 4. **Local database tests:** PostgreSQL 17 with pgvector from Homebrew is acceptable (docs/TESTING.md). TextBrain's
    tool folder is untouched.
 5. **Rebuilds are due-based, never one missable slot** (lead, prompted by an owner question): due once the map is

@@ -25,6 +25,11 @@ export function PrivacyData({ open, onClose }: { open: boolean; onClose: () => v
         <p><a href={ARXIV_TERMS} target="_blank" rel="noopener noreferrer">arXiv API Terms of Use</a></p>
         <p className="muted">{ARXIV_ACKNOWLEDGEMENT}</p>
       </section>
+      {/* The interest index's notice, as the owner approved it on 2026-10-25 (docs/architecture/INTEREST_INDEX.md §5); the
+          same section as the apps' Privacy & data. */}
+      <section className="info-section" data-testid="privacy-topics"><h3>Topics and For you</h3>
+        <p>To find your topics, your devices download a public map of recent arXiv research from our servers, the same file for everyone. Your topics are worked out on your devices; our servers don’t receive them. For you also ranks new papers by how close they are to the arXiv papers in your library, using their public titles and abstracts; nothing from that comparison is kept.</p>
+      </section>
       <section className="info-section"><h3>Reports</h3>
         <p>A report you send, with its screenshot and notes, goes to Gradstep’s support so we can fix the problem, and is kept until you delete your account.</p>
       </section>
