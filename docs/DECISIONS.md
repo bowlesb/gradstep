@@ -2254,6 +2254,8 @@ Chat and › Tall and Wide (*Chat*):
   chats about this paper"; the list's own ⋯ (after its search field) has Sort by — Last read, Started, Messages,
   Conversation, Paper, what its rows show — kept for the run. Its rows have no Columns (a narrow slot shows rows, as at
   accessibility sizes). Tall keeps the All chats sheet (no list beside the chat).
-- Open for the owner: whether All chats from the Library's ⋯, Discuss's clock or a paper's "Chats about this paper" in
-  Wide should also go to the Chat place instead of the centred sheet (proposal: yes, with the list filtered to This
-  paper where it applies).
+- **Decided (owner, 2026-10-24): "Yes remove the middle pop up window and make [them] go on top of their side panel for
+  consistency."** In Wide every route to All chats (the Library's ⋯, Discuss's clock, a paper's "Chats about this
+  paper", Settings › Your assets › Chats, the chat's ⋯) shows the chat list in the side panel, filtered to This paper
+  where the route comes from a paper; no centred All chats sheet in Wide. Tall keeps the sheet. Built in the
+  navigation round after TestFlight 91.
