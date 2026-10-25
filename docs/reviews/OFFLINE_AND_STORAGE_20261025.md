@@ -109,7 +109,8 @@ saves it again on Try again without asking twice. The gaps:
 | AI explanation saved on a full disk | Lost silently, still listed | Says so; stays open for the session; not listed | Not automated (one `do/catch`) |
 | Note or snippet on a full disk | "Couldn’t save on this device. Your text is still here." | "This device is out of space… Your text is still here." | Not automated (wording) |
 | Podcast offline / audio on a full disk | "The connection was interrupted…" / generic | "You’re offline. Downloaded episodes still play." / out of space | Not automated (wording) |
-| Feed, For you, ML search offline | Last page kept with "Couldn’t refresh…"; search says unavailable; Library search works (local) | Unchanged | existing `ResilienceJourneyTests.testAFailedFeedRefreshKeepsTheLastPage` |
+| Feed, For you, ML search offline | Last page kept with "Couldn’t refresh…"; search says unavailable; Library search works (local) | Unchanged (the Feed: see the next row) | existing `ResilienceJourneyTests.testAFailedFeedRefreshKeepsTheLastPage` |
+| Cold launch offline, Feed (owner decision, follow-up) | Empty Feed: "Feed unavailable · New papers aren’t available right now" | Each view's last page kept on the device (sealed, per account): shown at once with "Offline · from 2 hours ago"; nothing kept: "You’re offline…"; asks again on reconnect | app `testTheFeedsLastPageShowsOfflineAtLaunchAndAnOnlineLaunchReplacesIt` (+3); UI `testAnOfflineLaunchShowsTheFeedsLastPage`; Core `FeedPageStoreTests` |
 | Reports, purchases, credits offline | Outbox; StoreKit retries; balance "as of" | Unchanged | existing |
 
 ## Defaults chosen (the owner may want different)
@@ -129,7 +130,10 @@ saves it again on Try again without asking twice. The gaps:
   earlier build opens exclusively or read-only until relaunch/space returns.
 
 Possible owner decisions: keep the Feed's last page across launches for offline cold starts (today memory only); retry
-a failed offline question automatically once the network returns (spends credits without a tap).
+a failed offline question automatically once the network returns (spends credits without a tap). Owner, 2026-10-25:
+keep the Feed's page (built the same day:
+[PERSONALIZED_FEED.md](../architecture/PERSONALIZED_FEED.md#the-last-page-kept-on-the-device-owner-2026-10-25-apple-apps-local-not-released));
+an offline question waits for Try again.
 
 ## Not verified here (needs a device or isn't reproducible in the Simulator)
 

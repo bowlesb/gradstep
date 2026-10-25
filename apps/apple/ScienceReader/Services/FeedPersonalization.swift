@@ -26,6 +26,15 @@ enum FeedSelection: Hashable, Sendable {
         case .category(let category): "feed.topic.\(category)"
         }
     }
+
+    /// The view's name for its page kept on the device (`FeedPageStore`): "for_you", "topic:<name>", "category:<code>".
+    var storageKey: String {
+        switch self {
+        case .forYou: "for_you"
+        case .topic(let name): "topic:\(name)"
+        case .category(let category): "category:\(category)"
+        }
+    }
 }
 
 /// For you on this device: whether the server offers it to this reader (learned from Feed responses), the reader's

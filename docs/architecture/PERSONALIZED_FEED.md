@@ -1,5 +1,10 @@
 # Personalized feed ("For you")
 
+Update, 2026-10-25 UTC (later): **the Feed's last page per view is kept on the device across launches** (owner
+decision; Apple apps, built on a branch, not released): an offline cold start shows it with "Offline · from 2 hours
+ago" instead of an empty Feed. No server change. See
+[The last page, kept on the device](#the-last-page-kept-on-the-device-owner-2026-10-25-apple-apps-local-not-released).
+
 Update, 2026-10-25 UTC: **migration `202610250156_feed_similar_tier_sort.sql` (written and tested locally, not
 applied)** keeps the similar tier fast for large libraries: at the 300-paper cap it took 1.28–3.80 s (a sort carrying
 both fingerprints of every pair spilled to disk) and now takes about 0.24 s, with identical results
@@ -44,7 +49,7 @@ interests and be kept up to date and changing but have cost under control".
 |---|---|
 | What the reader sees | Category chips (at most six arXiv categories from the library's own papers — a category needs two papers unless it is core ML — else cs.LG, cs.CL, cs.AI, cs.CV), named with the tag vocabulary ("Natural language processing"); List or Table; Add; Refresh in the "…" menu (`ReaderModel.feedCategories`, `FeedView`, `FeedTable`) |
 | Sourcing | Every chip load calls `discover?category=X` (Edge). The function rate-limits (`discover`: 60/account/h, 600/environment/h), reserves the shared arXiv pacing slot (`worker_pipeline_arxiv_slot`, 3 s spacing shared with the pipeline and arXiv search, at most 8 s wait), then **fetches `rss.arxiv.org/rss/X` live** and returns the first 25 `new`/`cross` announcements |
-| Caching | None on the server. The app keeps the last list in memory only; opening the Feed with no results, changing chip, pulling to refresh or Refresh each fetch arXiv again |
+| Caching | None on the server. The app keeps the last list in memory only; opening the Feed with no results, changing chip, pulling to refresh or Refresh each fetch arXiv again (2026-10-25: each view's last page is now also kept on the device across launches; see [The last page, kept on the device](#the-last-page-kept-on-the-device-owner-2026-10-25-apple-apps-local-not-released)) |
 | Charging | No credits; one Edge invocation (inside the Pro plan's quota) and one arXiv request per load. No arXiv/provider fee, but database/Edge/egress consume plan capacity and **arXiv traffic scales per user per refresh**, and a busy pacing slot shows "Feed unavailable" |
 | Personalization | Only the choice of categories. No ranking, reasons, dismissals or "new since last visit" |
 | Legacy web app | Topic feed from the library's top 8 keywords via Semantic Scholar, last 30 days, refreshed per topic after 6 h, items pruned after 45 days, papers already in the library hidden, chips with counts, "Updated Xh ago" ([gap audit](../LEGACY_GAP_AUDIT.md)) |
@@ -639,6 +644,36 @@ a search for related papers below using a heuristic we come up with. iPhone and 
   each about an iPhone row's width, instead of one 720 pt column between empty margins; section headers and the chips
   row span the window. One column on iPhone, iPad mini upright, in Wide's slot, on the Mac and at accessibility text
   sizes. The Table already spans the window.
+
+### The last page, kept on the device (owner, 2026-10-25; Apple apps, local, not released)
+
+Owner, answering the [offline review](../reviews/OFFLINE_AND_STORAGE_20261025.md) ("I'll take your recommendations"):
+the Feed's last page is kept on the device across launches, so an offline cold start shows it rather than an empty
+Feed. Before, the app kept only the page on screen, in memory. App only (`ScienceReaderCore/FeedPages.swift`, the
+Feed part of `ReaderModel`); ranking, requests and the server are unchanged, and nothing new is sent.
+
+- **What is kept.** For each Feed view the reader opens (For you, each topic chip, each category chip), the server's
+  last non-empty answer for it, in its order (at most 50 papers), with when it was fetched and when the view was last
+  opened. At most 16 views and 4 MB together (the most recently opened kept); a view not opened for 14 days is dropped.
+- **Where.** `feed-pages.enc` in the account's local folder, sealed like `reading-activity.enc` under the device-held
+  local-store key (For you reflects the reader's interests, so it is private data): AES-GCM with an HKDF subkey
+  (`science-reader/local-feed/v1`), the account in the authenticated data, complete file protection, no backup
+  ([PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#the-feeds-last-page-kept-on-the-device-2026-10-25)). Erased at sign-out
+  once the account's writer has drained; removed with the folder when the account is deleted. A separate sealed file,
+  not an encrypted-store table, so the store's format and its integrity manifest are unchanged.
+- **Showing it.** A view opened with nothing of it on screen (the first Feed of a launch, or a chip tapped) shows its
+  kept page at once, then asks the server as before; the answer replaces it and becomes the kept page. When the
+  account's store opens after the Feed already asked (a slow start), the kept page appears then. Papers already in the
+  library stay hidden, as always (`shownFeedResults`).
+- **Offline.** When the request fails because the device has no network (`ConnectionText.isOffline`, or any
+  connection failure, an offline token refresh included, while `Connectivity` reports no network), the page stays with
+  one quiet footnote line above the papers: **"Offline · from 2 hours ago"** (when the server returned it; `LastGood.ago`;
+  identifier `feed.offline`). No banner. Other failures keep RESILIENCE.md's "Couldn’t refresh. These are the papers
+  from …" line. With nothing kept, the Feed says "Feed unavailable · You’re offline. What’s on this device still
+  works." (was "New papers aren’t available right now…"). When the network returns, a Feed that failed offline asks
+  again by itself (free; the page stays until the answer), like a failed library refresh.
+- **Not changed.** Requests and when they are made, ranking, the `discover` contract, chips (For you's availability and
+  topic chips were already kept on the device), the List/Table, sections and Add.
 
 ## Privacy
 

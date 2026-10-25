@@ -73,6 +73,20 @@ the related-papers rule and its measurements in
 
 ## After TestFlight 92 — 2026-10-25
 
+**The Feed's last page is kept on the device** (owner decision; apps only, built on a branch, not released). Details:
+[PERSONALIZED_FEED.md](architecture/PERSONALIZED_FEED.md#the-last-page-kept-on-the-device-owner-2026-10-25-apple-apps-local-not-released).
+- Each Feed view's last answer (For you, topic and category chips) is kept per account in `feed-pages.enc`, sealed
+  under the device's local-store key beside the encrypted store; at most 16 views and 4 MB, dropped after 14 days
+  unopened, erased at sign-out and with the account's folder on deletion.
+- A view opens on its kept page at once and refreshes as before; offline it stays, with one quiet line "Offline · from
+  2 hours ago". With nothing kept, offline says "You’re offline…". The Feed asks again when the network returns.
+- Verified: Core `swift test` 517 Swift Testing (6 new in `FeedPageStoreTests`) and 99 XCTest pass; app
+  `OfflineAndStorageTests` 12/12 (4 new) on the iPhone 17 Pro Max and iPad Pro 11-inch (M5) Simulators; UI
+  `OfflineAndStorageJourneyTests/testAnOfflineLaunchShowsTheFeedsLastPage` and
+  `ResilienceJourneyTests/testAFailedFeedRefreshKeepsTheLastPage` pass on both, `FeedForYouTests` (10 run, 1 skipped)
+  on iPhone. Screenshots: `.artifacts/feed-kept-20261025/` (iPhone and iPad). Not verified: a real offline cold start
+  on a device (paused) or with a real signed-in account (the journey uses the synthetic account); the Mac (same code).
+
 **No network and a full disk** (owner request; apps only, not released). Details, the results table and what still
 needs a device: [OFFLINE_AND_STORAGE_20261025.md](reviews/OFFLINE_AND_STORAGE_20261025.md).
 - A full disk no longer closes the private library at launch (SQLite's journal files are kept; fallbacks when they

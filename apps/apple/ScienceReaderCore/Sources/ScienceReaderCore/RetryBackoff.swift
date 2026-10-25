@@ -11,6 +11,20 @@ public enum LastGood {
         format.setLocalizedDateFormatFromTemplate(calendar.isDate(date, inSameDayAs: now) ? "jmm" : "MMMd")
         return format.string(from: date)
     }
+
+    /// How long ago, in words, for a quiet line ("Offline · from 2 hours ago"): "a minute ago", "12 minutes ago",
+    /// "an hour ago", "5 hours ago", "a day ago", "3 days ago".
+    public static func ago(_ date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        if seconds < 90 { return "a minute ago" }
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 60 { return "\(minutes) minutes ago" }
+        let hours = Int((seconds / 3600).rounded())
+        if hours < 2 { return "an hour ago" }
+        if hours < 24 { return "\(hours) hours ago" }
+        let days = Int((seconds / 86_400).rounded())
+        return days < 2 ? "a day ago" : "\(days) days ago"
+    }
 }
 
 /// Retry timing for every client loop (docs/architecture/RESILIENCE.md): a failing call backs off exponentially with
