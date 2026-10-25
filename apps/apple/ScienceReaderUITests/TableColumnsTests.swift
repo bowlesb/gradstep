@@ -230,7 +230,10 @@ final class TableColumnsTests: XCTestCase {
         let row = app.descendants(matching: .any)["feed.table.2610.03011"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         let collapsed = row.frame.height
-        row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        // A row's tap opens its details (owner, 2026-10-24); the abstract under the row is in its long-press menu.
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).press(forDuration: 1.0)
+        let show = app.buttons["Show abstract"].firstMatch
+        XCTAssertTrue(show.waitForExistence(timeout: 5)); show.tap()
         let ending = "The final limitation is that results have not been evaluated on physical robots."
         let abstract = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", ending)).firstMatch
         XCTAssertTrue(abstract.waitForExistence(timeout: 5), "The full abstract survives the legacy 700-character preview")

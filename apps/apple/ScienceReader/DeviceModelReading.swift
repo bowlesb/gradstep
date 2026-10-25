@@ -90,10 +90,15 @@ enum DeviceModelEngine {
     /// glyph returning to the left below its line's own text starts a new line (`lineReturns`). Off: `displayLines` (a
     /// numbered display the layout read as a paragraph's line becomes a display; +0.01 displays found on all three corpora,
     /// but their typeset precision 0.004–0.006 lower).
+    /// On (2026-10-24, docs/reviews/DEVICE_PDF_TABLES_20261024.md): table columns from the body's grid, so a spanning
+    /// header no longer merges the columns under it (`tableColumns`); a wrapped table cell read line by line
+    /// (`cellLines`); a table caption printed under its table follows it (`tableCaptionBelow`). Off: `narrowCellGaps`
+    /// (cells apart at 0.45 glyph heights: wins on 5,285 labelled tables and the arXiv test corpus, ties dev, loses
+    /// 0.003 cell F1 on venue PDFs).
     static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners",
                                      "captionMath", "equationNumbers", "mergeDisplays", "bibliography", "venueNotice", "displayPunctuation",
                                      "fontAliases", "wordGaps", "accents", "lineBands", "verifyGlyphs", "reuseRecognitions", "ligatures",
-                                     "compounds", "lineReturns"]
+                                     "compounds", "lineReturns", "tableColumns", "cellLines", "tableCaptionBelow"]
     /// The converter is in this build, the models are here or can be downloaded, and the system can run the stateful
     /// recogniser.
     static var available: Bool {

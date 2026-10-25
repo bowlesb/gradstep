@@ -24,6 +24,21 @@ Last updated: 2026-10-24 UTC. Requirements below come from the current user conv
   then". The privacy-notice draft in INTEREST_INDEX.md §5 gains one sentence for it. Serving to `all` still waits for
   the owner's approval of that notice wording.
 
+## Search results say how they matched; the scope switch keeps the words (owner session TestFlight 91, iPad, 2026-10-24; agent decisions, reversible)
+
+Owner, searching the Library and ML papers: *"at bare minimum having the match percent would be good"*; *"it's very
+difficult for me to know what about it is matching… Is it the abstract? I don't know"*; *"I just switched, but the text
+disappeared… The text should be preserved."* Details: [NATIVE_LIBRARY_SEARCH](architecture/NATIVE_LIBRARY_SEARCH.md)
+"Match strength".
+
+| Decision | Choice |
+|---|---|
+| What the percentage is | The share of the query's words (a quoted phrase counts as one) the result contains, then the fields they were found in, each word at its strongest field, strongest first: "100% · title", "67% · title, abstract", "100% · full text". Never a similarity score. Library results contain every word (search is AND), so in the Library the field carries the strength. Fields: ID, title, abstract, authors, tags, notes, full text (the ranking's order). |
+| Library | From the index: each hit records, per field, which clauses matched there; a clause matched only by the metadata substring rule counts at that field's kind. Computed for every result; nothing new on disk. |
+| ML paper search | Measured on the device against the result's arXiv ID, title, abstract and authors, by the index's rules plus common English endings ("learned" for "learning", since arXiv stems words). Neither arXiv's API nor DataCite returns a score, so there is no calibrated similarity to show; this measures arXiv's choice, it doesn't rank. |
+| Presentation | One quiet line under the title (footnote, secondary): the strength, then for the Library one excerpt of where it matched outside the title (the paper's text, its abstract or authors, whichever shows the most words the title doesn't), up to two lines. Matched words are marked with Find in paper's yellow, in the title too. An abstract excerpt replaces the row's abstract. ML rows mark the title and the abstract (folded: the part around the words). One ⓘ after the Library / ML paper search switch explains it; no per-row ⓘ. |
+| Switching scope | The switch carries the field's words to the other scope and searches them there at once (ML paper search runs unless the shown results are already for those words). Each scope still has its own query underneath, so Find similar / a keyword's search still set ML paper search directly. |
+
 ## Explainers on every on-device model reading (TestFlight 91 known gap; agent decisions 2026-10-24, reversible)
 
 - **Another arXiv revision's reading** is the paper's text for its explainers and chat; the request names the library
@@ -434,6 +449,11 @@ for entire PDFs is too ambitious" and the Mathpix research
   be the scorer's on inspection. The earlier rule that a lower gate is the owner's choice is respected in that the gate is
   unchanged; turning `verifyGlyphs` off (one name in `DeviceModelReading.rules`) restores the previous behaviour.
   `displayLines` is built and off (more displays found, slightly lower typeset precision on every corpus).
+- 2026-10-24 (tables; agent decisions, reversible, [review](reviews/DEVICE_PDF_TABLES_20261024.md)): `tableColumns`,
+  `cellLines` and `tableCaptionBelow` are on in the app (each won on all three corpora's cell, row or table-word measures;
+  shared-content F1 moves by under 0.001). `narrowCellGaps` is built and off (wins on labelled tables and the arXiv test
+  corpus, loses slightly on venue PDFs). No table structure model for now: the rules reach 0.92–0.93 cell F1 on labelled
+  tables and the remaining table losses on papers are mostly layout boxes; the proposal waits for a free GPU.
 
 
 ## Subfigures: rough zoom is the goal (owner, 2026-10-21)
@@ -2324,6 +2344,36 @@ From a recorded iPad session (upright). Spec and causes: [NOTES_AND_SNIPPETS.md 
   Whole page or Adjust edges on screen; VoiceOver actions (whole page, each edge) and ⌘A and Escape keep a path
   without dragging. The save flow after it (collection, Save, "Saved · Open") is unchanged. *Supersedes the capture
   panel in "Capture, step by step › Drawing".*
+
+## Feed: a card's details and related papers; the iPad's upright List across the window (owner direction 2026-10-24)
+
+Owner: "We have the abstract expansion UX but if you click on the rest of the card, nothing happens. Instead I want the
+screen to fill with a panel showing details of that paper that you can easily push down when done. Async, it could start
+a search for related papers below using a heuristic we come up with. iPhone and iPad." The owner was told, and did not
+object: Tall shows a full-screen panel swiped down; Wide shows the same details in the right-hand pane; related papers
+load below, computed on the device, so the server never learns which paper was opened. Then, on the iPad's upright List:
+"take the whole screen. It's got these weird columns on the side… a lot of space is not being well used." Spec:
+[PERSONALIZED_FEED.md › Paper details and related papers](architecture/PERSONALIZED_FEED.md#paper-details-and-related-papers-owner-2026-10-24).
+
+- **A card's tap opens its details.** Anywhere but Full abstract, Add and links; List and Table. Tall: a large sheet with a
+  grabber and the glass Sheet top row (Back, ✕). Wide: the right slot's existing details, now the same view.
+- **Agent choices (reversible):**
+  - The Table's row tap now opens the details, so its abstract-under-the-row moved to the row's long-press menu (Show
+    abstract). The List's Full abstract is unchanged.
+  - VoiceOver: a card's title carries the default action (Show details); Full abstract stays a named button.
+  - Authors show six, then "and N more".
+  - A related paper replaces the details with Back (a stack), in the sheet and the pane alike.
+  - Related papers come from the interest index's pool fingerprints (bulk shards, the same for everyone). The titles of
+    the nearest papers this device has no Feed result for come from **one paced `id_list` request from the device to
+    arXiv's export API**, only while device search is on. arXiv sees those IDs; our server sees nothing.
+  - Thresholds, from the staging window's calibration: closeness alone from 0.88 ("Close in topic"), "Very close in
+    topic" from 0.92; 0.86–0.88 only with a shared specific topic or rare shared author; two shared authors from 0.84.
+    Boosts: +0.03 for shared authors, +0.01 per shared specific topic (≤ 0.02). Namesakes: a single name counts only
+    when the known papers carry it ≤ 3 times. Duplicates: cosine ≥ 0.97 or the same title.
+  - Not served, unreachable, or older than the window: the Feed results on the device, by shared specific topics and
+    shared authors. Nothing found: "No related papers in this week's feed".
+  - iPad upright (Tall, ≥ 760 pt): the List's cards two to a row across the window, each about an iPhone row's width; one
+    column elsewhere and at accessibility text sizes.
 
 ## iPad places: Settings beside Snippets, no Search place, Feed hides library papers (owner session 2026-10-24, TestFlight 91)
 

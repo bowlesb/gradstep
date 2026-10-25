@@ -254,8 +254,8 @@ struct PaperTableTitle {
     /// lines and the authors' line), so it doesn't grow midway (owner, build 58).
     var reservesSpace = false
     var reservesSubtitleSpace = true
-    /// A Library search matched in the paper's text: one line of it under the title.
-    var snippet: FullTextSnippet? = nil
+    /// A Library search's match: the title's matched words marked, and its strength and excerpt under the title.
+    var match: SearchResultMatch? = nil
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -593,7 +593,8 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
 
     /// The row as one element: title, subtitle and every column's value (including columns too wide to show).
     @ViewBuilder private func tappable<Content: View>(_ row: Row, @ViewBuilder content: () -> Content) -> some View {
-        let label = ([title(row).title, title(row).subtitle] + columns.filter { !$0.isControl }.map { spoken(row, $0.id) })
+        let match = title(row).match.map { $0.match.spokenLabel + ($0.excerpt.map { ". " + $0.text } ?? "") }
+        let label = ([title(row).title, match, title(row).subtitle] + columns.filter { !$0.isControl }.map { spoken(row, $0.id) })
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
         // A revealed row is selected while its tint shows.
         let revealed: AccessibilityTraits = reveal?.row == row.id ? .isSelected : []
@@ -615,15 +616,16 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
 struct PaperTableTitleCell: View {
     let title: PaperTableTitle
     var body: some View {
-        let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil
+        // A row with a search match has something to show (its match line), even with nothing else yet.
+        let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil && title.match == nil
         ZStack(alignment: .leading) {
         VStack(alignment: .leading, spacing: 2) {
             // One line limit: an expanded title is whole; a row being added keeps two lines' room.
-            Text(title.title).font(.subheadline.weight(.semibold))
+            Text(SearchMatchLine.marked(title.title, title.match?.titleHighlights ?? [])).font(.subheadline.weight(.semibold))
                 .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace)).truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
-            if let snippet = title.snippet { SearchSnippetLine(snippet: snippet) }
+            if let match = title.match { SearchMatchLine(match: match) }
             // A Library row's second line is always the cloud button's height (24 pt), so a row doesn't change height as
             // a paper is added, downloaded and opened (owner, builds 58–59).
             let libraryLine: CGFloat? = title.deviceCopy != nil || title.reservesSpace ? 24 : nil

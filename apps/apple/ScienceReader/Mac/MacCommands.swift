@@ -247,7 +247,7 @@ struct GradstepCommands: Commands {
     private func search(arXiv: Bool) {
         if model.tab == .settings { model.closeSettings() }
         if model.widePlace != .library { model.showPlace(.library) }
-        model.searchExternal = arXiv
+        model.setSearchScope(external: arXiv)
         MacCommandRequests.shared.librarySearch = UUID()
     }
 

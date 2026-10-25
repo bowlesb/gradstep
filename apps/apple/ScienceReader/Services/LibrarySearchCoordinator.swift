@@ -81,6 +81,12 @@ struct LibrarySearchCandidate: Equatable, Sendable {
     var keys = LibrarySortKeys()
     /// The paper's documents in the full-text index (its ID); nil for imports and queued commands.
     var fullTextKey: String? = nil
+    /// What each of `fields` is, for a result's match line ("100% · title"); a field without one counts as tags.
+    var fieldKinds: [SearchMatchField] = []
+
+    func kind(of field: Int) -> SearchMatchField { field < fieldKinds.count ? fieldKinds[field] : field == 0 ? .title : .tags }
+    /// The first field of this kind (the abstract, the authors), for a result's excerpt.
+    func text(of kind: SearchMatchField) -> String? { fieldKinds.firstIndex(of: kind).flatMap { fields.indices.contains($0) ? fields[$0] : nil } }
 }
 
 struct LibrarySearchTicket: Equatable, Sendable {
@@ -104,12 +110,15 @@ struct LibrarySearchInput: Sendable {
 struct LibrarySearchOutput: Sendable {
     var rowIDs: [String]
     var snippets: [String: FullTextSnippet] = [:]
+    /// With a query: each row's match (strength, title highlights, and for the first rows one excerpt).
+    var matches: [String: SearchResultMatch] = [:]
 }
 
 struct LibrarySearchResult: Sendable {
     let ticket: LibrarySearchTicket
     let rowIDs: [String]
     let snippets: [String: FullTextSnippet]
+    var matches: [String: SearchResultMatch] = [:]
     /// Time inside the worker, separate from caller snapshot/publication work
     /// and submit-to-result latency. An injected async worker may also suspend.
     let workerElapsedMilliseconds: Double
@@ -159,30 +168,34 @@ enum LibrarySearchEngine {
         let clauses = query.clauses
         var matches: [Int] = []
         var scores: [Double] = []
+        /// Per matching row, each clause's strongest field.
+        var clauseFields: [[SearchMatchField?]] = []
         matches.reserveCapacity(input.candidates.count)
         for (index, candidate) in input.candidates.enumerated() {
             try Task.checkCancellation()
             let hit = candidate.fullTextKey.flatMap { hits[$0] }
             var includesEveryClause = true
             var score = hit?.score ?? 0
+            var found = [SearchMatchField?](repeating: nil, count: clauses.count)
             for (clauseIndex, clause) in clauses.enumerated() {
                 try Task.checkCancellation()
-                if let hit, hit.clauses & (1 << UInt64(clauseIndex)) != 0 { continue }
-                var includesClause = false
-                for field in candidate.fields {
+                if let hit, hit.clauses & (1 << UInt64(clauseIndex)) != 0 { found[clauseIndex] = hit.strongestField(clause: clauseIndex); continue }
+                // The strongest metadata field containing it (the first one found unless a stronger one follows).
+                var strongest: SearchMatchField?
+                for (offset, field) in candidate.fields.enumerated() {
                     try Task.checkCancellation()
-                    if field.localizedStandardContains(clause.text) {
-                        includesClause = true
-                        break
-                    }
+                    let kind = candidate.kind(of: offset)
+                    if let strongest, strongest <= kind { continue }
+                    if field.localizedStandardContains(clause.text) { strongest = kind }
                 }
-                if !includesClause {
+                guard let strongest else {
                     includesEveryClause = false
                     break
                 }
+                found[clauseIndex] = strongest
                 score += substringScore
             }
-            if includesEveryClause { matches.append(index); scores.append(score) }
+            if includesEveryClause { matches.append(index); scores.append(score); clauseFields.append(found) }
         }
         try Task.checkCancellation()
         let sort = input.ticket.key.sort
@@ -203,14 +216,16 @@ enum LibrarySearchEngine {
                 if ranked[left] != ranked[right] { return ranked[left] > ranked[right] }
                 return ordered(input.candidates[matches[left]], before: input.candidates[matches[right]], by: sort)
             }
-            matches = order.map { matches[$0] }
+            matches = order.map { matches[$0] }; clauseFields = order.map { clauseFields[$0] }
         } else {
             // Sort just the matching indexes once. Neither the search nor the sort
             // builds a second joined/lowercased representation of large metadata.
-            try matches.sort { leftIndex, rightIndex in
+            var order = Array(matches.indices)
+            try order.sort { left, right in
                 try Task.checkCancellation()
-                return ordered(input.candidates[leftIndex], before: input.candidates[rightIndex], by: sort)
+                return ordered(input.candidates[matches[left]], before: input.candidates[matches[right]], by: sort)
             }
+            matches = order.map { matches[$0] }; clauseFields = order.map { clauseFields[$0] }
         }
         try Task.checkCancellation()
         var rowIDs: [String] = []
@@ -237,7 +252,40 @@ enum LibrarySearchEngine {
             try Task.checkCancellation()
             for (offset, row) in snippetRows.enumerated() { if let snippet = results.value(offset) { snippets[row.row] = snippet } }
         }
-        return LibrarySearchOutput(rowIDs: rowIDs, snippets: snippets)
+        var displayed: [String: SearchResultMatch] = [:]
+        if !clauses.isEmpty {
+            displayed.reserveCapacity(matches.count)
+            for (offset, index) in matches.enumerated() {
+                try Task.checkCancellation()
+                let candidate = input.candidates[index], match = SearchMatch(clauseFields: clauseFields[offset])
+                displayed[candidate.id] = offset < snippetLimit
+                    ? resultMatch(match, query: query, candidate: candidate, body: snippets[candidate.id])
+                    : SearchResultMatch(match: match)
+            }
+        }
+        return LibrarySearchOutput(rowIDs: rowIDs, snippets: snippets, matches: displayed)
+    }
+
+    /// A row's match as shown: the title's matched words, and one excerpt of where else it matched: the paper's text
+    /// (the snippet), its abstract or its authors, whichever shows the most words the title doesn't (then in that order
+    /// of strength: abstract, authors, text). Nothing more when the title shows every word.
+    static func resultMatch(_ match: SearchMatch, query: FullTextQuery, candidate: LibrarySearchCandidate, body: FullTextSnippet?) -> SearchResultMatch {
+        let title = SearchHighlighter.occurrences(query, in: candidate.title)
+        var result = SearchResultMatch(match: match, titleHighlights: SearchHighlighter.highlights(query, in: candidate.title))
+        let inTitle = Set(title.map(\.clause))
+        guard inTitle.count < match.total else { return result }
+        var best: (shown: Int, field: SearchMatchField, excerpt: FullTextSnippet)?
+        func consider(_ field: SearchMatchField, _ excerpt: FullTextSnippet?) {
+            guard let excerpt else { return }
+            let shown = SearchHighlighter.clauses(query, in: excerpt.text).subtracting(inTitle).count
+            if shown > 0, shown > best?.shown ?? 0 || (shown == best?.shown && field < best!.field) { best = (shown, field, excerpt) }
+        }
+        for field in [SearchMatchField.abstract, .authors] where match.clauseFields.contains(field) {
+            if let text = candidate.text(of: field), !text.isEmpty { consider(field, SearchHighlighter.excerpt(query, in: text)) }
+        }
+        consider(.fullText, body)
+        if let best { result.excerpt = best.excerpt; result.excerptField = best.field }
+        return result
     }
 
     /// The one Library ordering, shared by the search worker and the table's header comparator.
@@ -372,7 +420,7 @@ final class LibrarySearchCoordinator {
             let started = ContinuousClock.now
             let output = try await worker(input)
             let elapsed = started.duration(to: .now).components
-            return LibrarySearchResult(ticket: input.ticket, rowIDs: output.rowIDs, snippets: output.snippets,
+            return LibrarySearchResult(ticket: input.ticket, rowIDs: output.rowIDs, snippets: output.snippets, matches: output.matches,
                 workerElapsedMilliseconds: Double(elapsed.seconds) * 1_000
                     + Double(elapsed.attoseconds) / 1_000_000_000_000_000)
         }

@@ -487,6 +487,18 @@ struct LibraryView: View {
                            focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
     }
 
+    /// The Library / ML paper search switch, keeping what was typed (`setSearchScope`), and the ⓘ for the results' match
+    /// line just after it.
+    private var scopePicker: some View {
+        HStack(spacing: 4) {
+            Picker("Search", selection: Binding(get: { model.searchExternal }, set: { model.setSearchScope(external: $0) })) {
+                Text("Library").tag(false); Text("ML paper search").tag(true)
+            }
+            .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+            InfoButton(text: SearchMatchLine.info, identifier: "search.match.info")
+        }
+    }
+
     private func cancelSearch() {
         // Back to the whole library: no tag filter is left behind (build 75).
         model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
@@ -501,8 +513,7 @@ struct LibraryView: View {
             libraryRow
             if searching {
                 VStack(spacing: 10) {
-                    Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
-                        .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+                    scopePicker
                     if model.searchExternal { AdvancedPaperSearch(model: model) }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
@@ -538,8 +549,7 @@ struct LibraryView: View {
                 }
             }
             if searching {
-                Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
-                    .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+                scopePicker
                 if model.searchExternal { AdvancedPaperSearch(model: model) }
             }
         }
@@ -695,7 +705,7 @@ struct LibraryView: View {
                         let copy = model.deviceCopy(for: paper)
                         PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, deviceCopy: copy,
                                  isNew: model.isNew(paper), status: model.libraryStatus(for: entry),
-                                 showAbstract: model.showAbstracts, showTopics: model.showTopics, snippet: model.librarySnippets[entry.id])
+                                 showAbstract: model.showAbstracts, showTopics: model.showTopics, match: model.libraryMatches[entry.id])
                     }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(reveal?.row == entry.id ? .isSelected : [])
@@ -859,8 +869,8 @@ struct PaperRow: View {
     var status: LibraryRowFacts.Status = .none
     var showAbstract = true
     var showTopics = true
-    /// A Library search matched in the paper's text: one line of it, the matched words highlighted.
-    var snippet: FullTextSnippet? = nil
+    /// A Library search's match: its strength, the title's matched words, and one excerpt of where else it matched.
+    var match: SearchResultMatch? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         #if OFFLINE_RESOURCE_MEASUREMENTS
@@ -868,7 +878,8 @@ struct PaperRow: View {
         #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
+                Text(SearchMatchLine.marked(paper.title, match?.titleHighlights ?? [])).font(.headline)
+                    .foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 // The cloud's tap target is the list's overlay beside this row's button (a button inside a button's
                 // label doesn't get its own taps).
@@ -877,7 +888,7 @@ struct PaperRow: View {
                         .accessibilityLabel(copy.label).help(copy.label)
                 }
             }
-            if let snippet { SearchSnippetLine(snippet: snippet) }
+            if let match { SearchMatchLine(match: match) }
             if let authors = LibraryFormat.shortAuthors(for: paper) { Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             switch status {
             case .active(let text):
@@ -885,7 +896,8 @@ struct PaperRow: View {
             case .problem(let text): Text(text).font(.footnote).foregroundStyle(.orange)
             case .info, .none: EmptyView()
             }
-            if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
+            // An excerpt of the abstract above stands for it.
+            if showAbstract && !paper.abstract.isEmpty && match?.excerptField != .abstract { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (isNew ? ["New"] : []) + (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
             // Its tags when it has any (docs/architecture/TAGS.md), else its arXiv topics.
@@ -895,23 +907,51 @@ struct PaperRow: View {
     }
 }
 
-/// One line of a paper's text under a Library search result (its match was in the text, not the metadata): small and
-/// secondary, the matched words in the primary colour.
-struct SearchSnippetLine: View {
-    let snippet: FullTextSnippet
+/// A search result's match (owner, TestFlight 91 session: "at bare minimum having the match percent"; "it's very
+/// difficult for me to know what about it is matching"): how many of the search words the paper contains and where
+/// ("67% · title, abstract"; SearchMatch), then one excerpt of where it matched outside the title (its text, abstract or
+/// authors), the matched words marked as Find in paper marks them. Small and secondary; up to two lines.
+struct SearchMatchLine: View {
+    let match: SearchResultMatch
+    /// ML paper search shows its abstract itself (marked); only the strength here.
+    var showsExcerpt = true
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
-        Text(Self.attributed(snippet)).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+        let excerpt = showsExcerpt ? match.excerpt : nil
+        // One more line at accessibility sizes, so "100% · title, abstract" stays whole.
+        Text(Self.line(match.match, excerpt: excerpt)).font(.footnote).foregroundStyle(.secondary)
+            .lineLimit((excerpt == nil ? 1 : 2) + (dynamicTypeSize.isAccessibilitySize ? 1 : 0)).truncationMode(.tail)
+            .accessibilityLabel(match.match.spokenLabel + (excerpt.map { ". " + $0.text } ?? ""))
+            .accessibilityIdentifier("search.match")
     }
 
-    static func attributed(_ snippet: FullTextSnippet) -> AttributedString {
-        var out = AttributedString(snippet.text)
-        let text = snippet.text
-        for range in snippet.highlights {
-            guard range.lowerBound >= 0, range.upperBound <= text.utf16.count else { continue }
+    /// The ⓘ beside the search switch.
+    static let info = "The percentage is the share of your search words a paper contains (a quoted phrase counts as one word). "
+        + "Then where they were found, strongest first: title, abstract, authors, tags, notes, full text. "
+        + "Library results contain every word, so where matters most; ML paper search results may contain only some. "
+        + "Matched words are marked. It isn’t a similarity score."
+
+    /// Find in paper's mark (reader-bridge.js: rgba(250, 204, 21, .4)), so a match looks the same everywhere.
+    static let markColor = Color(red: 250 / 255, green: 204 / 255, blue: 21 / 255).opacity(0.4)
+
+    static func line(_ match: SearchMatch, excerpt: FullTextSnippet?) -> AttributedString {
+        var out = AttributedString(match.label)
+        out.font = .footnote.weight(.medium).monospacedDigit()
+        if let excerpt { out += AttributedString("  ") + marked(excerpt.text, excerpt.highlights, emphasis: true) }
+        return out
+    }
+
+    /// `text` with `highlights` (UTF-16 ranges) marked; `emphasis` also sets them in the primary colour and semibold
+    /// (for secondary text).
+    static func marked(_ text: String, _ highlights: [Range<Int>], emphasis: Bool = false) -> AttributedString {
+        var out = AttributedString(text)
+        let length = text.utf16.count
+        for range in highlights {
+            guard range.lowerBound >= 0, range.upperBound <= length, !range.isEmpty else { continue }
             let lower = String.Index(utf16Offset: range.lowerBound, in: text), upper = String.Index(utf16Offset: range.upperBound, in: text)
             guard let matched = Range(lower..<upper, in: out) else { continue }
-            out[matched].foregroundColor = .primary
-            out[matched].font = .footnote.weight(.semibold)
+            out[matched].backgroundColor = markColor
+            if emphasis { out[matched].foregroundColor = .primary; out[matched].font = .footnote.weight(.semibold) }
         }
         return out
     }
@@ -943,6 +983,11 @@ struct FeedView: View {
             SlotFractions.shared.uncover()
         }
     }
+    /// A tap on a card (anywhere but its abstract's Full abstract, Add and links) opens its details (owner, 2026-10-24):
+    /// Wide, in the right slot; Tall, a large sheet swiped down when done.
+    private var open: (DiscoveryResult) -> Void {
+        pick ?? { result in model.feedDetail = result }
+    }
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -972,11 +1017,13 @@ struct FeedView: View {
                             StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }
                                 .padding(.horizontal, DesignMetrics.margin).padding(.top, 6)
                         }
-                        FeedTable(model: model, issue: $issue, pick: pick).refreshable { model.loadFeed() }
+                        FeedTable(model: model, issue: $issue, pick: pick, open: open).refreshable { model.loadFeed() }
                     } else {
                         // Turned upright with an article picked: its row centred and tinted, the tint fading (owner,
                         // 2026-10-23).
                         let reveal = model.revealedRow(in: .feed, wide: wideBar)
+                        let columns = listColumns
+                        let sections = FeedWhy.sections(model.shownFeedResults)
                         ScrollViewReader { proxy in
                         List {
                             if let issue {
@@ -988,21 +1035,22 @@ struct FeedView: View {
                             FeedColdStartNote(model: model)
                             // For you in sections by why each paper is suggested (owner, 2026-10-24: "having grouped lists in
                             // list view"); one kind of reason or none (a category) stays one plain list.
-                            if let sections = FeedWhy.sections(model.shownFeedResults) {
+                            if let sections {
                                 ForEach(sections) { section in
                                     Section {
-                                        ForEach(section.results) { feedRow($0, section: section, reveal: reveal) }
+                                        feedRows(section.results, section: section, reveal: reveal, columns: columns)
                                     } header: {
                                         FeedSectionHeader(section: section)
                                     }
                                 }
                             } else {
-                                ForEach(model.shownFeedResults) { feedRow($0, section: nil, reveal: reveal) }
+                                feedRows(model.shownFeedResults, section: nil, reveal: reveal, columns: columns)
                             }
                         }
                         .listStyle(.plain).refreshable { model.loadFeed() }
-                        .readableScrollColumn(width: width)
-                        .revealScroll(reveal?.row, token: reveal?.reveal.token, proxy: proxy)
+                        .readableScrollColumn(width: columns > 1 ? 0 : width)
+                        .revealScroll(reveal.map { FeedGridRow.id(of: $0.row, in: sections?.map(\.results) ?? [model.shownFeedResults], columns: columns) },
+                                      token: reveal?.reveal.token, proxy: proxy)
                         }
                     }
                 }
@@ -1030,6 +1078,16 @@ struct FeedView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .slotSheet(isPresented: $showColumns) { feedColumnsSheet }
+            // Tall: a card's details fill the screen (FeedPaperDetails); turned sideways, they move to the right slot.
+            // (Turning sideways closes the sheet; its paper moves to the right slot below, so that close keeps it.)
+            .appSheet(item: Binding(get: { wideBar ? nil : model.feedDetail }, set: { if $0 != nil || !wideBar { model.feedDetail = $0 } })) { result in
+                FeedDetailSheet(model: model, root: result)
+            }
+            .onChange(of: wideBar, initial: true) { _, wide in
+                guard wide, let detail = model.feedDetail else { return }
+                if model.feedResults.contains(where: { $0.sourceID == detail.sourceID }) { model.feedPickID = detail.sourceID; model.feedReading = false }
+                model.feedDetail = nil
+            }
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
     }
@@ -1039,12 +1097,52 @@ struct FeedView: View {
     private func shrinkText() { model.feedTextStep = max(-6, model.feedTextStep - 1) }
     private func growText() { model.feedTextStep = min(6, model.feedTextStep + 1) }
 
+    /// iPad upright (Tall, at least 760 pt wide): the List's cards in two columns across the window instead of one readable
+    /// column between empty margins (owner, 2026-10-24: "take the whole screen… a lot of space is not being well used").
+    /// Each column is about an iPhone row's width, so the lines stay a comfortable length. One column on iPhone, in Wide's
+    /// slot, on the Mac and at accessibility text sizes.
+    private var listColumns: Int {
+        !wideBar && !Platform.isMac && UIDevice.current.userInterfaceIdiom == .pad && width >= 760
+            && !dynamicTypeSize.stepped(by: model.feedTextStep).isAccessibilitySize ? 2 : 1
+    }
+
+    /// The List's papers: one row each, or `columns` cards side by side per row.
+    @ViewBuilder private func feedRows(_ results: [DiscoveryResult], section: FeedSection?, reveal: TableReveal<String>?, columns: Int) -> some View {
+        if columns < 2 {
+            ForEach(results) { feedRow($0, section: section, reveal: reveal) }
+        } else {
+            ForEach(FeedGridRow.rows(results, columns: columns)) { row in
+                HStack(alignment: .top, spacing: 32) {
+                    ForEach(row.results) { feedCard($0, section: section, reveal: reveal) }
+                    ForEach(0 ..< columns - row.results.count, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+                }
+                .listRowInsets(EdgeInsets(top: 14, leading: 28, bottom: 14, trailing: 28))
+            }
+        }
+    }
+
+    /// One card of the two-column List (its tint, when turned upright with it picked, on the card alone).
+    private func feedCard(_ result: DiscoveryResult, section: FeedSection?, reveal: TableReveal<String>?) -> some View {
+        let revealed = reveal?.row == result.id
+        let open = self.open
+        return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, section: section, pick: { open(result) })
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if revealed, let reveal {
+                    RevealTint(reveal: reveal.reveal, end: reveal.end).padding(-8).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(-8)
+                }
+            }
+            .accessibilityAddTraits(revealed ? .isSelected : [])
+    }
+
     /// One paper of the List; in a section, its why line leaves out what the header says.
     private func feedRow(_ result: DiscoveryResult, section: FeedSection?, reveal: TableReveal<String>?) -> some View {
         let picked = pick != nil && model.feedPickID == result.sourceID
         let revealed = reveal?.row == result.id
+        let open = self.open
         return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, section: section,
-                            pick: pick.map { pick in { pick(result) } })
+                            pick: { open(result) })
             .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
             .listRowBackground(revealed ? reveal.map { AnyView(RevealTint(reveal: $0.reveal, end: $0.end)) }
                                : picked ? AnyView(Color.accentColor.opacity(0.12)) : nil)
@@ -1084,7 +1182,7 @@ struct FeedView: View {
             }
             optionsMenu
         }
-        .modifier(HeaderWidth(fullWidth: tableShown)).padding(.top, 2).padding(.bottom, 8)
+        .modifier(HeaderWidth(fullWidth: tableShown || listColumns > 1)).padding(.top, 2).padding(.bottom, 8)
         .chromeBand(.top, solid: tableShown)
     }
 
@@ -1134,6 +1232,23 @@ struct FeedView: View {
             SettingsMenuSection(model: model)
         } label: { HeaderButtonLabel(systemImage: "ellipsis") }
         .buttonStyle(.plain).accessibilityLabel("Feed options")
+    }
+}
+
+/// A row of the two-column Feed List: its papers, side by side.
+struct FeedGridRow: Identifiable {
+    let results: [DiscoveryResult]
+    var id: String { results.map(\.sourceID).joined(separator: "|") }
+
+    static func rows(_ results: [DiscoveryResult], columns: Int) -> [FeedGridRow] {
+        stride(from: 0, to: results.count, by: max(1, columns)).map { FeedGridRow(results: Array(results[$0 ..< min($0 + columns, results.count)])) }
+    }
+
+    /// The List row that holds `sourceID` (itself with one column), for scrolling to it.
+    static func id(of sourceID: String, in groups: [[DiscoveryResult]], columns: Int) -> String {
+        guard columns > 1 else { return sourceID }
+        for group in groups { if let row = rows(group, columns: columns).first(where: { $0.results.contains { $0.sourceID == sourceID } }) { return row.id } }
+        return sourceID
     }
 }
 
@@ -2047,7 +2162,9 @@ struct DiscoveryList: View {
                 List {
                     orderChips
                     if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
-                    ForEach(model.orderedDiscoveryResults) { result in DiscoveryRow(model: model, result: result, issue: $issue) }
+                    ForEach(model.orderedDiscoveryResults) { result in
+                        DiscoveryRow(model: model, result: result, issue: $issue, match: model.discoveryMatches[result.sourceID])
+                    }
                 }.listStyle(.plain)
             }
         }
@@ -2078,8 +2195,11 @@ struct DiscoveryRow: View {
     var showsIdentifier = true
     /// The For you List's section the row is in (grouped by why): its why line leaves out what the header says.
     var section: FeedSection? = nil
-    /// Wide's Feed: a tap on the row shows its details beside the list (FeedAbstractPane); its buttons keep their own taps.
+    /// The Feed: a tap on the card shows its details (Wide beside the list, FeedAbstractPane; Tall a large sheet,
+    /// FeedDetailSheet; owner, 2026-10-24); its Full abstract, Add and links keep their own taps.
     var pick: (() -> Void)? = nil
+    /// ML paper search: how the result matched the words (SearchMatch); its title's and abstract's matched words marked.
+    var match: SearchResultMatch? = nil
     @State private var adding = false
     @State private var expanded = false
     var body: some View {
@@ -2089,11 +2209,20 @@ struct DiscoveryRow: View {
         } else { row }
     }
 
+    /// VoiceOver: the card's title is its default action (Show details); Full abstract stays its own named button.
+    @ViewBuilder private var title: some View {
+        let text = Text(SearchMatchLine.marked(result.title, match?.titleHighlights ?? [])).font(.headline).fixedSize(horizontal: false, vertical: true)
+        if let pick {
+            text.accessibilityAddTraits(.isButton).accessibilityHint("Shows its details").accessibilityAction(.default, pick)
+        } else { text }
+    }
+
     private var row: some View {
         HStack(alignment: .center, spacing: 12) {
             // The Library rows' type scale (design audit F6): title, authors, then details.
             VStack(alignment: .leading, spacing: 4) {
-                Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+                title
+                if let match { SearchMatchLine(match: match, showsExcerpt: false) }
                 if let authors = LibraryFormat.shortAuthors(result.authors) {
                     Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -2103,7 +2232,7 @@ struct DiscoveryRow: View {
                     } else { FeedReasonLine(reason: reason) }
                 }
                 if let abstract = result.abstract {
-                    Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
+                    abstractText(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(expanded ? "Less" : "Full abstract") { expanded.toggle() }
                         .font(.footnote).buttonStyle(.borderless)
@@ -2135,6 +2264,15 @@ struct DiscoveryRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("discover.result.\(result.sourceID)")
+    }
+
+    /// The abstract; in search, its matched words marked, and while folded the part around them (from its start when
+    /// they are near it).
+    private func abstractText(_ abstract: String) -> Text {
+        guard let match else { return Text(abstract) }
+        if !expanded, let excerpt = match.excerpt { return Text(SearchMatchLine.marked(excerpt.text, excerpt.highlights, emphasis: true)) }
+        let whole = SearchHighlighter.highlighted(model.discoveryMatchQuery, in: abstract, loose: true)
+        return Text(SearchMatchLine.marked(whole.text, whole.highlights, emphasis: true))
     }
 }
 

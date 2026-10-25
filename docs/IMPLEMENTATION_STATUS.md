@@ -33,6 +33,36 @@ Mac's load at 44–55 and a second Simulator running); alone, after the test tha
 it ran with no such wait (103 s, 107 s), so not reproduced. Screens (before | after, iPad Pro 13-inch light and dark;
 test screens): `/Users/benbowlwes/science-reader/.artifacts/nav-20261024/`. Not yet on a device.
 
+Feed card details and related papers (owner, 2026-10-24; DECISIONS.md "Feed: a card's details…"): a tap on a List card
+or Table row (not Full abstract, Add or links) opens its details — Tall a large sheet swiped down, Wide the right slot
+(`Views/FeedPaperDetails.swift`, `FeedAbstractPane`). Below the abstract, up to ten related papers worked out on the
+device (`Services/FeedRelated.swift`): the interest index's pool shards through the new device client
+(`ScienceReaderCore/Interest/`: manifest, shards cached by SHA-256, q8 decode, `vDSP` ranking), titles from the Feed
+results here or one paced `id_list` request from the device to arXiv, the calibrated heuristic in `RelatedPapers`
+(closeness ≥ 0.88, "Very close" ≥ 0.92, 0.86 with a shared topic or rare author), and a Feed-results fallback when the
+index isn't served. The Table's abstract-under-the-row is in its long-press menu now. iPad upright List: two cards per
+row across the window. Measured on staging: shards 2.61 MB for 8,230 papers, 2.0–2.6 s once; decode 20 ms, nearest 0.38 ms per paper
+(M1 Max, release). Verified: `swift test` (ScienceReaderCore: XCTest 96 + Swift Testing 460 pass); the real-shard measurement
+test. **Pending:** the UI suites (`FeedDetailTests`, `FeedForYouTests`, `TableColumnsTests`, `IPadShapesJourneyTests`
+Feed cases) and screenshots wait for a Simulator turn; nothing deployed (no server change).
+
+Owner session 2026-10-24 (iPad portrait, Search; [decision](DECISIONS.md#search-results-say-how-they-matched-the-scope-switch-keeps-the-words-owner-session-testflight-91-ipad-2026-10-24-agent-decisions-reversible),
+NATIVE_LIBRARY_SEARCH.md "Match strength"): **each result says how it matched** — one quiet line under the title, the
+share of the search words it contains and where, strongest first ("100% · title", "67% · title, abstract", "100% · full
+text"; not a similarity score), then for the Library one excerpt of where it matched outside the title (text, abstract or
+authors); matched words carry Find in paper's yellow mark, in the title too (List and table). ML paper search rows show
+the line and mark the title and abstract (measured on the device; arXiv/DataCite give no score). One ⓘ after the
+Library / ML paper search switch. **The switch keeps the words**: it used to show the other scope's own, usually empty,
+query (`ReaderModel.searchQuery` per scope; the picker bound `searchExternal` alone); now `setSearchScope` carries the
+words over and searches them. Also fixed: the table hid a row's search line when the row had no subtitle or device
+symbol (treated as a row being added). Verified: `swift test` 459 + 66 XCTest (new SearchMatchTests); app unit tests
+LibraryFullTextSearch/LibrarySearchModel/LibrarySearchCoordinator/PaperTable (47) on iPad Pro 13-inch (M5); UI
+`SearchMatchJourneyTests` (3, new), `LibraryFullTextJourneyTests`, `WorkflowJourneyTests` search scope tests and
+`IPadShapesJourneyTests.testSearchKeepsTheListAfterOpeningAResult` on iPad Pro 13-inch (M5) and/or iPhone 17 Pro
+(iOS 26.4). Screens: `.artifacts/visual/search-match-before/` (iPad: the emptied field) and `search-match-after/`
+(iPad light/dark, iPhone light/dark/xl). Not yet on a device; ML match lines were seen only on the offline
+`--discover-fixture` results.
+
 OpenRouter reconciler (pipeline worker revision gradstep-pipeline-00056-wcj, deployed 2026-10-25 04:25 UTC via Cloud
 Build): it now also accepts a record whose model is the dispatched slug without its date. Forcing a retry of the stuck
 2026-10-22 DeepSeek attempt (f92ab6d2, $0.049 held) still ended in `mismatch`, so the date was not the cause. The worker
@@ -65,6 +95,20 @@ revision's reading; own-PDF reading sends only `format`, `source`, `text`) pass,
 iOS Simulator (the bundle step stops only at the gitignored on-device model pack, not present in this worktree).
 **Server not deployed:** deploy `chat` to staging before a build with the app change ships (an older server answers
 `invalid_request` to `source: "local"`). No migration. Not run in the Simulator or on a device.
+On-device PDF route, tables (converter port revision 13; [review](reviews/DEVICE_PDF_TABLES_20261024.md)): three
+converter rules on in the app — `tableColumns` (columns from the body's grid, so spanning headers no longer merge the
+columns under them), `cellLines` (a wrapped cell read line by line), `tableCaptionBelow` (a caption printed under its table
+follows it). Real recorded runs of the 75 corpus papers with tables (no recogniser), against replays of the same records
+with the rules off, test / dev / venue: cell F1 0.691 → 0.747 / 0.696 → 0.783 / 0.651 → 0.750, whole rows 0.452 → 0.499 /
+0.587 → 0.652 / 0.376 → 0.488, table word F1 +0.040 / +0.053 / +0.071, whole blocks +0.005 / +0.006 / +0.014, inline
+found +0.020 / +0.007 / +0.010, text F1 ±0 / ±0 / +0.002; shared-content F1 −0.0008 / −0.0005 / −0.0009. On 5,285
+labelled tables from the desktop factory: cell F1 0.744 → 0.917 (dev split), 0.784 → 0.931 (test). `narrowCellGaps` built
+and off (loses 0.003 cell F1 on venue). Causes: most "flattened" tables were algorithms, prompts and code that the HTML
+writes as tables (58 of 91; now scored as truth), 34 real tables lacked a table box; most "cells wrong" were the caption's
+place and the box's contents, and the grid itself (columns merged under spanning headers), which a new cell F1 measure
+shows. No structure model trained; proposal in the review. New: cell and row F1 in `device-route-accuracy.mjs`,
+`scripts/device-route-table-bench.{py,mjs}`. Evidence: `npm test` passes; `swift test` 451 tests and 66 XCTest (1 skipped) pass. Not verified: the recogniser in
+these runs, any iPhone, the Simulator. Needs a TestFlight build to reach the app.
 
 For you by similarity to the library: new additive migration `202610240155_feed_library_similarity.sql` (**applied to staging 2026-10-25 00:08 UTC after encrypted backup 20261025T000815Z**) and ranking `feed-heuristic-v3` in `_shared/feed-rank.ts` (**`discover` deployed to staging**; the owner's live candidates rank 28 like / 11 popular on Hugging Face / 5 author / 3 explore / 3 category; workflow checks 18 pass, 1 fail = budget.health at 83 % of the $40 platform month, unrelated). With 0154 the
 owner's library counted, but their tags are broad areas, so 28 of 50 picks were "By <author>" (mostly namesakes) and 22

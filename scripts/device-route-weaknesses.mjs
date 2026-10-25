@@ -594,9 +594,15 @@ function analysePaper(run, key) {
 
   // 4. Tables.
   const tableWords = b => b.words;
+  // arXiv's HTML (LaTeXML) writes algorithms, prompt boxes and code as tables, and some real tables as pictures: neither
+  // is a table the PDF's reader can be blamed for (stage truth, no impact).
+  const NOT_A_TABLE = /\balgorithm\b|\brequire:|\binput:|\boutput:|\bprocedure\b|\bensure:|\{[a-z_]+\}|###|\bdef |\bimport |\bprompt\b|\byou are\b|\binstruction\b/i;
   for (const t of tb.filter(b => b.kind === 'table')) {
     const ws = tableWords(t);
     if (ws.length < 4) continue;
+    const plain = textOf(t.node);
+    const convention = NOT_A_TABLE.test(plain.slice(0, 400)) ? 'an algorithm, prompt or code box the HTML writes as a table'
+      : t.node && !findTag(t.node, 'tr') ? 'the HTML has the table as a picture' : null;
     const scored = db.map((d, di) => [overlap(ws, d.words) / ws.length, di]).sort((a, b) => b[0] - a[0]);
     const asTable = scored.find(([s, di]) => s >= 0.3 && db[di].kind === 'table');
     const loc = locate(pw, ws.slice(0, 14));
@@ -606,13 +612,14 @@ function analysePaper(run, key) {
       const dloc = locate(pw, d.words.slice(0, 14)) ?? loc;
       if (d.tag === 'figure') { add('table.image', 'converter', 0.4, { sub: 'cells not placed', loc: dloc, truth: truthSnippet, device: deviceHTMLSnippet(d, run.variant, key) }); continue; }
       const n = lcsPairs(ws.map(id), d.words.map(id))?.length ?? 0, f1 = 2 * n / Math.max(1, ws.length + d.words.length);
-      if (f1 < 0.75) add('table.cells', 'converter', 1 - f1, { sub: f1 < 0.5 ? 'word F1 under 0.5' : 'word F1 0.5 to 0.75', f1: round(f1, 2), loc: dloc, truth: truthSnippet, device: deviceHTMLSnippet(d, run.variant, key) });
+      if (f1 < 0.75) add('table.cells', convention ? 'truth' : 'converter', convention ? 0 : 1 - f1, { sub: convention ?? (f1 < 0.5 ? 'word F1 under 0.5' : 'word F1 0.5 to 0.75'), f1: round(f1, 2), loc: dloc, truth: truthSnippet, device: deviceHTMLSnippet(d, run.variant, key) });
       continue;
     }
     const inText = scored.filter(([s, di]) => s >= 0.1 && db[di].kind !== 'table').slice(0, 3);
     const total = inText.reduce((n, [s]) => n + s, 0);
     const region = regionAt(record, loc);
-    if (total >= 0.4) add('table.flattened', 'layout', 0.8, { sub: region ? `layout: ${region.cls}` : 'no table box', loc, region: region?.cls, truth: truthSnippet, device: inText.map(([, di]) => deviceHTMLSnippet(db[di], run.variant, key)).join('') });
+    if (total >= 0.4) add('table.flattened', convention ? 'truth' : 'layout', convention ? 0 : 0.8, { sub: convention ?? (region ? `layout: ${region.cls}` : 'no table box'), loc, region: region?.cls, truth: truthSnippet, device: inText.map(([, di]) => deviceHTMLSnippet(db[di], run.variant, key)).join('') });
+    else if (convention) add('table.missed', 'truth', 0, { sub: convention, loc, region: region?.cls, truth: truthSnippet });
     else add('table.missed', loc ? 'layout' : 'truth', loc ? 1 : 0, { sub: region?.cls === 'figure' ? 'boxed as a figure' : loc ? 'not read' : 'not in the PDF', loc, region: region?.cls, truth: truthSnippet });
   }
 

@@ -151,7 +151,7 @@ struct LibraryPaperTable<Top: View>: View {
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
                        PaperTableTitle(title: item.facts.title, highlighted: isSelected(item.entry),
-                                       reservesSpace: true, reservesSubtitleSpace: false, snippet: model.librarySnippets[item.entry.id])
+                                       reservesSpace: true, reservesSubtitleSpace: false, match: model.libraryMatches[item.entry.id])
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,

@@ -768,6 +768,18 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return try JSONDecoder().decode(DiscoveryResponse.self, from: data)
     }
 
+    /// The interest index's manifest (`GET functions/v1/interest-index`; docs/architecture/INTEREST_INDEX.md §4): public,
+    /// the same for every reader. `interest_unavailable` while the account isn't served.
+    func interestIndexManifest(accountID: UUID) async throws -> Data {
+        try await authorized(path: "functions/v1/interest-index", body: nil, method: "GET", accountID: accountID, maximumResponseBytes: 262_144)
+    }
+
+    /// One immutable interest index artifact's bytes (the caller checks its SHA-256 against the manifest).
+    func interestIndexArtifact(_ id: UUID, bytes: Int, accountID: UUID) async throws -> Data {
+        try await authorized(path: "functions/v1/interest-index?artifact=\(id.uuidString.lowercased())", body: nil, method: "GET",
+                             accountID: accountID, maximumResponseBytes: bytes)
+    }
+
     /// Deletes the signed-in account on the server (personal content, private
     /// files and the login; billing records stay de-identified).
     func deleteAccount(accountID: UUID) async throws {
@@ -1232,7 +1244,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                              "upload_write_proof_required", "upload_disabled", "upload_storage_capacity", "paper_storage_capacity", "asset_inventory_reconciling",
                              "library_descriptor_required", "invalid_upload", "rate_limited",
                              "library_active_import_limit", "import_not_retryable", "import_unavailable",
-                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "reader_update_required", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic"]).union(BackendError.readerDeliveryCodes)
+                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "reader_update_required", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic", "interest_unavailable"]).union(BackendError.readerDeliveryCodes)
                 .union(BackendError.podcastCodes)
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             // A busy server without a more specific code: wait as asked rather than a generic refusal.
