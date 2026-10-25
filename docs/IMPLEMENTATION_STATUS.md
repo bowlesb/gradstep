@@ -1,5 +1,23 @@
 # Implementation status
 
+## After TestFlight 93 — figure placement, 2026-10-25 UTC (branch; not yet in a build)
+
+Owner feedback on TestFlight 92 (iPhone, 17:11 UTC, WorldCast 2610.20731v2): "Is the Figure displayed in the right
+place". The paper writes Figures 1 and 2 before its first section (the PDF prints them at the foot of page 1 and the top
+of page 2), so the reader showed both, then the keywords, then "1 Introduction", whose second paragraph cites Figure 1.
+**Reader revision 27** moves a float written before the first section that the first section cites to just after the
+paragraph citing it, later front floats following in order; teasers the Introduction doesn't cite and all body floats
+stay ([HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md) "Floats before the first section", JUDGMENT_LOG 27).
+Model readings take the same rule with named citations (**device port revision 15**). The bridge puts the keywords row
+right after the abstract for every bundle version. Verified: `npm test`; 186 cached sources against revision 26 (21
+change, 35 floats moved, nothing else changed, 0 newly refused, all validate); fresh-paper sweep (`--recent=40`, 30
+papers) 0 failures, 6 warnings unrelated to floats; 76 recorded model readings (4 change, 0 refused); iPhone 17 Pro
+Simulator, dark, this branch's app with WorldCast bundles compiled by revisions 26 and 27
+(`ReaderNavigationTests.testTestFlight92FigurePlacement`: a revision-26 copy shows the keywords under the abstract and
+the figures after them; a revision-27 copy shows the keywords, then the Introduction, with both figures after the
+paragraph citing Figure 1); Playwright WebKit at iPhone size with the old and new bridge. Screenshots, with the owner's,
+in the main checkout's `.artifacts/tf92-figures/`. Not verified: a physical device; the Mac app; iPad.
+
 ## TestFlight 93 — 2026-10-25 UTC (iOS and Mac uploaded)
 
 Uploaded from main 1c87b2af: iOS 18:58 UTC, Mac 19:09 UTC ("Uploaded build 93", "Uploaded Mac build 93"). Contents (sections

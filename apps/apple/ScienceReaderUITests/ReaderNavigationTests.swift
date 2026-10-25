@@ -414,4 +414,53 @@ final class ReaderNavigationTests: XCTestCase {
         capture("equations-below")
         app.terminate()
     }
+
+    /// TestFlight 92 report (reader revision 27), photographed in the real reader from a bundle compiled on this Mac
+    /// (`node scripts/reader-device-compile.mjs --ids=2610.20731v2 --out=<dir>`): WorldCast's Figures 1 and 2 read after the
+    /// Introduction's paragraph that cites Figure 1, and the keywords row sits right under the abstract. Dark mode as
+    /// reported. Opt-in: `TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`, `TEST_RUNNER_READER_SHOT_NAME=<prefix>`,
+    /// `TEST_RUNNER_GS_SCREENSHOT_DIR=<folder>`.
+    func testTestFlight92FigurePlacement() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let bundles = environment["READER_SHOT_BUNDLES"], !bundles.isEmpty else {
+            throw XCTSkip("Set TEST_RUNNER_READER_SHOT_BUNDLES to a folder holding a compiled 2610.20731v2 bundle")
+        }
+        let prefix = environment["READER_SHOT_NAME"] ?? "reader"
+        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        func capture(_ name: String) {
+            let shot = XCUIScreen.main.screenshot()
+            let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            if let folder = environment["GS_SCREENSHOT_DIR"] {
+                try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(prefix)-\(idiom)-\(name).png"))
+            }
+        }
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture",
+                               "--figure-fixture-bundle=\(bundles)/2610.20731v2", "-appearance", "dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.wideMode("Reader").exists)
+        app.show("paper")
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 20), "the real paper opens")
+        sleep(2)
+        // Held drags (no fling) until a passage ends near the top of the page.
+        func bring(_ words: String, to share: CGFloat) {
+            let text = web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", words)).firstMatch
+            for _ in 0..<30 where !(text.exists && text.frame.maxY < web.frame.minY + web.frame.height * share) {
+                web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                    .press(forDuration: 0.1, thenDragTo: web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)),
+                           withVelocity: .slow, thenHoldForDuration: 0.4)
+            }
+            sleep(1)
+        }
+        // The abstract's last sentence, then what follows it (the owner's screenshot: Figure 1's caption, Figure 2, the
+        // keywords, then 1 Introduction).
+        bring("faithfully simulate real-world states", to: 0.25)
+        capture("below-abstract")
+        // The end of the Introduction's second paragraph, which cites Figure 1.
+        bring("itself becomes more intelligent", to: 0.3)
+        capture("citing-paragraph")
+        app.terminate()
+    }
 }

@@ -87,6 +87,12 @@ export interface ArxivContext {
   readonly unshownImages: Map<string, number>;
   /** Blocks the converter made up from metadata (a catalog title or author line), not the paper's own. */
   readonly synthetic: Set<OutNode>;
+  /** Page nodes made from one source float (a `figure` element: a figure, table or algorithm float with its panels and
+   * captions), so the float moves as one (floats.ts). */
+  readonly floatOf: Map<OutNode, DomNode>;
+  /** Page nodes made from one LaTeXML paragraph (`ltx_para`: its sentences, displays and the words after them), so a
+   * float lands after the whole paragraph that cites it (floats.ts). */
+  readonly paragraphOf: Map<OutNode, DomNode>;
   issued: number;
   // The closing note's ledger.
   dropped: number;
@@ -106,7 +112,7 @@ export function createContext(root: DomNode, sourceURL: string, resolveImage: Re
   const metadataTitle = typeof options.title === 'string' ? normalizeSpace(options.title).slice(0, 2000) : '';
   return { root, sourceURL, resolveImage, options, metadataAuthors, metadataTitle, digest, blocks: [], top: [], equations: [], figures: [], tableCaptions: new Map(),
     usedMath: new Set(), skippedMath: new Set(), aliases: new Map(), links: [], imageURLs: new Set(), figureImages: new Map(), unshownImages: new Map(), synthetic: new Set(),
-    issued: 0, dropped, omittedGraphics: 0, unresolvedCitations: 0, titleSeen: false, pendingAbstract: null, templateNotes: [], templateAffiliations: [] };
+    floatOf: new Map(), paragraphOf: new Map(), issued: 0, dropped, omittedGraphics: 0, unresolvedCitations: 0, titleSeen: false, pendingAbstract: null, templateNotes: [], templateAffiliations: [] };
 }
 
 export const bind = (cx: ArxivContext, n: DomNode, id: string) => { if (n.attribs?.id) cx.aliases.set(n.attribs.id, id); };

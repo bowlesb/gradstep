@@ -4,6 +4,19 @@ Last updated: 2026-10-25 UTC. Requirements below come from the current user conv
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Floats before the first section read where the Introduction cites them; keywords under the abstract (owner report on TestFlight 92, 2026-10-25 17:11 UTC; agent decision, reversible)
+
+Owner, iPhone, WorldCast 2610.20731v2: *"Is the Figure displayed in the right place"* (Figure 1's caption, Figure 2, the
+keywords, then "1 Introduction"). The figures were where the paper wrote them and the PDF prints them (foot of page 1,
+top of page 2); on a phone that put two screens of figures before the text that introduces them.
+
+| Topic | Decision |
+|---|---|
+| Rule (reader revision 27, model readings port 15) | A figure or table between the title and the first section that the first section cites moves to just after the paragraph that first cites it. Later floats before the first section follow, to their own first citation or right behind the one before; numbered order kept; never past a float of the body or into the references. Details: [HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md) "Floats before the first section", [JUDGMENT_LOG.md](JUDGMENT_LOG.md) 27 |
+| Not moved | A teaser the Introduction doesn't cite (cited later or never); every float in the body (the wider option, measured and not taken) |
+| Keywords row | Right after the abstract, before any figure kept there (reader bridge, every bundle version) |
+| Identity | The move changes no id (ids are issued in source order before it); figure links, explanations, snippets and Show in PDF address the same blocks. Prepared papers keep their copy until Update this paper |
+
 ## AI answers: a labelled fallback when the chosen model fails before writing; model health; the busy retry fixed (owner report on TestFlight 92, 2026-10-25 16:05 UTC; agent decisions, reversible)
 
 Owner: *"Speed and reliability seem to be not great for ai provider calls."* (a figure's AI Explainer on Gemini Flash:

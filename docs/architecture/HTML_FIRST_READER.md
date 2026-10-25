@@ -69,6 +69,43 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
+### Floats before the first section (revision 27, 2026-10-25; not yet released)
+
+TestFlight 92 feedback for WorldCast (2610.20731v2): "Is the Figure displayed in the right place". LaTeXML keeps a
+float where the source wrote it; WorldCast wrote Figures 1 and 2 after `\maketitle`, before `\section{Introduction}`
+(the PDF sets them at the foot of page 1 and the top of page 2), so the phone read the abstract, Figure 1's caption,
+Figure 2, the keywords row and only then "1 Introduction", whose second paragraph cites Figure 1 (Figure 2 is cited
+nowhere). On paper the eye takes in a page-top float beside the text citing it; a phone's single column has no page.
+Rule (`float-placement.ts`, the arXiv adapter's `arxiv/floats.ts`; JUDGMENT_LOG 27):
+
+- A **float** is what one source `figure` element became (a figure, a table float, an algorithm, with panels and
+  captions), plus the uncaptioned picture right above a caption-only float (`\captionof`). One of captions alone whose
+  picture became something else (2610.07591's diagram read as its labels) can't move, nor can any float before it.
+- A **citation** is an in-page link from prose (a paragraph or a list; not a caption or a table) before the references.
+- A float between the title and the first section (the first `h2`–`h6` after the title other than Abstract or
+  Contents) moves when the first section (with its subsections) cites it: to just after the whole LaTeXML paragraph
+  (`ltx_para`) holding the first citation, so a citing sentence keeps its displays and closing words. Every later
+  float before the first section then moves too, to its own first citation in the body or right behind the float
+  before it, so floats stay in their numbered order. No float passes a float of the body (it waits right above it), and
+  none reaches the references or an appendix.
+- Unchanged: a front float the first section doesn't cite, ahead of any that moves (a teaser such as DDPM's samples,
+  cited in §4; a figure cited only in the appendix or never), and every float in the body. On the 186 cached sources,
+  614 of 1,509 cited figures still sit before their first citation (635 before this revision), half within 500
+  characters and 302 in an earlier section, most at the top of the section discussing them; moving those is the wider
+  option not taken.
+- Ids are issued in source order before the pass, so the move changes no id or alias (links, Show in PDF, explanations,
+  snippets); `reorder` reads the index's blocks, equations and figures back in page order.
+
+The reader bridge's keywords row (`paperTagsPlace`) now sits right after the abstract heading's paragraphs, before the
+first figure, table, caption or section after it, for every bundle version, so a teaser kept under the abstract comes
+after the row; a page without an abstract heading before the first section keeps the row before the first section.
+
+Evidence: `tests/backend/arxiv-float-placement.test.ts`; 186 cached sources replayed against revision 26: 21 change
+(35 floats moved, none changed otherwise), 0 newly refused, all pass the validator; fresh-paper sweep (30 papers) 0
+failures; iPhone 17 Pro Simulator screenshots of WorldCast compiled by revisions 26 and 27 under `.artifacts/tf92-figures/`
+(`ReaderNavigationTests.testTestFlight92FigurePlacement`). On-device model readings take the same rule with named
+citations (DEVICE_PDF_ROUTE.md, port revision 15).
+
 ### Aligned equations and accents (revision 26, 2026-10-25; not yet released)
 
 TestFlight 92 feedback for 2610.27450v1 ("Ask to Distill"): equation (2), `align` with two column pairs, read as eight

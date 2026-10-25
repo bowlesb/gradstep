@@ -9,6 +9,7 @@ import { pyRound } from './geometry.ts';
 import { MARKER, type LogicalBlock, type Place, type Reading } from './convert.ts';
 import { CROP_SCALE, DPI, PLACEHOLDER, type DevicePDFHost, type Formula, type ImageRequest } from './types.ts';
 import { decodeBase64 } from './base64.ts';
+import { floatsNearMentions } from './floats.ts';
 import type { ReaderIndex } from '../render.ts';
 
 type Child = OutNode | string;
@@ -281,11 +282,15 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   const title = excerpt(normalizeSpace(outText(h1)), LIMITS.headingBytes);
   const headings = blocks.filter(b => b.kind === 'heading' && b.node !== h1).map(b => ({ id: b.id, level: Number(b.node.name.slice(1)),
     title: excerpt(normalizeSpace(outText(b.node)), LIMITS.headingBytes) })).filter(h => h.title.length > 0);
-  // Blocks in document order (the fallback title first), as the DOM has them.
-  const order = new Map<OutNode, number>(); let n = 0;
-  const walk = (node: OutNode) => { order.set(node, n++); for (const c of node.children) if (typeof c !== 'string') walk(c); };
+  // A float printed before the first section reads after the paragraph that first names it (port revision 15, floats.ts).
+  const moved = floatsNearMentions(top);
+  // Blocks in document order (the fallback title first), as the DOM has them; equations and figures too after a move.
+  const order = new Map<OutNode, number>(), idOrder = new Map<string, number>(); let n = 0;
+  const walk = (node: OutNode) => { if (node.attribs.id) idOrder.set(node.attribs.id, n); order.set(node, n++); for (const c of node.children) if (typeof c !== 'string') walk(c); };
   top.forEach(walk);
   blocks.sort((a, b) => order.get(a.node)! - order.get(b.node)!);
+  const placeOf = (id: string) => idOrder.get(id) ?? Number.MAX_SAFE_INTEGER;
+  if (moved) { equations.sort((a, b) => placeOf(a.id) - placeOf(b.id)); figures.sort((a, b) => placeOf(a.id) - placeOf(b.id)); }
   const index: ReaderIndex = { format: 'reader-index-v1', title, headings, equations, figures,
     blocks: blocks.map(b => ({ id: b.id, kind: b.kind, text: excerpt(normalizeSpace(outText(b.node)), LIMITS.textBytes) })) };
   return { top, index, images, figureRegions, blockRegions, degraded };
