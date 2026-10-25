@@ -83,6 +83,9 @@ struct LibrarySearchCandidate: Equatable, Sendable {
     var fullTextKey: String? = nil
     /// What each of `fields` is, for a result's match line ("100% · title"); a field without one counts as tags.
     var fieldKinds: [SearchMatchField] = []
+    /// 0: matches the filters. 1: a tag filter's possible related paper (Filter + related), shown only when
+    /// `LibraryRelatedRequest` admits it, and after every group-0 row whatever the order.
+    var group = 0
 
     func kind(of field: Int) -> SearchMatchField { field < fieldKinds.count ? fieldKinds[field] : field == 0 ? .title : .tags }
     /// The first field of this kind (the abstract, the authors), for a result's excerpt.
@@ -104,6 +107,28 @@ struct LibrarySearchInput: Sendable {
     let candidates: [LibrarySearchCandidate]
     /// This account's encrypted full-text index (docs/architecture/NATIVE_LIBRARY_SEARCH.md); nil searches metadata only.
     var fullText: FullTextIndexStore? = nil
+    /// Filter + related: which group-1 candidates join the tagged papers (TagRelated), worked out here, off the main actor.
+    var related: LibraryRelatedRequest? = nil
+}
+
+/// A tag filter with its related papers (owner, TestFlight 92; docs/architecture/INTEREST_INDEX.md "Related papers for a
+/// tag"): the tag, the current catalog's papers carrying it, and the candidates (the group-1 rows), with their public
+/// fingerprints where the device has them and the pool's term statistics. Nothing here leaves the device.
+struct LibraryRelatedRequest: Sendable, Equatable {
+    let tag: String
+    let tagged: [TagRelated.Paper]
+    let candidates: [TagRelated.Paper]
+    /// The term statistics' digest (equality), and the statistics.
+    let termsDigest: String?
+    let terms: InterestTerms?
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.tag == b.tag && a.termsDigest == b.termsDigest && a.tagged == b.tagged && a.candidates == b.candidates
+    }
+
+    func select() -> [String: TagRelated.Reason] {
+        TagRelated.select(tag: tag, tagged: tagged, candidates: candidates, terms: terms)
+    }
 }
 
 /// Matching rows in order, and a body snippet for the first rows whose match was in the paper's text.
@@ -112,6 +137,8 @@ struct LibrarySearchOutput: Sendable {
     var snippets: [String: FullTextSnippet] = [:]
     /// With a query: each row's match (strength, title highlights, and for the first rows one excerpt).
     var matches: [String: SearchResultMatch] = [:]
+    /// Filter + related: why each related row is listed.
+    var related: [String: TagRelated.Reason] = [:]
 }
 
 struct LibrarySearchResult: Sendable {
@@ -119,6 +146,7 @@ struct LibrarySearchResult: Sendable {
     let rowIDs: [String]
     let snippets: [String: FullTextSnippet]
     var matches: [String: SearchResultMatch] = [:]
+    var related: [String: TagRelated.Reason] = [:]
     /// Time inside the worker, separate from caller snapshot/publication work
     /// and submit-to-result latency. An injected async worker may also suspend.
     let workerElapsedMilliseconds: Double
@@ -139,7 +167,7 @@ enum LibrarySearchEngine {
 
     /// Metadata only (no full-text index): the existing localized substring rules.
     static func search(_ input: LibrarySearchInput) throws -> [String] {
-        try match(input, query: FullTextQuery(input.ticket.key.query), hits: [:], snapshot: nil).rowIDs
+        try match(input, query: FullTextQuery(input.ticket.key.query), hits: [:], snapshot: nil, related: input.related?.select()).rowIDs
     }
 
     /// The Library search: every clause (word or quoted phrase) must match, either in the full-text index (words,
@@ -155,15 +183,17 @@ enum LibrarySearchEngine {
             try Task.checkCancellation()
             hits = snapshot?.search(query, isCancelled: { Task.isCancelled }) ?? [:]
         }
-        return try match(input, query: query, hits: hits, snapshot: snapshot)
+        try Task.checkCancellation()
+        return try match(input, query: query, hits: hits, snapshot: snapshot, related: input.related?.select())
     }
 
     /// Whitespace-separated words outside quotes and quoted phrases are ANDed; each may match any of the caller's
     /// original fields (localized substring) or the paper's full-text hit. With a query and the default Recent
     /// order, rows are ranked by relevance (BM25 with field weights, a small recency boost); every other order sorts
     /// as before.
+    /// `related`: the group-1 candidates that join (Filter + related); the others are left out.
     static func match(_ input: LibrarySearchInput, query: FullTextQuery, hits: [String: FullTextHit],
-                      snapshot: FullTextSnapshot?) throws -> LibrarySearchOutput {
+                      snapshot: FullTextSnapshot?, related: [String: TagRelated.Reason]? = nil) throws -> LibrarySearchOutput {
         try Task.checkCancellation()
         let clauses = query.clauses
         var matches: [Int] = []
@@ -173,6 +203,7 @@ enum LibrarySearchEngine {
         matches.reserveCapacity(input.candidates.count)
         for (index, candidate) in input.candidates.enumerated() {
             try Task.checkCancellation()
+            if candidate.group == 1, related?[candidate.id] == nil { continue }
             let hit = candidate.fullTextKey.flatMap { hits[$0] }
             var includesEveryClause = true
             var score = hit?.score ?? 0
@@ -213,6 +244,8 @@ enum LibrarySearchEngine {
             var order = Array(matches.indices)
             try order.sort { left, right in
                 try Task.checkCancellation()
+                let groups = (input.candidates[matches[left]].group, input.candidates[matches[right]].group)
+                if groups.0 != groups.1 { return groups.0 < groups.1 }
                 if ranked[left] != ranked[right] { return ranked[left] > ranked[right] }
                 return ordered(input.candidates[matches[left]], before: input.candidates[matches[right]], by: sort)
             }
@@ -263,7 +296,7 @@ enum LibrarySearchEngine {
                     : SearchResultMatch(match: match)
             }
         }
-        return LibrarySearchOutput(rowIDs: rowIDs, snippets: snippets, matches: displayed)
+        return LibrarySearchOutput(rowIDs: rowIDs, snippets: snippets, matches: displayed, related: related ?? [:])
     }
 
     /// A row's match as shown: the title's matched words, and one excerpt of where else it matched: the paper's text
@@ -292,6 +325,8 @@ enum LibrarySearchEngine {
     /// Title ties fall back to stable row IDs; every other tie keeps recent order (creation
     /// sequence, then source position).
     static func ordered(_ left: LibrarySearchCandidate, before right: LibrarySearchCandidate, by sort: LibrarySearchSort) -> Bool {
+        // Filter + related: the tagged papers first, then the related ones, each in the chosen order.
+        if left.group != right.group { return left.group < right.group }
         let recent = left.recentSequence == right.recentSequence
             ? left.position < right.position : left.recentSequence > right.recentSequence
         let increasing: ComparisonResult = sort.ascending ? .orderedAscending : .orderedDescending
@@ -387,10 +422,11 @@ final class LibrarySearchCoordinator {
     deinit { running?.task.cancel() }
 
     @discardableResult
-    func submit(key: LibrarySearchKey, candidates: [LibrarySearchCandidate], fullText: FullTextIndexStore? = nil) -> LibrarySearchTicket {
+    func submit(key: LibrarySearchKey, candidates: [LibrarySearchCandidate], fullText: FullTextIndexStore? = nil,
+                related: LibraryRelatedRequest? = nil) -> LibrarySearchTicket {
         let ticket = LibrarySearchTicket(key: key)
         current = ticket
-        pending = LibrarySearchInput(ticket: ticket, candidates: candidates, fullText: fullText)
+        pending = LibrarySearchInput(ticket: ticket, candidates: candidates, fullText: fullText, related: related)
         running?.task.cancel()
         startPendingIfIdle()
         return ticket
@@ -421,7 +457,7 @@ final class LibrarySearchCoordinator {
             let output = try await worker(input)
             let elapsed = started.duration(to: .now).components
             return LibrarySearchResult(ticket: input.ticket, rowIDs: output.rowIDs, snippets: output.snippets, matches: output.matches,
-                workerElapsedMilliseconds: Double(elapsed.seconds) * 1_000
+                related: output.related, workerElapsedMilliseconds: Double(elapsed.seconds) * 1_000
                     + Double(elapsed.attoseconds) / 1_000_000_000_000_000)
         }
         running = Running(ticket: input.ticket, task: task)

@@ -44,6 +44,29 @@ test('the device asks arXiv for relevance and the oldest titles with the phrase,
   assert.deepEqual(arxivSearchRequests(planSearch('mamba')!).requests.map(r => r.role), ['relevance', 'cited']);
 });
 
+test('a Library tag searches its plain words: all of them, the whole phrase favoured in titles (owner, TestFlight 92)', () => {
+  // The app sends a tag as written ("Search ML papers for “On-policy distillation”"); no keyword: field (arXiv has none, and
+  // these are Gradstep's own tags).
+  const opd = planSearch('On-policy distillation')!;
+  assert.deepEqual(opd, { kind: 'text', text: 'On-policy distillation', words: ['on-policy', 'distillation'], phrase: 'on-policy distillation' });
+  const [relevance, , phrase] = arxivSearchRequests(opd).requests;
+  assert.equal(params(relevance.url).search_query, 'all:"on-policy" AND all:distillation', 'a hyphenated word stays one quoted word');
+  assert.equal(params(phrase.url).search_query, 'ti:"on-policy distillation"');
+  const kv = planSearch('KV cache compression')!;
+  assert.equal(params(arxivSearchRequests(kv).requests[0].url).search_query, 'all:kv AND all:cache AND all:compression');
+  assert.equal(params(arxivSearchRequests(kv).requests[2].url).search_query, 'ti:"kv cache compression"');
+  assert.equal(params(dataciteSearchRequests(opd).requests[0].url).query, 'on\\-policy distillation');
+  // A title with the tag's phrase, however it is hyphenated or capitalised, ranks above one with the words apart.
+  const paper = (id: string, title: string) => ({ source_id: id, revision: 1, title, authors: ['A'], year: 2026, abstract: null,
+    full_abstract: null, abstract_truncated: false, categories: ['cs.LG'], topics: [] });
+  const order = rankSearch(opd, { relevance: [paper('2610.00001', 'Distillation for policy learning on robots'),
+    paper('2610.00002', 'Branching On-Policy Distillation'), paper('2610.00003', 'On policy distillation, revisited')] });
+  assert.deepEqual(order.map(r => r.source_id).slice(0, 2).sort(), ['2610.00002', '2610.00003']);
+  assert.equal(order.at(-1)!.source_id, '2610.00001');
+  // One-word tags have no phrase request.
+  assert.deepEqual(arxivSearchRequests(planSearch('Radar')!).requests.map(r => r.role), ['relevance', 'cited']);
+});
+
 test('the browser asks DataCite for arXiv records only, near spellings only when short, IDs by DOI', () => {
   const { requests, broad } = dataciteSearchRequests(planSearch('in-context learning')!);
   const relevance = params(requests[0].url);

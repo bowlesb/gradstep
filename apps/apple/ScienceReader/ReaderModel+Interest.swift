@@ -76,6 +76,7 @@ extension ReaderModel {
             ready = await interest.prepare(client: client, backend: backend, accountID: accountID, keys: keys)
         }
         guard ready, let engine = interest.engine, !Task.isCancelled else { return }
+        interestFingerprintsChanged()
         inputs = interestInputs()
         let topics = await engine.update(inputs)
         guard !Task.isCancelled else { return }

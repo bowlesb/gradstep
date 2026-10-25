@@ -256,6 +256,8 @@ struct PaperTableTitle {
     var reservesSubtitleSpace = true
     /// A Library search's match: the title's matched words marked, and its strength and excerpt under the title.
     var match: SearchResultMatch? = nil
+    /// One quiet line under the title: why a tag filter's related paper is listed ("Related to 3 tagged papers").
+    var note: String? = nil
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -594,7 +596,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     /// The row as one element: title, subtitle and every column's value (including columns too wide to show).
     @ViewBuilder private func tappable<Content: View>(_ row: Row, @ViewBuilder content: () -> Content) -> some View {
         let match = title(row).match.map { $0.match.spokenLabel + ($0.excerpt.map { ". " + $0.text } ?? "") }
-        let label = ([title(row).title, match, title(row).subtitle] + columns.filter { !$0.isControl }.map { spoken(row, $0.id) })
+        let label = ([title(row).title, match, title(row).note, title(row).subtitle] + columns.filter { !$0.isControl }.map { spoken(row, $0.id) })
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
         // A revealed row is selected while its tint shows.
         let revealed: AccessibilityTraits = reveal?.row == row.id ? .isSelected : []
@@ -617,15 +619,17 @@ struct PaperTableTitleCell: View {
     let title: PaperTableTitle
     var body: some View {
         // A row with a search match has something to show (its match line), even with nothing else yet.
-        let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil && title.match == nil
+        let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil && title.match == nil && title.note == nil
         ZStack(alignment: .leading) {
         VStack(alignment: .leading, spacing: 2) {
             // One line limit: an expanded title is whole; a row being added keeps two lines' room.
+            // A related paper's reason sits right under its title, without an empty second line between them (iPad).
             Text(SearchMatchLine.marked(title.title, title.match?.titleHighlights ?? [])).font(.subheadline.weight(.semibold))
-                .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace)).truncationMode(.tail)
+                .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace && title.note == nil)).truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
             if let match = title.match { SearchMatchLine(match: match) }
+            if let note = title.note { RelatedReasonLine(text: note) }
             // A Library row's second line is always the cloud button's height (24 pt), so a row doesn't change height as
             // a paper is added, downloaded and opened (owner, builds 58–59).
             let libraryLine: CGFloat? = title.deviceCopy != nil || title.reservesSpace ? 24 : nil
@@ -657,6 +661,17 @@ struct PaperTableTitleCell: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         }
+    }
+}
+
+/// Why a tag filter's related paper is listed (Filter + related): one quiet line, the tag's words or how many tagged papers
+/// it is close to. The row reads it to VoiceOver.
+struct RelatedReasonLine: View {
+    let text: String
+    var lines = 1
+    var body: some View {
+        Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(lines).truncationMode(.tail)
+            .accessibilityIdentifier("library.related.reason")
     }
 }
 
@@ -694,32 +709,28 @@ struct PaperTableText: View {
     }
 }
 
-/// Tags as small chips that wrap within the cell, at most two lines (the owner's web library showed keyword chips).
-/// A chip matching the active tag filter is drawn in the accent color.
+/// Tags as small chips that wrap within the cell, at most two lines (the owner's web library showed keyword chips), as
+/// labels (the Feed, All chats). The Library's chips offer the tag's choices (`LibraryTagChips`).
 struct PaperTableChips: View {
     let tags: [String]
-    var highlighted: String? = nil
-    /// A tap on a chip filters the Library by that tag (owner-approved follow-up, 2026-10-07); nil: chips are labels.
-    var onTap: ((String) -> Void)? = nil
     var body: some View {
         PaperTableChipFlow(spacing: 4, lineSpacing: 4, maxLines: 2) {
-            ForEach(tags, id: \.self) { tag in
-                let on = tag == highlighted
-                let chip = Text(tag).font(.caption.weight(on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
-                    .foregroundStyle(on ? Color.accentColor : Color.secondary)
-                    .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(on ? Color.accentColor.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
-                if let onTap {
-                    Button { onTap(tag) } label: { chip }.buttonStyle(.plain)
-                        .accessibilityIdentifier("library.tagChip.\(tag)")
-                        #if targetEnvironment(macCatalyst)
-                        .help(on ? "Show all papers" : "Show papers tagged \(tag)")
-                        #endif
-                } else { chip }
-            }
+            ForEach(tags, id: \.self) { tag in PaperTableChipLabel(tag: tag) }
         }
         .clipped()
         .accessibilityHidden(true)   // the row reads its tags
+    }
+}
+
+/// One small chip; a chip matching the active tag filter is drawn in the accent color.
+struct PaperTableChipLabel: View {
+    let tag: String
+    var on = false
+    var body: some View {
+        Text(tag).font(.caption.weight(on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
+            .foregroundStyle(on ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(on ? Color.accentColor.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
     }
 }
 

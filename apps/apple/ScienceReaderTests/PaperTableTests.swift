@@ -380,6 +380,83 @@ final class PaperTableTests: XCTestCase {
         XCTAssertFalse(afterOpening.contains(unread.title), "Opened papers leave Unread")
     }
 
+    /// Owner, TestFlight 92: "Is the check mark right in the middle of the column?" The Device column is centred, so its
+    /// header and every glyph (check, cloud, warning, each in the same box) share one centre at every width; numbers keep
+    /// to the trailing edge and text to the leading one.
+    func testDeviceGlyphsAreCentredUnderTheirHeader() {
+        XCTAssertEqual(LibraryTableColumn.device.column.alignment, .center)
+        XCTAssertEqual(LibraryTableColumn.chats.column.alignment, .trailing)
+        XCTAssertEqual(LibraryTableColumn.pages.column.alignment, .trailing)
+        for column in LibraryTableColumn.allCases where ![.device, .chats, .pages].contains(column) {
+            XCTAssertEqual(column.column.alignment, .leading, column.rawValue)
+        }
+        XCTAssertLessThanOrEqual(LibraryTableCell.deviceGlyphBox, LibraryTableColumn.device.width, "every glyph's box fits the column")
+    }
+
+    /// Filter + related (owner, TestFlight 92): the related rows the rule admits follow the tagged rows, each group in the
+    /// chosen order, with their reasons; the other candidates stay out, and without the request none show.
+    func testRelatedRowsFollowTheTaggedOnesWithTheirReasons() async throws {
+        func unit(_ similarity: Float, axis: Int) -> [Float] {
+            var v = [Float](repeating: 0, count: 384); v[0] = similarity; v[axis] = (1 - similarity * similarity).squareRoot(); return v
+        }
+        func candidate(_ id: String, _ title: String, sequence: Int64, group: Int) -> LibrarySearchCandidate {
+            LibrarySearchCandidate(id: id, title: title, fields: [title], recentSequence: sequence, position: Int(sequence), group: group)
+        }
+        let rows = [candidate("t1", "Zeta tagged", sequence: 1, group: 0), candidate("t2", "Alpha tagged", sequence: 2, group: 0),
+                    candidate("close", "Beta close", sequence: 5, group: 1),
+                    candidate("words", "Gamma: speculative drafting at scale", sequence: 4, group: 1),
+                    candidate("far", "Aardvark unrelated", sequence: 3, group: 1)]
+        let request = LibraryRelatedRequest(tag: "Speculative drafting",
+            tagged: [.init(id: "t1", title: "Zeta tagged", abstract: "", vector: unit(1, axis: 1)),
+                     .init(id: "t2", title: "Alpha tagged", abstract: "", vector: unit(0.95, axis: 2))],
+            candidates: [.init(id: "close", title: "Beta close", abstract: "", vector: unit(0.97, axis: 3)),
+                         .init(id: "words", title: "Gamma: speculative drafting at scale", abstract: "", vector: nil),
+                         .init(id: "far", title: "Aardvark unrelated", abstract: "", vector: unit(0.5, axis: 4))],
+            termsDigest: nil, terms: nil)
+        func run(_ sort: LibrarySearchSort) async throws -> LibrarySearchOutput {
+            let key = LibrarySearchKey(sessionID: UUID(), accountID: nil, sourceRevision: 1, query: "", sort: sort)
+            return try await LibrarySearchEngine.run(LibrarySearchInput(ticket: .init(key: key), candidates: rows, related: request))
+        }
+        let byTitle = try await run(.title)
+        XCTAssertEqual(byTitle.rowIDs, ["t2", "t1", "close", "words"], "tagged first, then related, each A to Z; the far paper is left out")
+        XCTAssertEqual(byTitle.related["close"]?.text, "Related to 2 tagged papers")
+        XCTAssertEqual(byTitle.related["words"]?.text, "Mentions “speculative drafting”")
+        XCTAssertNil(byTitle.related["far"])
+        let recent = try await run(.recent), reversed = try await run(LibrarySearchSort(field: .title, ascending: false))
+        XCTAssertEqual(recent.rowIDs, ["t2", "t1", "close", "words"], "newest first within each group")
+        XCTAssertEqual(reversed.rowIDs, ["t1", "t2", "words", "close"], "reversing the order never mixes the groups")
+        let key = LibrarySearchKey(sessionID: UUID(), accountID: nil, sourceRevision: 1, query: "", sort: .recent)
+        XCTAssertEqual(try LibrarySearchEngine.search(.init(ticket: .init(key: key), candidates: rows)), ["t2", "t1"], "plain Filter")
+    }
+
+    /// The model's Filter / Filter + related: the tagged papers, then those using the tag's words (no fingerprints in a unit
+    /// test), each with its reason; clearing the tag clears both.
+    func testFilterPlusRelatedThroughTheLibrary() async throws {
+        let model = ReaderModel(configuration: nil)
+        var tagged = paper("Trees of drafts", tags: ["Speculative drafting"]); tagged.tagsCustomized = true
+        let mentions = paper("Two-stage speculative drafting for long outputs"), unrelated = paper("Graph kernels for molecules")
+        model.installLibraryMetadataFixture(papers: [tagged, mentions, unrelated], imports: [], sequences: [:], activity: [:], offline: [:])
+        func rows() async -> [String] { await model.waitForLibrarySearch(); return model.libraryRows.map(\.title) }
+        model.filterLibrary(byTag: "Speculative drafting", related: false)
+        var shown = await rows()
+        XCTAssertEqual(shown, [tagged.title])
+        XCTAssertTrue(model.libraryRelated.isEmpty)
+        model.filterLibrary(byTag: "Speculative drafting", related: true)
+        shown = await rows()
+        XCTAssertEqual(shown, [tagged.title, mentions.title], "the tagged paper, then one that uses the tag's words")
+        XCTAssertEqual(model.libraryRelated[LibraryListEntry.paper(mentions).id]?.text, "Mentions “speculative drafting”")
+        model.libraryTagFilter = nil
+        XCTAssertFalse(model.libraryTagIncludesRelated, "Clearing the tag clears its related papers")
+        shown = await rows()
+        XCTAssertEqual(Set(shown), [tagged.title, mentions.title, unrelated.title])
+        XCTAssertTrue(model.libraryRelated.isEmpty)
+        // A keyword's choices in the paper: the same, from anywhere.
+        model.showLibraryPapers(taggedWith: "Speculative drafting", related: true)
+        XCTAssertEqual(model.libraryTagFilter, "Speculative drafting"); XCTAssertTrue(model.libraryTagIncludesRelated)
+        shown = await rows()
+        XCTAssertEqual(shown, [tagged.title, mentions.title])
+    }
+
     func testNewOrdersSortByTagPagesAndSource() throws {
         func candidate(_ id: String, sequence: Int64, tag: String?, pages: Int?, source: String?) -> LibrarySearchCandidate {
             LibrarySearchCandidate(id: id, title: id, fields: [id], recentSequence: sequence, position: Int(sequence),

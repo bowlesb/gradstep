@@ -390,8 +390,28 @@ final class ReaderModel {
         didSet {
             guard libraryTagFilter != oldValue else { return }
             // A launch starts with all tags. An old, empty saved filter must not hide the library.
+            if libraryTagFilter == nil { libraryTagIncludesRelated = false }
             librarySearchSourceChanged()
         }
+    }
+    /// Filter + related (owner, TestFlight 92: "filter++ … include a bit more stuff that is related even if not tagged"):
+    /// the tag filter also lists untagged papers close to the tagged ones or using the tag's words, after them, each with
+    /// its reason (`libraryRelated`). Worked out on the device (TagRelated; docs/architecture/INTEREST_INDEX.md).
+    var libraryTagIncludesRelated = false {
+        didSet { if libraryTagIncludesRelated != oldValue, libraryTagFilter != nil { librarySearchSourceChanged() } }
+    }
+    /// Why each related row of the current results is listed (Filter + related), published with the rows.
+    private(set) var libraryRelated: [String: TagRelated.Reason] = [:]
+    /// The related papers' inputs as last prepared (submitted with the search); the fingerprint revision they used.
+    @ObservationIgnored private var libraryRelatedRequest: LibraryRelatedRequest?
+    @ObservationIgnored var libraryRelatedFingerprintRevision = -1
+
+    /// A tag's Filter or Filter + related (a tag chip's menu, a keyword's choices, the Tags menu): the current catalog's
+    /// papers with this tag, within the quick filter; a tag replaces a topic filter.
+    func filterLibrary(byTag tag: String, related: Bool) {
+        libraryTopicFilter = nil
+        libraryTagFilter = tag
+        libraryTagIncludesRelated = related
     }
     /// The Library list narrowed to one of the reader's topics (a chart slice; LibraryInterest.swift). Cleared with the
     /// tag filter, by a search, a catalog change or Clear.
@@ -1421,6 +1441,12 @@ final class ReaderModel {
 
     /// The term layer chose new keywords: rows, filters and search fields show them.
     func interestKeywordsChanged() { librarySearchSourceChanged() }
+    /// New public fingerprints or term statistics arrived: Filter + related looks again.
+    func interestFingerprintsChanged() {
+        if libraryTagFilter != nil, libraryTagIncludesRelated, interest.fingerprintRevision != libraryRelatedFingerprintRevision {
+            librarySearchSourceChanged()
+        }
+    }
 
     private func librarySearchSourceChanged() {
         librarySearchSourceRevision &+= 1
@@ -1468,7 +1494,8 @@ final class ReaderModel {
                 } else { self.librarySearchCoordinator = LibrarySearchCoordinator(publish: publish) }
             }
             self.librarySearchTicket = self.librarySearchCoordinator?.submit(
-                key: self.currentLibrarySearchKey, candidates: self.librarySearchCandidates, fullText: self.fullTextIndexer.store)
+                key: self.currentLibrarySearchKey, candidates: self.librarySearchCandidates, fullText: self.fullTextIndexer.store,
+                related: self.libraryRelatedRequest)
         }
     }
 
@@ -1500,9 +1527,11 @@ final class ReaderModel {
         #endif
         var candidates: [LibrarySearchCandidate] = []
         var lookup: [String: LibraryListEntry] = [:]
-        func append(_ row: LibraryListEntry, fields: [String], kinds: [SearchMatchField], sequence: Int64, keys: LibrarySortKeys = .init(), fullTextKey: String? = nil) {
+        func append(_ row: LibraryListEntry, fields: [String], kinds: [SearchMatchField], sequence: Int64, keys: LibrarySortKeys = .init(),
+                    fullTextKey: String? = nil, group: Int = 0) {
             candidates.append(LibrarySearchCandidate(id: row.id, title: row.title,
-                fields: fields, recentSequence: sequence, position: candidates.count, keys: keys, fullTextKey: fullTextKey, fieldKinds: kinds))
+                fields: fields, recentSequence: sequence, position: candidates.count, keys: keys, fullTextKey: fullTextKey, fieldKinds: kinds,
+                group: group))
             lookup[row.id] = row
         }
         // Archive changes waiting to sync already apply here, so a swipe hides the row at once.
@@ -1510,22 +1539,39 @@ final class ReaderModel {
         // The quick filter and tag filter decide which rows are candidates; search and sort then run over them.
         let filter = libraryFilter, tagFilter = libraryTagFilter, topicFilter = libraryTopicFilter
         func tagged(_ tags: [String]) -> Bool { tagFilter.map(tags.contains) ?? true }
+        // Filter + related: every other row the filters allow is a group-1 candidate; the search worker keeps those that
+        // TagRelated admits. The tagged papers it compares with are the catalog's, whatever the quick filter.
+        let related = tagFilter != nil && libraryTagIncludesRelated
+        let vectors = related ? interest.fingerprints : [:]
+        var relatedTagged: [TagRelated.Paper] = [], relatedCandidates: [TagRelated.Paper] = []
         for paper in papers where catalogContains(catalogKey(paper)) {
             let activity = readingActivity[paper.id]
             let tags = LibraryTags.tags(for: paper)
+            let hasTag = tagged(tags)
+            let relatedPaper = related ? TagRelated.Paper(id: LibraryListEntry.paper(paper).id, title: paper.title, abstract: paper.abstract,
+                                                          vector: Self.interestKey(paper).flatMap { vectors[$0] }) : nil
+            if hasTag, let relatedPaper { relatedTagged.append(relatedPaper) }
             guard filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived, opened: activity?.openedAt,
-                                       progress: activity?.progress), tagged(tags),
+                                       progress: activity?.progress), hasTag || related,
                   topicFilter.map({ $0.papers.contains(paper.id) }) ?? true else { continue }
+            if !hasTag, let relatedPaper { relatedCandidates.append(relatedPaper) }
             let keys = LibrarySortKeys(authors: (paper.authorNames.first.map(LibraryFormat.familyName)) ?? (paper.authors.isEmpty ? nil : paper.authors),
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
                                        chats: paperChatCounts[paper.id] ?? 0, tag: tags.first, pages: paper.pageCount,
                                        source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL))
             append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags,
-                   kinds: [.title, .authors, .abstract, .identifier], sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys, fullTextKey: paper.id.wire)
+                   kinds: [.title, .authors, .abstract, .identifier], sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys,
+                   fullTextKey: paper.id.wire, group: hasTag ? 0 : 1)
         }
         for item in libraryImports where catalogContains(catalogKey(item)) {
             let tags = LibraryTags.tags(for: item)
-            guard topicFilter == nil, filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically), tagged(tags) else { continue }
+            let hasTag = tagged(tags)
+            guard topicFilter == nil, filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically), hasTag || related else { continue }
+            // A paper still being added has no fingerprint: it can join by its words.
+            if !hasTag {
+                relatedCandidates.append(TagRelated.Paper(id: LibraryListEntry.pending(item).id, title: item.metadata?.title ?? "",
+                                                          abstract: item.metadata?.abstract ?? "", vector: nil))
+            }
             let reference = (item.sourceID ?? "") + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
             let keys = LibrarySortKeys(authors: item.metadata?.authors.first.map(LibraryFormat.familyName),
                                        year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) }, tag: tags.first,
@@ -1534,7 +1580,7 @@ final class ReaderModel {
             append(.pending(item), fields: [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
                 + authors + (item.metadata?.categories ?? []) + tags,
                    kinds: [.identifier, .title, .abstract] + Array(repeating: .authors, count: authors.count),
-                   sequence: item.createdSequence, keys: keys)
+                   sequence: item.createdSequence, keys: keys, group: hasTag ? 0 : 1)
         }
         for command in libraryCommands where filter.includesQueued && tagFilter == nil && topicFilter == nil {
             // Cached mappings suppress duplicate presentation only; they do
@@ -1545,7 +1591,12 @@ final class ReaderModel {
             append(.queued(command), fields: [command.display ?? "", source + (revision.map { "v\($0)" } ?? "")],
                    kinds: [.title, .identifier], sequence: Int64.max)
         }
-        let equivalent = candidates == librarySearchCandidates
+        let relatedRequest = related ? tagFilter.map {
+            LibraryRelatedRequest(tag: $0, tagged: relatedTagged, candidates: relatedCandidates, termsDigest: interest.termsDigest, terms: interest.terms)
+        } : nil
+        libraryRelatedFingerprintRevision = interest.fingerprintRevision
+        let equivalent = candidates == librarySearchCandidates && relatedRequest == libraryRelatedRequest
+        libraryRelatedRequest = relatedRequest
         librarySearchCandidates = candidates; libraryRowLookup = lookup
         librarySearchCandidatePositions = Dictionary(candidates.map { ($0.id, $0.position) }, uniquingKeysWith: { first, _ in first })
         librarySearchCandidateRevision = librarySearchSourceRevision
@@ -1569,6 +1620,8 @@ final class ReaderModel {
                 librarySearchPending = false; librarySearchIssue = "Search couldn’t finish. Try again."
                 return
             }
+            // The related rows' reasons first, so a new related row never draws without its line.
+            if libraryRelated != result.related { libraryRelated = result.related }
             libraryMatchedIDs = result.rowIDs; libraryRows = rows
             if librarySnippets != result.snippets { librarySnippets = result.snippets }
             if libraryMatches != result.matches { libraryMatches = result.matches }
@@ -2618,9 +2671,11 @@ final class ReaderModel {
         libraryTagFilter = nil; libraryTopicFilter = nil; libraryQuery = ""
         discoveryQuery = query; searchExternal = true; tab = .library; runDiscovery()
     }
-    /// The Library's papers with this keyword (a keyword's "Show library papers tagged").
-    func showLibraryPapers(taggedWith tag: String) {
-        searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all; libraryTagFilter = tag; libraryTopicFilter = nil
+    /// The Library's papers with this keyword (a keyword's "Show library papers tagged"), and with `related` the papers
+    /// related to them too.
+    func showLibraryPapers(taggedWith tag: String, related: Bool = false) {
+        searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all
+        filterLibrary(byTag: tag, related: related)
         tab = .library
     }
     func runDiscovery() {
@@ -5909,6 +5964,7 @@ extension ReaderModel {
         }
         libraryFilter = argument("--library-filter=").flatMap(LibraryFilter.init(rawValue:)) ?? .all
         libraryTagFilter = argument("--library-tag=")
+        libraryTagIncludesRelated = libraryTagFilter != nil && arguments.contains("--library-tag-related")
         // The iPad Reader's chat column: shown at its default width unless a test hides it or keeps the last run's.
         if !arguments.contains("--keep-reader-chat") { readerChatHidden = arguments.contains("--reader-chat-hidden"); readerChatWidth = nil }
         // The Wide slots' dividers at their defaults unless a test keeps the last run's.

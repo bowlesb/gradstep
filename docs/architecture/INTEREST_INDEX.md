@@ -790,6 +790,76 @@ over those and a Feed presentation; nothing in step 3 needs to change.
 - Topics cover every catalog; the chart filters the current catalog's list.
 - Uploaded PDFs (above). The browser client is not built (step 5).
 
+## Related papers for a tag: Filter + related (built 2026-10-25, app local, not released)
+
+Owner, TestFlight 92, of a tag chip in the Library table: *"It just filters right now but I'd like a few different
+options - filter, filter++ (what it would do is try to include a bit more stuff that is related even if not tagged
+necessarily - needs a design), and search ML papers for this."* Decisions:
+[DECISIONS.md](../DECISIONS.md#a-tags-choices-filter-filter--related-search-ml-papers-owner-feedback-on-testflight-92-2026-10-25).
+
+**The rule** (`ScienceReaderCore/…/Interest/TagRelated.swift`, `TagRelated.select`). The tagged papers are the current
+catalog's papers carrying the tag, whatever the quick filter; the candidates are the other rows the quick filter allows,
+imports included. A candidate joins when either:
+
+- **its fingerprint is close to two or more tagged papers**: cosine ≥ 0.88 (the Feed's "Close in topic",
+  `RelatedPapers.Settings.closeSimilarity`) to each, using the interest index's library fingerprints already on the
+  device; or
+- **its title or abstract uses the tag's words as a phrase** (`TagPhrase`): case, diacritics and width folded, a hyphen
+  counts as a space ("On-policy distillation" meets "on policy distillation"), the last word also singular or plural. A
+  one-word tag counts only in the title. Generic tags never match by words (`TagVocabulary.generic`, the vocabulary's
+  areas, the Feed's common topics such as "Fine-tuning"), nor a phrase in more than 5 % of the pool's papers by the term
+  statistics' document frequency ("real-world" is in 9.2 %).
+
+A paper without a fingerprint (an upload, an import, a fingerprint not arrived yet) can join only by its words.
+
+**Presentation.** The tagged rows come first and the related rows after them, each group in the table's order
+(`LibrarySearchCandidate.group`). A related row has one quiet line under its title: "Mentions “on-policy distillation”",
+"Related to 4 tagged papers", or both joined by " · "; VoiceOver reads it with the row. The Tags chip says
+"On-policy distillation + related". The table's Tags column, the List and the Tags menu show the same tags
+(`LibraryTags`; the List showed arXiv areas or catalog tags before).
+
+**On the device only.** The rule runs inside the Library search's worker, off the main actor, from what the device
+already holds: the library's public fingerprints (`v1_interest_library_fingerprints`), the public term statistics and
+the papers' titles and abstracts. Nothing new is sent or stored; no server or schema change. Without the interest
+index (not served, offline before it loaded) only the words rule applies.
+
+**Measurements** (`TagRelatedTests`; the last two are opt-in: `INTEREST_DEVICE_DIR` with `INTEREST_LIBRARY=owner`, and
+`TAG_RELATED_POOL_DIR` = tools/interest-eval's output with `corpus.json` and `emb/gte-small.npy`). Tags are the Library's
+own (`LibraryTags` from title and abstract); "right" means the added paper is about the tag's subject, judged by reading
+each title, ½ for a borderline one.
+
+| Library | Tags on ≥ 2 papers | Added | By words | By fingerprints | Right |
+|---|---:|---:|---:|---:|---|
+| Public fixture library (38 papers) | 14 | 14 | 14 | 0 | 13.5 of 14 |
+| Owner's library (62 papers, 2026-10-23 snapshot) | 21 | 16 | 14 | 2 | 10.5 of 16; the misses are on weak tags ("Pre-training", "Question answering", "Word") |
+| 14 phrases, each in its own 1,000-paper library drawn from the staging pool, up to 8 tagged papers | 14 | 133 | 98 | 35 | about 104 of 133: words 82 of 98 (84 %), fingerprints 22 of 35 (63 %) |
+
+Examples from the pool libraries: "on-policy distillation" (8 tagged) adds 23, 19 by words (all about on-policy
+distillation) and 4 close to several tagged papers (SAPD ✓, critique learning ½, reward hacking ✗, RLVR exploration ✗);
+"world models" adds 10, all by fingerprints (its words are in 5.2 % of the pool), 9 right; "real-world" adds nothing.
+
+Rejected after measuring:
+
+- **One tagged paper at ≥ 0.88** (the starting proposal): on the owner's library 30 papers joined by fingerprint alone,
+  about a quarter about the tag; there the LLM-agent papers are mostly within 0.88 of one another, so one agent paper
+  tagged "Policy optimization" pulled in four other agent papers. Over the pool libraries it added 284 papers to the
+  chosen rule's 133.
+- **One tagged paper at ≥ 0.90** (For you's "Like …"): in the pool libraries 2 of 13 such papers were about the tag (a
+  video-diffusion paper's neighbours joining "on-policy distillation"); on the owner's library about half.
+- **The tagged papers' centroid**: on the owner's library unrelated agent papers sat at 0.88–0.92 to the centroid of
+  almost any tag (`TAG_RELATED_DETAIL=1` prints it), so no threshold separates them.
+
+**Speed.** 40 tagged papers × 1,000 candidates, half of whose abstracts need splitting into words: 0.3 s in a debug build
+on a busy M1 Max, in the search worker.
+
+**Tests.** Core `TagRelatedTests` (phrase matching, one-word and generic tags, the two-paper rule, common phrases, reason
+wording, the fixture library); app `PaperTableTests` (groups and reasons through `LibrarySearchEngine`, the model's
+Filter / Filter + related, the Device column's centring); UI `LibraryTopicsTests.testFilterPlusRelatedAddsRelatedPapersAfterTheTaggedOnes`
+and `LibraryLayoutTests.testATagChipOffersFilterFilterPlusRelatedAndSearch`.
+
+**Open.** The thresholds are settings (`TagRelated.Settings`), easy to tighten if the owner finds the fingerprint
+additions loose; weak keyword tags ("Word", "Real-World") give weak results either way; uploads have no fingerprint.
+
 ## Serving to all (prepared 2026-10-25; not run)
 
 Owner approval: the §5 notice and `serving='all'`, 2026-10-25
