@@ -254,12 +254,23 @@ final class PaperToolsTests: XCTestCase {
         doubleTapOpensContents("after scrolling")
         web.swipeUp(velocity: .fast)
         doubleTapOpensContents("right after a fling")
-        // A word selected, then dismissed with a tap as a reader does: the next double tap opens Contents. (A tap while
-        // the system's selection is up goes to the selection; the bridge's own rule is covered by PaperWebViewTests.)
+        // A word selected, then dismissed with a tap elsewhere, as a reader does: the next double tap opens Contents. A tap
+        // on the selected word itself only hides or shows its menu (iOS keeps the selection), and two taps on or beside a
+        // selection adjust it rather than open Contents (the bridge's rule; PaperWebViewTests). So the dismissing tap and
+        // the double tap are on the paragraph's first words, far from the word selected at its centre. (Until 2026-10-25
+        // this step tapped the selected word itself, which left it selected: JUDGMENT_LOG 29.)
         web.swipeDown(velocity: .slow)
-        paragraph()?.press(forDuration: 1.0)
-        paragraph()?.tap()
-        doubleTapOpensContents("after a selection was dismissed")
+        guard let text = paragraph() else { return XCTFail("No paragraph on screen (after a selection was dismissed)") }
+        text.press(forDuration: 1.0)
+        XCTAssertTrue(wait({ app.paperSelectionMenuShown }, timeout: 5), "A long press selects a word")
+        capture(app, "A word selected")
+        let elsewhere = text.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.2))
+        elsewhere.tap()
+        XCTAssertTrue(wait({ !app.paperSelectionMenuShown }, timeout: 5), "A tap elsewhere dismisses the selection")
+        sleep(1) // so the dismissing tap can't be taken as the first of the two
+        elsewhere.doubleTap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 4), "Two taps open Contents after a selection was dismissed")
+        capture(app, "Double tap: after a selection was dismissed")
         #endif
     }
 

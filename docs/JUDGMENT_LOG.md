@@ -6,6 +6,22 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-25
 
+27. **A failed import without the Progress column puts its problem in that column's words and a mini Retry in its
+    title's second line** ("⚠ Download failed · Retry"; VoiceOver reads the full sentence), so it keeps a ready row's
+    height too, as 17 does for an adding paper (whose line keeps its "Why does this take a minute?" ⓘ). *Why:* one line
+    on an iPhone fits the short words and the mini capsule; the sentence truncated after "Couldn't downlo…" and the
+    small capsule would touch the title. *Undo:* the sentence and the small capsule.
+28. **The List layout keeps its content-sized rows** (checked, not changed). With the same details an adding row is
+    128 pt and the ready row 108 pt on an iPhone: its "Adding…" line goes when it's ready. A List row shows the whole
+    title, the authors and the abstract, so it can't reserve one height as the table does. *Alternative (not built):*
+    the step at the start of the details line ("◌ Adding… · 2024 · arXiv v1"), so becoming ready removes no line.
+29. **The double-tap journey was out of date, not the app** (`PaperToolsTests/testDoubleTapOpensContentsDeepInThePaper…`,
+    failing since TestFlight 91): its "dismissing" tap landed on the selected word itself, which on iOS only hides the
+    word's menu (the word stays selected; a second tap brings the menu back), and two taps on or beside a selection
+    adjust it rather than open Contents (the build-78 rule). The step now dismisses with a tap on the paragraph's first
+    words and double-taps there; Contents opens on iPhone and iPad. Why it passed on 2026-10-21 wasn't established.
+    *Undo:* nothing to undo in the app (test-only).
+
 22. **Global search keeps its sealed index on the device after sign-out** (cleared from memory and screen; removed
     with the account), like the encrypted chat store and the Library's index. The ML paper search cache is deleted at
     sign-out. *Undo:* delete the index at sign-out (a full rebuild, a few seconds, at the next sign-in).
@@ -46,7 +62,8 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
     apps do the same. *Undo:* wait for a tap in the field.
 17. **A paper being added keeps its row height even with the Progress column hidden:** the spinner and one-word status
     sit in the title's reserved second line, so an adding paper's title shows on one line until it's ready. *Why:* the
-    owner's no-jumping-rows rule (builds 58–59). *Undo:* the status line goes back under the title.
+    owner's no-jumping-rows rule (builds 58–59). *Undo:* the status line goes back under the title. Built after
+    TestFlight 93: 64 pt adding and ready with Tags alone (was 82 and 64), a 20 pt spinner (was 14).
 
 Earlier today (agent or lead calls, already in DECISIONS.md; listed here so they can be overruled in one place):
 
