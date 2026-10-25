@@ -32,7 +32,7 @@ export type LogicalBlock =
   | { kind: 'code'; lines: Marked[]; text: string }
   | { kind: 'references'; refs: string[] }
   | { kind: 'figure'; table: boolean; page: number; rect: [number, number, number, number]; caption: string; captionMarked?: Marked }
-  | { kind: 'cells'; caption: string; captionMarked?: Marked; rows: { marked: Marked; span: number }[][]; text: string };
+  | { kind: 'cells'; caption: string; captionMarked?: Marked; rows: { marked: Marked; span: number }[][]; text: string; captionAfter?: boolean };
 
 /** Where a block's text sits in the PDF (port revision 11): [page (from 0), x0, y0, x1, y1], points from the top left of the
  * page as shown, the union of one region's glyphs (its layout box when it has none). A block read from several regions (a
@@ -67,7 +67,7 @@ export interface Reading {
   verifyFloor: number | null;
 }
 
-interface Page { width: number; height: number; imageWidth: number; imageHeight: number; scale: number; glyphs: Glyph[]; detections: PageInput['detections']; rules: Box[] }
+interface Page { width: number; height: number; imageWidth: number; imageHeight: number; scale: number; glyphs: Glyph[]; detections: PageInput['detections'] }
 
 function readPage(raw: PageInput, aliases?: TaggerVocabulary): Page {
   check(raw && typeof raw === 'object', 'device_pdf_page');
@@ -84,10 +84,7 @@ function readPage(raw: PageInput, aliases?: TaggerVocabulary): Page {
     glyphs.push(glyph);
   }
   const detections = (Array.isArray(raw.detections) ? raw.detections : []).filter(d => d && LAYOUT_CLASSES.includes(d.cls) && Array.isArray(d.box) && d.box.length === 4 && d.box.every(Number.isFinite) && Number.isFinite(d.score));
-  // The page's ruling lines (optional; points), at most 4,000 of them.
-  const rules = (Array.isArray(raw.rules) ? raw.rules : []).slice(0, 4000)
-    .filter(r => Array.isArray(r) && r.length === 4 && r.every(Number.isFinite) && r[2] >= r[0] && r[3] >= r[1]).map(r => [+r[0], +r[1], +r[2], +r[3]] as Box);
-  return { width: raw.width, height: raw.height, imageWidth: Math.trunc(raw.image_width), imageHeight: Math.trunc(raw.image_height), scale: raw.scale, glyphs, detections, rules };
+  return { width: raw.width, height: raw.height, imageWidth: Math.trunc(raw.image_width), imageHeight: Math.trunc(raw.image_height), scale: raw.scale, glyphs, detections };
 }
 
 export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
@@ -95,8 +92,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   useWordGaps(null);
   useLineBands(!!input.lineBands, !!input.lineReturns);
   // Table rules (tables.ts): none set reads tables as the reference does.
-  const tableOptions = (page: Page): TableOptions => ({ columns: !!input.tableColumns, cellLines: !!input.cellLines, rows: !!input.tableRows,
-    ...(input.tableRules && page.rules.length ? { rules: page.rules } : {}) });
+  const tableOptions: TableOptions = { columns: !!input.tableColumns, cellLines: !!input.cellLines };
   useLigatures(!!input.ligatures);
   const nPages = input.pages;
   check(Number.isSafeInteger(nPages) && nPages >= 1 && nPages <= 2000, 'device_pdf_pages');
@@ -269,7 +265,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const linesFor = (r: Region) => { if (!lineCache.has(r)) lineCache.set(r, linesOf(owned(r))); return lineCache.get(r)!; };
     const cellCache = new Map<Region, Cell[][] | null>();
     const cellsFor = (r: Region) => {
-      if (!cellCache.has(r)) { const body = owned(r).filter(visible); cellCache.set(r, body.length ? tableCells(body, tableOptions(page)) : null); }
+      if (!cellCache.has(r)) { const body = owned(r).filter(visible); cellCache.set(r, body.length ? tableCells(body, tableOptions) : null); }
       return cellCache.get(r)!;
     };
     const candidates: Glyph[][] = [];
@@ -459,11 +455,14 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
             }
             rows.push(tds);
           }
-          const text = canonicalText([...(capText ? [capText] : []), ...texts].join(' '));
-          blocks.push(placed({ kind: 'cells', caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}), rows, text },
+          // tableCaptionBelow: a caption printed under its table follows it, as the PDF (and the source) has it.
+          const centre = (b: readonly number[]) => (b[1] + b[3]) / 2;
+          const captionAfter = !!input.tableCaptionBelow && !!capText && (r.captions ?? []).length > 0 && (r.captions ?? []).every(c => centre(c.pt) > centre(r.pt));
+          const text = canonicalText((captionAfter ? [...texts, capText] : [...(capText ? [capText] : []), ...texts]).join(' '));
+          blocks.push(placed({ kind: 'cells', caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}), rows, text, ...(captionAfter ? { captionAfter } : {}) },
             [placeOf(pageIndex, body, r.pt), ...captionPlaces]));
           const bid = addTrace('table', text);
-          for (const f of [...capFormulas, ...cellFormulas]) commit(f, bid, 'body');
+          for (const f of captionAfter ? [...cellFormulas, ...capFormulas] : [...capFormulas, ...cellFormulas]) commit(f, bid, 'body');
           return;
         }
       }

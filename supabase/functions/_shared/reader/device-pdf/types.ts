@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 12;
+export const DEVICE_PDF_PORT_REVISION = 13;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -40,9 +40,6 @@ export interface PageInput {
   width: number; height: number; image_width: number; image_height: number; scale: number;
   glyphs: { text: string[]; x0: number[]; top: number[]; x1: number[]; bottom: number[]; size: number[]; font: string[]; upright: (boolean | number)[] };
   detections: { cls: string; score: number; box: number[] }[];
-  /** The page's ruling lines, optional: thin filled rectangles and straight stroked lines, [x0, top, x1, bottom] in
-   * points from the top left (the glyphs' coordinates). Read by the `tableRules` rule. */
-  rules?: number[][];
 }
 export interface TagLine { x: number[]; font: number[]; cls: number[]; char: number[] }
 /** `display`: the formula is a display (the host groups crops of like length into its batches). `cost`: the formula's glyph
@@ -149,10 +146,8 @@ export interface DevicePDFInput {
   tableColumns?: boolean;
   /** A table cell of several lines read line by line (tables.TableOptions.cellLines). */
   cellLines?: boolean;
-  /** A wrapped text line continues its table row (tables.TableOptions.rows). */
-  tableRows?: boolean;
-  /** The page's ruling lines separate a table's rows and columns (tables.TableOptions.rules; needs the host's `rules`). */
-  tableRules?: boolean;
+  /** A table's caption printed under it follows the table in the reading (convert, emit). */
+  tableCaptionBelow?: boolean;
 }
 
 export interface Formula {

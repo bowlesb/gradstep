@@ -1,7 +1,7 @@
-// Tables as cells (device_pdf.table_cells and cell_span_ok), ported rule for rule; since port revision 13 with measured
-// rules of its own (TableOptions, docs/reviews/DEVICE_PDF_TABLES_20261024.md).
+// Tables as cells (device_pdf.table_cells and cell_span_ok), ported rule for rule; since port revision 13 with two measured
+// rules of its own (TableOptions; docs/reviews/DEVICE_PDF_TABLES_20261024.md).
 import { byX, linesOf, visible } from './geometry.ts';
-import { CELL_GAP, WIDE_CELL, type Box, type Glyph } from './types.ts';
+import { CELL_GAP, WIDE_CELL, type Glyph } from './types.ts';
 
 const MATH_FONT = /CMMI|CMSY|CMEX|MSAM|MSBM|Math|rsfs|eufm|wasy|stmry|Symbol/i;
 
@@ -18,59 +18,38 @@ export function cellSpanOk(glyphs: readonly Glyph[]): boolean {
  * are read one by one (a cell's glyphs sorted by x alone interleave its lines' words). */
 export type Cell = [Glyph[], number, Glyph[][]?];
 
-/** Converter rules for tables (each measured on its own; off reproduces the reference). */
+/** Converter rules for tables (each measured on its own; none set reads as the reference). */
 export interface TableOptions {
-  /** Columns from the lines with the most cells (the body's grid), so a spanning header or a wide caption-like line no
-   * longer bridges two columns into one. */
+  /** Columns from the lines with the most cells (the body's grid), so a spanning header no longer bridges two columns
+   * into one; a run starting under a spanning cell joins it. */
   columns?: boolean;
   /** A cell that joins lines keeps them as lines: its text is read line by line instead of by x across them. */
   cellLines?: boolean;
-  /** A line that continues the row above (a wrapped text cell: no number in it, only columns the row above fills, and
-   * no wider gap than the table's tightest line spacing) joins that row cell by cell. */
-  rows?: boolean;
-  /** The page's ruling lines (points, [x0, top, x1, bottom]): a horizontal rule between two lines keeps them apart; in a
-   * table ruled between (nearly) every row, the lines between two rules are one row; a vertical rule separates
-   * columns. */
-  rules?: readonly Box[];
 }
 
 const lowerMedian = (values: number[]) => { const s = [...values].sort((a, b) => a - b); return s[s.length >> 1]; };
 const top = (gl: readonly Glyph[]) => Math.min(...gl.map(g => g.top));
 const bottom = (gl: readonly Glyph[]) => Math.max(...gl.map(g => g.bottom));
 const extent = (r: readonly Glyph[]): [number, number] => [Math.min(...r.map(g => g.x0)), Math.max(...r.map(g => g.x1))];
-/** A cell of figures: digits with the signs and marks results carry (93.4 ± 0.2, 12.5%, (3), –, 1e-4), no word. */
-const NUMERIC = /^[\s\d.,%±+\-−–—()[\]/×*†‡∗⋆·:<>≤≥~^e]*\d[\s\d.,%±+\-−–—()[\]/×*†‡∗⋆·:<>≤≥~^e]*$/u;
-const textOf = (gl: readonly Glyph[]) => byX(gl).map(g => g.text).join('');
 
 /** Rows of (cell glyphs, colspan[, lines]) from the text layer inside a table box, or null (fewer than two columns or
  * rows). */
 export function tableCells(glyphs: readonly Glyph[], options: TableOptions = {}): Cell[][] | null {
-  if (!options.columns && !options.cellLines && !options.rows && !options.rules?.length) return referenceCells(glyphs);
+  if (!options.columns && !options.cellLines) return referenceCells(glyphs);
   const lines = linesOf(glyphs.filter(visible)).map((ln, i) => [ln, i] as const)
     .sort((a, b) => top(a[0]) - top(b[0]) || a[1] - b[1]).map(([ln]) => ln);
   if (lines.length < 2) return null;
   const x0 = Math.min(...glyphs.map(g => g.x0));
-  const x1 = Math.max(...glyphs.map(g => g.x1));
-  const width = Math.max(1.0, x1 - x0);
-  const yTop = Math.min(...glyphs.map(g => g.top)), yBottom = Math.max(...glyphs.map(g => g.bottom));
-  // Ruling lines over the table: horizontal ones crossing a third of its width, vertical ones inside it.
-  const rules = options.rules ?? [];
-  const hRules = rules.filter(r => r[3] - r[1] <= 2.5 && r[2] - r[0] > r[3] - r[1] && Math.min(r[2], x1) - Math.max(r[0], x0) >= width / 3 &&
-    r[1] >= yTop - 6 && r[3] <= yBottom + 6).map(r => (r[1] + r[3]) / 2);
-  const vRules = rules.filter(r => r[2] - r[0] <= 2.5 && r[3] - r[1] > r[2] - r[0] && r[0] > x0 + 2 && r[2] < x1 - 2 &&
-    Math.min(r[3], yBottom) - Math.max(r[1], yTop) > 0).map(r => [(r[0] + r[2]) / 2, r[1], r[3]] as const);
-  const ruleBetween = (a: readonly Glyph[], b: readonly Glyph[]) => { const lo = bottom(a) - 1.0, hi = top(b) + 1.0; return hRules.some(y => y > lo && y < hi); };
+  const width = Math.max(1.0, Math.max(...glyphs.map(g => g.x1)) - x0);
 
   const runsByLine: Glyph[][][] = [];
   for (const ln of lines) {
     const order = byX(ln);
     const h = Math.max(1.0, lowerMedian(order.map(g => g.bottom - g.top)));
-    const lt = top(ln), lb = bottom(ln);
     const runs: Glyph[][] = [[order[0]]];
     for (const g of order.slice(1)) {
-      const last = runs[runs.length - 1], prev = last[last.length - 1];
-      const ruled = vRules.some(([x, a, b]) => x > prev.x1 - 0.5 && x < g.x0 + 0.5 && Math.min(b, lb) - Math.max(a, lt) > 0);
-      if (g.x0 - prev.x1 > CELL_GAP * h || ruled) runs.push([]);
+      const last = runs[runs.length - 1];
+      if (g.x0 - last[last.length - 1].x1 > CELL_GAP * h) runs.push([]);
       runs[runs.length - 1].push(g);
     }
     runsByLine.push(runs);
@@ -85,25 +64,20 @@ export function tableCells(glyphs: readonly Glyph[], options: TableOptions = {})
     for (const [n, f] of freq) if (f > best || (f === best && n > mode)) { mode = n; best = f; }
     if (mode >= 2) source = runsByLine.filter(r => r.length >= mode);
   }
-  const spans = source.flat().map(extent).filter(([a, b]) => b - a < WIDE_CELL * width).sort((p, q) => p[0] - q[0] || p[1] - q[1]);
-  let columns: [number, number][] = [];
-  for (const [a, b] of spans) {
-    if (columns.length && a <= columns[columns.length - 1][1]) columns[columns.length - 1][1] = Math.max(columns[columns.length - 1][1], b);
-    else columns.push([a, b]);
-  }
-  // A vertical rule inside a column splits it.
-  if (vRules.length) {
-    columns = columns.flatMap(([a, b]) => {
-      const cuts = [...new Set(vRules.map(([x]) => x).filter(x => x > a + 1 && x < b - 1))].sort((p, q) => p - q);
-      const out: [number, number][] = []; let from = a;
-      for (const x of cuts) { out.push([from, x]); from = x; }
-      out.push([from, b]);
-      return out;
-    });
-  }
+  const columnsOf = (from: Glyph[][][]) => {
+    const spans = from.flat().map(extent).filter(([a, b]) => b - a < WIDE_CELL * width).sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    const out: [number, number][] = [];
+    for (const [a, b] of spans) {
+      if (out.length && a <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], b);
+      else out.push([a, b]);
+    }
+    return out;
+  };
+  let columns = columnsOf(source);
+  // The grid's lines may hold too few narrow runs (a wide text column): then every line's, as the reference.
+  if (columns.length < 2 && source !== runsByLine) columns = columnsOf(runsByLine);
   if (columns.length < 2) return null;
 
-  type Row = { cells: Map<number, Cell>; lines: Glyph[][] };
   const rowOf = (runs: Glyph[][]): Map<number, Cell> => {
     const cells = new Map<number, Cell>();
     for (const r of runs) {
@@ -133,48 +107,27 @@ export function tableCells(glyphs: readonly Glyph[], options: TableOptions = {})
       into.set(s, [[...old[0], ...cell[0]], old[1], options.cellLines ? [...linesOfCell(old), ...linesOfCell(cell)] : undefined]);
     }
   };
-  // The table's tightest spacing between lines (a wrapped cell's lines are set at it).
-  const gaps = lines.slice(1).map((ln, i) => top(ln) - bottom(lines[i])).filter(g => g > -2);
-  const tightest = gaps.length ? Math.min(...gaps) : 0;
-  const hAll = Math.max(1.0, lowerMedian(glyphs.filter(visible).map(g => g.bottom - g.top)));
-  // Ruled between rows: at least three rules between lines and most of the stretches between them one line.
-  let ruledRows = false;
-  if (hRules.length) {
-    const groups: number[] = [1];
-    for (let i = 1; i < lines.length; i++) { if (ruleBetween(lines[i - 1], lines[i])) groups.push(1); else groups[groups.length - 1] += 1; }
-    ruledRows = groups.length >= 4 && groups.filter(n => n === 1).length >= 0.6 * groups.length;
-  }
 
-  const rows: Row[] = [];
-  runsByLine.forEach((runs, li) => {
-    const cells = rowOf(runs), line = lines[li];
+  const rows: Map<number, Cell>[] = [];
+  for (const runs of runsByLine) {
+    const cells = rowOf(runs);
     const prev = rows[rows.length - 1];
-    const prevLine = prev?.lines[prev.lines.length - 1];
-    const blocked = prev ? ruleBetween(prevLine!, line) : true;
-    if (prev && !blocked) {
-      // In a table ruled between its rows, the lines between two rules are one row.
-      if (ruledRows) { join(prev.cells, cells); prev.lines.push(line); return; }
+    if (prev) {
       const filled = [...cells.keys()];
       // The reference's rule: a line with one cell, under a filled cell of the row above and close to it, continues it.
       if (filled.length === 1) {
-        const s = covering(prev.cells, filled[0]);
-        if (s === filled[0] && prev.cells.get(s)![0].length) {
-          const above = prev.cells.get(s)![0];
+        const s = covering(prev, filled[0]);
+        if (s === filled[0] && prev.get(s)![0].length) {
+          const above = prev.get(s)![0];
           const h = Math.max(1.0, lowerMedian(above.map(g => g.bottom - g.top)));
-          if (top(cells.get(s)![0]) - bottom(above) < 0.5 * h) { join(prev.cells, cells); prev.lines.push(line); return; }
+          if (top(cells.get(s)![0]) - bottom(above) < 0.5 * h) { join(prev, cells); continue; }
         }
       }
-      // rows: a wrapped text line continues the row above.
-      if (options.rows && filled.length < prev.cells.size && top(line) - bottom(prevLine!) <= tightest + 0.15 * hAll &&
-          [...cells.values()].every(cell => !NUMERIC.test(textOf(cell[0]))) &&
-          filled.every(c => { const s = covering(prev.cells, c); return s >= 0 && !NUMERIC.test(textOf(prev.cells.get(s)![0])); })) {
-        join(prev.cells, cells); prev.lines.push(line); return;
-      }
     }
-    rows.push({ cells, lines: [line] });
-  });
+    rows.push(cells);
+  }
 
-  const out: Cell[][] = rows.map(({ cells }) => {
+  const out: Cell[][] = rows.map(cells => {
     const row: Cell[] = [];
     for (let i = 0; i < columns.length;) {
       const cell = cells.get(i);
