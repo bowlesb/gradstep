@@ -119,13 +119,18 @@ final class FeedForYouTests: XCTestCase {
     }
 
     // MARK: Grouped by why (owner, 2026-10-24: "Let's try having a column in Table for the reason and having grouped lists
-    // in list view")
+    // in list view"); the List's group headings went after TestFlight 92 ("Like papers you added not needed")
 
-    func testForYouListGroupedByWhyLight() throws { try groupedList(appearance: "light") }
+    func testForYouListInWhyOrderWithoutHeadingsLight() throws { try listInWhyOrder(appearance: "light") }
     func testForYouTableWhyColumnLight() throws { try whyColumn(appearance: "light") }
     func testForYouGroupedSidewaysOnIPad() throws { try groupedSideways() }
 
-    private func section(_ app: XCUIApplication, _ id: String) -> XCUIElement { element(app, "feed.section.\(id)") }
+    /// A List heading (removed after TestFlight 92): a section's identifier, or a group's name.
+    private func anyHeading(_ app: XCUIApplication) -> Bool {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "feed.section.")).count > 0
+            || app.staticTexts.matching(NSPredicate(format: "label IN %@", ["Like papers you added", "From authors you read",
+                "Popular this week", "By category", "Something different", "Your tags", "More for you"])).count > 0
+    }
 
     private func flip(_ toggle: XCUIElement) {
         let before = toggle.value as? String
@@ -133,39 +138,40 @@ final class FeedForYouTests: XCTestCase {
         if toggle.value as? String == before { toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap() }
     }
 
-    private func groupedList(appearance: String) throws {
+    /// The List keeps the order by why (the reader's tag, papers like theirs, an author, popular, a category, something
+    /// different) with no headings: each card says why in the server's whole sentence.
+    private func listInWhyOrder(appearance: String) throws {
         let app = launch(layout: "list", appearance: appearance)
         XCTAssertTrue(app.buttons["feed.forYou"].waitForExistence(timeout: 15))
-        let tag = section(app, "tag.byte-level lms")
-        XCTAssertTrue(tag.waitForExistence(timeout: 5), "the reader's tag heads its section")
-        XCTAssertEqual(tag.label, "byte-level LMs, 2 papers")
-        let like = section(app, "like")
-        XCTAssertTrue(like.exists)
-        XCTAssertEqual(like.label, "Like papers you added, 2 papers")
-        // The tag's second paper moves up under its header; the server's order is kept within each section.
         let first = element(app, "discover.result.2610.08448"), second = element(app, "discover.result.2610.06120")
         let added = element(app, "discover.result.2610.07767")
-        XCTAssertTrue(second.exists && added.exists)
-        XCTAssertLessThan(tag.frame.minY, first.frame.minY)
+        XCTAssertTrue(first.waitForExistence(timeout: 5) && second.exists && added.exists)
+        XCTAssertFalse(anyHeading(app), "no group headings")
         // Reading order: above, or beside on the same row (an upright iPad lays cards two per row).
-        XCTAssertTrue(first.frame.minY < second.frame.minY || (first.frame.minY == second.frame.minY && first.frame.minX < second.frame.minX),
-                      "\(first.frame) before \(second.frame)")
-        XCTAssertLessThan(second.frame.minY, like.frame.minY)
-        XCTAssertLessThan(like.frame.minY, added.frame.minY)
-        // VoiceOver keeps the whole sentence; the visible line drops what the header says.
+        func before(_ a: XCUIElement, _ b: XCUIElement) -> Bool {
+            a.frame.minY < b.frame.minY || (a.frame.minY == b.frame.minY && a.frame.minX < b.frame.minX)
+        }
+        // The tag's second paper moves up after its first; the server's order is kept within each group.
+        XCTAssertTrue(before(first, second), "\(first.frame) before \(second.frame)")
+        XCTAssertTrue(before(second, added), "the tag's papers, then papers like the reader's")
+        // Each card says why in full, the tag included (no heading says it now).
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "In your tag: byte-level LMs")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Because you added “DeepSeekMath”")).firstMatch.exists)
         save("feed-why-list-top-\(appearance)")
-        let list = app.collectionViews.firstMatch
-        for _ in 0..<6 where !section(app, "explore").exists { list.swipeUp(velocity: .slow) }
-        XCTAssertTrue(section(app, "explore").exists, "Something different comes last")
+        let list = app.collectionViews.firstMatch, explore = element(app, "discover.result.2610.09912")
+        let category = element(app, "discover.result.2610.02119")
+        for _ in 0..<6 where !(explore.exists && explore.isHittable) { list.swipeUp(velocity: .slow) }
+        XCTAssertTrue(explore.exists && category.exists)
+        XCTAssertTrue(before(category, explore), "Something different comes last")
+        XCTAssertFalse(anyHeading(app), "no group headings further down")
         save("feed-why-list-bottom-\(appearance)")
 
-        // A category chip's papers have no reasons: no headers.
+        // A category chip's papers have no reasons, and keep the server's order.
         element(app, "feed.moreTopics").tap()
         let language = app.buttons["feed.more.cs.CL"].firstMatch
         XCTAssertTrue(language.waitForExistence(timeout: 5)); language.tap()
         XCTAssertTrue(element(app, "discover.result.2610.01234").waitForExistence(timeout: 5))
-        XCTAssertFalse(section(app, "like").exists || section(app, "tag.byte-level lms").exists, "no sections for a category")
+        XCTAssertFalse(anyHeading(app))
     }
 
     private func whyColumn(appearance: String) throws {
@@ -217,8 +223,8 @@ final class FeedForYouTests: XCTestCase {
 
     func testTheWhyColumnExplainsItselfLight() throws { try whyExplained(appearance: "light") }
     func testTheWhyColumnExplainsItselfDark() throws { try whyExplained(appearance: "dark") }
-    func testTheListHeadersExplainThemselvesLight() throws { try headersExplained(appearance: "light") }
-    func testTheListHeadersExplainThemselvesDark() throws { try headersExplained(appearance: "dark") }
+    func testAboutForYouExplainsTheWhyLinesLight() throws { try aboutForYou(appearance: "light") }
+    func testAboutForYouExplainsTheWhyLinesDark() throws { try aboutForYou(appearance: "dark") }
 
     private func whyExplained(appearance: String) throws {
         let app = launch(layout: "table", appearance: appearance)
@@ -248,20 +254,34 @@ final class FeedForYouTests: XCTestCase {
                        "no raw arXiv codes in the Why column")
     }
 
-    private func headersExplained(appearance: String) throws {
+    /// The List's headings had an ⓘ each; since they went, Feed ⋯ › About For you says what every why line means (owner,
+    /// TestFlight 92; JUDGMENT_LOG 31). Offered where papers say why; a category chip's papers don't.
+    private func aboutForYou(appearance: String) throws {
         let app = launch(layout: "list", appearance: appearance)
-        XCTAssertTrue(app.buttons["feed.forYou"].waitForExistence(timeout: 15))
-        let tag = section(app, "tag.byte-level lms")
-        XCTAssertTrue(tag.waitForExistence(timeout: 5))
-        XCTAssertEqual(tag.label, "byte-level LMs, 2 papers", "the header still reads as before")
-        let info = app.buttons["feed.section.info.like"]
-        XCTAssertTrue(info.waitForExistence(timeout: 5), "an ⓘ on a section's header")
-        XCTAssertLessThan(abs(info.frame.midY - section(app, "like").frame.midY), 12, "on the header's line")
-        info.tap()
-        let text = app.staticTexts["Papers close to ones you added, or asked to see more like."]
-        XCTAssertTrue(text.waitForExistence(timeout: 5), "what the section means")
+        XCTAssertTrue(element(app, "discover.result.2610.08448").waitForExistence(timeout: 15))
+        app.buttons["Feed options"].tap()
+        let about = app.buttons["feed.aboutForYou"].firstMatch
+        XCTAssertTrue(about.waitForExistence(timeout: 5), "Feed ⋯ offers About For you")
+        about.tap()
+        let text = element(app, "feed.aboutForYou.text")
+        XCTAssertTrue(text.waitForExistence(timeout: 5), "a bubble at the ⋯ button")
+        for words in ["In your tag", "Because you added", "By …", "Hugging Face Papers", "▲", "New in", "Something different"] {
+            XCTAssertTrue(text.label.contains(words), "it explains \(words): \(text.label)")
+        }
+        XCTAssertFalse(text.label.contains("cs."), "no arXiv codes")
         sleep(1)
-        save("feed-why-explained-section-\(appearance)")
+        save("feed-about-for-you-\(appearance)")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        XCTAssertTrue(text.waitForNonExistence(timeout: 5), "a tap outside closes it")
+
+        // A category chip's papers say no why: nothing to explain.
+        element(app, "feed.moreTopics").tap()
+        let language = app.buttons["feed.more.cs.CL"].firstMatch
+        XCTAssertTrue(language.waitForExistence(timeout: 5)); language.tap()
+        XCTAssertTrue(element(app, "discover.result.2610.01234").waitForExistence(timeout: 5))
+        app.buttons["Feed options"].tap()
+        XCTAssertTrue(app.buttons["Refresh feed"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["feed.aboutForYou"].exists, "not for a category")
     }
 
     /// Sideways iPad: the grouped List and the Why table still pick a paper into the abstract pane.
@@ -273,7 +293,7 @@ final class FeedForYouTests: XCTestCase {
             let app = launch(layout: layout, appearance: "light")
             waitFor("landscape", timeout: 10) { app.frame.width > app.frame.height }
             XCTAssertTrue(app.buttons["feed.forYou"].waitForExistence(timeout: 15))
-            if layout == "list" { XCTAssertTrue(section(app, "tag.byte-level lms").waitForExistence(timeout: 5)) }
+            if layout == "list" { XCTAssertTrue(element(app, "discover.result.2610.08448").waitForExistence(timeout: 5)) }
             else { XCTAssertTrue(element(app, "feed.table.header.why").waitForExistence(timeout: 5)) }
             let row = element(app, layout == "list" ? "discover.result.2610.07767" : "feed.table.2610.07767")
             XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()

@@ -13,6 +13,30 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
     call at the explainer's usual price, kept with the explanation so reopening is free; swipe down returns to the
     overview. The header becomes compact (title, paper and model on two short lines) so the overview starts higher.
     *Undo:* remove the button; the overview is unchanged.
+31. **The For you List has no group headings** (owner, TestFlight 92: "Like papers you added not needed"): the papers
+    keep the order by why (each tag's papers, papers like yours, authors, popular, category, something different: the
+    Why sort's order) and each card's why line is now the server's whole sentence ("In your tag: RLHF", "Because you
+    added “…”"), since no heading says it. What the headings' ⓘs said moved to **Feed ⋯ › About For you** (the ⓘ
+    bubble, at the ⋯ button; offered where papers say why, not for a category). *Why ⋯ rather than an ⓘ beside the
+    For you chip:* nothing on screen moves or is added; on an iPhone the chip row has no room for an ⓘ without pushing
+    "More topics" under the edge fade. The Table keeps its Why column and its ⓘ. *Undo:* the headings (and their ⓘs)
+    from the commit before this one, or an ⓘ beside the chip instead of the menu row.
+
+28. **A failed import without the Progress column puts its problem in that column's words and a mini Retry in its
+    title's second line** ("⚠ Download failed · Retry"; VoiceOver reads the full sentence), so it keeps a ready row's
+    height too, as 17 does for an adding paper (whose line keeps its "Why does this take a minute?" ⓘ). *Why:* one line
+    on an iPhone fits the short words and the mini capsule; the sentence truncated after "Couldn't downlo…" and the
+    small capsule would touch the title. *Undo:* the sentence and the small capsule.
+29. **The List layout keeps its content-sized rows** (checked, not changed). With the same details an adding row is
+    128 pt and the ready row 108 pt on an iPhone: its "Adding…" line goes when it's ready. A List row shows the whole
+    title, the authors and the abstract, so it can't reserve one height as the table does. *Alternative (not built):*
+    the step at the start of the details line ("◌ Adding… · 2024 · arXiv v1"), so becoming ready removes no line.
+30. **The double-tap journey was out of date, not the app** (`PaperToolsTests/testDoubleTapOpensContentsDeepInThePaper…`,
+    failing since TestFlight 91): its "dismissing" tap landed on the selected word itself, which on iOS only hides the
+    word's menu (the word stays selected; a second tap brings the menu back), and two taps on or beside a selection
+    adjust it rather than open Contents (the build-78 rule). The step now dismisses with a tap on the paragraph's first
+    words and double-taps there; Contents opens on iPhone and iPad. Why it passed on 2026-10-21 wasn't established.
+    *Undo:* nothing to undo in the app (test-only).
 
 22. **Global search keeps its sealed index on the device after sign-out** (cleared from memory and screen; removed
     with the account), like the encrypted chat store and the Library's index. The ML paper search cache is deleted at
@@ -59,7 +83,8 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
     apps do the same. *Undo:* wait for a tap in the field.
 17. **A paper being added keeps its row height even with the Progress column hidden:** the spinner and one-word status
     sit in the title's reserved second line, so an adding paper's title shows on one line until it's ready. *Why:* the
-    owner's no-jumping-rows rule (builds 58–59). *Undo:* the status line goes back under the title.
+    owner's no-jumping-rows rule (builds 58–59). *Undo:* the status line goes back under the title. Built after
+    TestFlight 93: 64 pt adding and ready with Tags alone (was 82 and 64), a 20 pt spinner (was 14).
 
 Earlier today (agent or lead calls, already in DECISIONS.md; listed here so they can be overruled in one place):
 

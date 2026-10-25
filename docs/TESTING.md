@@ -555,7 +555,11 @@ FDE-Gym's leaked font preamble (including assertions that the unwanted text is a
 The Library row-height check renders the actual Library view. The test host is the app, so it names the default
 table (layout, columns, All) rather than inheriting the choices the last UI launch saved on that Simulator: TestFlight
 93's gate failed (rows 82/64 pt, a 14 pt spinner under the title) after LibraryTopicsTests left the iPhone with Tags
-alone, which moves an import's status under its title.
+alone, which then moved an import's status under its title. Since JUDGMENT_LOG 17 that status sits in the title's
+second line, and the gate (**17 required checks** from 2026-10-25) also renders Tags alone:
+`testImportTableRowsKeepTheReadyHeightWithTheProgressColumnHidden` (an adding paper with a two-line title: one 64 pt
+height, a 20 pt spinner in the title's second line) and `testAFailedImportsRetryFitsItsTitlesSecondLine` (Download
+failed and a mini Retry there). Both also pass on the iPad Pro 13-inch Simulator, which uses the iPad/Mac columns.
 
 Build 66 feedback adds six session-boundary checks to the seven import methods (13 required, none skipped):
 deleted-session refresh, exact rejection of an unexpired token, transient offline identity retention, model retirement

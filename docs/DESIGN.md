@@ -336,15 +336,17 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   header of `.footnote` semibold titles in secondary color; the sorted one in accent with a chevron (tap to sort, again
   to reverse; "· Added ⌄" beside Title when the sorted column doesn't fit). Title column: `.subheadline` semibold
   title (≤ 2 lines, truncated). Library uses separate Device and Authors columns, enabled by default; the title does
-  not repeat those details below it. Pending and completed rows reserve the same two title lines. The reader chooses columns (screen
-  options › Columns, a half-height sheet of toggles; Title always shows). Every chosen column remains available:
+  not repeat those details below it. Pending and completed rows reserve the same two title lines; without the Progress
+  column a pending row's title keeps to the first and its spinner and one word (or its problem and action) take the
+  second (JUDGMENT_LOG 17, 27). The reader chooses columns (screen options › Columns, a half-height sheet of
+  toggles; Title always shows). Every chosen column remains available:
   when they do not fit, the title stays pinned and the other columns scroll sideways, settling at column boundaries.
   Feed's Add and All chats' Last read stay pinned at the right. Wide cells wrap or truncate within the scrolling
   region so a chosen column can be fully read; the Feed's expanded row still holds the full abstract. Values are
   `.subheadline` secondary (numbers trailing), tags small `.caption` chips (≤ 2 lines), statuses an icon and a few
   plain words. A row that needs the reader (a failed import) shows its one action as a small bordered capsule
-  (Retry, Get credits, Remove) in its status cell — or under the title when that column isn't shown — never only in
-  a menu. Rows: 16 pt sides, 10 pt vertical; pointer hover and the arrow-key row get a quiet fill; tap or Return =
+  (Retry, Get credits, Remove) in its status cell — or, mini, in the title's second line when that column isn't
+  shown — never only in a menu. Rows: 16 pt sides, 10 pt vertical; pointer hover and the arrow-key row get a quiet fill; tap or Return =
   the screen's primary action, long-press = actions, swipe = delete-type actions when the columns do not overflow
   (sideways scrolling takes priority when they do); each row is one VoiceOver element
   reading every chosen column, its action button a separate one. At accessibility text sizes the screen's rows

@@ -541,7 +541,7 @@ Table for the reason and having grouped lists in list view."* Only those two cha
 every platform, the chip is still "For you" and every chip stays. Presentation only, in the app, over the server's
 ranked list (`ScienceReaderCore/FeedWhy.swift`); the response contract, ranking and weights are unchanged.
 
-| Group (order) | Kinds | List section header | Why column label |
+| Group (order) | Kinds | List section header (until TestFlight 92) | Why column label |
 |---|---|---|---|
 | Your tags | `tag` | the tag's name ("RLHF"), one section per tag; two or more one-paper tags share "Your tags" | Your tag: RLHF |
 | Like papers | `added`, `more_like` | Like papers you added | Like: Muffin – A Shared Memory… |
@@ -551,14 +551,15 @@ ranked list (`ScienceReaderCore/FeedWhy.swift`); the response contract, ranking 
 | Explore | `explore` | Something different | Explore |
 | (unknown kind) | later server kinds | More for you | the server's sentence |
 
-- **List**: sections in the order above; tag sections in the order the server ranked their first paper. Within a
-  section, the server's order. Each header shows its symbol, name and count ("RLHF 3"; VoiceOver: "RLHF, 3 papers").
-  A row's why line drops what its header says: nothing under a tag's own header; the tag under "Your tags"; "Like
-  “Muffin…”" / "More like “…”"; "By Tri Dao"; "Added by several readers" / "On Hugging Face Papers"; the category's or
-  exploration's name. VoiceOver keeps the full sentence ("Why: In your tag: RLHF"). When every paper falls in one
-  section (a category chip has no reasons; a topic whose papers share a kind) the List shows no headers and the full
-  sentence, as before. Rows, Add, the cold-start note, sideways iPad picking (`FeedAbstractPane`, which keeps the full
-  sentence) are unchanged.
+- **List**: the papers in the order above (`FeedWhy.ordered`, the Why sort's order): each tag's papers together, the
+  tags in the order the server ranked their first paper, then the groups; within a group, the server's order. **No group
+  headings** since TestFlight 92's feedback (owner: "Like papers you added not needed": every card already says why;
+  JUDGMENT_LOG 31): each card's why line is the server's whole sentence ("In your tag: RLHF", "Because you added
+  “Muffin…”", "By Tri Dao, an author in your library"). Until then each group had a header with its symbol, name, count
+  and an ⓘ, and a row's line dropped what its header said. Rows, Add, the cold-start note, the iPad's two columns and
+  sideways picking (`FeedAbstractPane`) are unchanged.
+- **About For you** (Feed ⋯, where papers say why: For you and its topics, not a category): the bubble an ⓘ opens, at the
+  ⋯ button, with what each why line means (`FeedWhy.aboutForYou`, `feed.aboutForYou`); it replaces the headings' ⓘs.
 - **Table**: a **Why** column (first after the title, 120 pt, so it fits beside the title on every iPhone in portrait,
   where Popularity now scrolls in; symbol and short label on up to two lines; the full
   sentence in its VoiceOver reading and, on the Mac, its tooltip). Default on for iPhone and iPad/Mac (added once to
@@ -571,15 +572,13 @@ ranked list (`ScienceReaderCore/FeedWhy.swift`); the response contract, ranking 
   server's `text` without "New in ", else `TagVocabulary`'s name for the code, else the code; `FeedWhy.categoryName`),
   never "Category: cs.LG"; Hugging Face upvotes read "Popular: 232 upvotes", not "Popular ▲ 232". An ⓘ after the Why
   header (`feed.why.info`, the shared `InfoButton` popover, outside the header's sort button) explains each label and
-  the ▲ (`FeedWhy.info`); each List section header has its own ⓘ with what that group means
-  (`FeedWhyGroup.explanation`, `feed.section.info.<id>`), its 30 pt target overhanging the band so headers keep their
-  height. The Popularity column is headed **Upvotes** (its stored name, `popularity`, keeps saved choices; Sort by says
+  the ▲ (`FeedWhy.info`); the List's group headings had their own ⓘs until TestFlight 92's feedback, now About For you
+  in the Feed's ⋯. The Popularity column is headed **Upvotes** (its stored name, `popularity`, keeps saved choices; Sort by says
   Upvotes too). VoiceOver readings are unchanged.
 - **Result count**: For you already returns up to 50 papers (`rankForYou` default; the app reads at most 50), every
-  fifth an exploration, so a list has ~10 "Something different" and several sections of 3–10. No server change was
-  needed; category chips stay at 25 and show no sections.
-- "New since last visit" marks are still not built in the app (see above), so there is nothing to keep beside the
-  headers.
+  fifth an exploration, so a list has ~10 "Something different" and several groups of 3–10. No server change was
+  needed; category chips stay at 25 and have no reasons.
+- "New since last visit" marks are still not built in the app (see above).
 
 ### Paper details and related papers (owner, 2026-10-24)
 
@@ -641,8 +640,8 @@ a search for related papers below using a heuristic we come up with. iPhone and 
   ("Shares Video understanding", 0.874–0.884).
 - **iPad upright List** (owner, same session: "take the whole screen… a lot of space is not being well used"): in Tall
   on an iPad at least 760 pt wide, the List's cards sit two to a row across the window (28 pt edges, 32 pt between),
-  each about an iPhone row's width, instead of one 720 pt column between empty margins; section headers and the chips
-  row span the window. One column on iPhone, iPad mini upright, in Wide's slot, on the Mac and at accessibility text
+  each about an iPhone row's width, instead of one 720 pt column between empty margins; the chips row spans the window
+  (and the group headings did, until TestFlight 92's feedback). One column on iPhone, iPad mini upright, in Wide's slot, on the Mac and at accessibility text
   sizes. The Table already spans the window.
 
 ### The last page, kept on the device (owner, 2026-10-25; Apple apps, local, not released)

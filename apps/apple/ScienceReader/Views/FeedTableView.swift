@@ -437,14 +437,12 @@ struct FeedChipsBar: View {
     }
 }
 
-/// Why For you suggests a paper, under its authors: "In your tag: RLHF". In a section of the grouped List, `shown` is
-/// what its header doesn't already say ("By Tri Dao"); VoiceOver keeps the whole sentence.
+/// Why For you suggests a paper, under its authors: "In your tag: RLHF", the server's sentence.
 struct FeedReasonLine: View {
     let reason: FeedReason
-    var shown: String? = nil
     var body: some View {
         Label {
-            Text(shown ?? reason.text).lineLimit(2)
+            Text(reason.text).lineLimit(2)
         } icon: {
             Image(systemName: reason.kind == "trending" ? "arrow.up.right" : "sparkles").imageScale(.small)
         }
@@ -472,33 +470,22 @@ struct FeedWhyCell: View {
     }
 }
 
-/// A section header of the grouped For you List: the group's symbol, its name ("RLHF", "From authors you read"), how
-/// many papers it has, and an ⓘ saying what the group means (owner, TestFlight 91: "maybe have like a little info icon
-/// that says what that even means").
-struct FeedSectionHeader: View {
-    let section: FeedSection
-    var body: some View {
-        let count = section.results.count
-        HStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: section.group.symbol).imageScale(.small).foregroundStyle(Color.accentColor)
-                Text(section.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
-                Text("\(count)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+/// Feed ⋯ › About For you: what each card's why line means (`FeedWhy.aboutForYou`), in the bubble an ⓘ opens, at the ⋯
+/// button. It replaces the ⓘs on the List's group headings, which went (owner, TestFlight 92: "Like papers you added not
+/// needed"; JUDGMENT_LOG 31).
+struct FeedAboutForYou: ViewModifier {
+    @Binding var shown: Bool
+    func body(content: Content) -> some View {
+        content
+            // The rest of the screen darkens while the bubble shows, as for an ⓘ.
+            .onChange(of: shown) { _, now in InfoBubbleDim.shared.count = max(0, InfoBubbleDim.shared.count + (now ? 1 : -1)) }
+            .onDisappear { if shown { InfoBubbleDim.shared.count = max(0, InfoBubbleDim.shared.count - 1) } }
+            .popover(isPresented: $shown, arrowEdge: .top) {
+                Text(FeedWhy.aboutForYou).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                    .padding(16).frame(idealWidth: 320, maxWidth: 360)
+                    .presentationCompactAdaptation(.popover)
+                    .accessibilityIdentifier("feed.aboutForYou.text")
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(section.title), \(count == 1 ? "1 paper" : "\(count) papers")")
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("feed.section.\(section.id)")
-            // Its 30 pt target overhangs the band rather than making it taller.
-            InfoButton(text: section.group.explanation, identifier: "feed.section.info.\(section.id)")
-                .padding(.vertical, -6).padding(.leading, -6)
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 4)
-        // Pinned at the top while its papers scroll under it: an opaque band, edge to edge, so they don't show through.
-        .background { Color(uiColor: .systemBackground).padding(.horizontal, -2 * DesignMetrics.margin).padding(.vertical, -2) }
-        .textCase(nil)
-        .accessibilityElement(children: .contain)
     }
 }
 

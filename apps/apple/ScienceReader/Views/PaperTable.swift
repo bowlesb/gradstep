@@ -258,6 +258,17 @@ struct PaperTableTitle {
     var match: SearchResultMatch? = nil
     /// One quiet line under the title: why a tag filter's related paper is listed ("Related to 3 tagged papers").
     var note: String? = nil
+    /// What the row is doing, in the title's reserved second line (a Library import's spinner and one word when no column
+    /// shows them): the title keeps to its first line, so the row is as tall as a ready row whose title takes both (owner,
+    /// builds 58–59: rows never change height as a paper is added). `PaperTable` draws it over that line, outside the
+    /// row's tap and VoiceOver element, so a button in it (Retry) is its own.
+    var status: AnyView? = nil
+}
+
+/// Where a row's title keeps the line its `status` is drawn in.
+private struct PaperTableStatusLine: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -371,6 +382,15 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                         // Exactly the row's width, from its leading edge: while a narrowing slot is measured (one layout
                         // pass), columns laid out for the wider slot run off its trailing side, never its leading one.
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .overlayPreferenceValue(PaperTableStatusLine.self) { line in
+                            if let line, let status = title(row).status {
+                                GeometryReader { proxy in
+                                    let frame = proxy[line]
+                                    status.frame(width: frame.width, height: frame.height, alignment: .leading)
+                                        .offset(x: frame.minX, y: frame.minY)
+                                }
+                            }
+                        }
                         .listRowInsets(Self.rowInsets)
                         .listRowBackground(rowBackgroundView(row))
                         .onHover { inside in
@@ -620,14 +640,25 @@ struct PaperTableTitleCell: View {
     var body: some View {
         // A row with a search match has something to show (its match line), even with nothing else yet.
         let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil && title.match == nil && title.note == nil
+            && title.status == nil
         ZStack(alignment: .leading) {
         VStack(alignment: .leading, spacing: 2) {
-            // One line limit: an expanded title is whole; a row being added keeps two lines' room.
-            // A related paper's reason sits right under its title, without an empty second line between them (iPad).
-            Text(SearchMatchLine.marked(title.title, title.match?.titleHighlights ?? [])).font(.subheadline.weight(.semibold))
-                .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace && title.note == nil)).truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-                .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
+            VStack(alignment: .leading, spacing: 0) {
+                // One line limit: an expanded title is whole; a row being added keeps two lines' room.
+                // A related paper's reason sits right under its title, without an empty second line between them (iPad).
+                Text(SearchMatchLine.marked(title.title, title.match?.titleHighlights ?? [])).font(Self.titleFont)
+                    .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace && title.note == nil,
+                                         oneLine: title.status != nil)).truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
+                // The status's line: one title line high, so the two lines are as tall as a title on both. PaperTable
+                // draws the status over it.
+                if title.status != nil {
+                    Text(" ").font(Self.titleFont).hidden().frame(maxWidth: .infinity, alignment: .leading)
+                        .anchorPreference(key: PaperTableStatusLine.self, value: .bounds) { $0 }
+                        .accessibilityHidden(true)
+                }
+            }
             if let match = title.match { SearchMatchLine(match: match) }
             if let note = title.note { RelatedReasonLine(text: note) }
             // A Library row's second line is always the cloud button's height (24 pt), so a row doesn't change height as
@@ -657,11 +688,13 @@ struct PaperTableTitleCell: View {
         }
         .opacity(placeholder ? 0 : 1).accessibilityHidden(placeholder)
         if placeholder {
-            Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+            Text(title.title).font(Self.titleFont).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         }
     }
+
+    static let titleFont = Font.subheadline.weight(.semibold)
 }
 
 /// Why a tag filter's related paper is listed (Filter + related): one quiet line, the tag's words or how many tagged papers
@@ -678,8 +711,11 @@ struct RelatedReasonLine: View {
 private struct TitleLines: ViewModifier {
     let expanded: Bool
     let reservesSpace: Bool
+    /// The second line holds the row's status.
+    var oneLine = false
     func body(content: Content) -> some View {
-        if expanded { content.lineLimit(nil) } else { content.lineLimit(2, reservesSpace: reservesSpace) }
+        if oneLine { content.lineLimit(1) }
+        else if expanded { content.lineLimit(nil) } else { content.lineLimit(2, reservesSpace: reservesSpace) }
     }
 }
 

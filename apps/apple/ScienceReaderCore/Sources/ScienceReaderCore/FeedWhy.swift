@@ -2,9 +2,10 @@ import Foundation
 
 // Why For you suggests a paper, as the Feed presents it (owner, 2026-10-24: "Let's try having a column in Table for the
 // reason and having grouped lists in list view"; docs/architecture/PERSONALIZED_FEED.md › Client presentation). Pure
-// presentation over the server's ranked list: groups keep the server's order inside them.
+// presentation over the server's ranked list: groups keep the server's order inside them. The List's group headings
+// went after TestFlight 92 (owner: "Like papers you added not needed": each card already says why); its order stayed.
 
-/// The groups reasons fall into, in the order the Feed shows them: the reader's tags, papers like theirs, their
+/// The groups reasons fall into, in the order the Feed lists them: the reader's tags, papers like theirs, their
 /// authors, what is popular, a category, then something different.
 public enum FeedWhyGroup: Int, CaseIterable, Comparable, Sendable {
     case tag, like, author, popular, category, explore, other
@@ -23,34 +24,7 @@ public enum FeedWhyGroup: Int, CaseIterable, Comparable, Sendable {
 
     public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 
-    /// The List's section header (a tag's section is named after the tag instead).
-    public var title: String {
-        switch self {
-        case .tag: "Your tags"
-        case .like: "Like papers you added"
-        case .author: "From authors you read"
-        case .popular: "Popular this week"
-        case .category: "By category"
-        case .explore: "Something different"
-        case .other: "More for you"
-        }
-    }
-
-    /// What the group means, for the ⓘ on its List header (owner, TestFlight 91: "maybe have like a little info icon that
-    /// says what that even means").
-    public var explanation: String {
-        switch self {
-        case .tag: "Papers that fit one of your tags."
-        case .like: "Papers close to ones you added, or asked to see more like."
-        case .author: "Papers by authors of papers in your library."
-        case .popular: "Upvoted on Hugging Face Papers (▲ is the number of upvotes), or added by several readers this week."
-        case .category: "New papers in an arXiv field you read; each paper names its field."
-        case .explore: "Now and then, a paper from outside your fields, so the Feed doesn't narrow."
-        case .other: "Other papers For you suggests."
-        }
-    }
-
-    /// An SF Symbol for the group (the Why column and the List's headers).
+    /// An SF Symbol for the group (the Why column).
     public var symbol: String {
         switch self {
         case .tag: "tag"
@@ -87,17 +61,6 @@ extension FeedReason {
     }
 }
 
-/// One section of the Feed's List: a tag (named after it), several tags with one paper each ("Your tags"), or a group.
-public struct FeedSection: Identifiable, Equatable, Sendable {
-    public let group: FeedWhyGroup
-    /// The tag a tag section stands for; nil for the merged "Your tags" and every other group.
-    public let tag: String?
-    public let results: [DiscoveryResult]
-
-    public var id: String { tag.map { "tag.\($0.lowercased())" } ?? "\(group)" }
-    public var title: String { tag ?? group.title }
-}
-
 public enum FeedWhy {
     /// A title shortened at a word to at most `limit` characters, with "…" (the server's `short`).
     public static func shortTitle(_ title: String, limit: Int) -> String {
@@ -109,59 +72,9 @@ public enum FeedWhy {
         return String(cut.prefix(keep)).trimmingCharacters(in: .whitespaces) + "…"
     }
 
-    /// The Feed's List in sections by why each paper is suggested, or nil when there would be one section (every
-    /// paper has the same kind of reason, or none: category chips) and the List shows no headers.
-    ///
-    /// Order: one section per tag (the order the server ranked their first papers), then like papers you added, from
-    /// authors you read, popular this week, by category, something different. Within a section, the server's order.
-    /// Tags with one paper each are merged into one "Your tags" section after the others when there are two or more of
-    /// them (a run of one-paper headers reads worse than a list); a single one keeps its name.
-    public static func sections(_ results: [DiscoveryResult]) -> [FeedSection]? {
-        var tags: [String] = [], byTag: [String: [DiscoveryResult]] = [:], names: [String: String] = [:]
-        var groups: [FeedWhyGroup: [DiscoveryResult]] = [:]
-        for result in results {
-            let group = result.reason?.group ?? .other
-            if group == .tag, let label = result.reason?.label {
-                let key = label.lowercased()
-                if byTag[key] == nil { tags.append(key); names[key] = label }
-                byTag[key, default: []].append(result)
-            } else {
-                groups[group, default: []].append(result)
-            }
-        }
-        var sections: [FeedSection] = []
-        let single = tags.filter { byTag[$0]?.count == 1 }
-        let merge = single.count >= 2
-        for key in tags where !(merge && single.contains(key)) {
-            sections.append(FeedSection(group: .tag, tag: names[key], results: byTag[key] ?? []))
-        }
-        // `single` is in the server's order of first appearance, one paper each.
-        if merge { sections.append(FeedSection(group: .tag, tag: nil, results: single.compactMap { byTag[$0]?.first })) }
-        for group in FeedWhyGroup.allCases where group != .tag {
-            if let list = groups[group], !list.isEmpty { sections.append(FeedSection(group: group, tag: nil, results: list)) }
-        }
-        return sections.count > 1 ? sections : nil
-    }
-
-    /// A row's why line inside its section: what the header doesn't already say, or nil when it says it all (a tag's
-    /// own section). "Like “Muffin…”", "By Tri Dao", "Added by several readers", "Robotics".
-    public static func line(_ reason: FeedReason, in section: FeedSection) -> String? {
-        switch reason.kind {
-        case "tag": return section.tag == nil ? reason.label : nil
-        case "added": return "Like “\(shortTitle(reason.label, limit: 60))”"
-        case "more_like": return "More like “\(shortTitle(reason.label, limit: 60))”"
-        case "author": return "By \(reason.label)"
-        case "popular": return "Added by several readers"
-        case "trending": return "On Hugging Face Papers"
-        case "category": return dropping("New in ", from: reason.text)
-        case "explore": return dropping("Something different: ", from: reason.text)
-        default: return reason.text
-        }
-    }
-
-    /// The Table's Why order: rows grouped as the List's sections are (tags together, then like papers, authors,
-    /// popular, category, explore; no reason last), the server's order within each. Reversed, the groups reverse and
-    /// rows without a reason stay last.
+    /// The order by why: the List's order, and the Table's Why sort. Rows grouped (each tag's papers together, the tags
+    /// in the order the server ranked their first paper, then like papers, authors, popular, category, explore; no reason
+    /// last), the server's order within each. Reversed, the groups reverse and rows without a reason stay last.
     public static func ordered(_ results: [DiscoveryResult], ascending: Bool = true) -> [DiscoveryResult] {
         var firstTag: [String: Int] = [:]
         for (index, result) in results.enumerated() where result.reason?.group == .tag {
@@ -209,7 +122,16 @@ public enum FeedWhy {
         • Explore: now and then, something different.
         """
 
-    private static func dropping(_ prefix: String, from text: String) -> String {
-        text.hasPrefix(prefix) && text.count > prefix.count ? String(text.dropFirst(prefix.count)) : text
-    }
+    /// Feed ⋯ › About For you: what each card's why line means, in the List's order. It replaces the ⓘs of the List's
+    /// group headings, which went with them (owner, TestFlight 92: "Like papers you added not needed"; JUDGMENT_LOG 31).
+    public static let aboutForYou = """
+        For you suggests new papers from what you read, grouped by why, and says why under each:
+        • In your tag: it fits one of your tags.
+        • Like “…” or Because you added “…”: it is close to a paper you added. More like “…”: close to one you asked to \
+        see more like.
+        • By …: an author in your library, or of a paper you liked.
+        • Popular on Hugging Face Papers: upvoted there (▲ is the number of upvotes). Added by several readers: this week.
+        • New in …: new in an arXiv field you read.
+        • Something different: now and then, from outside your fields, so the Feed doesn't narrow.
+        """
 }

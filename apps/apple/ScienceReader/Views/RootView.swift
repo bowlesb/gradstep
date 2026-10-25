@@ -976,6 +976,8 @@ struct FeedView: View {
     @State private var issue: String?
     @State private var width: CGFloat = 0
     @State private var showColumns = false
+    /// Feed ⋯ › About For you's bubble (FeedAboutForYou).
+    @State private var aboutForYou = false
     @ScaledMetric(relativeTo: .subheadline) private var columnScale: CGFloat = 1
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.tabBarReserve) private var tabBarReserve
@@ -1041,7 +1043,9 @@ struct FeedView: View {
                         // 2026-10-23).
                         let reveal = model.revealedRow(in: .feed, wide: wideBar)
                         let columns = listColumns
-                        let sections = FeedWhy.sections(model.shownFeedResults)
+                        // Grouped by why (owner, 2026-10-24), without group headings: each card says why (owner,
+                        // TestFlight 92: "Like papers you added not needed"; JUDGMENT_LOG 31).
+                        let listed = FeedWhy.ordered(model.shownFeedResults)
                         ScrollViewReader { proxy in
                         List {
                             if let issue {
@@ -1052,23 +1056,11 @@ struct FeedView: View {
                             }
                             if let offline = model.feedOfflineNote { FeedOfflineLine(text: offline).listRowSeparator(.hidden) }
                             FeedColdStartNote(model: model)
-                            // For you in sections by why each paper is suggested (owner, 2026-10-24: "having grouped lists in
-                            // list view"); one kind of reason or none (a category) stays one plain list.
-                            if let sections {
-                                ForEach(sections) { section in
-                                    Section {
-                                        feedRows(section.results, section: section, reveal: reveal, columns: columns)
-                                    } header: {
-                                        FeedSectionHeader(section: section)
-                                    }
-                                }
-                            } else {
-                                feedRows(model.shownFeedResults, section: nil, reveal: reveal, columns: columns)
-                            }
+                            feedRows(listed, reveal: reveal, columns: columns)
                         }
                         .listStyle(.plain).refreshable { model.loadFeed() }
                         .readableScrollColumn(width: columns > 1 ? 0 : width)
-                        .revealScroll(reveal.map { FeedGridRow.id(of: $0.row, in: sections?.map(\.results) ?? [model.shownFeedResults], columns: columns) },
+                        .revealScroll(reveal.map { FeedGridRow.id(of: $0.row, in: [listed], columns: columns) },
                                       token: reveal?.reveal.token, proxy: proxy)
                         }
                     }
@@ -1128,13 +1120,13 @@ struct FeedView: View {
     }
 
     /// The List's papers: one row each, or `columns` cards side by side per row.
-    @ViewBuilder private func feedRows(_ results: [DiscoveryResult], section: FeedSection?, reveal: TableReveal<String>?, columns: Int) -> some View {
+    @ViewBuilder private func feedRows(_ results: [DiscoveryResult], reveal: TableReveal<String>?, columns: Int) -> some View {
         if columns < 2 {
-            ForEach(results) { feedRow($0, section: section, reveal: reveal) }
+            ForEach(results) { feedRow($0, reveal: reveal) }
         } else {
             ForEach(FeedGridRow.rows(results, columns: columns)) { row in
                 HStack(alignment: .top, spacing: 32) {
-                    ForEach(row.results) { feedCard($0, section: section, reveal: reveal) }
+                    ForEach(row.results) { feedCard($0, reveal: reveal) }
                     ForEach(0 ..< columns - row.results.count, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
                 }
                 .listRowInsets(EdgeInsets(top: 14, leading: 28, bottom: 14, trailing: 28))
@@ -1143,10 +1135,10 @@ struct FeedView: View {
     }
 
     /// One card of the two-column List (its tint, when turned upright with it picked, on the card alone).
-    private func feedCard(_ result: DiscoveryResult, section: FeedSection?, reveal: TableReveal<String>?) -> some View {
+    private func feedCard(_ result: DiscoveryResult, reveal: TableReveal<String>?) -> some View {
         let revealed = reveal?.row == result.id
         let open = self.open
-        return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, section: section, pick: { open(result) })
+        return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, pick: { open(result) })
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if revealed, let reveal {
@@ -1157,13 +1149,12 @@ struct FeedView: View {
             .accessibilityAddTraits(revealed ? .isSelected : [])
     }
 
-    /// One paper of the List; in a section, its why line leaves out what the header says.
-    private func feedRow(_ result: DiscoveryResult, section: FeedSection?, reveal: TableReveal<String>?) -> some View {
+    /// One paper of the List.
+    private func feedRow(_ result: DiscoveryResult, reveal: TableReveal<String>?) -> some View {
         let picked = pick != nil && model.feedPickID == result.sourceID
         let revealed = reveal?.row == result.id
         let open = self.open
-        return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, section: section,
-                            pick: { open(result) })
+        return DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false, pick: { open(result) })
             .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
             .listRowBackground(revealed ? reveal.map { AnyView(RevealTint(reveal: $0.reveal, end: $0.end)) }
                                : picked ? AnyView(Color.accentColor.opacity(0.12)) : nil)
@@ -1248,11 +1239,19 @@ struct FeedView: View {
             }
             Section {
                 MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
+                // What each card's why line means, where papers say why (For you and its topics): the List's group headings
+                // and their ⓘs went (owner, TestFlight 92; JUDGMENT_LOG 31). After the menu has closed.
+                if model.shownFeedResults.contains(where: { $0.reason != nil }) {
+                    MenuRow("About For you", systemImage: "info.circle") {
+                        Task { try? await Task.sleep(for: .milliseconds(300)); aboutForYou = true }
+                    }.accessibilityIdentifier("feed.aboutForYou")
+                }
             }
             Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
             SettingsMenuSection(model: model)
         } label: { HeaderButtonLabel(systemImage: "ellipsis") }
         .buttonStyle(.plain).accessibilityLabel("Feed options")
+        .modifier(FeedAboutForYou(shown: $aboutForYou))
     }
 }
 
@@ -2218,8 +2217,6 @@ struct DiscoveryRow: View {
     @Binding var issue: String?
     /// Search results show the arXiv number (people search by it); the Feed doesn't need it.
     var showsIdentifier = true
-    /// The For you List's section the row is in (grouped by why): its why line leaves out what the header says.
-    var section: FeedSection? = nil
     /// The Feed: a tap on the card shows its details (Wide beside the list, FeedAbstractPane; Tall a large sheet,
     /// FeedDetailSheet; owner, 2026-10-24); its Full abstract, Add and links keep their own taps.
     var pick: (() -> Void)? = nil
@@ -2251,11 +2248,7 @@ struct DiscoveryRow: View {
                 if let authors = LibraryFormat.shortAuthors(result.authors) {
                     Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if let reason = result.reason {
-                    if let section {
-                        if let line = FeedWhy.line(reason, in: section) { FeedReasonLine(reason: reason, shown: line) }
-                    } else { FeedReasonLine(reason: reason) }
-                }
+                if let reason = result.reason { FeedReasonLine(reason: reason) }
                 if let abstract = result.abstract {
                     abstractText(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
