@@ -128,7 +128,7 @@ final class PassageJourneyTests: XCTestCase {
             waitFor("The paper keeps the passage it went to", passageVisible)
             capture(app, "Passage with a chat is underlined (dark)")
             app.show("settings")
-            app.settingsTheme().buttons["Match device"].tap()
+            app.settingsTheme().buttons["System"].tap()
             closeSettings(app)
         }
     }

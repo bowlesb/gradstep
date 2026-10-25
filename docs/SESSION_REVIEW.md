@@ -17,16 +17,20 @@ TextBrain's attempt (its lessons are below); expect several rounds of tuning, me
 ## What is recorded
 
 - `screen.mp4`: the app's screen (ReplayKit records app content only, not the status bar or system sheets such as
-  the App Store purchase sheet, Safari or the share sheet) and, with voice on, the microphone.
+  the App Store purchase sheet, Safari or the share sheet) and, with voice on, the microphone. ReplayKit's picture stops
+  once the app has been in the background (its sound goes on), so when the app comes back the recorder ends that file
+  and starts `screen-2.mp4` (then `screen-3.mp4`, …), with the sync band again (2026-10-24, after a session whose
+  picture stopped at 0:16 of 11 minutes). If it can't restart, the strip's red dot becomes a crossed-out camera.
 - `timeline.jsonl`: events in seconds since the start (monotonic clock), written as they happen:
   - `state`: changes to what is visible: tab, sheet, selected paper (short ID), messages shown (`error`,
     `chat_issue`, `reader_issue`, `library_issue`, …), activity (`busy`, `answering`, `opening_paper`, imports),
     credits, sync status. The full state is logged once when recording starts.
   - `touch` (began/ended, x/y in points), `request` (method, path without query, status, ms, bytes), `hang`
     (main thread stalled > 400 ms), `keyboard`, `orientation`, `scene`, `memory_warning`, `mark`, `chrome` (the
-    recorder strip's frame), `sync_band`.
+    recorder strip's frame), `sync_band` (`segment` from the second video on), `video_segment` (`phase` start/end,
+    `segment`, `file`) and `video_gap` (`from`/`to` in timeline seconds, `resumed` 1 or 0, the new `segment` and `file`).
   - Never paper or chat text; message texts are the app's own wording.
-- `meta.json`: build, device, iOS version, whether video and voice were recorded.
+- `meta.json`: build, device, iOS version, whether video and voice were recorded, and `video_files` (every part).
 
 The app shows a magenta band across the top edge for 0.7 s when recording starts; the review tool finds it in the
 video to line up video time and timeline time (TextBrain drew a marker but never scanned for it).
@@ -42,9 +46,10 @@ node scripts/simulator-session.mjs         # pipeline regression check: a script
 This unpacks into `.artifacts/sessions/<id>/` (gitignored) and runs `tools/session-review` (Swift; AVFoundation,
 Vision, Speech; nothing to install). Output in `<id>/review/`:
 
-- `review.md`: header (sync result, recorder strip position), **Signals** (problems detected from the timeline:
-  messages shown, failed or slow requests, hangs, repeated taps — 3+ taps within 1.5 s and 44 pt, long waits,
-  memory warnings, marks, narration with problem words), **Narration** (transcribed on device with Apple's
+- `review.md`: header (sync result per video part, recorder strip position, where the video stopped), **Signals**
+  (problems detected from the timeline: messages shown, failed or slow requests, hangs, repeated taps — 3+ taps within
+  1.5 s and 44 pt, long waits, memory warnings, marks, `video_gap`, `video_stopped` — a picture that ends more than 3 s
+  before its sound — and narration with problem words), **Narration** (transcribed on device with Apple's
   SpeechAnalyzer, which works from a command-line tool without a permission prompt), and **Timeline by screen** with
   frame links.
 - `frames/*.jpg`: 600 px keyframes at every signal, after every state change and touch, and every 1.5 s when the
@@ -95,7 +100,9 @@ strip whose position is logged; manual frame picking each time — here frames a
 
 ## Known limits
 
-- ReplayKit does not run in the Simulator; the Simulator check uses `simctl io recordVideo` instead.
+- ReplayKit does not run in the Simulator; the Simulator check uses `simctl io recordVideo` instead. The restart after
+  the background is covered by unit tests with a stand-in recorder (`SessionVideoSegmentTests`) and the review tool by a
+  two-part session cut from a real one; it has not yet been seen on a device.
 - System sheets (App Store purchase, Safari, share sheet) are not in device recordings; the timeline still shows
   that they were opened.
 - Frame rate is variable (~12–30 fps): fine for finding bugs, not for measuring animation timing.

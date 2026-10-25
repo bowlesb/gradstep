@@ -132,13 +132,13 @@ export function SettingsDialog({ open, onClose, account, email, theme, setTheme,
       {/* Text sizes live where you read (A− / A+ on the paper; owner, build 57). */}
       <Section title="Reading">
         <div className="settings-row">
-          <span className="settings-label">Appearance</span>
+          <span className="settings-label">Appearance<InfoTip text="System follows this device’s Light or Dark setting and changes when it does, for example at sunset if it switches automatically." testID="appearance-info" /></span>
           <span className="segmented settings-theme" role="radiogroup" aria-label="Appearance">
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} type="button" role="radio" aria-checked={theme === t} className={`segment${theme === t ? ' on' : ''}`}
               onClick={() => setTheme(t)} data-testid={`appearance-${t}`}>{t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </span>
         </div>
-        <Toggle label="Underline passages with chats" on={passageMarks} onChange={onPassageMarks} testID="passage-marks" />
+        <Toggle label="Underline passages with chats" info="Passages you’ve started a chat from are underlined in the paper. Click one to open its chat." on={passageMarks} onChange={onPassageMarks} testID="passage-marks" />
       </Section>
       {/* Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough". */}
       <Section title="Your assets">

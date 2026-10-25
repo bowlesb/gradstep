@@ -61,8 +61,10 @@ public enum PaperChatContext {
 /// derived from the verified index; it contains no PDF, HTML or image bytes.
 public struct LocalPaperChatContext: Encodable, Equatable, Sendable {
     public let format = PaperChatContext.format
+    /// The library membership the request names; for the reader's own PDF, the paper's id on this device (never sent).
     public let membershipID: String
-    public let source = "arxiv"
+    /// `arxiv`, or `local` for a PDF the reader added (`isOwnPDF`).
+    public let source: String
     public let sourceID: String
     public let revision: Int
     public let manifestSHA256: String
@@ -72,15 +74,48 @@ public struct LocalPaperChatContext: Encodable, Equatable, Sendable {
         case format, source, revision, text
         case membershipID = "membership_id", sourceID = "source_id", manifestSHA256 = "manifest_sha256", sourceSHA256 = "source_sha256"
     }
-    /// `bundle` is the paper's reading on this device: its arXiv HTML reading, or the on-device model's reading of that
-    /// same arXiv revision's PDF (docs/architecture/DEVICE_PDF_ROUTE.md). Either way the text is the verified index's,
-    /// never the PDF, and the request names the same library membership.
+    /// A PDF the reader added, read by the on-device model.
+    public var isOwnPDF: Bool { source == "local" }
+
+    /// `bundle` is the paper's reading on this device: its arXiv HTML reading (that exact revision), or the on-device
+    /// model's reading of the paper's PDF, of any arXiv revision kept here (docs/architecture/DEVICE_PDF_ROUTE.md: the
+    /// device reads the PDF it has, which may be another revision than the library's). Either way the text is the verified
+    /// index's, never the PDF, and the request names the library membership as it is (its revision is what the server
+    /// authorizes).
     public init(reference: SourcePaperReference, bundle: VerifiedReaderBundle) throws {
         let source = try reference.arxivSource
-        guard bundle.arxivSource == source || bundle.devicePDFArxivSource == source else { throw ReaderError.invalidEvent }
+        guard bundle.arxivSource == source || bundle.devicePDFArxivSource?.sourceID == source.sourceID else { throw ReaderError.invalidEvent }
+        let text = try Self.text(bundle)
+        self.source = "arxiv"; membershipID = reference.membershipID.wire; sourceID = reference.sourceID; revision = reference.revision
+        manifestSHA256 = bundle.manifestSHA256; sourceSHA256 = bundle.manifest.source.sha256; self.text = text
+    }
+
+    /// A PDF the reader added (`paperID`, its `local:` library entry), read by the on-device model: only the reading's
+    /// numbered text is sent (`encode(to:)`), never the paper's id, title or the digests of the PDF or the reading, which
+    /// stay on this device like the end-to-end encrypted entry itself.
+    public init(ownPDF paperID: UUID, bundle: VerifiedReaderBundle) throws {
+        guard let paper = bundle.devicePDFSource?.paper, paper.sourceID == LocalPDFMembership.sourceID(paperID) else { throw ReaderError.invalidEvent }
+        let text = try Self.text(bundle)
+        source = "local"; membershipID = paperID.wire; sourceID = paper.sourceID; revision = paper.revision
+        manifestSHA256 = bundle.manifestSHA256; sourceSHA256 = bundle.manifest.source.sha256; self.text = text
+    }
+
+    private static func text(_ bundle: VerifiedReaderBundle) throws -> String {
         let text = PaperChatContext.text(bundle.index)
         guard !text.isEmpty, text.utf8.count <= 2_097_152 else { throw ChatRequestError.questionTooLarge }
-        membershipID = reference.membershipID.wire; sourceID = reference.sourceID; revision = reference.revision
-        manifestSHA256 = bundle.manifestSHA256; sourceSHA256 = bundle.manifest.source.sha256; self.text = text
+        return text
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // The order the synthesized encoding used (declaration order).
+        try container.encode(format, forKey: .format)
+        if !isOwnPDF { try container.encode(membershipID, forKey: .membershipID) }
+        try container.encode(source, forKey: .source)
+        if !isOwnPDF {
+            try container.encode(sourceID, forKey: .sourceID); try container.encode(revision, forKey: .revision)
+            try container.encode(manifestSHA256, forKey: .manifestSHA256); try container.encode(sourceSHA256, forKey: .sourceSHA256)
+        }
+        try container.encode(text, forKey: .text)
     }
 }

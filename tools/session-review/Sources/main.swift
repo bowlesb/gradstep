@@ -1,7 +1,10 @@
 // session-review <session-folder> [--max-frames N]
 //
 // Turns a recorded test session (screen.mp4 + timeline.jsonl + meta.json from
-// the app's Settings › Testing › Record a test session) into a review packet in
+// the app's Settings › Testing › Record a test session; since 2026-10-24 a
+// session can have several videos: screen.mp4, then screen-2.mp4, … each started
+// when the app came back from the background, with `video_gap` and
+// `video_segment` events in the timeline) into a review packet in
 // <session-folder>/review/: review.md (signals first, narration, timeline by
 // screen, frame links), review.json, frames/*.jpg (touches drawn as rings) and
 // transcript.json. See docs/SESSION_REVIEW.md.
@@ -42,18 +45,42 @@ let events: [Event] = (try? String(contentsOf: folder.appendingPathComponent("ti
     } ?? []
 guard !events.isEmpty else { print("No timeline events in \(folder.path)"); exit(1) }
 let sessionEnd = events.last?.t ?? 0
-let videoURL = folder.appendingPathComponent("screen.mp4")
-let hasVideo = FileManager.default.fileExists(atPath: videoURL.path)
 
 func clock(_ t: Double) -> String { String(format: "%02d:%04.1f", Int(max(t, 0)) / 60, max(t, 0).truncatingRemainder(dividingBy: 60)) }
 
-// MARK: Video helpers
+// MARK: Video segments
 
-let asset = AVURLAsset(url: videoURL)
-var videoDuration = 0.0
-if hasVideo { videoDuration = (try? await asset.load(.duration).seconds) ?? 0 }
+/// One screen recording: screen.mp4 is segment 1; screen-N.mp4 started when the app returned from the background.
+final class Segment {
+    let index: Int, file: String, asset: AVURLAsset
+    /// The whole file (sound can run past the picture) and the picture alone, in video seconds.
+    var duration = 0.0, videoEnd = 0.0
+    /// Video time = timeline time + offset.
+    var offset = 0.0, syncFound = false, syncEstimated = false
+    /// Timeline times the app logged for its start and end.
+    var loggedStart = 0.0, loggedEnd: Double?
+    init(index: Int, file: String, url: URL) { self.index = index; self.file = file; asset = AVURLAsset(url: url) }
+    var timelineStart: Double { -offset }
+    /// The last timeline time with a picture.
+    var pictureEnd: Double { videoEnd - offset }
+}
+var segments: [Segment] = []
+for index in 1...99 {
+    let file = index == 1 ? "screen.mp4" : "screen-\(index).mp4"
+    let url = folder.appendingPathComponent(file)
+    guard FileManager.default.fileExists(atPath: url.path) else { if index == 1 { continue } else { break } }
+    let segment = Segment(index: index, file: file, url: url)
+    segment.duration = (try? await segment.asset.load(.duration).seconds) ?? 0
+    if let track = try? await segment.asset.loadTracks(withMediaType: .video).first, let range = try? await track.load(.timeRange) {
+        segment.videoEnd = range.end.seconds
+    } else { segment.videoEnd = segment.duration }
+    segment.loggedStart = index == 1 ? 0 : events.first { $0.kind == "video_segment" && $0.fields["phase"] == "start" && $0.fields["segment"] == String(index) }?.t ?? 0
+    segment.loggedEnd = events.first { $0.kind == "video_segment" && $0.fields["phase"] == "end" && $0.fields["segment"] == String(index) }?.t
+    segments.append(segment)
+}
+let hasVideo = !segments.isEmpty
 
-func generator(maximum: CGSize) -> AVAssetImageGenerator {
+func generator(_ asset: AVAsset, maximum: CGSize) -> AVAssetImageGenerator {
     let generator = AVAssetImageGenerator(asset: asset)
     generator.appliesPreferredTrackTransform = true
     generator.maximumSize = maximum
@@ -92,8 +119,6 @@ func difference(_ a: [UInt8], _ b: [UInt8]) -> Double {
 
 // MARK: Sync: the magenta band the app shows right after recording starts
 
-var offset = 0.0, syncFound = false
-let bandOn = events.first { $0.kind == "sync_band" && $0.fields["on"] == "1" }?.t
 /// Whether the top rows of a frame show the magenta band.
 func showsBand(_ image: CGImage) -> Bool {
     let w = image.width, h = image.height, raw = pixels(image, width: w, height: h)
@@ -108,29 +133,35 @@ func showsBand(_ image: CGImage) -> Bool {
     }
     return false
 }
-if hasVideo, let bandOn {
-    // Coarse pass over the whole video (a device recording shows the band at the
-    // start; a Simulator recording only once the app has launched), then refine.
-    let small = generator(maximum: CGSize(width: 120, height: 260))
-    var t = 0.0, coarse: Double?
-    while t < videoDuration, coarse == nil {
-        if let image = try? await small.image(at: CMTime(seconds: t, preferredTimescale: 600)).image, showsBand(image) { coarse = t }
-        t += 0.2
-    }
-    if let coarse {
-        var fine = max(coarse - 0.25, 0)
-        while fine <= coarse {
-            if let image = try? await small.image(at: CMTime(seconds: fine, preferredTimescale: 600)).image, showsBand(image) { break }
-            fine += 1.0 / 30
+for segment in segments {
+    // Each segment's own band (the first segment's has no `segment` field).
+    let bandOn = events.first { $0.kind == "sync_band" && $0.fields["on"] == "1" && ($0.fields["segment"] ?? "1") == String(segment.index) }?.t
+    if let bandOn {
+        // Coarse pass over the picture (a device recording shows the band at the
+        // start; a Simulator recording only once the app has launched), then refine.
+        let small = generator(segment.asset, maximum: CGSize(width: 120, height: 260))
+        var t = 0.0, coarse: Double?
+        while t < segment.videoEnd, coarse == nil {
+            if let image = try? await small.image(at: CMTime(seconds: t, preferredTimescale: 600)).image, showsBand(image) { coarse = t }
+            t += 0.2
         }
-        offset = fine - bandOn; syncFound = true
+        if let coarse {
+            var fine = max(coarse - 0.25, 0)
+            while fine <= coarse {
+                if let image = try? await small.image(at: CMTime(seconds: fine, preferredTimescale: 600)).image, showsBand(image) { break }
+                fine += 1.0 / 30
+            }
+            segment.offset = fine - bandOn; segment.syncFound = true
+        }
     }
+    // Without the marker: the file and the segment end together (Stop, or the app's own end of the segment).
+    let end = segment.loggedEnd ?? sessionEnd
+    if !segment.syncFound, segment.duration > 0, abs(segment.duration - (end - segment.loggedStart)) < 15 {
+        segment.offset = segment.duration - end; segment.syncEstimated = true
+    } else if !segment.syncFound { segment.offset = -segment.loggedStart }
 }
-// Without the marker: video and timeline end together (Stop ends both), so align the ends.
-var syncEstimated = false
-if hasVideo, !syncFound, videoDuration > 0, abs(videoDuration - sessionEnd) < 15 { offset = videoDuration - sessionEnd; syncEstimated = true }
-func videoTime(_ t: Double) -> Double { t + offset }
-func timelineTime(_ v: Double) -> Double { v - offset }
+/// The segment whose picture covers a timeline time (the later one where two meet).
+func segment(at t: Double) -> Segment? { segments.last { t >= $0.timelineStart && t <= $0.pictureEnd } }
 
 // MARK: Narration (on-device transcription)
 
@@ -138,9 +169,12 @@ var remarks: [Remark] = []
 let problemWords = ["bug", "broken", "wrong", "weird", "slow", "stuck", "why", "can't", "cannot", "doesn't", "didn't", "isn't",
                     "should", "expected", "hmm", "annoying", "confus", "hard to", "missing", "cut off", "overlap", "not working",
                     "nothing happen", "again", "error", "crash", "frozen", "freez", "lag", "ugly", "off"]
-if hasVideo, (meta["voice"] as? Bool) == true, !((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty {
+for segment in segments where (meta["voice"] as? Bool) == true {
+    guard !((try? await segment.asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty else { continue }
+    let asset = segment.asset, offset = segment.offset
+    func timelineTime(_ v: Double) -> Double { v - offset }
     do {
-        let audio = out.appendingPathComponent("audio.m4a")
+        let audio = out.appendingPathComponent(segment.index == 1 ? "audio.m4a" : "audio-\(segment.index).m4a")
         if let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) {
             try await export.export(to: audio, as: .m4a)
             if let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "en-US")) {
@@ -161,7 +195,7 @@ if hasVideo, (meta["voice"] as? Bool) == true, !((try? await asset.loadTracks(wi
                 let file = try AVAudioFile(forReading: audio)
                 if let last = try await analyzer.analyzeSequence(from: file) { try await analyzer.finalizeAndFinish(through: last) }
                 else { await analyzer.cancelAndFinishNow() }
-                remarks = try await collector.value
+                remarks += try await collector.value
             }
         }
     } catch { print("Narration could not be transcribed: \(error)") }
@@ -192,6 +226,12 @@ for event in events {
     case "hang": signals.append(Signal(t: event.t - (Double(event.fields["ms"] ?? "") ?? 0) / 1000, kind: "hang", detail: "main thread stalled \(event.fields["ms"] ?? "?") ms"))
     case "memory_warning": signals.append(Signal(t: event.t, kind: "memory_warning", detail: "memory warning"))
     case "mark": signals.append(Signal(t: event.t, kind: "mark", detail: "marked by the tester"))
+    case "video_gap":
+        // The app was in the background: ReplayKit's picture stopped there; the app started a new segment on its return.
+        let from = Double(event.fields["from"] ?? "") ?? event.t
+        signals.append(Signal(t: from, kind: "video_gap", detail: event.fields["resumed"] == "0"
+            ? "the screen video stopped at \(clock(from)) and couldn’t restart; the rest is the event log only"
+            : "no screen video \(clock(from))–\(clock(event.t)) (the app was in the background); continues in \(event.fields["file"] ?? "the next part")"))
     case "chrome":
         if let x = Double(event.fields["x"] ?? ""), let y = Double(event.fields["y"] ?? ""), let w = Double(event.fields["width"] ?? ""), let h = Double(event.fields["height"] ?? "") {
             chrome = CGRect(x: x, y: y, width: w, height: h)
@@ -214,13 +254,19 @@ for (index, touch) in touches.enumerated() where touch.t > lastCluster + 1.5 {
     }
     if near.count >= 3 { signals.append(Signal(t: touch.t, kind: "repeated_taps", detail: "\(near.count) taps near (\(Int(x)), \(Int(y)))")); lastCluster = touch.t }
 }
+// A picture that ends well before its file (sessions recorded before the app restarted the video after the background).
+for segment in segments where segment.duration - segment.videoEnd > 3 {
+    let stopped = segment.pictureEnd, until = segment.duration - segment.offset
+    if signals.contains(where: { $0.kind == "video_gap" && abs($0.t - stopped) < 5 }) { continue }
+    signals.append(Signal(t: stopped, kind: "video_stopped", detail: "\(segment.file): the picture stops at \(clock(stopped)); sound continues to \(clock(until)), with no frames after the stop"))
+}
 for remark in remarks where remark.flagged { signals.append(Signal(t: remark.t, kind: "narration", detail: "“\(remark.text)”")) }
 signals.sort { $0.t < $1.t }
 
 // MARK: Keyframes
 
 var frames: [Frame] = []
-if hasVideo, videoDuration > 0 {
+if hasVideo {
     var candidates: [Candidate] = signals.map { Candidate(t: $0.t + ($0.kind == "message_shown" ? 0.4 : 0.1), priority: .signal, reason: $0.kind) }
     for event in events {
         switch event.kind {
@@ -237,13 +283,14 @@ if hasVideo, videoDuration > 0 {
     }
     var t = 0.5
     while t < sessionEnd { candidates.append(Candidate(t: t, priority: .periodic, reason: "periodic")); t += 1.5 }
-    candidates = candidates.filter { videoTime($0.t) >= 0 && videoTime($0.t) <= videoDuration }.sorted { $0.t < $1.t }
+    candidates = candidates.filter { segment(at: $0.t) != nil }.sorted { $0.t < $1.t }
 
     // Keep every signal frame; keep other frames only when the screen changed visibly.
-    let small = generator(maximum: CGSize(width: 96, height: 208))
+    let smalls = Dictionary(uniqueKeysWithValues: segments.map { ($0.index, generator($0.asset, maximum: CGSize(width: 96, height: 208))) })
     var kept: [Candidate] = [], lastSignature: [UInt8] = [], lastSignalTime = -10.0
     for candidate in candidates {
-        guard let image = try? await small.image(at: CMTime(seconds: videoTime(candidate.t), preferredTimescale: 600)).image else { continue }
+        guard let part = segment(at: candidate.t), let small = smalls[part.index],
+              let image = try? await small.image(at: CMTime(seconds: candidate.t + part.offset, preferredTimescale: 600)).image else { continue }
         let current = signature(image)
         let changed = difference(current, lastSignature) > 0.012
         if candidate.priority == .signal ? candidate.t - lastSignalTime > 0.3 : changed {
@@ -260,10 +307,11 @@ if hasVideo, videoDuration > 0 {
     }
 
     // Full frames (600 px wide) with touch rings, plus on-screen text.
-    let large = generator(maximum: CGSize(width: 600, height: 1400))
+    let larges = Dictionary(uniqueKeysWithValues: segments.map { ($0.index, generator($0.asset, maximum: CGSize(width: 600, height: 1400))) })
     var windowWidth = Double(events.first?.fields["window_width"] ?? "") ?? 0
     for (index, candidate) in kept.enumerated() {
-        guard let image = try? await large.image(at: CMTime(seconds: videoTime(candidate.t), preferredTimescale: 600)).image else { continue }
+        guard let part = segment(at: candidate.t), let large = larges[part.index],
+              let image = try? await large.image(at: CMTime(seconds: candidate.t + part.offset, preferredTimescale: 600)).image else { continue }
         if let orientation = events.last(where: { $0.kind == "orientation" && $0.t <= candidate.t }), let w = Double(orientation.fields["width"] ?? "") { windowWidth = w }
         let w = image.width, h = image.height
         guard let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
@@ -300,7 +348,22 @@ for index in remarks.indices { remarks[index].frame = nearestFrame(remarks[index
 var md = "# Test session \(folder.lastPathComponent)\n\n"
 md += "- Build \(meta["version"] ?? "?") (\(meta["build"] ?? "?")), \(meta["device"] ?? "?"), iOS \(meta["system"] ?? "?"), \(meta["idiom"] ?? "?")\n"
 md += "- Length \(clock(sessionEnd)); video \(hasVideo ? "yes" : "no"); narration \(remarks.isEmpty ? "none transcribed" : "\(remarks.count) remarks")\n"
-md += "- Video/timeline sync: \(syncFound ? String(format: "marker found, offset %.2f s", offset) : syncEstimated ? String(format: "marker not found; aligned by the end (offset %.2f s), about ±0.5 s", offset) : hasVideo ? "marker NOT found; times may be off by a few seconds" : "no video")\n"
+func syncText(_ segment: Segment) -> String {
+    segment.syncFound ? String(format: "marker found, offset %.2f s", segment.offset)
+        : segment.syncEstimated ? String(format: "marker not found; aligned by the end (offset %.2f s), about ±0.5 s", segment.offset)
+        : "marker NOT found; times may be off by a few seconds"
+}
+if segments.count > 1 {
+    md += "- Video in \(segments.count) parts (the app restarted the recording after the background):\n"
+    for segment in segments {
+        md += "  - `\(segment.file)` \(clock(segment.timelineStart))–\(clock(segment.pictureEnd)); sync: \(syncText(segment))\n"
+    }
+} else {
+    md += "- Video/timeline sync: \(segments.first.map(syncText) ?? "no video")\n"
+}
+for stopped in signals where stopped.kind == "video_stopped" || (stopped.kind == "video_gap" && stopped.detail.contains("couldn’t restart")) {
+    md += "- **Video stopped at \(clock(stopped.t))**: \(stopped.detail)\n"
+}
 md += "- Times below are timeline times (mm:ss.s). Frames are 600 px wide; red rings are touches within 0.35 s. The recorder's own pill (\(chrome.map { "x \(Int($0.minX)) y \(Int($0.minY)) \(Int($0.width))×\(Int($0.height)) pt" } ?? "position unknown")) is not app UI.\n\n"
 md += "## Signals (\(signals.count))\n\n"
 md += signals.isEmpty ? "None detected from the timeline. Review the screens below for visual problems.\n" :
@@ -331,7 +394,7 @@ for event in events {
         lines.append("- \(clock(event.t)) tap (\(event.fields["x"] ?? "?"), \(event.fields["y"] ?? "?"))")
     case "request":
         lines.append("- \(clock(event.t)) \(event.fields["method"] ?? "") \(event.fields["path"] ?? "") → \(event.fields["status"] ?? "") in \(event.fields["ms"] ?? "?") ms")
-    case "hang", "keyboard", "orientation", "scene", "memory_warning", "mark", "start", "stop":
+    case "hang", "keyboard", "orientation", "scene", "memory_warning", "mark", "start", "stop", "video_gap", "video_segment":
         lines.append("- \(clock(event.t)) \(event.kind) \(event.fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
     default: break
     }
@@ -340,9 +403,11 @@ while nextFrame < frames.count { lines.append("  - frame `\(frames[nextFrame].fi
 md += lines.joined(separator: "\n") + "\n"
 try md.write(to: out.appendingPathComponent("review.md"), atomically: true, encoding: .utf8)
 
-struct Packet: Codable { let signals: [Signal]; let remarks: [Remark]; let frames: [Frame]; let offset: Double; let syncFound: Bool }
+struct VideoPart: Codable { let file: String; let start: Double; let end: Double; let offset: Double; let syncFound: Bool }
+struct Packet: Codable { let signals: [Signal]; let remarks: [Remark]; let frames: [Frame]; let offset: Double; let syncFound: Bool; let videos: [VideoPart] }
 let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-try encoder.encode(Packet(signals: signals, remarks: remarks, frames: frames, offset: offset, syncFound: syncFound))
+try encoder.encode(Packet(signals: signals, remarks: remarks, frames: frames, offset: segments.first?.offset ?? 0, syncFound: segments.first?.syncFound ?? false,
+                          videos: segments.map { VideoPart(file: $0.file, start: $0.timelineStart, end: $0.pictureEnd, offset: $0.offset, syncFound: $0.syncFound) }))
     .write(to: out.appendingPathComponent("review.json"))
 print("Review: \(out.appendingPathComponent("review.md").path)")
-print("\(signals.count) signals, \(remarks.count) remarks, \(frames.count) frames; sync \(syncFound ? "found" : "not found")")
+print("\(signals.count) signals, \(remarks.count) remarks, \(frames.count) frames; \(segments.count) video part(s), sync \(segments.map { $0.syncFound ? "found" : "not found" }.joined(separator: ", "))")

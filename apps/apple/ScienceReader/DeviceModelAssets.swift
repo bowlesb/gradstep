@@ -30,7 +30,7 @@ final class DeviceModelAssets {
     let pack: DevicePDFModelPack? = DeviceModelAssets.packDescription
 
     /// The reader once chose to download the models: a model update downloads again by itself on Wi-Fi.
-    private var wanted: Bool {
+    private(set) var wanted: Bool {
         get { UserDefaults.standard.bool(forKey: "deviceModels.wanted") }
         set { UserDefaults.standard.set(newValue, forKey: "deviceModels.wanted") }
     }
@@ -44,6 +44,16 @@ final class DeviceModelAssets {
     @ObservationIgnored private let monitor = NWPathMonitor()
 
     private init() {
+        #if DEBUG && FIXTURE_HOST
+        if let fixture = Self.downloadFixture {
+            // A fixture run starts from the default: nothing chosen, nothing downloaded before.
+            UserDefaults.standard.removeObject(forKey: "reader.deviceModel")
+            UserDefaults.standard.removeObject(forKey: "deviceModels.wanted")
+            fixtureInstalled = fixture == .ready
+            refresh()
+            return
+        }
+        #endif
         monitor.pathUpdateHandler = { [weak self] path in
             let expensive = path.isExpensive || path.isConstrained, online = path.status == .satisfied
             Task { @MainActor in self?.networkChanged(expensive: expensive, online: online) }
@@ -80,6 +90,9 @@ final class DeviceModelAssets {
 
     func refresh() {
         guard download == nil else { return }
+        #if DEBUG && FIXTURE_HOST
+        if Self.downloadFixture != nil { state = fixtureInstalled ? .ready(bytes: Self.fixtureBytes, bundled: false) : .notDownloaded; return }
+        #endif
         if let location = Self.locate() {
             switch location {
             case .bundled(let url): state = .ready(bytes: DevicePDFModelStore.bytes(in: url), bundled: true)
@@ -109,16 +122,34 @@ final class DeviceModelAssets {
         if state == .notDownloaded, wanted || olderVersionRemoved, !expensive { _ = start(urgent: false) }
     }
 
+    /// The state as Settings' one row reads it (`DeviceModelReaderSetting`).
+    var files: DeviceModelFiles {
+        switch state {
+        case .unavailable: .unavailable
+        case .notDownloaded: .missing
+        case .downloading(let fraction): .downloading(fraction)
+        case .ready(_, let bundled): .ready(bundled: bundled)
+        case .failed(let message): .failed(message)
+        }
+    }
+
+    /// The on-device PDF reader's choice at launch: what was stored, else on only where the models were downloaded here.
+    static func initialReaderPreference() -> Bool {
+        let assets = shared
+        return DeviceModelReaderSetting.initialPreference(stored: UserDefaults.standard.object(forKey: "reader.deviceModel") as? Bool,
+                                                          files: assets.files, downloadedBefore: assets.wanted)
+    }
+
     /// The models are a download on this device (not the Mac app's own copy, not a test folder).
     var downloadable: Bool {
-        guard pack != nil else { return false }
+        guard pack != nil || Self.downloadFixture != nil else { return false }
         if case .ready(_, let bundled) = state { return !bundled }
         return state != .unavailable
     }
 
     /// "about 365 MB": the pack’s size to the nearest 5 MB.
     var approximateSize: String {
-        let megabytes = Double(pack?.bytes ?? 0) / 1_000_000
+        let megabytes = Double(pack?.bytes ?? (Self.downloadFixture != nil ? Self.fixtureBytes : 0)) / 1_000_000
         return "about \(Int((megabytes / 5).rounded()) * 5) MB"
     }
 
@@ -138,6 +169,9 @@ final class DeviceModelAssets {
             if urgent { request?.loadingPriority = NSBundleResourceRequestLoadingPriorityUrgent }
             return download
         }
+        #if DEBUG && FIXTURE_HOST
+        if let fixture = Self.downloadFixture { return startFixture(fixture) }
+        #endif
         #if targetEnvironment(macCatalyst)
         // On-Demand Resources do not exist on the Mac: its models are inside the app or not at all.
         return Task { false }
@@ -207,6 +241,12 @@ final class DeviceModelAssets {
     }
 
     func cancel() {
+        #if DEBUG && FIXTURE_HOST
+        if Self.downloadFixture != nil {
+            guard download != nil else { return }
+            generation += 1; download = nil; state = .notDownloaded; return
+        }
+        #endif
         guard let request else { return }
         request.progress.cancel()
         // The system may finish the transfer anyway; this run no longer installs it.
@@ -219,10 +259,57 @@ final class DeviceModelAssets {
     func remove() {
         cancel()
         wanted = false
+        #if DEBUG && FIXTURE_HOST
+        fixtureInstalled = false
+        #endif
         try? Self.store?.removeAll()
         state = pack == nil ? .unavailable : .notDownloaded
         refresh()
     }
+
+    #if DEBUG && FIXTURE_HOST
+    // MARK: UI-test fixture
+
+    /// `--device-model-download-fixture[=ready|fail|slow]` (UI tests and visual checks): a pack of about 365 MB that
+    /// "downloads" in about two seconds (`slow`: twenty; `fail`: stops at 40 % with the connection message) without On-Demand
+    /// Resources or files; `ready` starts downloaded. Settings only: the route still finds no models.
+    enum DownloadFixture: String { case missing, ready, fail, slow }
+    nonisolated static let downloadFixture: DownloadFixture? = {
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--device-model-download-fixture") }) else { return nil }
+        return argument.split(separator: "=").dropFirst().first.flatMap { DownloadFixture(rawValue: String($0)) } ?? .missing
+    }()
+    nonisolated static let fixtureBytes: Int64 = 365_200_000
+    @ObservationIgnored private var fixtureInstalled = false
+
+    private func startFixture(_ fixture: DownloadFixture) -> Task<Bool, Never> {
+        wanted = true
+        state = .downloading(0)
+        generation += 1
+        let run = generation, steps = 20, pause: Duration = fixture == .slow ? .seconds(1) : .milliseconds(100)
+        let task = Task { [weak self] () -> Bool in
+            for step in 1...steps {
+                try? await Task.sleep(for: pause)
+                guard let self, self.generation == run else { return false }
+                if fixture == .fail, step == steps * 2 / 5 {
+                    self.download = nil
+                    self.state = .failed("The download stopped. Check the connection and try again.")
+                    return false
+                }
+                self.progressed(run, Double(step) / Double(steps))
+            }
+            guard let self, self.generation == run else { return false }
+            self.download = nil
+            self.fixtureInstalled = true
+            self.state = .ready(bytes: Self.fixtureBytes, bundled: false)
+            return true
+        }
+        download = task
+        return task
+    }
+    #else
+    nonisolated static var downloadFixture: Never? { nil }
+    nonisolated static let fixtureBytes: Int64 = 0
+    #endif
 
     nonisolated static func message(for error: Error) -> String {
         let ns = error as NSError

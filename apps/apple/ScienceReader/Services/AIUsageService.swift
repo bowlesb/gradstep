@@ -56,6 +56,8 @@ extension ReaderModel {
         guard let provenance else { return nil }
         if let membership = provenance.membershipID.flatMap(UUID.init(uuidString:)) {
             if let paper = papers.first(where: { $0.sourceMembership?.membershipID == membership }) { return paper.title }
+            // A PDF the reader added: its id on this device (LocalPaperChatContext(ownPDF:); never sent).
+            if let paper = papers.first(where: { $0.isLocalPDF && $0.id == membership }) { return paper.title }
             if let item = completeLibrary?.imports.first(where: { $0.id == membership && $0.visible }) { return item.metadata?.title ?? "Untitled paper" }
         }
         if let document = provenance.documentID, let paper = papers.first(where: { $0.id == document }) { return paper.title }

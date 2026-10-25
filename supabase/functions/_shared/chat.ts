@@ -70,7 +70,7 @@ export interface ChatRequest {
   consentVersion: string;
   mode: 'paper' | 'general';
   documentID: string | null;
-  localContext?: LocalPaperContext | null;
+  localContext?: DevicePaperContext | null;
   turns: ChatTurn[];
   selection: string | null;
   /** Selection action needing server work beyond an answer: Ingest (add the cited paper),
@@ -102,23 +102,43 @@ export interface ChatRequest {
  * display equations and figure captions marked), so answers can cite passages the reader can jump to. */
 export type LocalContextFormat = 'reader-local-context-v1' | 'reader-local-context-v2';
 export const LOCAL_CONTEXT_FORMATS: readonly LocalContextFormat[] = ['reader-local-context-v1', 'reader-local-context-v2'];
+/** An arXiv paper in the reader's library, from its arXiv HTML reading or the on-device model's reading of its PDF: the
+ * membership (import) is authorized and names the paper's title (worker_local_chat_context). */
 export interface LocalPaperContext {
   format: LocalContextFormat; membership_id: string; source: 'arxiv'; source_id: string; revision: number;
   manifest_sha256: string; source_sha256: string; text: string;
 }
+/** A PDF the reader added themselves, read by the on-device model (2026-10-24; DEVICE_PDF_ROUTE.md "Explainers on every
+ * model reading"). Its library entry is an end-to-end encrypted event the server cannot read, so there is no membership
+ * to authorize and the request names nothing about it: no id, no title, no digest of the PDF or of its reading. Only the
+ * numbered text the reader sends with this question, held in request memory and never stored or logged, exactly as an
+ * arXiv paper's text. Numbered (v2) only. Metering is the same as for any paper. */
+export interface OwnPaperContext { format: 'reader-local-context-v2'; source: 'local'; text: string }
+export type DevicePaperContext = LocalPaperContext | OwnPaperContext;
+/** What the topic title and suggestions read as the paper's title for the reader's own PDF (its title never leaves the device). */
+export const OWN_PAPER_TITLE = "the reader's own PDF (its title is not shared)";
 
-function localPaperContext(input: unknown): LocalPaperContext {
+function paperText(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || encoder.encode(value).length > MAX_PAPER_BYTES ||
+    /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value)) invalid();
+  return value;
+}
+
+function localPaperContext(input: unknown): DevicePaperContext {
   const c = record(input);
+  if (c.source === 'local') {
+    onlyKeys(c, ['format', 'source', 'text']);
+    if (c.format !== 'reader-local-context-v2') invalid();
+    return { format: 'reader-local-context-v2', source: 'local', text: paperText(c.text) };
+  }
   onlyKeys(c, ['format', 'membership_id', 'source', 'source_id', 'revision', 'manifest_sha256', 'source_sha256', 'text']);
   if (!LOCAL_CONTEXT_FORMATS.includes(c.format as LocalContextFormat) || c.source !== 'arxiv' || typeof c.source_id !== 'string' ||
     !/^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/.test(c.source_id) ||
     !Number.isSafeInteger(c.revision) || (c.revision as number) < 1 || (c.revision as number) > 2147483647 ||
     typeof c.manifest_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(c.manifest_sha256) ||
-    typeof c.source_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(c.source_sha256) ||
-    typeof c.text !== 'string' || !c.text.trim() || encoder.encode(c.text).length > MAX_PAPER_BYTES ||
-    /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(c.text)) invalid();
+    typeof c.source_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(c.source_sha256)) invalid();
   return { format: c.format as LocalContextFormat, membership_id: id(c.membership_id), source: 'arxiv', source_id: c.source_id,
-    revision: c.revision as number, manifest_sha256: c.manifest_sha256, source_sha256: c.source_sha256, text: c.text };
+    revision: c.revision as number, manifest_sha256: c.manifest_sha256, source_sha256: c.source_sha256, text: paperText(c.text) };
 }
 
 /** 'web_import' = the app shows web (non-arXiv) library entries; 'visual_answers' = the app draws HTML visuals and
@@ -694,7 +714,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The paper on the device is authorized (its membership read) alongside the price-card and balance checks rather than
   // after them: one database round trip fewer before the model is asked (FIGURE_VIEW.md "Speed").
   const local = request.localContext;
-  const membershipRead = local ? settled(deps.rpc('worker_local_chat_context', { p_account_id: deps.accountID,
+  // The reader's own PDF (OwnPaperContext) has no membership the server can read: nothing to authorize or name.
+  const membershipRead = local?.source === 'arxiv' ? settled(deps.rpc('worker_local_chat_context', { p_account_id: deps.accountID,
     p_membership_id: local.membership_id, p_source_id: local.source_id, p_revision: local.revision }) as Promise<{ title?: string } | null>) : null;
   // A4: a model whose price card lapses before this answer could finish is unavailable (no hold, no retry loop); the
   // title, suggestions and map run only while their own model's card holds.
@@ -764,6 +785,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     const membership = read.value;
     if (!membership || typeof membership.title !== 'string') throw new ChatFailure('document_unavailable');
     paper = { title: membership.title, text: local.text };
+  } else if (local) {
+    // The reader's own PDF: its title stays on the device; the text is what the reader sent with the question.
+    paper = { title: null, text: local.text };
   } else if (request.mode === 'paper') {
     let context: PaperLocation;
     try { context = await deps.rpc('worker_chat_context', { p_account_id: deps.accountID, p_document_id: request.documentID }) as PaperLocation; }
@@ -778,6 +802,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     paper = { title: typeof context.title === 'string' ? context.title : null, text };
   }
   const params = makeParams(paper);
+  // The topic title and suggestions read the paper's title, never its text: the reader's own PDF has none here, and is
+  // still a paper conversation (not "none: a general conversation").
+  const sideTitle = local?.source === 'local' ? OWN_PAPER_TITLE : paper?.title ?? null;
   // DeepSeek in the figure view at low effort writes without thinking: on its pinned route "low" still thought for
   // ~1,800 tokens (24 s before a word of a walkthrough); without it the walkthrough read the same panels and values and
   // was whole in 15 s (FIGURE_VIEW.md "Speed"). Its route has no prompt cache to keep, so the prefix is unaffected.
@@ -793,7 +820,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);
   }
   // The topic title is a second, small request in the same operation: its whole ceiling is held too.
-  const titleParams = request.topicTitle && sidesAvailable ? titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null }) : null;
+  const titleParams = request.topicTitle && sidesAvailable ? titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: sideTitle }) : null;
   const titleHold = titleParams ? holdForParams(titleParams) : null;
   if (titleHold) hold.microusd += titleHold.microusd;
   // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
@@ -955,7 +982,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // An answer that asked for a figure is not the answer: the device asks again with it, and that one gets suggestions.
   const asksForFigure = offersLook && !request.figures.length && !isEquationAction(request.action) && !!outcome.toolCalls?.some(c => c.name === 'look_at_figure');
   if (followUpHold && finished && wroteText && !asksForFigure && !signal.aborted) {
-    const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead,
+    const params = followUpRequestParams({ paperTitle: sideTitle, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead,
       visuals: request.visuals });
     suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now, request.visuals);
     if (suggested.outcome.attempts.length) {

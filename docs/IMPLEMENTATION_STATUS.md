@@ -2,6 +2,32 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+AI Explainers on every on-device model reading (TestFlight 91 known gap; branch `worktree-agent-a8df15119d43dcfc0`;
+[decision](DECISIONS.md#explainers-on-every-on-device-model-reading-testflight-91-known-gap-agent-decisions-2026-10-24-reversible),
+DEVICE_PDF_ROUTE.md "Explainers on every model reading"). Neither gap was the converter's port revision: nothing on the
+device or the server compares a reading's port revision or build with the current converter. **Another arXiv
+revision:** the device reads the PDF it has (the library's revision, else any kept), and the app itself refused a
+reading whose revision differed from the membership's (`LocalPaperChatContext.swift`, the `devicePDFArxivSource ==
+source` guard), so no request was sent; a model reading now needs only the same arXiv id and the request names the
+membership as it is, which the server already authorizes (no server change for this case). **A PDF the reader added:**
+the server refused every request (`chat.ts` `localPaperContext` accepted only `source: "arxiv"`, and
+`worker_local_chat_context` has no row for an encrypted `local:` entry), and the app never built one. New request
+shape `{"format":"reader-local-context-v2","source":"local","text":…}` with no id, title or digest (the server
+refuses them); no membership read, no title in the paper block, side requests read "the reader's own PDF (its title is
+not shared)"; holds, settlement, switches and consent unchanged. The app sends it for the figure, equation and paper
+explainers and for that paper's chat (Continue in Chat), only from the model reading of that same PDF; the equation
+view now uses the same context helper as the figure and paper explainers (so a legacy library item's reading gets
+equation explainers too); AI usage names an own-PDF row from the device. Builds 91 and below are unchanged (they never
+send either request). Verified: four new backend tests in `tests/backend/chat.test.ts` (own-PDF validation, figure
+walkthrough without a membership read, equation and paper explainers, suggestions' title); the first three were run
+before the server change and failed (`invalid_request`, no generation), all four pass (chat.test.ts 145/145); `npm
+test` passes (backend 789, edge type check, browser units); two new Core tests in `DeviceReaderTests` (another
+revision's reading; own-PDF reading sends only `format`, `source`, `text`) pass, the first failing with the old guard;
+`swift test` 453 + 66 XCTest pass (one opt-in skipped); the iOS app's Swift sources compile and link for the generic
+iOS Simulator (the bundle step stops only at the gitignored on-device model pack, not present in this worktree).
+**Server not deployed:** deploy `chat` to staging before a build with the app change ships (an older server answers
+`invalid_request` to `source: "local"`). No migration. Not run in the Simulator or on a device.
+
 For you by similarity to the library: new additive migration `202610240155_feed_library_similarity.sql` (**applied to staging 2026-10-25 00:08 UTC after encrypted backup 20261025T000815Z**) and ranking `feed-heuristic-v3` in `_shared/feed-rank.ts` (**`discover` deployed to staging**; the owner's live candidates rank 28 like / 11 popular on Hugging Face / 5 author / 3 explore / 3 category; workflow checks 18 pass, 1 fail = budget.health at 83 % of the $40 platform month, unrelated). With 0154 the
 owner's library counted, but their tags are broad areas, so 28 of 50 picks were "By <author>" (mostly namesakes) and 22
 "New in …". When the interest index serves the reader, candidates now carry cosine similarity to the nearest library
@@ -62,6 +88,24 @@ the change and pass after; `ReaderNavigationTests.testReferenceActionsHaveNoTitl
 pass: IPadShapes explainer-from-Library, general chat sideways, places menu, turning, Read/Discuss;
 ChatHistoryTableTests (6); FigureView walkthrough and Ask in chat. Screens: `.artifacts/visual/f6-f8-after/`.
 Not yet on a device.
+Owner session on 91 (iPad Settings; DECISIONS "One row for the on-device PDF reader…"). **On-device PDF reader** is one
+row: ⓘ "Reads a paper’s PDF on this device with Gradstep’s own models (takes longer, can be inaccurate)."; off by default
+(`reader.deviceModel` defaulted to on, so the owner saw it on beside "Not downloaded"); on only when chosen and the model
+is here; turning it on asks "Download the on-device PDF reader?" (About 365 MB), then the row shows the download with
+Cancel and the switch comes on; a failure or Cancel leaves it off; off removes the model; the Mac is the switch alone.
+Existing installs with the model downloaded stay on. Rules in `DeviceModelReaderSetting` (ScienceReaderCore); a
+`--device-model-download-fixture[=fail|slow|ready]` seam fakes the On-Demand Resources download in UI tests. **Theme**:
+"Match device" is now System, with an ⓘ; **Underline passages with chats** has an ⓘ (the web Settings gets the same two
+ⓘ). **Session recorder**: ReplayKit's picture stopped when the app went to the background (0:17) while the microphone
+ran on; the recorder now ends that file on the return and starts `screen-2.mp4`… with a sync band and `video_gap` /
+`video_segment` events, or shows a crossed-out camera on the strip if it can't restart; `tools/session-review` reads
+every part and flags gaps and pictures that stop before their sound. Not seen on a device yet (ReplayKit doesn't record
+in the Simulator). Verified: `swift test --filter DeviceModelReaderSettingTests` (11 pass); `SessionVideoSegmentTests`
+(3 pass, stand-in recorder) and `SettingsTests` (all 10 on iPad Pro 13-inch (M5); the 3 new/changed on iPhone 17 Pro)
+pass in the iOS 26.4 Simulator; the review tool on the owner's session flags "Video stopped at 00:18.2" and on a two-part
+session cut from it lines both parts up and reports the gap; `npm test` passes. Not run: `DeviceModelJourneyTests`
+(updated for the one row; needs the model pack in the build); `PassageJourneyTests/testTabletSplitLinksChatAndPassage`
+failed before its theme step, at the selection menu's "Explain in Chat" (untouched here).
 
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
