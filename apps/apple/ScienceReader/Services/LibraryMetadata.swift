@@ -238,7 +238,7 @@ struct LibraryColumnSettings: Equatable, Sendable {
     }
 
     static let defaultsKeyPrefix = "library.columns."
-    /// Phone: Year and Progress in portrait; landscape adds the dates and chats where they fit.
+    /// Phone: Device and Progress beside the title in portrait, the others scrolling in; landscape fits more of them.
     static let compactDefault: Set<LibraryTableColumn> = [.device, .authors, .year, .added, .opened, .chats, .progress]
     static let regularDefault: Set<LibraryTableColumn> = [.device, .authors, .year, .tags, .added, .opened, .chats, .progress]
 
