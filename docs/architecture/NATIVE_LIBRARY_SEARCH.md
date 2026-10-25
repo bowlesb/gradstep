@@ -61,7 +61,9 @@ row with a query has a `SearchResultMatch` (ScienceReaderCore `FullText/SearchMa
   words marked with Find in paper's yellow (rgba(250, 204, 21, .4)), primary and semibold in secondary text. The List
   row and the table's title cell mark the title; an abstract excerpt replaces the List row's abstract. ML rows show
   the label only and mark the title and abstract (folded: `excerpt` of 220 characters, from the start when the words
-  are near it). The ⓘ after the Library / ML paper search switch (`search.match.info`) explains the line.
+  are near it). The ⓘ after the Library / ML paper search switch (`search.match.info`) explains the line. The table
+  row's VoiceOver label reads the match after the title; a table row with a match is never drawn as a row being added.
+  At accessibility text sizes the line may take one more line.
 
 **Switching scope.** `ReaderModel.setSearchScope(external:)` (the switch's binding and the Mac's Search commands)
 carries the field's words to the other scope's query and searches them: the Library through `libraryQuery`'s

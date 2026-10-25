@@ -2,6 +2,23 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+Owner session 2026-10-24 (iPad portrait, Search; [decision](DECISIONS.md#search-results-say-how-they-matched-the-scope-switch-keeps-the-words-owner-session-testflight-91-ipad-2026-10-24-agent-decisions-reversible),
+NATIVE_LIBRARY_SEARCH.md "Match strength"): **each result says how it matched** — one quiet line under the title, the
+share of the search words it contains and where, strongest first ("100% · title", "67% · title, abstract", "100% · full
+text"; not a similarity score), then for the Library one excerpt of where it matched outside the title (text, abstract or
+authors); matched words carry Find in paper's yellow mark, in the title too (List and table). ML paper search rows show
+the line and mark the title and abstract (measured on the device; arXiv/DataCite give no score). One ⓘ after the
+Library / ML paper search switch. **The switch keeps the words**: it used to show the other scope's own, usually empty,
+query (`ReaderModel.searchQuery` per scope; the picker bound `searchExternal` alone); now `setSearchScope` carries the
+words over and searches them. Also fixed: the table hid a row's search line when the row had no subtitle or device
+symbol (treated as a row being added). Verified: `swift test` 459 + 66 XCTest (new SearchMatchTests); app unit tests
+LibraryFullTextSearch/LibrarySearchModel/LibrarySearchCoordinator/PaperTable (47) on iPad Pro 13-inch (M5); UI
+`SearchMatchJourneyTests` (3, new), `LibraryFullTextJourneyTests`, `WorkflowJourneyTests` search scope tests and
+`IPadShapesJourneyTests.testSearchKeepsTheListAfterOpeningAResult` on iPad Pro 13-inch (M5) and/or iPhone 17 Pro
+(iOS 26.4). Screens: `.artifacts/visual/search-match-before/` (iPad: the emptied field) and `search-match-after/`
+(iPad light/dark, iPhone light/dark/xl). Not yet on a device; ML match lines were seen only on the offline
+`--discover-fixture` results.
+
 OpenRouter reconciler (pipeline worker revision gradstep-pipeline-00056-wcj, deployed 2026-10-25 04:25 UTC via Cloud
 Build): it now also accepts a record whose model is the dispatched slug without its date. Forcing a retry of the stuck
 2026-10-22 DeepSeek attempt (f92ab6d2, $0.049 held) still ended in `mismatch`, so the date was not the cause. The worker
