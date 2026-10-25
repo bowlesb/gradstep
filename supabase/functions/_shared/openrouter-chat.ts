@@ -6,8 +6,9 @@ import { isRouterClaude, routerClaudeRates, ROUTER_CLAUDE_ENDPOINT } from './ope
 // It translates our request shape (model-request.ts) into OpenRouter's chat/completions body. Chat orchestration still
 // owns tools, consent, admission and settlement. Content/signatures live only in memory.
 import type { ModelRequest, TextBlock } from './model-request.ts';
-import { emptyUsage, ESTIMATED_OUTPUT_TOKENS_PER_SECOND, holdForParams, type ProviderAttempt, type ProviderOutcome, type StreamOptions } from './inference.ts';
+import { emptyUsage, ESTIMATED_OUTPUT_TOKENS_PER_SECOND, holdForParams, type ProviderAttempt, type ProviderErrorKind, type ProviderOutcome, type StreamOptions } from './inference.ts';
 import { lookupGeneration, type GenerationLookupOptions, type GenerationRecord } from './openrouter-generation.ts';
+import { sameModel } from './openrouter-reconcile.ts';
 import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL, GEMINI_ENDPOINT, GEMINI_RATES } from './gemini-pricing.ts';
 
 type Params = ModelRequest;
@@ -18,8 +19,19 @@ const count = (v: unknown): number | null => Number.isSafeInteger(v) && (v as nu
 const string = (v: unknown): string => typeof v === 'string' ? v : '';
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
+/** OpenRouter's typed cause (`error.metadata.error_type`, a closed set of its own) as ours; anything else is unknown. */
+export function errorKind(type: unknown, status: number | null = null): ProviderErrorKind {
+  if (type === 'rate_limit_exceeded' || status === 429) return 'rate_limited';
+  if (type === 'provider_overloaded' || status === 503 || status === 529) return 'overloaded';
+  if (type === 'provider_unavailable' || status === 502) return 'provider_unavailable';
+  if (type === 'timeout' || status === 408 || status === 504) return 'timeout';
+  if (type === 'authentication') return 'authentication';
+  if (type === 'payment_required') return 'balance';
+  return 'unknown';
+}
+
 /** Error bodies can echo prompts. Inspect a bounded body in memory, returning only our own closed category. */
-async function rejectionReason(response: Response): Promise<NonNullable<ProviderOutcome['rejectionReason']>> {
+async function rejectionReason(response: Response): Promise<ProviderErrorKind> {
   const reader = response.body?.getReader();
   let text = '', size = 0;
   const decoder = new TextDecoder();
@@ -39,9 +51,10 @@ async function rejectionReason(response: Response): Promise<NonNullable<Provider
     if (response.status === 401 || /api key|authentication|unauthorized/i.test(message)) return 'authentication';
     if (response.status === 402) return 'balance';
     if ([400, 413, 422].includes(response.status)) return 'request_parameters';
+    return errorKind(object(error.metadata).error_type, response.status);
   } catch { /* A malformed error body is not copied into logs. */ }
   finally { await reader?.cancel().catch(() => {}); }
-  return 'unknown';
+  return errorKind(null, response.status);
 }
 
 function part(value: unknown): ObjectValue {
@@ -204,17 +217,24 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
       watch.noticed = true; stream.onStatus?.({ kind: 'waiting' });
     }, options.waitingMs ?? WAITING_NOTICE_MS) : undefined;
     // A TimeoutError reason: provider health counts it as the provider's timeout, never as the reader leaving.
-    const stall = options.firstDataMs === undefined ? undefined : setTimeout(() => {
+    // The request's own deadline (an answer with a fallback gives up sooner: chat-fallback.ts), else the adapter's.
+    const limit = stream.firstDataMs ?? options.firstDataMs;
+    const stall = limit === undefined ? undefined : setTimeout(() => {
       if (watch.started) return;
       watch.stalled = true; quiet.abort(new DOMException('no data from the model', 'TimeoutError'));
-    }, options.firstDataMs);
+    }, limit);
+    const sent = (options.now ?? Date.now)();
+    let firstDataMs: number | undefined;
     const first = () => {
       if (watch.started) return;
       watch.started = true; clearTimeout(stall); clearTimeout(notice);
+      firstDataMs = Math.max(0, Math.round((options.now ?? Date.now)() - sent));
     };
     try {
       const outcome = await generate(params, stream, AbortSignal.any([stream.signal, quiet.signal]), watch, first);
-      return watch.stalled && outcome.status === 'failed' ? { ...outcome, failure: 'provider_error', stalled: true } : outcome;
+      // Whether anything of the model's reached us (a failure before that may be asked of a fallback), and how soon.
+      const measured = { ...outcome, ...(firstDataMs === undefined ? {} : { firstDataMs }), ...(outcome.status === 'failed' && !watch.started ? { noOutput: true } : {}) };
+      return watch.stalled && outcome.status === 'failed' ? { ...measured, failure: 'provider_error', stalled: true } : measured;
     } finally { clearTimeout(stall); clearTimeout(notice); }
   };
 }
@@ -246,7 +266,8 @@ function streamOnce(options: { apiKey: string; fetch?: typeof fetch; now?: () =>
       const record = await lookupGeneration({ apiKey: options.apiKey, fetch: options.fetch, sleep: options.sleep }, id, stream.attribution,
         AbortSignal.timeout(options.receiptWaitMs ?? STOPPED_RECEIPT_WAIT_MS), STOPPED_RECEIPT_TRIES);
       const expected = transportModel(params.model);
-      if (!record || !(record.model === expected || record.model.startsWith(`${expected}-`))) return failed(false, failure);
+      // The record names the dispatched model, possibly as a dated release (openrouter-reconcile.ts sameModel).
+      if (!record || !sameModel(record.model, expected)) return failed(false, failure);
       const recorded = stream.attribution.receipt ? await stream.attribution.receipt({ generation_id: id, provider: record.provider, model: expected,
         ...(record.model !== expected ? { resolved_model: record.model } : {}), total_cost_microusd: record.totalMicrousd }) : true;
       if (!recorded) return failed(false, failure);
@@ -269,7 +290,10 @@ function streamOnce(options: { apiKey: string; fetch?: typeof fetch; now?: () =>
     id = response.headers.get('x-generation-id');
     if (!response.ok) {
       const reason = await rejectionReason(response);
-      const exact = [400, 401, 402, 403, 404, 413, 422, 429].includes(response.status);
+      // Refused before any generation: nothing billed. OpenRouter's 503 is "no available provider meets your routing
+      // requirements" (its errors reference): the pinned endpoint was not tried, as for a 429 it passes on (2026-10-25:
+      // their x-generation-id has no generation record).
+      const exact = [400, 401, 402, 403, 404, 413, 422, 429, 503].includes(response.status);
       const delay = Number(response.headers.get('retry-after'));
       return { ...failed(exact, response.status === 402 ? 'provider_billing' : response.status >= 500 || response.status === 429 ? 'provider_error' : 'provider_rejected'),
         httpStatus: response.status, rejectionReason: reason,
@@ -277,7 +301,7 @@ function streamOnce(options: { apiKey: string; fetch?: typeof fetch; now?: () =>
     }
     if (!response.body) return failed();
     const forced = isRouterClaude(params.model) && params.tool_choice?.type === 'tool' ? params.tool_choice.name : null;
-    let text = '', finish = '', done = false, buffer = '', bytes = 0, provider = '';
+    let text = '', finish = '', done = false, buffer = '', bytes = 0, provider = '', streamError: ProviderErrorKind | null = null;
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
     const reasoning = new Map<number, ObjectValue>();
     const reader = response.body.getReader(), decoder = new TextDecoder();
@@ -295,7 +319,8 @@ function streamOnce(options: { apiKey: string; fetch?: typeof fetch; now?: () =>
           const data = line.slice(5).trim();
           if (data === '[DONE]') { done = true; break; }
           const event = object(JSON.parse(data));
-          if (event.error) throw new Error('stream_error');
+          // OpenRouter's mid-stream error event: only its typed cause is kept (closed category), never its message.
+          if (event.error) { const error = object(event.error); streamError = errorKind(object(error.metadata).error_type, count(error.code)); throw new Error('stream_error'); }
           if (typeof event.id === 'string') {
             if (id && id !== event.id) throw new Error('generation_changed');
             id = event.id;
@@ -342,7 +367,8 @@ function streamOnce(options: { apiKey: string; fetch?: typeof fetch; now?: () =>
     } catch { /* a broken or stopped stream: below */ }
     finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
     if (!done || !attempt || !id || !['stop', 'tool_calls', 'length', 'content_filter'].includes(finish)) {
-      return await cutShort(stream.signal.aborted ? 'aborted' : 'provider_error');
+      const outcome = await cutShort(stream.signal.aborted ? 'aborted' : 'provider_error');
+      return streamError ? { ...outcome, streamError } : outcome;
     }
     const toolCalls = finishedCalls(calls.values(), params);
     if (forced && finish === 'stop') {

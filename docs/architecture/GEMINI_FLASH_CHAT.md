@@ -1,5 +1,16 @@
 # Gemini Flash chat
 
+**2026-10-25, later (owner: "Speed and reliability seem to be not great"; local, not deployed):** the pinned
+`google-vertex/us` endpoint is the unreliable part. OpenRouter measured it at 80 % uptime over the day (degraded; Haiku's
+and Sonnet's on the same endpoint 100 %), and on staging Flash answered 8 of its last 12 calls (429s, a silent minute, a
+broken stream). A Flash answer that fails before writing anything is now asked once of **Claude Haiku 5.5 on the same
+pinned endpoint** (same ZDR, data-collection denial, no provider fallback, same consent), labelled as Haiku's; Health and
+`models.health` watch each model. The pin itself is unchanged. Routing options measured for the owner (all ZDR):
+`google-vertex/global` 88.5 % uptime, 9 % cheaper, first output 1.8–3.3 s in the probe; `google-vertex/global/priority`
+99.9 %, 1.64× the US price, 1.6–5.4 s; the US pin 80 %, 1.9–28.5 s. Both alternatives process outside the US (the privacy
+page does not restrict AI providers' region, but the US pin was the reviewed choice): the owner's decision.
+[CHAT.md](CHAT.md#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed).
+
 **2026-10-25 (TestFlight 92 owner report; local, not deployed):** Flash answers now think at **low** unless the question
 asks for reasoning or the reader chose Detailed (medium); Study and the equation's background stay medium. This
 supersedes "Use the tested medium effort for Flash, including automatic profiles" below. A request the model sends

@@ -9,6 +9,8 @@
 // Never part of npm test; spends OpenRouter credit (OPENROUTER_CHAT_API_KEY in .env.providers) under a durable ledger.
 //
 //   node scripts/figure-speed.mjs --paper=dpo --figure=2 --configs=gemini-medium,haiku-low [--runs=2] [--cap=0.6]
+//   node scripts/figure-speed.mjs --configs=gemini-low,gemini-low@google-vertex/global --max-price=1.5,7 --ledger=<file> (another
+//     zero-retention endpoint of the same model; --max-price caps its $/M input,output; --ledger keeps this run's own budget)
 //
 // Configurations: <model>-<effort>, model gemini|haiku|sonnet, effort low|medium|high (Gemini also minimal), plus
 // `-nothink` for reasoning off. Results: .artifacts/figure-speed/<stamp>.json and a table on stdout.
@@ -38,7 +40,10 @@ const env = Object.fromEntries(readFileSync(`${ROOT}/.env.providers`, 'utf8').sp
   .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^(['"])(.*)\1$/, '$2')]; }));
 const KEY = env.OPENROUTER_CHAT_API_KEY;
 if (!KEY) { console.error('OPENROUTER_CHAT_API_KEY missing'); process.exit(2); }
-const ledger = new SpendLedger(`${OUT}/spend.json`, CAP);
+const ledger = new SpendLedger(arg('ledger') ?? `${OUT}/spend.json`, CAP);
+// `@host` runs: the price cap ($/M input, output) for the other endpoint (default 1,3, as before).
+const [HOST_PROMPT, HOST_COMPLETION] = (arg('max-price', '1,3') ?? '1,3').split(',').map(Number);
+if (!(HOST_PROMPT > 0 && HOST_COMPLETION > 0 && HOST_PROMPT <= 5 && HOST_COMPLETION <= 25)) throw new Error('--max-price=<input>,<output> in $/M, at most 5,25');
 
 const { buildPaperContext } = await import(`${ROOT}/apps/web/src/lib/paper-context.ts`);
 const chat = await import(`${ROOT}/supabase/functions/_shared/chat.ts`);
@@ -118,7 +123,7 @@ async function run(config) {
   // Profiles fix Gemini at medium and Claude at its effort; the configuration may ask for another level or none.
   if (flags.includes('nothink')) body.reasoning = { enabled: false };
   else body.reasoning = { effort };
-  if (host) body.provider = { ...body.provider, only: [host], order: [host], max_price: { prompt: 1, completion: 3 } };
+  if (host) body.provider = { ...body.provider, only: [host], order: [host], max_price: { prompt: HOST_PROMPT, completion: HOST_COMPLETION } };
   const started = Date.now();
   const outRate = model === 'sonnet' ? 11 : model === 'gemini' ? 4.2 : model === 'deepseek' ? 1.5 : 0.6, inRate = model === 'sonnet' ? 4.4 : model === 'gemini' ? 0.9 : model === 'deepseek' ? 0.4 : 0.25;
   const hold = ledger.reserve(Number((params.max_tokens * outRate / 1e6

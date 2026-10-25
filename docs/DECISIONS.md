@@ -2,6 +2,27 @@
 
 Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## AI answers: a labelled fallback when the chosen model fails before writing; model health; the busy retry fixed (owner report on TestFlight 92, 2026-10-25 16:05 UTC; agent decisions, reversible)
+
+Owner: *"Speed and reliability seem to be not great for ai provider calls."* (a figure's AI Explainer on Gemini Flash:
+"The AI service couldn't finish this answer. Try again. Not charged."). Diagnosis, design and measurements:
+[CHAT.md](architecture/CHAT.md#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed).
+In short: every model failure in the week was Gemini 3.8 Flash on its pinned Google Vertex US endpoint (OpenRouter
+measured that endpoint at 80 % uptime over the day, Haiku's on the same endpoint at 100 %); the owner's two attempts were
+HTTP 429s that our same-model retry skipped because OpenRouter names a generation even on a refusal.
+
+| Decision | Choice |
+|---|---|
+| Busy retry | A refusal before the answer starts (HTTP 429, 503, 529) is retried once within 5 s whether or not it names a generation (the `!messageID` test never let an OpenRouter 429 be retried). OpenRouter's 503 ("no available provider meets your routing requirements") is exactly zero, like its 429 |
+| Fallback | When the chosen model fails before any of its output reached us (refused, unavailable, silent, a stream broken before its first output) the answer is asked once of its fallback, as the same request. One pair: **Gemini 3.8 Flash → Claude Haiku 5.5**, both on OpenRouter's pinned `google-vertex/us` endpoint with ZDR required, data collection denied, no provider fallback, no response cache, and under the same consent (v5+). Not for our key or balance (401/402), the request itself (400/413/422), a refusal to answer (403), our own server, or the reader's Stop. Claude, DeepSeek and Haiku itself have no fallback (none failed this way; any other pair changes a processor, location or quality class: the owner's) |
+| Labelled | `done.model` names the model that wrote it and `done.profile` stays the reader's choice: every client already shows "Gemini Flash · Standard · by Claude Haiku 5.5" (and the explainers name the model); a `status {kind: "switching", model}` line says "Switching to Claude Haiku 5.5…" (apps' Core and browser; older builds ignore it). Supersedes "no silent model/provider fallback" (2026-10-18) only in being automatic: it is never silent |
+| Money | The fallback is a second admitted attempt in the same operation, sent only if its whole ceiling still fits the operation's hold (the database decides; otherwise the reader gets the first failure, as before). The answer's part of the hold is the larger of the two models' ceilings: Haiku's passes Flash's only on long papers (its long-prompt tier on the byte estimate: +7–16 % of that part for 90–200 KB of paper text; below about 88 KB Haiku's is 80 % lower); the quote is unchanged. So a fallback after a refusal (exactly zero) always fits; after a silent attempt (its ceiling unresolved) only with the search allowance's room. The reader pays only the attempt that answered (never above the hold); a silent attempt's unresolved ceiling is Gradstep's liability for the reconciler; holds, reconciliation and the month's spend count both attempts |
+| Deadlines | While a fallback can answer, the chosen model may stay silent 25 s in the figure, equation and paper explainers and 30 s in answers (then the fallback is asked, its own limit the usual 60 s); without one, 60 s as before. No same-model busy retry before a fallback (it is asked at once) |
+| Switch | `CHAT_FALLBACK` (infra `chat_fallback`, `on` for staging; absent = off): rollback without a deploy of code |
+| Model health | Migration 0161: per model over 24 h, calls answered vs failed (the reader leaving, balance refusals and our own losses apart) and p90 time to first output (recorded from now on as `first_data_ms`). Admin Health › Attention and the workflow check `models.health` (fails under 90 % with ≥ 10 calls; warns when p90 first output > 20 s) |
+| Your AI usage | A row names the model whose answer call succeeded (the fallback), its parts list both calls |
+| Not changed (owner decisions, measured in CHAT.md) | Gemini's pinned Vertex **US** endpoint (alternatives: `google-vertex/global`, ZDR, 88.5 % uptime, 9 % cheaper; `google-vertex/global/priority`, ZDR, 99.9 %, 1.64× the US price; both outside the US), the figures and chat defaults (Gemini Flash), and whether an attempt that never sent a byte and has no OpenRouter record may be settled at zero instead of waiting for manual reconciliation |
+
 ## Account-deletion sweep: listing fixed and watched (2026-10-25; agent decisions, reversible)
 
 From 2026-10-12 14:01 UTC (first on 2026-10-09 14:03) every listing of the worker's deletion sweep timed out at the

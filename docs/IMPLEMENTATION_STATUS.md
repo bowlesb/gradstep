@@ -1,5 +1,32 @@
 # Implementation status
 
+## AI provider reliability: fallback, model health, busy retry — 2026-10-25 UTC (local; nothing deployed)
+
+- **Owner report (TestFlight 92, 16:05 UTC):** a figure explainer on Gemini Flash failed twice: HTTP 429 from the pinned
+  Google Vertex US endpoint in 2 s, neither retried (OpenRouter names a generation even on a refusal; our retry needed
+  no id). In the week every model failure was Flash on that endpoint (OpenRouter: 80 % uptime over the day; Haiku on the
+  same endpoint 37/37), plus our expired key on 10-23 (fixed then). CHAT.md "A fallback when the chosen model fails
+  before writing" has the table, the probe and the before/after.
+- **Changes:** busy retry fixed (429/503/529 with a status, whatever the id; 503 exactly zero); OpenRouter's typed
+  causes logged as closed categories; a Flash answer that fails before writing is asked once of Claude Haiku 5.5 on the
+  same pinned endpoint and terms, within the same hold, labelled (`done.model`, `status switching`), the reader paying
+  only the attempt that answered (`CHAT_FALLBACK`, infra `chat_fallback: on`); first-data deadlines 25 s (explainers) and
+  30 s (answers) while a fallback can answer; migration 0161 (`first_data_ms`, `model_health`, Health › Attention,
+  `worker_model_health`, Your AI usage names the answering model); workflow check `models.health`; the reconciler (and the
+  stopped-answer read) accept OpenRouter's fully dated DeepSeek model name (a 48,750 µ$ liability stuck since 10-22).
+- **Probe:** $0.367654 spent (at most $0.515881 with one silent attempt's held ceiling) of $1.00: Flash 9/10 walkthroughs
+  (one silent 60 s), 4/4 answers; Haiku 10/10 and 4/4, walkthrough summary 2.6–3.0 s vs Flash 3.8–18.9 s; direct endpoint
+  timings for the owner's routing decision.
+- **To deploy, in order:** back up; apply **0161 first** (the new attempt unit is refused by the old validator); then
+  `python3 scripts/deploy-staging.py staging --functions chat recommend` (sets `CHAT_FALLBACK=on` from infra; `recommend`
+  bundles the spending module); the Cloud Run worker (`scripts/deploy-pipeline-worker.py`) for the reconciler fix before
+  2026-10-26 04:27 UTC, when the DeepSeek attempt's last automatic try is due; the admin site (`node scripts/deploy-web.mjs
+  admin`); the browser for the switching line; a rebuilt workflow-checks image (`scripts/refresh-workflow-job-image.py`).
+  Then `node scripts/workflow-checks.mjs --only=models.health,config.function-secrets`; watch `chat_fallback` log lines.
+  The apps' Core switching line ships with the next TestFlight; TestFlight 92 already labels the answering model.
+- **Checks:** `npm test`; database `--model-health-only` (and 0161 in the full phase) on PostgreSQL 17 + pgvector;
+  `swift test` (ScienceReaderCore). No Simulator, device or paid check of the fallback itself.
+
 ## Account-deletion sweep listing — 2026-10-25 UTC (local; nothing deployed)
 
 - **Found (staging, read-only):** the worker's `worker_account_deletions_pending` call has failed every minute since

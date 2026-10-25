@@ -40,6 +40,9 @@ const geminiMode = Deno.env.get('CHAT_GEMINI') ?? 'off';
 const geminiAccepted = !!openrouterKey && ['on', 'hidden'].includes(geminiMode);
 // OpenRouter is the only inference provider (owner, 2026-10-18 and 2026-10-21): every model below is sent through it.
 const geminiPublished = geminiAccepted && geminiMode === 'on';
+// An answer whose model fails before writing anything is asked once of its fallback, labelled as the model that wrote it
+// (chat-fallback.ts; CHAT.md "A fallback when the chosen model fails before writing"). Off unless the deploy says `on`.
+const fallbackOn = Deno.env.get('CHAT_FALLBACK') === 'on';
 const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthorized: 3600_000, rate_limited: 60_000, unavailable: 120_000, rejected: 0 };
 
 // Streams one metered answer as text/event-stream. Authentication, origin and
@@ -118,6 +121,7 @@ Deno.serve(async request => {
     generate: router ? retryOnceWhenBusy(admittedModelCalls(spending, router), { log }) : null,
     deepseek: deepseekAccepted,
     gemini: geminiAccepted,
+    fallback: fallbackOn,
     // A4: refused as model_unavailable before any hold when the card lapses within the answer's time.
     modelAvailable: async model => tariffOpen(tariffValidity(await providerPolicy), model, ACCEPT_MARGIN_MS),
     sha256Hex: sha256,

@@ -114,8 +114,10 @@ export function admittedModelCalls(deps: SpendingDependencies,
     const cost = Math.ceil(priceAttempts(outcome.attempts));
     const state: State = !outcome.exact ? 'unknown' : outcome.attempts.length ? 'succeeded' : 'rejected';
     // The receipt (still being written, C6) and the finish run together; the receipt never decides the outcome.
+    // How soon the model's first output came (migration 0161: the model health signal's p90, Health and `models.health`).
+    const firstData: Units = Number.isSafeInteger(outcome.firstDataMs) && outcome.firstDataMs! >= 0 ? { first_data_ms: Math.min(outcome.firstDataMs!, 3_600_000) } : {};
     const [recorded] = await Promise.all([finish(deps, attempt.id, state, outcome.requestID ?? outcome.messageID, state === 'unknown' ? null : cost,
-      { ...units, web_searches: 0, attempts: outcome.attempts.length }, outcome.failure), outcome.receipt ?? Promise.resolve(true)]);
+      { ...units, web_searches: 0, attempts: outcome.attempts.length, ...firstData }, outcome.failure), outcome.receipt ?? Promise.resolve(true)]);
     // Stop here when the exact result could not be recorded, instead of sending
     // another round under headroom the database cannot know is available.
     return recorded ? outcome : { ...outcome, status: 'failed', failure: 'provider_error', exact: false, cause: 'server' };

@@ -1,5 +1,17 @@
 # Infrastructure, spending, and recovery
 
+## The answer fallback and the forecast — 2026-10-25 (local, not deployed)
+
+A Gemini Flash answer that fails before writing anything is asked once of Claude Haiku 5.5 inside the same hold
+([CHAT.md](CHAT.md#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed)). It adds no fixed cost; the answer's hold covers the larger of the two models' ceilings
+(larger only past about 88 KB of paper text, by 7–16 % of that part, released at settlement). It replaces a failed Flash answer
+($0.008–0.016 on the probe's paper) with a Haiku one ($0.0015–0.012). At the week's rate (about 6 % of Flash calls
+failing before output) and this month's Flash volume on staging (127 attempts, $1.04), the fallbacks cost under $0.10 a
+month; the forecast and the $100/month budget are unchanged. A silent first attempt keeps its ceiling as an unresolved
+liability until the reconciler settles it (those seen so far have no OpenRouter record). The 2026-10-25 reliability probe
+spent $0.367654 (at most $0.515881 with the silent attempt's held ceiling) of a $1.00 allowance, inside the staging
+provider budget.
+
 ## Your AI usage — 2026-10-22
 
 Owner: "a way to see a table of my recent AI token spend for all the different activities to give users insight into

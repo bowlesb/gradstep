@@ -157,6 +157,19 @@ import Testing
         #expect(ChatProgress(kind: .thinking, query: "x").query == nil)
     }
 
+    /// Servers from 2026-10-25: the chosen model failed before writing and the answer goes to its fallback, named by its
+    /// client identity (the `done.model` the answer will be labelled with); an unusable identity is left out, never fatal.
+    @Test func parserReadsTheSwitchToTheFallbackModel() throws {
+        var parser = ChatSSEParser()
+        let events = try parser.consume(Array(("event: status\ndata: {\"kind\":\"switching\",\"model\":\"claude-haiku-5-5\"}\n\n"
+            + "event: status\ndata: {\"kind\":\"switching\",\"model\":\"<b>x</b>\"}\n\nevent: delta\ndata: {\"text\":\"A\"}\n\n").utf8))
+        #expect(events == [.status(ChatProgress(kind: .switching, query: "Claude Haiku 5.5")), .status(ChatProgress(kind: .switching)), .delta("A")])
+        #expect(ChatProgress(kind: .switching, query: "Claude Haiku 5.5").text == "Switching to Claude Haiku 5.5…")
+        #expect(ChatProgress(kind: .switching).text == "Switching to another model…")
+        // The answer's line names the model that wrote it when it is not the chosen one (the existing label).
+        #expect(ChatProfileText.answeredBy(model: "claude-haiku-5-5", profile: "gemini-low-standard") == "Gemini Flash · Standard · by Claude Haiku 5.5")
+    }
+
     @Test func parserRejectsMalformedAndOversizedInput() throws {
         var malformed = ChatSSEParser()
         #expect(throws: ChatStreamError.malformed) { try malformed.consume(Array("event: delta\ndata: {\"txt\":1}\n\n".utf8)) }

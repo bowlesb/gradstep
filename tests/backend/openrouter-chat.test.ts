@@ -129,11 +129,12 @@ test('provider rejection diagnostics expose only a closed category, never echoed
 });
 
 test('pre-inference refusals cost zero, 5xx is uncertain, and a lapsed card (admission) makes no request', async () => {
-  for (const status of [402, 429, 503]) {
+  // 2026-10-25: OpenRouter's 503 is "no available provider meets your routing requirements": nothing ran, exactly zero.
+  for (const status of [402, 429, 503, 502]) {
     const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => new Response('', { status, headers: { 'retry-after': '2' } }) });
     const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
     assert.equal(outcome.failure, status === 402 ? 'provider_billing' : 'provider_error');
-    assert.equal(outcome.exact, status !== 503); assert.equal(outcome.retryAfterMs, 2000);
+    assert.equal(outcome.exact, status !== 502); assert.equal(outcome.retryAfterMs, 2000);
   }
   // A4: admission refuses a lapsed card (app_private.openrouter_tariffs) before the adapter runs: the model is unavailable.
   const refused = admittedModelCalls({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),

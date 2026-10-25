@@ -20,6 +20,7 @@ import { PAPER_EXPLAINER_INSTRUCTIONS, paperExplainer, paperExplainerJSON, paper
   type PaperExplainer, type PaperExplainerItem, type PaperExplainerKind, type PaperExplainerStreamItem } from './chat-paper-explainer.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { freeModel, switchRefusal, type AiSwitches } from './ai-switches.ts';
+import { FALLBACK_FIRST_DATA_MS, FALLBACK_MODELS, fallbackEligible, fallbackParams } from './chat-fallback.ts';
 export type { AiSwitches } from './ai-switches.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
@@ -605,6 +606,10 @@ export interface ChatDependencies {
   /** DeepSeek may answer (CHAT_DEEPSEEK on or hidden, with a key). Off, a DeepSeek choice is `invalid_request`. */
   deepseek?: boolean;
   gemini?: boolean;
+  /** An answer whose model fails before writing anything is asked once of its fallback (chat-fallback.ts; CHAT_FALLBACK=on). */
+  fallback?: boolean;
+  /** How long the chosen model may stay silent while a fallback can still answer (tests shorten FALLBACK_FIRST_DATA_MS). */
+  fallbackFirstDataMs?: { view: number; answer: number };
   /** Whether an admitted model's reviewed price card stays valid for this answer (A4, migration 0101: the chat function
    * reads app_private.openrouter_tariffs). Absent: every model is open and admission alone decides. */
   modelAvailable?: (apiModel: string) => Promise<boolean>;
@@ -819,6 +824,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (explainerOnly && profile.model === 'gemini' && profile.effort === 'low') params.output_config = { ...params.output_config, effort: 'minimal' };
   // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
   const hold = holdForParams(params);
+  // The answer's fallback (chat-fallback.ts): only where the owner's switches, free credits and the price cards allow it
+  // exactly as they allow the chosen model. The answer's part of the hold covers whichever of the two would cost more to
+  // write it (Haiku's ceiling passes Flash's only on long papers, through its long-prompt tier), so after a refusal that
+  // cost nothing the fallback always fits; after a silent model's unresolved ceiling, only when the hold has other room
+  // (the search allowance). The database decides when it is sent; the reader is charged for the attempt that answered.
+  const fallbackModel = deps.fallback === true && !repair ? FALLBACK_MODELS[params.model] ?? null : null;
+  const fallbackRequest = fallbackModel && !switchRefusal(switches, request.action, fallbackModel)
+    && (!switches || freeModel(switches, fallbackModel) === freeModel(switches, params.model))
+    && (!deps.modelAvailable || await deps.modelAvailable(fallbackModel)) ? fallbackParams(params, fallbackModel) : null;
+  if (fallbackRequest) hold.microusd = Math.max(hold.microusd, holdForParams(fallbackRequest).microusd);
   if (searchOffered) {
     // Each search's round and results (inference.ts webSearchHoldMicrousd).
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);
@@ -945,6 +960,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   };
   if (symbolStream && !signal.aborted) emit({ event: 'equation_progress', data: { stage: 'reading' } });
+  // Said to the reader (and the device's label) by the client identity `done.model` will carry.
+  const fallback: FallbackPlan | null = fallbackRequest ? { params: fallbackRequest,
+    firstDataMs: (deps.fallbackFirstDataMs ?? FALLBACK_FIRST_DATA_MS)[isViewAction(request.action) ? 'view' : 'answer'],
+    onSwitch: () => status({ kind: 'switching', model: clientModel(fallbackModel!) }), report: null } : null;
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
@@ -958,7 +977,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       // The model's own progress (`waiting` while nothing has come back, then `thinking`: openrouter-chat.ts) is said under
       // an answer; the equation, figure and explainer views show their own progress instead.
       onStatus: heldBack ? next => { if (next.kind !== 'waiting' && next.kind !== 'thinking') status(next); } : status,
-    }, { tavily, cap: searchCap }, stats);
+    }, { tavily, cap: searchCap }, stats, fallback);
     leftDuringAnswer = signal.aborted;
     answerMs = now() - generationStarted;
     // A held-back possible tag start that turned out to be words is shown now, before anything else.
@@ -1075,6 +1094,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // Counts only (never text): whether answers search the web, per selection action.
   if (outcome.rejectionReason) deps.log({ event: 'chat_provider_rejected', operation_id: request.operationID,
     provider: profile.provider, status: outcome.httpStatus ?? null, reason: outcome.rejectionReason });
+  // The chosen model's failure that sent the answer to its fallback, and what came of it (closed categories and codes).
+  if (fallback?.report) deps.log({ event: 'chat_fallback', operation_id: request.operationID, action: request.action ?? 'none',
+    from: clientModel(params.model), to: clientModel(fallback.params.model), ...fallback.report });
   deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending,
     charged: reported.charged, credits: reported.credits, ...(settledAs === 'settled' ? {} : { settlement: settledAs }),
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : 'none',
@@ -1085,6 +1107,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // Time to the first words and to the end of the answer (ms from sending; CHAT.md "Gemini Flash's effort"), and whether the
     // model never answered at all (`no_response`: nothing came back within FIRST_DATA_DEADLINE_MS).
     first_text_ms: firstTextMs, answer_ms: answerMs, ...(answer.stalled ? { no_response: true } : {}),
+    ...(answer.streamError ? { provider_error_type: answer.streamError } : {}),
+    // Who wrote the answer when it is not the chosen model (its fallback answered: chat-fallback.ts).
+    ...(fallback?.report ? { fallback: fallback.report.result, served_model: clientModel(answer.model ?? params.model) } : {}),
     // Whether a title was written (never the title itself), and how many follow-ups were suggested (never their text).
     title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed',
     ...(followUpHold ? { follow_ups: !suggested ? 'skipped' : suggested.questions ? 'written' : suggested.outcome.status === 'complete' ? 'unusable' : 'failed',
@@ -1288,6 +1313,9 @@ export function chatQuote(profile: ChatProfile, params: ModelRequest, inputToken
     ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }) };
 }
 
+/** The stable client identity of an OpenRouter model (`anthropic/claude-haiku-5.5` → `claude-haiku-5-5`), as `done.model`. */
+const clientModel = (model: string) => clientDeepSeekModel(clientClaudeModel(model));
+
 /** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
 function answeringModel(outcome: ProviderOutcome): string | null {
   const served = outcome.model ?? outcome.attempts.at(-1)?.model ?? null;
@@ -1330,6 +1358,16 @@ async function writeTitle(generate: NonNullable<ChatDependencies['generate']>, p
 }
 
 export interface SearchStats { tavily: number; credits: number; failures: number }
+/** An answer's fallback (chat-fallback.ts): its request, how long the chosen model may stay silent first, what the reader is
+ * told, and (filled in) why the chosen model failed and what came of asking the fallback. */
+export interface FallbackPlan {
+  params: ModelRequest; firstDataMs: number; onSwitch: () => void;
+  report: { cause: string; status: number | null; result: 'answered' | 'failed' | 'not_sent' } | null;
+}
+/** The chosen model's failure as a closed category for the log (never the provider's text). */
+function failureCause(outcome: ProviderOutcome): string {
+  return outcome.stalled ? 'no_response' : outcome.rejectionReason ?? outcome.streamError ?? (typeof outcome.httpStatus === 'number' ? `http_${outcome.httpStatus}` : 'stream');
+}
 /** Smallest output allowance worth another round after searches. */
 const MIN_ROUND_TOKENS = 1_024;
 
@@ -1342,19 +1380,25 @@ const MIN_ROUND_TOKENS = 1_024;
  */
 async function generateAnswer(deps: ChatDependencies, generate: NonNullable<ChatDependencies['generate']>, operationID: string,
   params: ModelRequest, options: StreamOptions,
-  search: { tavily: boolean; cap: number }, stats: SearchStats): Promise<ProviderOutcome> {
+  search: { tavily: boolean; cap: number }, stats: SearchStats, fallback: FallbackPlan | null = null): Promise<ProviderOutcome> {
   const attempts: ProviderAttempt[] = [], calls: NonNullable<ProviderOutcome['toolCalls']> = [];
   // Pages each Tavily search returned (in rank order): the source list when the answer writes none.
   const searched: { url: string; title: string | null }[][] = [];
   const extra: MessageParam[] = [];
   let tavily = search.tavily, searches = 0, exact = true;
   let firstID: string | null = null, wrote = false, separate = false;
+  // The request of this answer's rounds: the chosen model's, or (once it failed before writing) its fallback's.
+  let current = params, primary: ProviderOutcome | null = null;
   for (let round = 0; ; round++) {
-    const used = attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
+    // The output a round may still use: the chosen model's failed first round wrote nothing.
+    const used = attempts.reduce((sum, attempt) => sum + (attempt.estimated ? 0 : attempt.usage.output), 0);
     let opening = true, outcome: ProviderOutcome;
+    // The chosen model's first round, while a fallback can still answer: a shorter first-data deadline, and no same-model
+    // retry of a busy refusal (the fallback is asked at once instead).
+    const first = round === 0 && fallback !== null && primary === null;
     try {
-      outcome = await generate({ ...params, messages: [...params.messages, ...marked(extra)],
-        max_tokens: params.max_tokens - used }, { ...options, onText: text => {
+      outcome = await generate({ ...current, messages: [...current.messages, ...marked(extra)],
+        max_tokens: current.max_tokens - used }, { ...options, ...(first ? { firstDataMs: fallback!.firstDataMs, busyRetry: false } : {}), onText: text => {
         // A round after searches starts a new paragraph.
         if (opening && text) { if (separate && !/^\s/.test(text)) text = `\n\n${text}`; opening = false; }
         if (text.trim()) wrote = true;
@@ -1368,13 +1412,27 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
     }
     firstID ??= outcome.messageID;
     attempts.push(...outcome.attempts); exact &&= outcome.exact;
+    // The chosen model failed before anything of its answer reached us: ask the fallback, once, as this answer's first round.
+    if (first && !wrote && fallbackEligible(outcome) && !options.signal.aborted) {
+      fallback!.report = { cause: failureCause(outcome), status: typeof outcome.httpStatus === 'number' ? outcome.httpStatus : null, result: 'failed' };
+      fallback!.onSwitch();
+      primary = outcome; current = fallback!.params; firstID = null; round--;
+      continue;
+    }
+    // The fallback could not be sent (its ceiling did not fit the hold, or our server could not admit it): the reader hears
+    // the chosen model's failure, exactly as without a fallback.
+    if (primary && round === 0 && outcome.status === 'failed' && outcome.cause && !outcome.attempts.length) {
+      fallback!.report!.result = 'not_sent';
+      return { ...primary, attempts, exact };
+    }
+    if (primary && round === 0 && outcome.status === 'complete') fallback!.report!.result = 'answered';
     const finish = (): ProviderOutcome => {
       const all = [...calls, ...(outcome.stopReason === 'tool_use' ? outcome.toolCalls ?? [] : [])].filter(call => call.name !== SEARCH_WEB_TOOL.name);
       const { toolCalls: _calls, sources: _sources, ...last } = outcome;
       return { ...last, messageID: firstID ?? outcome.messageID, attempts, exact, ...(all.length ? { toolCalls: all } : {}),
         ...(searched.length ? { sources: searchedPages(searched) } : {}) };
     };
-    const left = params.max_tokens - attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
+    const left = current.max_tokens - attempts.reduce((sum, attempt) => sum + (attempt.estimated ? 0 : attempt.usage.output), 0);
     const continuation = outcome.stopReason === 'tool_use' && outcome.toolCalls?.some(call => call.name === SEARCH_WEB_TOOL.name);
     if (outcome.status !== 'complete' || !outcome.content || options.signal.aborted || round >= search.cap || left < MIN_ROUND_TOKENS) {
       // A turn that wanted another round past our round or output bound ends at our limit.

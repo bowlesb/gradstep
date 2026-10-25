@@ -300,6 +300,9 @@ export function promptCharacters(params: ModelRequest): number {
 
 /** `provider_billing`: OpenRouter refused for the organization's balance (HTTP 402); counted for Health › Attention. */
 export type ProviderFailure = 'aborted' | 'provider_error' | 'provider_rejected' | 'provider_billing';
+/** Why a provider refused or broke off a request, as our own closed category (logged; never the provider's text). */
+export type ProviderErrorKind = 'privacy_zdr' | 'privacy_policy' | 'route_unavailable' | 'authentication' | 'balance' | 'request_parameters'
+  | 'tariff_expired' | 'rate_limited' | 'overloaded' | 'provider_unavailable' | 'timeout' | 'unknown';
 export interface ProviderOutcome {
   /** complete: the provider returned a final message (including a refusal). */
   status: 'complete' | 'failed';
@@ -307,8 +310,11 @@ export interface ProviderOutcome {
   messageID: string | null;
   /** The HTTP status of a provider error response (429, 529…), and its Retry-After: what a retry or the reader waits. */
   httpStatus?: number | null;
-  /** Fixed diagnostic category only; never the provider's raw error text or submitted content. */
-  rejectionReason?: 'privacy_zdr' | 'privacy_policy' | 'route_unavailable' | 'authentication' | 'balance' | 'request_parameters' | 'tariff_expired' | 'unknown';
+  /** Fixed diagnostic category only; never the provider's raw error text or submitted content. Since 2026-10-25 also
+   * OpenRouter's own typed causes (its `error.metadata.error_type`, mapped to our closed set): `rate_limited` (429, or
+   * `rate_limit_exceeded`), `overloaded` (503/529, `provider_overloaded`), `provider_unavailable` (502, the endpoint down)
+   * and `timeout` (408/504). */
+  rejectionReason?: ProviderErrorKind;
   retryAfterMs?: number | null;
   /** Provider transport request ID (OpenRouter's generation id) for support/reconciliation; never content. */
   requestID?: string | null;
@@ -333,13 +339,23 @@ export interface ProviderOutcome {
   /** Nothing at all came back from the model within the first-data deadline, so the request was abandoned (a provider
    * failure: openrouter-chat.ts FIRST_DATA_DEADLINE_MS). */
   stalled?: boolean;
+  /** A failed request from which nothing at all of the model's reached us: no text, reasoning, tool call or finish (refused
+   * before it started, a stall, or a stream broken before its first output). Only then may an answer be asked again of a
+   * fallback model (chat-fallback.ts): the reader has seen nothing that a second model's answer would contradict. */
+  noOutput?: boolean;
+  /** A stream that broke with OpenRouter's own error event: its closed category (2026-10-25; logged, never the text). */
+  streamError?: ProviderErrorKind;
+  /** Milliseconds from sending to the model's first output (text, reasoning, tool call or finish); absent when none came. */
+  firstDataMs?: number;
 }
 
 /** Server work during an answer, relayed to the reader's device as an SSE `status` event.
  * `query` (searching only) goes to that device alone; it is never logged. Since 2026-10-25 also the model's own progress
  * before its first words (openrouter-chat.ts): `waiting` when nothing has come back from it for a while, then `thinking`
- * once it starts. Builds before them ignore unknown kinds. */
-export interface ChatStatus { kind: 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'waiting' | 'thinking'; query?: string }
+ * once it starts; and `switching` when the chosen model failed before writing anything and the answer is asked of its
+ * fallback (chat-fallback.ts), `model` naming the fallback as `done.model` will (`claude-haiku-5-5`). Builds before them
+ * ignore unknown kinds. */
+export interface ChatStatus { kind: 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'waiting' | 'thinking' | 'switching'; query?: string; model?: string }
 export const STATUS_QUERY_CHARS = 200;
 /** A search query for a status line: control characters removed, whitespace collapsed, bounded. */
 export function statusQuery(value: unknown): string | undefined {
@@ -366,22 +382,32 @@ export interface StreamOptions {
   /** Estimated input tokens, charged at the uncached rate when billing is uncertain. */
   inputEstimateTokens: number;
   now?: () => number;
+  /** This request's own first-data deadline (ms), instead of the adapter's (openrouter-chat.ts): an answer with a fallback
+   * gives up on a silent model sooner (chat-fallback.ts FALLBACK_FIRST_DATA_MS). */
+  firstDataMs?: number;
+  /** False: no same-model retry of a busy refusal (retryOnceWhenBusy); the caller asks its fallback model at once instead. */
+  busyRetry?: boolean;
 }
 
 /** The longest wait worth a retry inside one answer; a longer Retry-After (or a breaker's cool-off) goes to the reader. */
 export const BUSY_RETRY_MAX_MS = 5_000;
-/** One more try when the provider refused the request before starting it, as busy (429) or overloaded (529): after its
- * Retry-After (or 1–3 s), at most 5 s, never after the first token. The refused try started nothing: it admitted and
- * settled its own grant (zero for a 429; a 529's kept as a liability by the platform), and the reader is charged only
- * for the answer that runs, as for any answer. Resilience (docs/architecture/RESILIENCE.md, fix 7). */
-export function retryOnceWhenBusy<O extends { signal: AbortSignal }>(
+/** One more try when the provider refused the request before starting it, as busy (429) or overloaded (503, 529): after
+ * its Retry-After (or 1–3 s), at most 5 s, never after the first token. The refused try started nothing: it admitted and
+ * settled its own grant (zero for a 429 or 503; a 529's kept as a liability by the platform), and the reader is charged
+ * only for the answer that runs, as for any answer. Resilience (docs/architecture/RESILIENCE.md, fix 7).
+ *
+ * 2026-10-25: "before starting" is an HTTP refusal (`httpStatus`, which the adapter sets only for a response that was not
+ * a stream), not the absence of an id. OpenRouter names a generation (`x-generation-id`) even on a 429 it refuses, so the
+ * earlier `!messageID` test never let a single OpenRouter 429 be retried (TestFlight 92, 16:05 UTC: two figure explainers
+ * refused 429 by the pinned Vertex endpoint, neither retried). A caller with a fallback model passes `busyRetry: false`. */
+export function retryOnceWhenBusy<O extends { signal: AbortSignal; busyRetry?: boolean }>(
   generate: (params: ModelRequest, options: O) => Promise<ProviderOutcome>,
   deps: { sleep?: (ms: number) => Promise<void>; random?: () => number; log?: (entry: Record<string, string | number | boolean | null>) => void } = {}) {
   const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms))), random = deps.random ?? Math.random;
   return async (params: ModelRequest, options: O): Promise<ProviderOutcome> => {
     const first = await generate(params, options);
-    const busy = first.status === 'failed' && !first.messageID && (first.httpStatus === 429 || first.httpStatus === 529);
-    if (!busy || options.signal.aborted) return first;
+    const busy = first.status === 'failed' && typeof first.httpStatus === 'number' && [429, 503, 529].includes(first.httpStatus);
+    if (!busy || options.signal.aborted || options.busyRetry === false) return first;
     const wait = first.retryAfterMs ?? 1_000 + random() * 2_000;
     if (wait > BUSY_RETRY_MAX_MS) return first;
     deps.log?.({ event: 'provider_busy_retry', status: first.httpStatus ?? null, wait_ms: Math.round(wait) });

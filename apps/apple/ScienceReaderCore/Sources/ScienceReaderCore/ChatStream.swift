@@ -253,6 +253,9 @@ public struct ChatProgress: Equatable, Sendable {
         case searching, reading, findingPaper = "finding_paper", addingPaper = "adding_paper"
         /// The model hasn't sent anything back yet (servers from 2026-10-25, after 12 s), then it has started.
         case waiting, thinking
+        /// The chosen model failed before writing and the answer is asked of its fallback (servers from 2026-10-25; CHAT.md
+        /// "A fallback when the chosen model fails before writing"). `query` is that model's name ("Claude Haiku 5.5").
+        case switching
         /// The device's own: a diagram that didn't parse is being redrawn (never sent by the server).
         case fixingDiagram = "fixing_diagram"
         /// The device's own: the figure the model asked for is attached and the question asked again.
@@ -262,7 +265,8 @@ public struct ChatProgress: Equatable, Sendable {
     }
     public static let maximumQueryCharacters = 200
     public let kind: Kind
-    /// The search query, for `searching` only (the reader's own answer; never logged).
+    /// The search query, for `searching` only (the reader's own answer; never logged); the figure for `lookingAtFigure`;
+    /// the fallback model's name for `switching`.
     public let query: String?
 
     public init(kind: Kind, query: String? = nil) {
@@ -271,7 +275,7 @@ public struct ChatProgress: Equatable, Sendable {
             String(value.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : Character($0) })
                 .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         }
-        self.query = kind == .searching || kind == .lookingAtFigure ? cleaned.flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumQueryCharacters)) } : nil
+        self.query = kind == .searching || kind == .lookingAtFigure || kind == .switching ? cleaned.flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumQueryCharacters)) } : nil
     }
 
     /// One line under the streaming answer.
@@ -283,6 +287,7 @@ public struct ChatProgress: Equatable, Sendable {
         case .addingPaper: "Adding to your library…"
         case .waiting: "Still waiting for the model…"
         case .thinking: "Thinking…"
+        case .switching: query.map { "Switching to \($0)…" } ?? "Switching to another model…"
         case .fixingDiagram: "Fixing the diagram…"
         case .lookingAtFigure: query.map { "Looking at \($0)…" } ?? "Looking at the figure…"
         case .preparingPaper: "Preparing the paper on this device…"
@@ -420,9 +425,11 @@ public struct ChatSSEParser: Sendable {
             return .visual(title: visual.title, html: visual.html)
         case "status":
             // Informational only: an unknown kind or a malformed status is ignored, never fatal.
-            struct Status: Decodable { let kind: String; let query: String? }
+            struct Status: Decodable { let kind: String; let query: String?; let model: String? }
             guard let status = try? JSONDecoder().decode(Status.self, from: payload),
                   let kind = ChatProgress.Kind(rawValue: status.kind) else { return nil }
+            // `switching` names the fallback by its client identity (a `done.model` label), shown by its name.
+            if kind == .switching { return .status(ChatProgress(kind: kind, query: Self.label(status.model).map(ChatProfileText.modelName))) }
             return .status(ChatProgress(kind: kind, query: status.query))
         case "title":
             // A title that isn't usable is dropped; the answer is unaffected.

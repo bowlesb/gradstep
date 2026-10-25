@@ -47,6 +47,11 @@ test('A6: the run is bounded in time and survives a database refusal', async () 
 
 test('a dated slug and its undated name are the same model; anything else is a mismatch', () => {
   assert.ok(sameModel('deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-1017'), 'read back without the dispatch date');
+  // OpenRouter's actual record of the 2026-10-22 DeepSeek attempt (looked up 2026-10-25): the date written in full.
+  assert.ok(sameModel('deepseek/deepseek-v4.1-flash-20261017', 'deepseek/deepseek-v4.1-flash-1017'), 'the same date in full');
+  assert.ok(sameModel('deepseek/deepseek-v4-pro-20260813', 'deepseek/deepseek-v4-pro-0813'));
+  assert.ok(!sameModel('deepseek/deepseek-v4.1-flash-20261018', 'deepseek/deepseek-v4.1-flash-1017'), 'another date');
+  assert.ok(!sameModel('deepseek/deepseek-v4.1-pro-20261017', 'deepseek/deepseek-v4.1-flash-1017'), 'another model on the same date');
   assert.ok(sameModel('google/gemini-3.8-flash-20261017', 'google/gemini-3.8-flash'), 'a dated release of the slug');
   assert.ok(sameModel('anthropic/claude-sonnet-5.5', 'anthropic/claude-sonnet-5.5'));
   assert.ok(sameModel('google/gemini-3.8-flash-preview-0915', 'google/gemini-3.8-flash'), 'a longer release, as before');

@@ -287,6 +287,13 @@ reader (`429` with `Retry-After`, `403`).
 10. **Fault-injection switches, drill script and the must-stay-usable journeys** — M, ~1–2 days.
 11. **Last-good caches** (fix 10) — M.
 
+**2026-10-25 (fix 7 corrected; local, not deployed).** The busy retry required a refusal without a message id, but
+OpenRouter sends `x-generation-id` even with a 429 it refuses: no OpenRouter 429 had been retried (the owner's two figure
+explainers at 16:05 UTC). It now retries a refusal with an HTTP status (429, 503, 529) once, within 5 s. A Gemini Flash
+answer that fails before writing is asked of its fallback instead (no same-model retry first):
+[CHAT.md](CHAT.md#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed).
+Model health per model (migration 0161) complements the per-host telemetry below: [ADMIN_HEALTH.md](ADMIN_HEALTH.md).
+
 ## Server side as built
 
 Migration `202610150073_provider_resilience.sql`; tests `tests/database/provider_resilience.sql`,
