@@ -465,7 +465,8 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(model.chatInput, "About “A. Chowdhery, S. Narang, and J. Devlin. PaLM: Scaling language modeling with pathways. "
                        + "arXiv:2204.02311, 2022.”: Compare with PPO.")
         XCTAssertEqual(model.chatComposerID, composer, "The empty chat and its unsent words are kept")
-        XCTAssertTrue(model.takeComposerFocusRequest(), "The message box takes the focus, once")
+        // Opened from the paper, the keyboard waits for a tap (owner, TestFlight 91) except on the Mac.
+        XCTAssertEqual(model.takeComposerFocusRequest(), Platform.isMac, "The message box takes the focus only on the Mac")
         XCTAssertFalse(model.takeComposerFocusRequest())
         try await Task.sleep(for: .milliseconds(200))
         XCTAssertTrue(transport.requests.isEmpty, "Nothing is sent")
