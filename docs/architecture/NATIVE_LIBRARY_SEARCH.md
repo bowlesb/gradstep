@@ -37,6 +37,37 @@ the title, secondary, the matched words primary and semibold; the table's title 
 metadata show nothing new. Opening a row with a snippet opens the paper as before and then Find in paper with the first
 highlighted words (the existing `__scienceReaderFind`), the keyboard left down.
 
+**Match strength** (owner session, TestFlight 91; DECISIONS.md "Search results say how they matched"). Every result
+row with a query has a `SearchResultMatch` (ScienceReaderCore `FullText/SearchMatch.swift`):
+- `SearchMatch`: per query clause, the strongest field it was found in (`SearchMatchField`: ID, title, abstract,
+  authors, tags, notes, full text, in the ranking's order) or nil. Its label is the share of clauses found, rounded,
+  then the distinct fields strongest first: "100% · title", "67% · title, abstract". VoiceOver: "Matches 2 of 3 search
+  words, in the title and the abstract". In the Library every result has 100% (all clauses are required); the field
+  is the information.
+- Library: `FullTextHit.fieldClauses` records, per field, the clauses with a non-zero frequency there (set in the
+  scoring loop, no extra pass); `strongestField(clause:)` reads it. A clause matched only by the metadata substring
+  rule takes the kind of the strongest candidate field containing it (`LibrarySearchCandidate.fieldKinds`: paper
+  title, authors, abstract, source reference = ID, then keywords and tags; import ID, title, abstract, authors…).
+- Title highlights and the excerpt (first 100 rows, like snippets): `SearchHighlighter` finds the clauses in short
+  texts by the index's rules (same tokens, stemming, compounds, adjacent words for phrases, the typed word as a
+  prefix). The excerpt is whichever of the body snippet, an abstract excerpt and an authors excerpt shows the most
+  clauses the title doesn't (ties: abstract, authors, text); none when the title shows every clause. The body
+  snippet still drives Find in paper on opening. Rows after the first 100 show only the strength.
+- ML paper search (`ReaderModel.discoveryMatch`): `SearchHighlighter.evaluate` over the result's arXiv ID (an
+  "arXiv:"/version-insensitive identifier match), title, abstract and authors with `loose` endings (ing, ed, er, ly, e
+  on ASCII words longer than four letters), since arXiv stems words. Search by fields' names (`title:"…"`) and years
+  are left out of the measured words. arXiv and DataCite return no score, so nothing is calibrated.
+- Shown by `SearchMatchLine` (RootView.swift): footnote, secondary, the label then the excerpt, up to two lines; matched
+  words marked with Find in paper's yellow (rgba(250, 204, 21, .4)), primary and semibold in secondary text. The List
+  row and the table's title cell mark the title; an abstract excerpt replaces the List row's abstract. ML rows show
+  the label only and mark the title and abstract (folded: `excerpt` of 220 characters, from the start when the words
+  are near it). The ⓘ after the Library / ML paper search switch (`search.match.info`) explains the line.
+
+**Switching scope.** `ReaderModel.setSearchScope(external:)` (the switch's binding and the Mac's Search commands)
+carries the field's words to the other scope's query and searches them: the Library through `libraryQuery`'s
+observer, ML paper search at once unless the shown results answer those words (`discoveryResultsQuery`). Before, the
+switch set `searchExternal` alone and the field showed the other scope's own (usually empty) query.
+
 **Storage.** `FullTextIndexStore`, one actor per account, in `<account>/search-index/`:
 - `manifest.bin`: format and tokenizer version, segments, and per document its segment, slot, fingerprint and text file.
 - `seg-N.bin`: an immutable segment: documents with per-field position ranges, a sorted term dictionary, postings

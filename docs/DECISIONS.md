@@ -24,6 +24,21 @@ Last updated: 2026-10-24 UTC. Requirements below come from the current user conv
   then". The privacy-notice draft in INTEREST_INDEX.md §5 gains one sentence for it. Serving to `all` still waits for
   the owner's approval of that notice wording.
 
+## Search results say how they matched; the scope switch keeps the words (owner session TestFlight 91, iPad, 2026-10-24; agent decisions, reversible)
+
+Owner, searching the Library and ML papers: *"at bare minimum having the match percent would be good"*; *"it's very
+difficult for me to know what about it is matching… Is it the abstract? I don't know"*; *"I just switched, but the text
+disappeared… The text should be preserved."* Details: [NATIVE_LIBRARY_SEARCH](architecture/NATIVE_LIBRARY_SEARCH.md)
+"Match strength".
+
+| Decision | Choice |
+|---|---|
+| What the percentage is | The share of the query's words (a quoted phrase counts as one) the result contains, then the fields they were found in, each word at its strongest field, strongest first: "100% · title", "67% · title, abstract", "100% · full text". Never a similarity score. Library results contain every word (search is AND), so in the Library the field carries the strength. Fields: ID, title, abstract, authors, tags, notes, full text (the ranking's order). |
+| Library | From the index: each hit records, per field, which clauses matched there; a clause matched only by the metadata substring rule counts at that field's kind. Computed for every result; nothing new on disk. |
+| ML paper search | Measured on the device against the result's arXiv ID, title, abstract and authors, by the index's rules plus common English endings ("learned" for "learning", since arXiv stems words). Neither arXiv's API nor DataCite returns a score, so there is no calibrated similarity to show; this measures arXiv's choice, it doesn't rank. |
+| Presentation | One quiet line under the title (footnote, secondary): the strength, then for the Library one excerpt of where it matched outside the title (the paper's text, its abstract or authors, whichever shows the most words the title doesn't), up to two lines. Matched words are marked with Find in paper's yellow, in the title too. An abstract excerpt replaces the row's abstract. ML rows mark the title and the abstract (folded: the part around the words). One ⓘ after the Library / ML paper search switch explains it; no per-row ⓘ. |
+| Switching scope | The switch carries the field's words to the other scope and searches them there at once (ML paper search runs unless the shown results are already for those words). Each scope still has its own query underneath, so Find similar / a keyword's search still set ML paper search directly. |
+
 ## Library search over every paper's text: an encrypted on-device index (owner question 2026-10-24; agent decisions, reversible)
 
 Owner: *"is our search engine good enough, ie is it searching full text from all papers instantly?"* It wasn't: a
