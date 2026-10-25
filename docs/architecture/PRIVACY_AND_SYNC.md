@@ -121,6 +121,23 @@ previously kept only in memory for the session; they now persist with the other 
   rollback-detecting manifest. This is a separate file rather than a new store table so the journal format stays
   at 6.
 
+### The Feed's last page, kept on the device (2026-10-25)
+
+Owner decision (2026-10-25): "the Feed's last page is kept on the device across launches, so an offline cold start
+shows it rather than an empty Feed." Apple apps only; details in
+[PERSONALIZED_FEED.md](PERSONALIZED_FEED.md#the-last-page-kept-on-the-device-owner-2026-10-25-apple-apps-local-not-released).
+
+- **Where**: one file, `feed-pages.enc`, in the account's local folder beside `private-state.enc` and
+  `reading-activity.enc`, sealed the same way: AES-GCM under an HKDF-SHA256 subkey of the device-held local-store key
+  (salt = account ID, info `science-reader/local-feed/v1`), the account ID in the authenticated data, complete file
+  protection, excluded from backup. For you's list reflects the reader's interests, so it is treated as private data.
+- **Contents**: per Feed view the reader opened (For you, a topic chip, a category chip): the server's last non-empty
+  answer (at most 50 papers' public arXiv metadata and the "why" line), when it was fetched and when the view was last
+  opened. At most 16 views and 4 MB; a view not opened for 14 days is dropped. Nothing is sent anywhere.
+- **Writes** go through the same `ReaderLocalPersistence` owner (refused once retired). **Sign-out erases the file**
+  once the old writer has drained (unlike the account's other encrypted files, which ordinary sign-out keeps); account
+  deletion removes it with the folder. A missing or unreadable file starts empty and is replaced on the next save.
+
 ### Rotation with offline edits
 
 Before uploading, refresh the device envelope and pull all committed events. This resolves a successful upload whose acknowledgement was lost. A committed key rotation holds the same keyring lock as event append, so after the new epoch is visible, no new old-epoch event can commit later. Only after that catch-up may the client replace remaining old-epoch outbox events.

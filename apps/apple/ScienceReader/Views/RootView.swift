@@ -1031,6 +1031,10 @@ struct FeedView: View {
                             StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }
                                 .padding(.horizontal, DesignMetrics.margin).padding(.top, 6)
                         }
+                        if let offline = model.feedOfflineNote {
+                            FeedOfflineLine(text: offline).frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, DesignMetrics.margin).padding(.vertical, 6)
+                        }
                         FeedTable(model: model, issue: $issue, pick: pick, open: open).refreshable { model.loadFeed() }
                     } else {
                         // Turned upright with an article picked: its row centred and tinted, the tint fading (owner,
@@ -1046,6 +1050,7 @@ struct FeedView: View {
                             if let stale = model.feedStaleNote {
                                 StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }.listRowSeparator(.hidden)
                             }
+                            if let offline = model.feedOfflineNote { FeedOfflineLine(text: offline).listRowSeparator(.hidden) }
                             FeedColdStartNote(model: model)
                             // For you in sections by why each paper is suggested (owner, 2026-10-24: "having grouped lists in
                             // list view"); one kind of reason or none (a category) stays one plain list.

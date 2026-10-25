@@ -2110,6 +2110,8 @@ final class ReaderModel {
         if accountPreparationIssue != nil, accountPreparationTask == nil { Task { await self.retryAccountPreparation() } }
         if libraryIssue != nil { Task { if self.sessionID == scope { await self.refreshLibrary() } } }
         else { Task { if self.sessionID == scope { await self.libraryCommandCoordinator?.retry() } } }
+        // The Feed couldn't refresh offline: asked again now (free); its page stays on screen until the answer.
+        if feedFailedOffline, feedState != .idle { loadFeed() }
     }
 
     /// The connection, a busy or failing server: retried with back-off. Key, storage and protocol errors are not.
@@ -2340,9 +2342,11 @@ final class ReaderModel {
         localPaperDownloads = []
         let snapshot = await local.snapshot()
         let reading = await persistence.readingStore?.load() ?? []
+        let keptFeed = await persistence.feedPages?.load() ?? [:]
         guard workOwnership.owns(activation), accountID == device.accountID else { throw BackendError.signInRequired }
         try Task.checkCancellation()
         restoreReadingActivity(reading)
+        restoreKeptFeed(keptFeed)
         fullTextIndexer.attach(persistence.searchIndex)
         self.device = device
         self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local,
@@ -2537,6 +2541,8 @@ final class ReaderModel {
         discoveryTask?.cancel(); discoveryResults = []; discoveryState = .idle
         feedTask?.cancel(); feedResults = []; feedState = .idle; feedCategory = nil
         feedSelection = nil; feedShown = nil; feedPersonal = FeedPersonalization()
+        // The kept pages' file is erased once the old writer has drained (ReaderRetirementQueue).
+        feedKept = [:]; feedLoadedAt = nil; feedStaleNote = nil; feedOfflineNote = nil; feedFailedOffline = false
         generalChat = true
         email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
@@ -2789,6 +2795,18 @@ final class ReaderModel {
     /// said as of then, instead of "Feed unavailable" (RESILIENCE.md fix 10).
     private(set) var feedLoadedAt: Date?
     private(set) var feedStaleNote: String?
+    /// "Offline · from 2 hours ago": the page shown (kept from an earlier launch, or loaded earlier) couldn't be refreshed
+    /// because this device is offline. One quiet line, no banner (owner, 2026-10-25).
+    private(set) var feedOfflineNote: String?
+    /// The Feed's last page per view, kept on this device across launches (owner, 2026-10-25; FeedPages.swift): shown at
+    /// once when a view opens with nothing of it on screen, then refreshed as before. Cleared on sign-out.
+    @ObservationIgnored private var feedKept: [String: FeedKeptPage] = [:]
+    /// The last Feed request failed because the device is offline: the network's return asks again (free).
+    @ObservationIgnored private var feedFailedOffline = false
+    #if DEBUG
+    /// Unit tests: answers the Feed's requests in place of the server.
+    @ObservationIgnored var feedRequestOverride: (@MainActor (FeedSelection) async throws -> DiscoveryResponse)?
+    #endif
 
     /// The Feed's chip: the reader's pick while it can be shown, else For you, else the first category.
     var currentFeedSelection: FeedSelection {
@@ -2829,38 +2847,80 @@ final class ReaderModel {
         feedTask?.cancel(); feedGeneration += 1
         let generation = feedGeneration
         // Refreshing the page already shown keeps it on screen; anything else shows the spinner.
-        let refreshingShown = feedShown == selection && feedState == .loaded && !feedResults.isEmpty
+        let refreshingShown = feedShowing(selection)
         #if DEBUG && FIXTURE_HOST
         // `--feed-fixture-fault`: every refresh after the first fails, as an unavailable feed service would.
         if ProcessInfo.processInfo.arguments.contains("--feed-fixture-fault"), refreshingShown, let loaded = feedLoadedAt {
             feedStaleNote = "Couldn’t refresh. These are the papers from \(LastGood.phrase(loaded))."; return
         }
-        if let response = fixtureFeedResponse(selection) { showFeed(response, for: selection); return }
         #endif
-        guard let backend, let accountID else { feedState = .failed("Sign in to see new papers."); return }
-        if !refreshingShown { feedState = .loading }
+        // Nothing of this view on screen: its page kept on this device shows at once, then is refreshed (owner, 2026-10-25:
+        // an offline cold start shows the Feed's last page rather than an empty Feed).
+        if !refreshingShown { showKeptFeed(for: selection) }
+        #if DEBUG && FIXTURE_HOST
+        if let response = fixtureFeedResponse(selection) {
+            // `--network-offline`: the fixture's server can't be reached either.
+            if NetworkFaultFixture.isOffline { feedFailed(URLError(.notConnectedToInternet), for: selection) } else { showFeed(response, for: selection) }
+            return
+        }
+        #endif
+        var request: (@MainActor (FeedSelection) async throws -> DiscoveryResponse)?
+        if let backend, let accountID { request = { try await backend.feed($0, accountID: accountID) } }
+        #if DEBUG
+        if let feedRequestOverride { request = feedRequestOverride }
+        #endif
+        guard let request else { feedState = .failed("Sign in to see new papers."); return }
+        if !feedShowing(selection) { feedState = .loading }
         let scope = sessionID
         feedTask = Task {
             do {
-                let response = try await backend.feed(selection, accountID: accountID)
+                let response = try await request(selection)
                 guard self.sessionID == scope, self.feedGeneration == generation else { return }
                 self.showFeed(response, for: selection)
             } catch {
                 guard self.sessionID == scope, self.feedGeneration == generation, !(error is CancellationError) else { return }
                 if selection.isPersonal, case BackendError.rejected(let code) = error, code == "feed_unavailable" || code == "invalid_feed_topic" {
-                    // For you isn't offered (the category chips, as before), or that topic is gone (For you).
+                    // For you isn't offered (the category chips, as before), or that topic is gone (For you); their kept
+                    // pages go too.
                     if code == "feed_unavailable" { self.feedPersonal.note(nil, for: selection) }
+                    self.forgetKeptFeed { code == "feed_unavailable" ? !$0.hasPrefix("category:") : $0 == selection.storageKey }
                     self.feedSelection = nil
                     self.loadFeed()
                     return
                 }
-                if refreshingShown, let loaded = self.feedLoadedAt {
-                    self.feedStaleNote = "Couldn’t refresh. These are the papers from \(LastGood.phrase(loaded))."
-                    return
-                }
-                self.feedState = .failed("New papers aren’t available right now. Try again in a moment.")
+                self.feedFailed(error, for: selection)
             }
         }
+    }
+
+    /// This view's page is on screen.
+    private func feedShowing(_ selection: FeedSelection) -> Bool {
+        feedShown == selection && feedState == .loaded && !feedResults.isEmpty
+    }
+
+    /// A Feed request that failed: the page on screen for this view stays, said as of when it was fetched (offline, one
+    /// quiet line; otherwise RESILIENCE.md fix 10's line); with nothing to show, the Feed says why.
+    private func feedFailed(_ error: Error, for selection: FeedSelection) {
+        let offline = Self.feedFailureIsOffline(error, deviceOffline: Connectivity.shared.isOffline)
+        feedFailedOffline = offline
+        if feedShowing(selection), let loaded = feedLoadedAt {
+            feedOfflineNote = offline ? Self.feedOfflineLine(since: loaded) : nil
+            feedStaleNote = offline ? nil : "Couldn’t refresh. These are the papers from \(LastGood.phrase(loaded))."
+            return
+        }
+        feedState = .failed(offline ? ConnectionText.offline : "New papers aren’t available right now. Try again in a moment.")
+    }
+
+    /// The Feed's line for a page shown offline: "Offline · from 2 hours ago" (when the server returned it).
+    static func feedOfflineLine(since fetched: Date, now: Date = Date()) -> String { "Offline · from \(LastGood.ago(fetched, now: now))" }
+
+    /// No network path: said by the error itself, or a connection failure (an offline token refresh included) while
+    /// the device reports no network.
+    static func feedFailureIsOffline(_ error: Error, deviceOffline: Bool) -> Bool {
+        if ConnectionText.isOffline(error) { return true }
+        guard deviceOffline else { return false }
+        if case BackendError.transport = error { return true }
+        return ConnectionText.isConnection(error) || error as? AuthenticationError == .connection
     }
 
     /// Every Feed result this session has shown (For you, topics, categories), newest kept: what related papers can be
@@ -2887,11 +2947,63 @@ final class ReaderModel {
     }
 
     private func showFeed(_ response: DiscoveryResponse, for selection: FeedSelection) {
-        if feedKnown.count > 3_000 { feedKnown.removeAll() }
-        for result in response.results { feedKnown[result.sourceID] = result }
         feedPersonal.note(response.feed, for: selection)
-        feedResults = response.results; feedShown = selection; feedState = .loaded; feedAddedHere = []
-        feedLoadedAt = Date(); feedStaleNote = nil
+        let now = Date()
+        presentFeed(response.results, for: selection, fetchedAt: now)
+        feedFailedOffline = false
+        // Kept on this device as this view's last page (an empty answer keeps nothing).
+        let key = selection.storageKey
+        feedKept[key] = response.results.isEmpty ? nil
+            : FeedKeptPage(view: key, fetchedAt: now, openedAt: now, results: Array(response.results.prefix(FeedPageStore.maximumResults)))
+        saveKeptFeed()
+    }
+
+    private func presentFeed(_ results: [DiscoveryResult], for selection: FeedSelection, fetchedAt: Date) {
+        if feedKnown.count > 3_000 { feedKnown.removeAll() }
+        for result in results { feedKnown[result.sourceID] = result }
+        feedResults = results; feedShown = selection; feedState = .loaded; feedAddedHere = []
+        feedLoadedAt = fetchedAt; feedStaleNote = nil; feedOfflineNote = nil
+    }
+
+    /// Shows this view's page kept on the device, as of when the server returned it, and notes the view as opened.
+    @discardableResult
+    private func showKeptFeed(for selection: FeedSelection) -> Bool {
+        guard var kept = feedKept[selection.storageKey], !kept.results.isEmpty else { return false }
+        presentFeed(kept.results, for: selection, fetchedAt: kept.fetchedAt)
+        kept.openedAt = Date(); feedKept[selection.storageKey] = kept
+        saveKeptFeed()
+        return true
+    }
+
+    /// The account's kept pages, read when its store opens: a view already asked for (its request still out, or failed)
+    /// shows its kept page now, with the failure's line.
+    func restoreKeptFeed(_ pages: [String: FeedKeptPage]) {
+        // A page answered before the store opened couldn't be saved then: it is now (and wins over the older one).
+        let unsaved = !feedKept.isEmpty
+        feedKept = pages.merging(feedKept) { _, current in current }
+        if unsaved { saveKeptFeed() }
+        let selection = currentFeedSelection
+        var failed = false
+        if case .failed = feedState { failed = true }
+        guard feedState != .idle, !feedShowing(selection), showKeptFeed(for: selection) else { return }
+        if failed, let loaded = feedLoadedAt {
+            if feedFailedOffline { feedOfflineNote = Self.feedOfflineLine(since: loaded) }
+            else { feedStaleNote = "Couldn’t refresh. These are the papers from \(LastGood.phrase(loaded))." }
+        }
+    }
+
+    private func forgetKeptFeed(where matches: (String) -> Bool) {
+        let before = feedKept.count
+        feedKept = feedKept.filter { !matches($0.key) }
+        if feedKept.count != before { saveKeptFeed() }
+    }
+
+    /// Best effort, through the account's writer (drained before sign-out erases the file): a page that can't be kept
+    /// (a full disk, the store not open yet) only means a later offline start has less to show.
+    private func saveKeptFeed() {
+        let now = Date()
+        feedKept = feedKept.filter { now.timeIntervalSince($0.value.openedAt) < FeedPageStore.expiry }
+        _ = try? localPersistence.acceptFeedPagesWrite(feedKept)
     }
 
     /// arXiv identifiers already in the library or being added (an Add still waiting to sync included).
@@ -5932,6 +6044,7 @@ final class ReaderModel {
         let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
             accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
         restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
+        restoreKeptFeed(await localPersistence.feedPages?.load() ?? [:])
         fullTextIndexer.attach(localPersistence.searchIndex)
         // `--nothing-open`: the sample is in the library but no paper is open (Wide's Library placeholder).
         openSample(select: !ProcessInfo.processInfo.arguments.contains("--nothing-open"))
@@ -6227,6 +6340,9 @@ final class ReaderLocalPersistence {
     private(set) var readingStore: ReadingActivityStore?
     /// The library's full-text index, sealed under the same key (docs/architecture/NATIVE_LIBRARY_SEARCH.md).
     private(set) var searchIndex: FullTextIndexStore?
+    /// The Feed's last page per view, sealed beside the store under the same key (FeedPages.swift); erased when this
+    /// writer retires (sign-out).
+    private(set) var feedPages: FeedPageStore?
     private(set) var isActivating = false
     private(set) var isRetired = false
     private var accountID: UUID?
@@ -6262,6 +6378,20 @@ final class ReaderLocalPersistence {
         guard !isRetired, !isActivating, let readingStore else { throw ReaderError.storageUnavailable }
         return register { try await readingStore.save(entries) }
     }
+
+    /// The Feed's kept pages: the same fence, so a save never lands after sign-out has erased them. Saves land in the
+    /// order they were made (each waits for the one before), so an older page never overwrites a newer one.
+    func acceptFeedPagesWrite(_ pages: [String: FeedKeptPage]) throws -> Task<Void, Error> {
+        guard !isRetired, !isActivating, let feedPages else { throw ReaderError.storageUnavailable }
+        #if DEBUG && FIXTURE_HOST
+        if StorageFullFixture.isFull { throw StorageFullFixture.error }
+        #endif
+        let previous = feedPagesTail
+        let task = register { _ = await previous?.result; _ = try await feedPages.save(pages) }
+        feedPagesTail = task
+        return task
+    }
+    private var feedPagesTail: Task<Void, Error>?
 
     /// A source-only PDF install is a local write with the same retirement
     /// fence as encrypted chat and reading activity. Sign-out waits for an
@@ -6326,6 +6456,7 @@ final class ReaderLocalPersistence {
                                                           accountID: accountID, localKey: localKey)
             }
             if searchIndex == nil { searchIndex = await Self.openSearchIndex(url: url, accountID: accountID, localKey: localKey) }
+            if feedPages == nil { feedPages = try? FeedPageStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey) }
             try Task.checkCancellation()
             guard !isRetired else { throw CancellationError() }
             return store
@@ -6340,6 +6471,7 @@ final class ReaderLocalPersistence {
         modelReaderStore = try? DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-model-readers", isDirectory: true),
                                                   accountID: accountID, localKey: localKey)
         readingStore = try? ReadingActivityStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
+        feedPages = try? FeedPageStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
         searchIndex = await Self.openSearchIndex(url: url, accountID: accountID, localKey: localKey)
         return opened
     }
@@ -6400,6 +6532,8 @@ final class ReaderRetirementQueue {
                 await persistence.waitForActivation()
                 await persistence.waitForAcceptedWrites()
                 await persistence.searchIndex?.close()
+                // The Feed's kept pages leave with the account (sign-out); its other encrypted files stay, as before.
+                await persistence.feedPages?.erase()
             }
             if self?.pending?.id == id { self?.pending = nil }
         }

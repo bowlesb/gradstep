@@ -73,6 +73,35 @@ final class OfflineAndStorageJourneyTests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
     }
 
+    // MARK: Feed
+
+    /// The Feed's last page is kept on the device across launches (owner, 2026-10-25): with nothing kept, an offline
+    /// launch says so; once For you has loaded online, an offline cold start shows the same papers at once with one
+    /// quiet line, "Offline · from …", instead of an empty Feed.
+    func testAnOfflineLaunchShowsTheFeedsLastPage() {
+        let feed = ["--draft-fixture", "--feed-fixture", "--feed-for-you-fixture"]
+        var app = launch(feed + ["--reset-draft-fixture", "--network-offline"], waitFor: sample)
+        app.show("feed")
+        XCTAssertTrue(text(containing: "You’re offline.", in: app).waitForExistence(timeout: 10), "Nothing kept yet: offline says so")
+        app.terminate()
+
+        app = launch(feed, waitFor: sample)
+        app.show("feed")
+        XCTAssertTrue(text(containing: "Verifier-Guided GRPO", in: app).waitForExistence(timeout: 10), "For you loads online")
+        XCTAssertFalse(app.descendants(matching: .any)["feed.offline"].exists)
+        app.terminate()
+
+        app = launch(feed + ["--network-offline"], waitFor: sample)
+        app.show("feed")
+        XCTAssertTrue(text(containing: "Verifier-Guided GRPO", in: app).waitForExistence(timeout: 10), "The kept papers, offline")
+        let line = app.descendants(matching: .any)["feed.offline"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5), "One quiet line says so")
+        XCTAssertTrue(line.label.hasPrefix("Offline · from "), line.label)
+        XCTAssertFalse(app.staticTexts["Feed unavailable"].exists)
+        XCTAssertFalse(app.staticTexts["feed.stale"].exists, "No banner")
+        capture("feed-offline-launch-kept-page")
+    }
+
     // MARK: Chat
 
     private func ask(_ question: String, in app: XCUIApplication) {

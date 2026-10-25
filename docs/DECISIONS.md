@@ -60,7 +60,14 @@ Asked for "reasonable behavior" with no internet or a full disk ([review](review
   room; a store last closed by an earlier build opens exclusively, or read-only until space returns.
 - **Owner, 2026-10-25 ("I'll take your recommendations"):** an offline question is never answered automatically when
   the network returns (it would spend credits without a tap; Try again stays); and the Feed's last page is kept on the
-  device across launches, so an offline cold start shows it rather than an empty Feed.
+  device across launches, so an offline cold start shows it rather than an empty Feed. **Built 2026-10-25 (Apple
+  apps, branch, not released):** each Feed view's last answer, per account, sealed beside the encrypted store
+  (`feed-pages.enc`; 16 views, 4 MB, 14 days unopened), shown at once and refreshed as before; offline one quiet line
+  "Offline · from 2 hours ago"; erased at sign-out and with account deletion
+  ([PERSONALIZED_FEED.md](architecture/PERSONALIZED_FEED.md#the-last-page-kept-on-the-device-owner-2026-10-25-apple-apps-local-not-released)).
+  Agent choices, reversible: the kept page also shows at once when a chip is tapped online (the answer replaces it);
+  a Feed that failed offline asks again when the network returns (free); with nothing kept, offline says
+  "You’re offline…" instead of "New papers aren’t available right now".
 
 ## Interest index privacy notice approved; serving may go to all (owner, 2026-10-25)
 

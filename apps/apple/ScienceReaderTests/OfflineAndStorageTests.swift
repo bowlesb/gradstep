@@ -182,4 +182,143 @@ final class OfflineAndStorageTests: XCTestCase {
         XCTAssertEqual(faults[1].prefix, "arxiv.org/html")
     }
     #endif
+
+    // MARK: The Feed's last page, kept on the device (owner, 2026-10-25)
+
+    func testTheFeedSaysOfflineOnlyWhenItIs() {
+        XCTAssertTrue(ReaderModel.feedFailureIsOffline(URLError(.notConnectedToInternet), deviceOffline: false))
+        XCTAssertTrue(ReaderModel.feedFailureIsOffline(AuthenticationError.connection, deviceOffline: true),
+                      "an offline token refresh before the request")
+        XCTAssertFalse(ReaderModel.feedFailureIsOffline(URLError(.timedOut), deviceOffline: false), "a slow server isn't offline")
+        XCTAssertFalse(ReaderModel.feedFailureIsOffline(BackendError.rejected("rate_limited"), deviceOffline: true))
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        XCTAssertEqual(ReaderModel.feedOfflineLine(since: now.addingTimeInterval(-2 * 3_600), now: now), "Offline · from 2 hours ago")
+    }
+
+    #if targetEnvironment(simulator)
+    private func feedResponse(_ ids: [String]) throws -> DiscoveryResponse {
+        let rows: [[String: Any]] = ids.map {
+            ["source_id": $0, "revision": 1, "title": "Paper \($0)", "authors": ["Mei Lin"], "year": 2026, "categories": ["cs.LG"],
+             "abstract": "An abstract.", "reason": ["kind": "tag", "label": "RLHF", "text": "In your tag: RLHF"]]
+        }
+        return try JSONDecoder().decode(DiscoveryResponse.self, from: JSONSerialization.data(withJSONObject: ["feed": ["for_you": true], "results": rows]))
+    }
+
+    private func waitUntil(_ description: String, _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition() {
+            guard ContinuousClock.now < deadline else { return XCTFail("Timed out: \(description)") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    /// A launch of the synthetic account (its real encrypted folder), the Feed answered by `answer`.
+    private func launch(reset: Bool, client: BackendClient? = nil, answer: @escaping @MainActor (FeedSelection) async throws -> DiscoveryResponse) async throws -> ReaderModel {
+        let model = client.map { ReaderModel(configuration: BackendConfiguration(url: URL(string: "https://feed-kept.invalid")!, anonKey: "fixture",
+                                                                                   environment: "feed-kept"), client: $0) } ?? ReaderModel(configuration: nil)
+        try await model.configureDurableDraftFixture(reset: reset)
+        model.feedPersonal = FeedPersonalization(available: true)
+        model.feedRequestOverride = answer
+        return model
+    }
+
+    /// Launched online, For you is kept; relaunched offline, it shows at once and stays with "Offline · from …", never
+    /// "Feed unavailable"; relaunched online, the server's answer replaces it and becomes the kept page.
+    func testTheFeedsLastPageShowsOfflineAtLaunchAndAnOnlineLaunchReplacesIt() async throws {
+        defer { FeedPersonalization().save(to: .standard) }
+        var first: ReaderModel? = try await launch(reset: true) { _ in try self.feedResponse(["2610.07767", "2610.05030"]) }
+        first?.loadFeed()
+        try await waitUntil("For you loads") { first?.feedResults.count == 2 }
+        await first?.localPersistence.waitForAcceptedWrites()
+        first = nil
+
+        let offline = try await launch(reset: false) { _ in throw URLError(.notConnectedToInternet) }
+        offline.loadFeed()
+        XCTAssertEqual(offline.feedState, .loaded, "the kept page shows at once, before any answer")
+        XCTAssertEqual(offline.feedResults.map(\.sourceID), ["2610.07767", "2610.05030"])
+        XCTAssertEqual(offline.feedShown, .forYou)
+        try await waitUntil("the offline line") { offline.feedOfflineNote != nil }
+        XCTAssertEqual(offline.feedOfflineNote, "Offline · from a minute ago")
+        XCTAssertNil(offline.feedStaleNote, "one quiet line, no banner")
+        XCTAssertEqual(offline.feedState, .loaded, "never “Feed unavailable”")
+        XCTAssertEqual(offline.feedResults.count, 2)
+
+        let online = try await launch(reset: false) { _ in try self.feedResponse(["2610.09912"]) }
+        online.loadFeed()
+        XCTAssertEqual(online.feedResults.map(\.sourceID), ["2610.07767", "2610.05030"], "the kept page first")
+        try await waitUntil("the answer replaces it") { online.feedResults.map(\.sourceID) == ["2610.09912"] }
+        XCTAssertNil(online.feedOfflineNote); XCTAssertNil(online.feedStaleNote)
+        await online.localPersistence.waitForAcceptedWrites()
+        let kept = await online.localPersistence.feedPages?.load()
+        XCTAssertEqual(kept?["for_you"]?.results.map(\.sourceID), ["2610.09912"], "the newest answer is the kept page")
+    }
+
+    /// Each chip keeps its own page; library papers stay hidden; with nothing kept, offline says so (not a spinner).
+    func testEachViewKeepsItsPageAndLibraryPapersStayHidden() async throws {
+        defer { FeedPersonalization().save(to: .standard) }
+        var none: ReaderModel? = try await launch(reset: true) { _ in throw URLError(.notConnectedToInternet) }
+        none?.loadFeed()
+        try await waitUntil("offline with nothing kept") { none?.feedState != .loading }
+        XCTAssertEqual(none?.feedState, .failed(ConnectionText.offline))
+        await none?.localPersistence.waitForAcceptedWrites()
+        none = nil
+
+        let first = try await launch(reset: true) { selection in
+            try self.feedResponse(selection == .forYou ? ["2610.07767"] : ["2610.03543", "2610.06120"])
+        }
+        first.loadFeed()
+        try await waitUntil("For you") { first.feedResults.map(\.sourceID) == ["2610.07767"] }
+        first.selectFeed(.category("cs.CL"))
+        try await waitUntil("a category") { first.feedResults.count == 2 }
+        await first.localPersistence.waitForAcceptedWrites()
+
+        let offline = try await launch(reset: false) { _ in throw URLError(.notConnectedToInternet) }
+        offline.selectFeed(.category("cs.CL"))
+        XCTAssertEqual(offline.feedResults.map(\.sourceID), ["2610.03543", "2610.06120"])
+        offline.selectFeed(.forYou)
+        XCTAssertEqual(offline.feedResults.map(\.sourceID), ["2610.07767"], "For you's own page")
+        // A kept paper the reader has since added is hidden, as the Feed always hides library papers.
+        var added = Paper(id: UUID(), title: "Paper 2610.07767", authors: "Mei Lin", year: 2026, abstract: "", keywords: ["cs.LG"],
+                          fileURL: nil, artifactID: nil)
+        added.sourceID = "2610.07767"
+        offline.papers.append(added)
+        XCTAssertTrue(offline.shownFeedResults.isEmpty, "\(offline.shownFeedResults.map(\.sourceID))")
+    }
+
+    /// Sign-out erases the kept pages once the account's writer has drained; the account's other encrypted files stay
+    /// (ordinary sign-out). Deleting the account removes its folder, and the pages with it.
+    func testSignOutAndAccountDeletionEraseTheKeptPages() async throws {
+        defer { FeedPersonalization().save(to: .standard) }
+        let settings = URLSessionConfiguration.ephemeral
+        settings.protocolClasses = [BadNetworkProtocol.self]
+        BadNetworkProtocol.mode = .offline
+        let session = try ReaderCrypto.encode(AuthSession(access_token: "fixture-access", refresh_token: "fixture-refresh",
+            expires_at: Date().timeIntervalSince1970 + 3_600, user: .init(id: UUID(), email: nil)))
+        let client = try BackendClient(configuration: .init(url: URL(string: "https://feed-kept.invalid")!, anonKey: "fixture", environment: "feed-kept"),
+                                       network: URLSession(configuration: settings), credentials: StoredSession(session))
+        let model = try await launch(reset: true, client: client) { _ in try self.feedResponse(["2610.07767"]) }
+        model.loadFeed()
+        try await waitUntil("For you") { model.feedResults.count == 1 }
+        await model.localPersistence.waitForAcceptedWrites()
+        let folder = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .appendingPathComponent("workflow-draft-fixture", isDirectory: true)
+        let file = folder.appendingPathComponent(FeedPageStore.fileName)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "kept beside the account's encrypted store")
+        await model.signOut()
+        XCTAssertTrue(model.feedResults.isEmpty); XCTAssertNil(model.feedOfflineNote)
+        await model.waitForLocalRetirement()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), "erased on sign-out")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("state.sqlite").path), "the rest of the account's folder stays")
+
+        let environment = "feed-kept-\(UUID().wire)", account = UUID()
+        let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let accountFolder = base.appendingPathComponent("\(environment)/\(account.wire)", isDirectory: true)
+        try FileManager.default.createDirectory(at: accountFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base.appendingPathComponent(environment)) }
+        try await FeedPageStore(directory: accountFolder, accountID: account, localKey: ReaderCrypto.randomKey())
+            .save(["for_you": FeedKeptPage(view: "for_you", fetchedAt: Date(), openedAt: Date(), results: try feedResponse(["2610.07767"]).results)])
+        ReaderModel.eraseLocalAccountData(environment: environment, accountID: account)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: accountFolder.appendingPathComponent(FeedPageStore.fileName).path))
+    }
+    #endif
 }

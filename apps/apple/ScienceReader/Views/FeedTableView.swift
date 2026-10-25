@@ -514,3 +514,15 @@ struct FeedColdStartNote: View {
         }
     }
 }
+
+/// The Feed's page shown offline (kept from an earlier launch, or loaded earlier): one quiet line saying so and when the
+/// server returned it, "Offline · from 2 hours ago" (owner, 2026-10-25: no banner).
+struct FeedOfflineLine: View {
+    let text: String
+    var body: some View {
+        Text("\(Image(systemName: "wifi.slash")) \(text)")
+            .font(.footnote).foregroundStyle(.secondary)
+            .accessibilityLabel(text)
+            .accessibilityIdentifier("feed.offline")
+    }
+}

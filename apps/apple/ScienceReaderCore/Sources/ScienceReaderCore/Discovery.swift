@@ -1,8 +1,9 @@
 import Foundation
 
 /// One arXiv search result from the `discover` function. Presentation only:
-/// adding a result goes through the ordinary durable import command.
-public struct DiscoveryResult: Decodable, Sendable, Equatable, Identifiable {
+/// adding a result goes through the ordinary durable import command. Encodable for the Feed's page kept on the device
+/// (FeedPages.swift), in the same wire form, so a kept row is read back through the same checks.
+public struct DiscoveryResult: Codable, Sendable, Equatable, Identifiable {
     public let sourceID: String
     public let revision: Int
     public let title: String
@@ -57,10 +58,22 @@ public struct DiscoveryResult: Decodable, Sendable, Equatable, Identifiable {
               authors.count <= 12, authors.allSatisfy({ $0.count <= 256 }), categories.count <= 12,
               (preview?.count ?? 0) <= 2_000, (full?.count ?? 0) <= 24_000 else { throw ReaderError.corruptData }
     }
+
+    /// The wire form, with the abstract as `full_abstract` and its truncation said explicitly, so decoding gives back
+    /// the same value.
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sourceID, forKey: .sourceID); try c.encode(revision, forKey: .revision)
+        try c.encode(title, forKey: .title); try c.encode(authors, forKey: .authors)
+        try c.encodeIfPresent(year, forKey: .year)
+        try c.encodeIfPresent(abstract, forKey: .fullAbstract); try c.encode(abstractTruncated, forKey: .abstractTruncated)
+        try c.encode(categories, forKey: .categories); try c.encode(topics, forKey: .topics)
+        try c.encodeIfPresent(upvotes, forKey: .upvotes); try c.encodeIfPresent(reason, forKey: .reason)
+    }
 }
 
 /// Why For you suggests a paper. The server writes the sentence; `kind` lets the app choose a symbol.
-public struct FeedReason: Decodable, Sendable, Equatable {
+public struct FeedReason: Codable, Sendable, Equatable {
     public let kind: String
     public let label: String
     public let text: String
