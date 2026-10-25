@@ -31,9 +31,9 @@ final class LibraryFullTextSearchTests: XCTestCase {
 
     private func candidates() -> [LibrarySearchCandidate] {
         [LibrarySearchCandidate(id: "paper/a", title: "Graph networks for chemistry", fields: ["Graph networks for chemistry", "Ada Lovelace", "Message passing on molecules."],
-                                recentSequence: 1, position: 0, fullTextKey: "a"),
+                                recentSequence: 1, position: 0, fullTextKey: "a", fieldKinds: [.title, .authors, .abstract]),
          LibrarySearchCandidate(id: "paper/b", title: "Qubits: an overview", fields: ["Qubits: an overview", "Grace Hopper", "A survey."],
-                                recentSequence: 3, position: 1, fullTextKey: "b"),
+                                recentSequence: 3, position: 1, fullTextKey: "b", fieldKinds: [.title, .authors, .abstract]),
          LibrarySearchCandidate(id: "paper/c", title: "Cooking with lasers", fields: ["Cooking with lasers", "Someone Else"],
                                 recentSequence: 2, position: 2, fullTextKey: "c"),
          LibrarySearchCandidate(id: "import/x", title: "Pending superconducting import", fields: ["Pending superconducting import"],
@@ -43,6 +43,36 @@ final class LibraryFullTextSearchTests: XCTestCase {
     private func run(_ query: String, sort: LibrarySearchSort = .recent) async throws -> LibrarySearchOutput {
         let key = LibrarySearchKey(sessionID: UUID(), accountID: nil, sourceRevision: 1, query: query, sort: sort)
         return try await LibrarySearchEngine.run(LibrarySearchInput(ticket: .init(key: key), candidates: candidates(), fullText: store))
+    }
+
+    /// Each result says how it matched (owner, TestFlight 91 session): the share of words at their strongest fields, the
+    /// title's matched words, and one excerpt of where else it matched.
+    func testResultsCarryTheirMatchStrengthTitleMarksAndExcerpt() async throws {
+        let mixed = try await run("graph superconducting ")
+        let a = try XCTUnwrap(mixed.matches["paper/a"])
+        XCTAssertEqual(a.match.label, "100% · title, full text")
+        XCTAssertEqual(a.titleHighlights, [0..<5])
+        XCTAssertEqual(a.excerptField, .fullText)
+        XCTAssertTrue(a.excerpt?.text.contains("superconducting qubits") == true)
+        // A clause matched by the metadata substring rule counts at that field's kind (the import's only field: title).
+        let substring = try await run("superconducting ")
+        XCTAssertEqual(substring.matches["import/x"]?.match.label, "100% · title")
+        // In the abstract: the excerpt is the abstract around the word.
+        let abstract = try await run("molecules ")
+        XCTAssertEqual(abstract.matches["paper/a"]?.match.label, "100% · abstract")
+        XCTAssertEqual(abstract.matches["paper/a"]?.excerptField, .abstract)
+        XCTAssertEqual(abstract.matches["paper/a"]?.excerpt?.firstMatch, "molecules")
+        // Every word in the title: the title shows them, no excerpt.
+        let title = try await run("qubits overview ")
+        XCTAssertEqual(title.matches["paper/b"]?.match.label, "100% · title")
+        XCTAssertNil(title.matches["paper/b"]?.excerpt)
+        // In a note only.
+        let notes = try await run("qubit ")
+        XCTAssertEqual(notes.matches["paper/c"]?.match.label, "100% · notes")
+        XCTAssertEqual(notes.matches["paper/b"]?.match.label, "100% · title")
+        // No query, no match lines.
+        let all = try await run("")
+        XCTAssertTrue(all.matches.isEmpty)
     }
 
     func testBodyMatchesJoinMetadataMatchesWithASnippet() async throws {

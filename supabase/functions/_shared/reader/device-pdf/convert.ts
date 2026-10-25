@@ -9,7 +9,7 @@ import { confidence, glyphsAgree, renderMath, tidyLatex } from './math.ts';
 /** verifyGlyphs: the lowest confidence a recognition whose glyphs the PDF's text layer confirms is typeset at. */
 export const VERIFY_FLOOR = 0.5;
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
-import { cellSpanOk, tableCells, type Cell } from './tables.ts';
+import { cellSpanOk, tableCells, type Cell, type TableOptions } from './tables.ts';
 import { aliasFont, aliasText, fontFamily, spansOf, tagInput } from './tagger.ts';
 import { mathRuns, mathStyle, transcribe } from './transcribe.ts';
 import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
@@ -32,7 +32,7 @@ export type LogicalBlock =
   | { kind: 'code'; lines: Marked[]; text: string }
   | { kind: 'references'; refs: string[] }
   | { kind: 'figure'; table: boolean; page: number; rect: [number, number, number, number]; caption: string; captionMarked?: Marked }
-  | { kind: 'cells'; caption: string; captionMarked?: Marked; rows: { marked: Marked; span: number }[][]; text: string };
+  | { kind: 'cells'; caption: string; captionMarked?: Marked; rows: { marked: Marked; span: number }[][]; text: string; captionAfter?: boolean };
 
 /** Where a block's text sits in the PDF (port revision 11): [page (from 0), x0, y0, x1, y1], points from the top left of the
  * page as shown, the union of one region's glyphs (its layout box when it has none). A block read from several regions (a
@@ -91,6 +91,8 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const prefix = sha256Hex(utf8(`${input.pdf.sha256}:${DEVICE_PDF_RENDERER_ID}:${DEVICE_PDF_CONVERTER_VERSION}`)).slice(0, 12);
   useWordGaps(null);
   useLineBands(!!input.lineBands, !!input.lineReturns);
+  // Table rules (tables.ts): none set reads tables as the reference does.
+  const tableOptions: TableOptions = { columns: !!input.tableColumns, cellLines: !!input.cellLines, narrowGaps: !!input.narrowCellGaps };
   useLigatures(!!input.ligatures);
   const nPages = input.pages;
   check(Number.isSafeInteger(nPages) && nPages >= 1 && nPages <= 2000, 'device_pdf_pages');
@@ -263,7 +265,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const linesFor = (r: Region) => { if (!lineCache.has(r)) lineCache.set(r, linesOf(owned(r))); return lineCache.get(r)!; };
     const cellCache = new Map<Region, Cell[][] | null>();
     const cellsFor = (r: Region) => {
-      if (!cellCache.has(r)) { const body = owned(r).filter(visible); cellCache.set(r, body.length ? tableCells(body) : null); }
+      if (!cellCache.has(r)) { const body = owned(r).filter(visible); cellCache.set(r, body.length ? tableCells(body, tableOptions) : null); }
       return cellCache.get(r)!;
     };
     const candidates: Glyph[][] = [];
@@ -273,7 +275,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       if (r.cls === 'table') {
         const body = owned(r).filter(visible), cells = cellsFor(r);
         if (cells && cells.reduce((n, row) => n + row.reduce((m, [gl]) => m + gl.length, 0), 0) >= TABLE_PLACED * body.length) {
-          for (const row of cells) for (const [gl] of row) if (gl.length >= 2) candidates.push(byXCached(gl));
+          for (const row of cells) for (const cell of row) for (const gl of cellLines(cell)) if (gl.length >= 2) candidates.push(byXCached(gl));
         }
       }
     }
@@ -432,26 +434,35 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
           const rows: { marked: Marked; span: number }[][] = [], texts: string[] = [], cellFormulas: Formula[] = [];
           for (const row of cells) {
             const tds: { marked: Marked; span: number }[] = [];
-            for (const [gl, span] of row) {
+            for (const cell of row) {
+              const [gl, span] = cell;
               if (!gl.length) { tds.push({ marked: '', span: 1 }); continue; }
-              const line = byXCached(gl);
-              const tagged = spansFor(line).filter(sp => cellSpanOk(line.slice(sp[0], sp[1])));
-              // Math the tagger missed in a cell, found by its fonts and written from the text layer (transcribe.ts).
-              const found = input.fontMath ? mathRuns(line, tagged) : [];
-              const [text, fl] = lineText(line, [...tagged, ...found].sort((a, b) => a[0] - b[0]));
-              texts.push(text);
-              let marked = text;
-              const size = median(line.map(g => g.size));
-              for (const fgl of fl) { const f = makeFormula(fgl, pageIndex, false, size); cellFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
-              tds.push({ marked, span });
+              // A cell of several lines (cellLines) is read line by line, its lines joined by a space.
+              const parts: Marked[] = [];
+              for (const part of cellLines(cell)) {
+                const line = byXCached(part);
+                const tagged = spansFor(line).filter(sp => cellSpanOk(line.slice(sp[0], sp[1])));
+                // Math the tagger missed in a cell, found by its fonts and written from the text layer (transcribe.ts).
+                const found = input.fontMath ? mathRuns(line, tagged) : [];
+                const [text, fl] = lineText(line, [...tagged, ...found].sort((a, b) => a[0] - b[0]));
+                texts.push(text);
+                let marked = text;
+                const size = median(line.map(g => g.size));
+                for (const fgl of fl) { const f = makeFormula(fgl, pageIndex, false, size); cellFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
+                if (marked) parts.push(marked);
+              }
+              tds.push({ marked: parts.join(' '), span });
             }
             rows.push(tds);
           }
-          const text = canonicalText([...(capText ? [capText] : []), ...texts].join(' '));
-          blocks.push(placed({ kind: 'cells', caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}), rows, text },
+          // tableCaptionBelow: a caption printed under its table follows it, as the PDF (and the source) has it.
+          const centre = (b: readonly number[]) => (b[1] + b[3]) / 2;
+          const captionAfter = !!input.tableCaptionBelow && !!capText && (r.captions ?? []).length > 0 && (r.captions ?? []).every(c => centre(c.pt) > centre(r.pt));
+          const text = canonicalText((captionAfter ? [...texts, capText] : [...(capText ? [capText] : []), ...texts]).join(' '));
+          blocks.push(placed({ kind: 'cells', caption: capText, ...(captionMarked !== undefined ? { captionMarked } : {}), rows, text, ...(captionAfter ? { captionAfter } : {}) },
             [placeOf(pageIndex, body, r.pt), ...captionPlaces]));
           const bid = addTrace('table', text);
-          for (const f of [...capFormulas, ...cellFormulas]) commit(f, bid, 'body');
+          for (const f of captionAfter ? [...cellFormulas, ...capFormulas] : [...capFormulas, ...cellFormulas]) commit(f, bid, 'body');
           return;
         }
       }
@@ -527,6 +538,9 @@ export function equationNumber(body: readonly Glyph[], right = Infinity): { body
   if (!tags.length) return null;
   return { body: body.filter(g => !drop.has(g)), tag: tags.sort((a, b) => a.top - b.top).map(t => t.text).join(' ') };
 }
+
+/** A cell's lines: its own when it keeps several (cellLines), else its glyphs as one line. */
+const cellLines = (cell: Cell): Glyph[][] => cell[2] ?? [cell[0]];
 
 // One sorted copy per cell glyph list, so the tagger's results are found again by identity.
 const sortedCells = new WeakMap<Glyph[], Glyph[]>();

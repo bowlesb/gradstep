@@ -480,6 +480,18 @@ struct LibraryView: View {
                            focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
     }
 
+    /// The Library / ML paper search switch, keeping what was typed (`setSearchScope`), and the ⓘ for the results' match
+    /// line just after it.
+    private var scopePicker: some View {
+        HStack(spacing: 4) {
+            Picker("Search", selection: Binding(get: { model.searchExternal }, set: { model.setSearchScope(external: $0) })) {
+                Text("Library").tag(false); Text("ML paper search").tag(true)
+            }
+            .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+            InfoButton(text: SearchMatchLine.info, identifier: "search.match.info")
+        }
+    }
+
     private func cancelSearch() {
         // Back to the whole library: no tag filter is left behind (build 75).
         model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
@@ -494,8 +506,7 @@ struct LibraryView: View {
             libraryRow
             if searching {
                 VStack(spacing: 10) {
-                    Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
-                        .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+                    scopePicker
                     if model.searchExternal { AdvancedPaperSearch(model: model) }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
@@ -531,8 +542,7 @@ struct LibraryView: View {
                 }
             }
             if searching {
-                Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
-                    .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+                scopePicker
                 if model.searchExternal { AdvancedPaperSearch(model: model) }
             }
         }
@@ -688,7 +698,7 @@ struct LibraryView: View {
                         let copy = model.deviceCopy(for: paper)
                         PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, deviceCopy: copy,
                                  isNew: model.isNew(paper), status: model.libraryStatus(for: entry),
-                                 showAbstract: model.showAbstracts, showTopics: model.showTopics, snippet: model.librarySnippets[entry.id])
+                                 showAbstract: model.showAbstracts, showTopics: model.showTopics, match: model.libraryMatches[entry.id])
                     }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(reveal?.row == entry.id ? .isSelected : [])
@@ -852,8 +862,8 @@ struct PaperRow: View {
     var status: LibraryRowFacts.Status = .none
     var showAbstract = true
     var showTopics = true
-    /// A Library search matched in the paper's text: one line of it, the matched words highlighted.
-    var snippet: FullTextSnippet? = nil
+    /// A Library search's match: its strength, the title's matched words, and one excerpt of where else it matched.
+    var match: SearchResultMatch? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         #if OFFLINE_RESOURCE_MEASUREMENTS
@@ -861,7 +871,8 @@ struct PaperRow: View {
         #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
+                Text(SearchMatchLine.marked(paper.title, match?.titleHighlights ?? [])).font(.headline)
+                    .foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 // The cloud's tap target is the list's overlay beside this row's button (a button inside a button's
                 // label doesn't get its own taps).
@@ -870,7 +881,7 @@ struct PaperRow: View {
                         .accessibilityLabel(copy.label).help(copy.label)
                 }
             }
-            if let snippet { SearchSnippetLine(snippet: snippet) }
+            if let match { SearchMatchLine(match: match) }
             if let authors = LibraryFormat.shortAuthors(for: paper) { Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             switch status {
             case .active(let text):
@@ -878,7 +889,8 @@ struct PaperRow: View {
             case .problem(let text): Text(text).font(.footnote).foregroundStyle(.orange)
             case .info, .none: EmptyView()
             }
-            if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
+            // An excerpt of the abstract above stands for it.
+            if showAbstract && !paper.abstract.isEmpty && match?.excerptField != .abstract { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (isNew ? ["New"] : []) + (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
             // Its tags when it has any (docs/architecture/TAGS.md), else its arXiv topics.
@@ -888,23 +900,51 @@ struct PaperRow: View {
     }
 }
 
-/// One line of a paper's text under a Library search result (its match was in the text, not the metadata): small and
-/// secondary, the matched words in the primary colour.
-struct SearchSnippetLine: View {
-    let snippet: FullTextSnippet
+/// A search result's match (owner, TestFlight 91 session: "at bare minimum having the match percent"; "it's very
+/// difficult for me to know what about it is matching"): how many of the search words the paper contains and where
+/// ("67% · title, abstract"; SearchMatch), then one excerpt of where it matched outside the title (its text, abstract or
+/// authors), the matched words marked as Find in paper marks them. Small and secondary; up to two lines.
+struct SearchMatchLine: View {
+    let match: SearchResultMatch
+    /// ML paper search shows its abstract itself (marked); only the strength here.
+    var showsExcerpt = true
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
-        Text(Self.attributed(snippet)).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+        let excerpt = showsExcerpt ? match.excerpt : nil
+        // One more line at accessibility sizes, so "100% · title, abstract" stays whole.
+        Text(Self.line(match.match, excerpt: excerpt)).font(.footnote).foregroundStyle(.secondary)
+            .lineLimit((excerpt == nil ? 1 : 2) + (dynamicTypeSize.isAccessibilitySize ? 1 : 0)).truncationMode(.tail)
+            .accessibilityLabel(match.match.spokenLabel + (excerpt.map { ". " + $0.text } ?? ""))
+            .accessibilityIdentifier("search.match")
     }
 
-    static func attributed(_ snippet: FullTextSnippet) -> AttributedString {
-        var out = AttributedString(snippet.text)
-        let text = snippet.text
-        for range in snippet.highlights {
-            guard range.lowerBound >= 0, range.upperBound <= text.utf16.count else { continue }
+    /// The ⓘ beside the search switch.
+    static let info = "The percentage is the share of your search words a paper contains (a quoted phrase counts as one word). "
+        + "Then where they were found, strongest first: title, abstract, authors, tags, notes, full text. "
+        + "Library results contain every word, so where matters most; ML paper search results may contain only some. "
+        + "Matched words are marked. It isn’t a similarity score."
+
+    /// Find in paper's mark (reader-bridge.js: rgba(250, 204, 21, .4)), so a match looks the same everywhere.
+    static let markColor = Color(red: 250 / 255, green: 204 / 255, blue: 21 / 255).opacity(0.4)
+
+    static func line(_ match: SearchMatch, excerpt: FullTextSnippet?) -> AttributedString {
+        var out = AttributedString(match.label)
+        out.font = .footnote.weight(.medium).monospacedDigit()
+        if let excerpt { out += AttributedString("  ") + marked(excerpt.text, excerpt.highlights, emphasis: true) }
+        return out
+    }
+
+    /// `text` with `highlights` (UTF-16 ranges) marked; `emphasis` also sets them in the primary colour and semibold
+    /// (for secondary text).
+    static func marked(_ text: String, _ highlights: [Range<Int>], emphasis: Bool = false) -> AttributedString {
+        var out = AttributedString(text)
+        let length = text.utf16.count
+        for range in highlights {
+            guard range.lowerBound >= 0, range.upperBound <= length, !range.isEmpty else { continue }
             let lower = String.Index(utf16Offset: range.lowerBound, in: text), upper = String.Index(utf16Offset: range.upperBound, in: text)
             guard let matched = Range(lower..<upper, in: out) else { continue }
-            out[matched].foregroundColor = .primary
-            out[matched].font = .footnote.weight(.semibold)
+            out[matched].backgroundColor = markColor
+            if emphasis { out[matched].foregroundColor = .primary; out[matched].font = .footnote.weight(.semibold) }
         }
         return out
     }
@@ -2119,7 +2159,9 @@ struct DiscoveryList: View {
                 List {
                     orderChips
                     if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
-                    ForEach(model.orderedDiscoveryResults) { result in DiscoveryRow(model: model, result: result, issue: $issue) }
+                    ForEach(model.orderedDiscoveryResults) { result in
+                        DiscoveryRow(model: model, result: result, issue: $issue, match: model.discoveryMatches[result.sourceID])
+                    }
                 }.listStyle(.plain)
             }
         }
@@ -2153,6 +2195,8 @@ struct DiscoveryRow: View {
     /// The Feed: a tap on the card shows its details (Wide beside the list, FeedAbstractPane; Tall a large sheet,
     /// FeedDetailSheet; owner, 2026-10-24); its Full abstract, Add and links keep their own taps.
     var pick: (() -> Void)? = nil
+    /// ML paper search: how the result matched the words (SearchMatch); its title's and abstract's matched words marked.
+    var match: SearchResultMatch? = nil
     @State private var adding = false
     @State private var expanded = false
     var body: some View {
@@ -2164,7 +2208,7 @@ struct DiscoveryRow: View {
 
     /// VoiceOver: the card's title is its default action (Show details); Full abstract stays its own named button.
     @ViewBuilder private var title: some View {
-        let text = Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+        let text = Text(SearchMatchLine.marked(result.title, match?.titleHighlights ?? [])).font(.headline).fixedSize(horizontal: false, vertical: true)
         if let pick {
             text.accessibilityAddTraits(.isButton).accessibilityHint("Shows its details").accessibilityAction(.default, pick)
         } else { text }
@@ -2175,6 +2219,7 @@ struct DiscoveryRow: View {
             // The Library rows' type scale (design audit F6): title, authors, then details.
             VStack(alignment: .leading, spacing: 4) {
                 title
+                if let match { SearchMatchLine(match: match, showsExcerpt: false) }
                 if let authors = LibraryFormat.shortAuthors(result.authors) {
                     Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -2184,7 +2229,7 @@ struct DiscoveryRow: View {
                     } else { FeedReasonLine(reason: reason) }
                 }
                 if let abstract = result.abstract {
-                    Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
+                    abstractText(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(expanded ? "Less" : "Full abstract") { expanded.toggle() }
                         .font(.footnote).buttonStyle(.borderless)
@@ -2216,6 +2261,15 @@ struct DiscoveryRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("discover.result.\(result.sourceID)")
+    }
+
+    /// The abstract; in search, its matched words marked, and while folded the part around them (from its start when
+    /// they are near it).
+    private func abstractText(_ abstract: String) -> Text {
+        guard let match else { return Text(abstract) }
+        if !expanded, let excerpt = match.excerpt { return Text(SearchMatchLine.marked(excerpt.text, excerpt.highlights, emphasis: true)) }
+        let whole = SearchHighlighter.highlighted(model.discoveryMatchQuery, in: abstract, loose: true)
+        return Text(SearchMatchLine.marked(whole.text, whole.highlights, emphasis: true))
     }
 }
 
