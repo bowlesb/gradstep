@@ -91,7 +91,7 @@ public struct InterestLibraryModel: Sendable {
     public private(set) var state: InterestState
     public private(set) var text = InterestTextIndex()
     public private(set) var fingerprints: [String: InterestFingerprint] = [:]
-    private var labelCache: [Int: (papers: [String], weights: [Int64], terms: [String])] = [:]
+    private var labelCache: [Int: (papers: [String], weights: [Int64], excluded: Set<String>, terms: [String])] = [:]
     public var settings = InterestTopicRule.Settings()
 
     public init(map: InterestMap, terms: InterestTerms?) {
@@ -129,17 +129,24 @@ public struct InterestLibraryModel: Sendable {
         return present(selection, idsByKey: idsByKey, registry: registry, pending: pending, uploads: uploads)
     }
 
-    /// The topic's label terms (lowercase phrases), computed once per (papers, weights).
-    mutating func labelTerms(_ topic: InterestTopic) -> [String] {
+    /// The topic's label terms (lowercase phrases), computed once per (papers, weights, phrases taken by larger topics).
+    /// The server's own terms for the topic's papers (KeyBERT with real phrase embeddings) are preferred.
+    mutating func labelTerms(_ topic: InterestTopic, excluded: Set<String>) -> [String] {
         let weights = topic.papers.map { state.weightUnits(of: $0) ?? 0 }
-        if let cached = labelCache[topic.id], cached.papers == topic.papers, cached.weights == weights { return cached.terms }
+        if let cached = labelCache[topic.id], cached.papers == topic.papers, cached.weights == weights, cached.excluded == excluded {
+            return cached.terms
+        }
         var phrases: [String] = []
-        if let terms { phrases = InterestLabels.topicTerms(papers: topic.papers, state: state, text: text, terms: terms).map(terms.phrase) }
+        if let terms {
+            let endorsed = Set(topic.papers.flatMap { fingerprints[$0]?.terms ?? [] }.map { $0.lowercased() })
+            phrases = InterestLabels.topicTerms(papers: topic.papers, state: state, text: text, terms: terms,
+                                                endorsed: endorsed, excluded: excluded).map(terms.phrase)
+        }
         if phrases.isEmpty, let node = map.node(topic.id) {
             // No statistics yet, or nothing passed: the map's name, else its own terms (public c-TF-IDF).
             phrases = node.name.map { [$0] } ?? node.terms.filter { !InterestLabels.isGeneric($0) }
         }
-        labelCache[topic.id] = (topic.papers, weights, phrases)
+        labelCache[topic.id] = (topic.papers, weights, excluded, phrases)
         return phrases
     }
 
@@ -148,9 +155,10 @@ public struct InterestLibraryModel: Sendable {
         func ids(_ keys: [String]) -> [UUID] { keys.flatMap { idsByKey[$0] ?? [] }.sorted { $0.wire < $1.wire } }
         var shown: [InterestTopicSlice] = [], hidden: [InterestTopicSlice] = []
         var bySize = 0
-        var used = Set<String>()
+        var used = Set<String>(), taken = Set<String>()
         for topic in selection.topics {
-            let phrases = labelTerms(topic)
+            let phrases = labelTerms(topic, excluded: taken)
+            taken.formUnion(phrases)
             var computed = InterestLabels.label(phrases) ?? "Topic"
             if !used.insert(computed.lowercased()).inserted { computed += " (\(topic.paperCount))" }
             let user = registry.topic(topic.id, map: map)
@@ -183,7 +191,9 @@ public struct InterestLibraryModel: Sendable {
         var text = InterestPhrases.documentText(title: title, abstract: abstract)
         if let body, !body.isEmpty { text += "\n" + body }
         let counts = InterestPhrases.counts(text, terms: terms)
-        return InterestLabels.paperTerms(key.map(InterestPool.key) ?? "", counts: counts, state: state, text: self.text, terms: terms, k: k)
+        let key = key.map(InterestPool.key) ?? ""
+        let endorsed = Set((fingerprints[key]?.terms ?? []).map { $0.lowercased() })
+        return InterestLabels.paperTerms(key, counts: counts, state: state, text: self.text, terms: terms, k: k, endorsed: endorsed)
             .map { InterestLabels.sentenceCase(terms.phrase($0)) }
     }
 

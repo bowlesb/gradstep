@@ -50,24 +50,27 @@ public struct InterestTextIndex: Sendable, Equatable {
 public enum InterestLabels {
     /// Never a label or keyword on its own: areas and the broadest subjects (owner, 2026-10-24: "not things like Machine
     /// Learning, not things like regression"; "attention" or "transformers" for a sparse-attention reader isn't helpful).
-    public static let generic: Set<String> = {
-        var out = Set(TagVocabulary.tags.filter { $0.kind == .area }.map { $0.name.lowercased() })
-        out.formUnion(RelatedPapers.genericTopics)
-        out.formUnion(["machine learning", "deep learning", "artificial intelligence", "ai", "ml", "neural", "neural network",
-                       "neural networks", "deep neural networks", "language model", "language models", "large language",
-                       "large language model", "large language models", "llm", "llms", "language llms", "transformer",
-                       "transformers", "attention", "regression", "learning", "training", "inference", "algorithm",
-                       "algorithms", "network", "networks", "statistics", "optimization", "classification", "prediction",
-                       "accuracy", "generalization", "representation", "representations", "llm-based", "agent", "ai systems"])
-        return out
-    }()
+    /// The vocabulary's areas, `TagVocabulary.generic`, Related papers' generic topics and the broadest single subjects.
+    /// tools/interest-eval/device_fixtures.py holds the same list (a test compares them).
+    public static let generic: Set<String> = Set(TagVocabulary.tags.filter { $0.kind == .area }.map { $0.name.lowercased() })
+        .union(TagVocabulary.generic).union(RelatedPapers.genericTopics)
+        .union(["artificial intelligence", "ai", "ml", "neural", "deep neural networks", "large language", "language llms",
+                "attention", "regression", "learning", "training", "inference", "algorithm", "algorithms", "network", "networks",
+                "statistics", "classification", "prediction", "accuracy", "generalization", "representation", "representations",
+                "llm-based", "ai systems"])
 
     public static func isGeneric(_ phrase: String) -> Bool { generic.contains(phrase.lowercased()) }
 
     // MARK: Topic labels
 
     /// The topic's best phrases (statistics indices), best first, at most `k`.
-    public static func topicTerms(papers: [String], state: InterestState, text: InterestTextIndex, terms: InterestTerms, k: Int = 3) -> [Int] {
+    /// A phrase the server's own per-paper terms chose (KeyBERT with real phrase embeddings) gains this much.
+    public static let endorsedBonus = 1.0
+
+    /// The topic's best phrases (statistics indices), best first, at most `k`. `endorsed`: the server's terms for the
+    /// topic's papers (lowercase); `excluded`: phrases that already label a larger topic.
+    public static func topicTerms(papers: [String], state: InterestState, text: InterestTextIndex, terms: InterestTerms, k: Int = 3,
+                                  endorsed: Set<String> = [], excluded: Set<String> = []) -> [Int] {
         let keys = papers.map(InterestPool.key).filter { text.phrasesByPaper[$0] != nil && state.contains($0) }.sorted()
         guard !keys.isEmpty else { return [] }
         // Counts: yu = Σ weight of the topic's papers using the phrase, cnt = how many use it.
@@ -95,19 +98,19 @@ public enum InterestLabels {
         let close = scored.map { t, _ in text.context(t, state: state).map { InterestState.dot($0, centre) } ?? 0 }
         let mean = close.reduce(0, +) / Double(max(1, close.count))
         let top = max(scored.first?.1 ?? 0, 1e-6)
-        let order = zip(scored, close).map { ($0.0, $0.1 / top + 2 * ($1 - mean)) }
+        let order = zip(scored, close).map { ($0.0, $0.1 / top + 2 * ($1 - mean) + (endorsed.contains(terms.phrase($0.0)) ? endorsedBonus : 0)) }
             .sorted { $0.1 == $1.1 ? terms.phrase($0.0) < terms.phrase($1.0) : $0.1 > $1.1 }.map(\.0)
-        return pick(order, terms: terms, k: k)
+        return pick(order, terms: terms, k: k, excluded: excluded)
     }
 
     /// Best-first with the concept filter, the generic list and de-duplication (a phrase inside a kept one, or sharing
     /// a word of four letters or more with it: "fine-tuning lora" after "parameter-efficient fine-tuning").
-    static func pick(_ order: [Int], terms: InterestTerms, k: Int) -> [Int] {
+    static func pick(_ order: [Int], terms: InterestTerms, k: Int, excluded: Set<String> = []) -> [Int] {
         var picked: [Int] = []
         for t in order.prefix(200) {
             guard terms.isConcept(t) else { continue }
             let phrase = terms.phrase(t)
-            guard !isGeneric(phrase) else { continue }
+            guard !isGeneric(phrase), !excluded.contains(phrase) else { continue }
             let words = Set(phrase.split(separator: " ").map(String.init).filter { $0.count >= 4 })
             if picked.contains(where: { p in
                 let other = terms.phrase(p)
@@ -125,7 +128,7 @@ public enum InterestLabels {
     /// A paper's keywords (statistics indices), best first. `counts`: occurrences of each phrase in the paper's text
     /// (`InterestPhrases.counts` over the title twice, the abstract and, when there is one, the full text).
     public static func paperTerms(_ key: String, counts: [Int: Int], state: InterestState, text: InterestTextIndex,
-                                  terms: InterestTerms, k: Int = 5) -> [Int] {
+                                  terms: InterestTerms, k: Int = 5, endorsed: Set<String> = []) -> [Int] {
         guard !counts.isEmpty else { return [] }
         let scored = counts.map { t, c -> (Int, Double) in
             let tfidf = (1 + log(Double(c))) * terms.idf(t) * (terms.phrase(t).contains(" ") ? 1.25 : 1)
@@ -143,6 +146,7 @@ public enum InterestLabels {
         } else {
             order = scored.map { ($0.0, $0.1 / top) }
         }
+        order = order.map { ($0.0, $0.1 + (endorsed.contains(terms.phrase($0.0)) ? endorsedBonus : 0)) }
         order.sort { $0.1 == $1.1 ? terms.phrase($0.0) < terms.phrase($1.0) : $0.1 > $1.1 }
         return pick(order.map(\.0), terms: terms, k: k)
     }
