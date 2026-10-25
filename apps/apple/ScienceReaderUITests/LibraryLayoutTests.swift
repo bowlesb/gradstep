@@ -111,8 +111,9 @@ final class LibraryLayoutTests: XCTestCase {
         }
         for title in ["Pages", "Source"] { XCTAssertFalse(header(title, in: app).exists, "\(title) is off by default") }
         XCTAssertEqual(header("Added", in: app).value as? String, "Sorted descending", "Recent order is the Added column, newest first")
-        XCTAssertTrue(cell(dpo, in: app).label.contains("Tags: Alignment, RLHF"), "A paper's own tags: \(cell(dpo, in: app).label)")
-        XCTAssertTrue(cell(attention, in: app).label.contains("Tags: Natural language processing, Machine learning"), "Topics from categories, in the tag vocabulary's names: \(cell(attention, in: app).label)")
+        // Keywords from the title and abstract in the vocabulary's names (build 70: never broad areas such as Machine learning).
+        XCTAssertTrue(cell(dpo, in: app).label.contains("Tags: Preference optimization"), "DPO's keyword: \(cell(dpo, in: app).label)")
+        XCTAssertTrue(cell(attention, in: app).label.contains("Tags: Convolutional neural networks"), "Attention's keyword: \(cell(attention, in: app).label)")
         attach(app, "Library table")
 
         // Recent first (as the List): Attention was added after DPO.
@@ -138,7 +139,7 @@ final class LibraryLayoutTests: XCTestCase {
         assertAbove(cell(resnet, in: app), cell(attention, in: app), "Year reversed: oldest first")
         tapHeader("Tags", in: app)
         XCTAssertEqual(header("Tags", in: app).value as? String, "Sorted ascending", "Tags A to Z")
-        assertAbove(cell(dpo, in: app), cell(attention, in: app), "Alignment before Language")
+        assertAbove(cell(attention, in: app), cell(dpo, in: app), "Convolutional neural networks before Preference optimization")
         tapHeader("Progress", in: app)
         assertAbove(cell(resnet, in: app), cell(attention, in: app), "Progress: 100% before 60%")
         assertAbove(cell(attention, in: app), cell(dpo, in: app), "Progress: 60% before 25%")
@@ -406,40 +407,68 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertTrue(abstract.waitForNonExistence(timeout: 5))
     }
 
-    /// A tag chip in a row filters the Library by that tag; the same chip again shows all papers (owner-approved
-    /// follow-up, 2026-10-07).
-    func testTappingATagChipFiltersTheLibraryByIt() throws {
+    /// On a phone the Tags column may start past the edge: drag the row's columns sideways until `element` is on screen.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        let window = app.windows.firstMatch, row = cell(attention, in: app)
+        for _ in 0..<4 where !window.frame.insetBy(dx: 8, dy: 8).contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
+            // Along a row on screen: a cell past the edge reports no useful position of its own.
+            let y = row.frame.midY / window.frame.height
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: y))
+                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: y)))
+        }
+    }
+
+    /// A tag chip in a row offers its choices (owner, TestFlight 92: "filter, filter++ … and search ML papers for this"):
+    /// Filter narrows the Library to the tag, the chip says it is chosen, and the chip's Show all papers ends it.
+    func testATagChipOffersFilterFilterPlusRelatedAndSearch() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = launch(["--library-layout=table", "--library-columns=tags"])
-        // The chips are left out of accessibility (the row reads its tags; the Tags menu filters by voice), so they are
-        // tapped where they are drawn.
-        func tapDrawn(_ element: XCUIElement) { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
-        let chip = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.tagChip.")).firstMatch
-        XCTAssertTrue(chip.waitForExistence(timeout: 10), "Rows show their tags as chips")
-        // On a phone the Tags column may start past the edge: drag the row's columns sideways.
-        func reveal(_ element: XCUIElement) {
-            let window = app.windows.firstMatch, row = cell(attention, in: app)
-            for _ in 0..<4 where !window.frame.insetBy(dx: 8, dy: 8).contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
-                // Along a row on screen: a cell past the edge reports no useful position of its own.
-                let y = row.frame.midY / window.frame.height
-                window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: y))
-                    .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: y)))
-            }
-        }
-        reveal(chip)
+        let chip = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.tagChip.")).firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "Rows show their tags as chips, each a button")
+        reveal(chip, in: app)
         let tag = String(chip.identifier.dropFirst("library.tagChip.".count))
+        XCTAssertEqual(chip.label, "Tag: \(tag)")
         let tagMenu = filter("tags", in: app)
         XCTAssertEqual(tagMenu.label, "Tags")
-        tapDrawn(chip)
-        XCTAssertTrue(NSPredicate(format: "label == %@", "Tag: \(tag)").evaluate(with: tagMenu) || tagMenu.label == "Tag: \(tag)", "Filtered by \(tag): \(tagMenu.label)")
-        let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "Filtered by a tapped tag"; attachment.lifetime = .keepAlways; add(attachment)
+        chip.tap()
+        let choose = app.buttons["library.tag.filter"], related = app.buttons["library.tag.related"], search = app.buttons["library.tag.search"]
+        XCTAssertTrue(choose.waitForExistence(timeout: 5), "Filter")
+        XCTAssertTrue(related.exists, "Filter + related")
+        XCTAssertTrue(search.exists && search.label.contains("Search ML papers for “\(tag)”"), search.label)
+        XCTAssertFalse(app.buttons["library.tag.clear"].exists, "Nothing to clear yet")
+        attach(app, "Tag chip menu")
+        choose.tap()
+        XCTAssertEqual(tagMenu.label, "Tag: \(tag)", "Filtered by \(tag)")
+        attach(app, "Filtered by a tag chip")
         // Every row left carries the tag.
-        let chips = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", "library.tagChip.\(tag)"))
+        let chips = app.buttons.matching(NSPredicate(format: "identifier == %@", "library.tagChip.\(tag)"))
         let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.table.paper/"))
         XCTAssertGreaterThan(chips.count, 0)
         XCTAssertLessThanOrEqual(rows.count, chips.count * 8, "rows and their cells")
-        reveal(chips.firstMatch)
-        tapDrawn(chips.firstMatch)
-        XCTAssertEqual(tagMenu.label, "Tags", "The same chip again shows all papers")
+        let again = chips.firstMatch
+        reveal(again, in: app)
+        XCTAssertEqual(again.value as? String, "Filtered")
+        again.tap()
+        let clear = app.buttons["library.tag.clear"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5), "The chosen tag's chip offers Show all papers")
+        clear.tap()
+        XCTAssertEqual(tagMenu.label, "Tags", "All papers again")
+    }
+
+    /// The Device column's glyphs sit centred under their header (owner, TestFlight 92: "Is the check mark right in the
+    /// middle of the column?"): the header's centre and every cloud's (a button) agree within a point; the checks share the
+    /// clouds' box (screenshot).
+    func testDeviceGlyphsShareTheHeadersCentre() throws {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = launch(["--library-layout=table", "--library-columns=device,progress"])
+        let heading = header("Device", in: app)
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
+        XCTAssertTrue(cell(attention, in: app).waitForExistence(timeout: 5))
+        let clouds = app.buttons.matching(NSPredicate(format: "label == %@", "Download to this device")).allElementsBoundByIndex
+        for cloud in clouds where cloud.frame.width > 0 && cloud.frame.width < 60 {
+            XCTAssertEqual(cloud.frame.midX, heading.frame.midX, accuracy: 1, "a cloud under the header's centre")
+        }
+        attach(app, "Library Device column centred")
     }
 }
+

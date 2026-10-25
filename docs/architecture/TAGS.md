@@ -123,9 +123,12 @@ conversions use the same arXiv metadata).
 
 - **Reader**: the paper's tags as small quiet chips under the publication line; tapping them opens
   Edit tags. Paper options (`…`) → Edit tags.
-- **Library**: row long-press → Edit tags; List rows show the first three tags in their details line (arXiv topics
-  when a paper has none). `Paper.tags` feeds the Library table's Tags column and filter (built separately) and
-  library search.
+- **Library**: row long-press → Edit tags; List rows show the first three of the Library's tags (`LibraryTags`, the same
+  as the table and the Tags menu; arXiv areas before 2026-10-25) in their details line. `Paper.tags` feeds the Library
+  table's Tags column and filter (built separately) and library search. A table chip's tap opens the tag's choices
+  (TestFlight 92): Filter, Filter + related, Search ML papers for the tag's words; the Tags menu has Include related
+  papers for the chosen tag, and the paper's keyword sheet the same three choices. Filter + related's rule and
+  measurements: [INTEREST_INDEX.md › Related papers for a tag](INTEREST_INDEX.md#related-papers-for-a-tag-filter--related-built-2026-10-25-app-local-not-released).
 - **Edit tags sheet**: chips with ×, an "Add a tag" field, suggestions (vocabulary matches with their definitions,
   the reader's own tags, removed catalog tags), Cancel / Save, medium height.
 - **Feed**: topic chips use the vocabulary's names; categories with the same name show once. With For you

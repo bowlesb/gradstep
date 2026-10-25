@@ -83,15 +83,20 @@ struct TagEditorView: View {
             List {
                 if let keyword {
                     // Leaving for a search would drop unsaved edits, so the searches wait for Save or Cancel (dimmed, in place).
+                    // The same three choices, in the same order, as a tag chip in the Library (owner, TestFlight 92).
                     Section {
-                        Button { model.tagEditor = nil; model.searchPapers(keyword) } label: {
-                            Label("Search ML papers for “\(keyword)”", systemImage: "magnifyingglass")
-                        }
-                        .accessibilityIdentifier("paper.keyword.search")
                         Button { model.tagEditor = nil; model.showLibraryPapers(taggedWith: keyword) } label: {
                             Label("Show library papers tagged “\(keyword)”", systemImage: "books.vertical")
                         }
                         .accessibilityIdentifier("paper.keyword.library")
+                        Button { model.tagEditor = nil; model.showLibraryPapers(taggedWith: keyword, related: true) } label: {
+                            Label("Show them and related library papers", systemImage: "point.3.connected.trianglepath.dotted")
+                        }
+                        .accessibilityIdentifier("paper.keyword.related")
+                        Button { model.tagEditor = nil; model.searchPapers(keyword) } label: {
+                            Label("Search ML papers for “\(keyword)”", systemImage: "magnifyingglass")
+                        }
+                        .accessibilityIdentifier("paper.keyword.search")
                     }
                     .disabled(saving || changed)
                 }

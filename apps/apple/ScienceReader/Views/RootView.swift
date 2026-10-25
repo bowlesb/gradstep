@@ -710,7 +710,8 @@ struct LibraryView: View {
                         let copy = model.deviceCopy(for: paper)
                         PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, deviceCopy: copy,
                                  isNew: model.isNew(paper), status: model.libraryStatus(for: entry),
-                                 showAbstract: model.showAbstracts, showTopics: model.showTopics, match: model.libraryMatches[entry.id])
+                                 showAbstract: model.showAbstracts, showTopics: model.showTopics, match: model.libraryMatches[entry.id],
+                                 related: model.libraryRelated[entry.id]?.text)
                     }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(reveal?.row == entry.id ? .isSelected : [])
@@ -737,7 +738,7 @@ struct LibraryView: View {
                                   (item.phase == .sourceOnly && model.hasLocalPaperStore &&
                                    (action == .downloadOnDevice || action == .openLocalPDF))
                               },
-                              explain: { model.showImportHelp = true }) { action in
+                              explain: { model.showImportHelp = true }, related: model.libraryRelated[entry.id]?.text) { action in
                         LibraryImportAction.perform(action, on: item, model: model)
                     }
                         // A container, so the row's own buttons (Get credits) keep their identifiers.
@@ -781,6 +782,8 @@ struct ImportRow: View {
     var actionEnabled: (LibraryImportAction) -> Bool = { _ in true }
     /// "Why does this take a minute?" beside the progress.
     var explain: (() -> Void)? = nil
+    /// Why a tag filter lists it as a related paper (Filter + related).
+    var related: String? = nil
     var perform: ((LibraryImportAction) -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var active: Bool { item.isActive || retrying }
@@ -795,8 +798,10 @@ struct ImportRow: View {
             if showAbstract, let abstract = item.metadata?.abstract, !abstract.isEmpty {
                 Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
+            if let related { RelatedReasonLine(text: related, lines: 2) }
             let year = item.metadata?.publishedAt.map { String($0.prefix(4)) }
-            let topics = showTopics ? ArxivTopics.names(for: item.metadata?.categories ?? [], limit: 3) : []
+            // The tags the table shows and the Tags menu filters by (LibraryTags), never a broad arXiv area.
+            let topics = showTopics ? Array(LibraryTags.tags(for: item).prefix(3)) : []
             let revision = LibrarySource.badge(sourceID: item.sourceID, revision: item.sourceRevision ?? item.requestedRevision).map { [$0] } ?? []
             let metadata = (year.map { [$0] } ?? []) + revision + topics
             if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
@@ -876,6 +881,8 @@ struct PaperRow: View {
     var showTopics = true
     /// A Library search's match: its strength, the title's matched words, and one excerpt of where else it matched.
     var match: SearchResultMatch? = nil
+    /// Why a tag filter lists it as a related paper (Filter + related).
+    var related: String? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         #if OFFLINE_RESOURCE_MEASUREMENTS
@@ -894,6 +901,7 @@ struct PaperRow: View {
                 }
             }
             if let match { SearchMatchLine(match: match) }
+            if let related { RelatedReasonLine(text: related, lines: 2) }
             if let authors = LibraryFormat.shortAuthors(for: paper) { Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             switch status {
             case .active(let text):
@@ -905,8 +913,9 @@ struct PaperRow: View {
             if showAbstract && !paper.abstract.isEmpty && match?.excerptField != .abstract { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (isNew ? ["New"] : []) + (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
-            // Its tags when it has any (docs/architecture/TAGS.md), else its arXiv topics.
-            let topics = showTopics ? (paper.tags.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: 3) : Array(paper.tags.prefix(3))) : []
+            // The tags the table shows and the Tags menu filters by (LibraryTags; docs/architecture/TAGS.md), never a broad
+            // arXiv area.
+            let topics = showTopics ? Array(LibraryTags.tags(for: paper).prefix(3)) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)
     }

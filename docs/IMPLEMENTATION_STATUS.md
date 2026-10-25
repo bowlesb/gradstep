@@ -45,6 +45,32 @@
   current-schema suites on PostgreSQL 17 + pgvector; `swift test` (ScienceReaderCore: 484 Swift Testing, 99 XCTest). No paid request, Simulator or
   device.
 
+## After TestFlight 92 — 2026-10-25: a tag's choices and the Device column (app local, not released)
+
+Owner feedback on TestFlight 92 (iPhone). Decisions in [DECISIONS.md](DECISIONS.md#a-tags-choices-filter-filter--related-search-ml-papers-owner-feedback-on-testflight-92-2026-10-25);
+the related-papers rule and its measurements in
+[INTEREST_INDEX.md](architecture/INTEREST_INDEX.md#related-papers-for-a-tag-filter--related-built-2026-10-25-app-local-not-released).
+- A Library table tag chip opens Filter, Filter + related and Search ML papers; the Tags menu has Include related
+  papers; the paper's keyword sheet offers the same three. Filter + related lists untagged papers close to two or more
+  tagged papers (fingerprints, 0.88) or using the tag's words, after the tagged ones, each with its reason; on the
+  device, in the search worker.
+- The Device column's header and glyphs share one centre (checks and clouds were left of it, at different x).
+- The List shows the same tags as the table (it showed arXiv areas or catalog tags).
+- Verified:
+  - Core `swift test`: 99 XCTest (3 skipped) and 492 Swift Testing pass (9 new in `TagRelatedTests`).
+  - Backend `tests/backend/paper-search.test.ts` 12/12, with a new tag-query test (multi-word and hyphenated tags).
+  - App unit tests on the iPhone 17 Pro Simulator: `PaperTableTests`, `LibraryInterestTests`, `WorkflowSafetyTests`,
+    `LibrarySearchCoordinatorTests`, `LibraryFullTextSearchTests`, 75/75 (3 new).
+  - UI tests, iPhone 17 Pro and iPad Pro 13-inch (M5) Simulators: `LibraryTopicsTests` 5/5 (the new related filter on
+    the fixture library), `LibraryLayoutTests` tag chip menu, Device centring (a cloud's centre within 1 pt of the
+    header's), Device and Authors, Filters/Tags/Retry; iPad also the table sort journey, whose stale tag expectations
+    (pre-build-70 "Alignment, RLHF") were brought up to date.
+  - Screenshots: `.artifacts/visual/tag-choices-tf92/` (main checkout), iPhone and iPad.
+  - The Mac Catalyst app builds.
+- Not verified: a physical device (paused); a click on the Mac (Catalyst has no UI-test target); the
+  fingerprint rule inside the running app with real fingerprints (the UI fixture's tags add papers by their words; the
+  fingerprint rule is covered by unit tests and the Core measurements).
+
 ## After TestFlight 92 — 2026-10-25
 
 **Native Google sign-in accepts its own return** (owner report, build 92). Details and evidence are in

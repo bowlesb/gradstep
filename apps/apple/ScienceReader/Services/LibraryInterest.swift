@@ -85,6 +85,12 @@ final class InterestKeywordStore: @unchecked Sendable {
     }
     @ObservationIgnored private(set) var engine: InterestEngine?
     @ObservationIgnored private var engineAccount: UUID?
+    /// The library's public fingerprints by key and the pool's term statistics, as the engine has them, for a tag filter's
+    /// related papers (TagRelated, in the Library search's worker). `fingerprintRevision` advances when either changes.
+    @ObservationIgnored private(set) var fingerprints: [String: [Float]] = [:]
+    @ObservationIgnored private(set) var terms: InterestTerms?
+    @ObservationIgnored private(set) var termsDigest: String?
+    @ObservationIgnored private(set) var fingerprintRevision = 0
     /// Papers asked of the server that weren't embedded yet, and when (asked again after 10 minutes).
     @ObservationIgnored private var askedAt: [String: Date] = [:]
     @ObservationIgnored private var notServedUntil: Date?
@@ -97,6 +103,7 @@ final class InterestKeywordStore: @unchecked Sendable {
     func reset() {
         loadTask?.cancel(); updateTask?.cancel(); keywordTask?.cancel()
         engine = nil; engineAccount = nil; askedAt = [:]; notServedUntil = nil; topics = nil; status = .off
+        fingerprints = [:]; terms = nil; termsDigest = nil; fingerprintRevision += 1
         _ = InterestKeywordStore.shared.replace([:])
     }
 
@@ -117,6 +124,7 @@ final class InterestKeywordStore: @unchecked Sendable {
                 }.value
                 engine = InterestEngine(map: built.0, terms: built.1, mapDigest: mapRef.sha256, termsDigest: termsRef.sha256)
                 engineAccount = accountID; askedAt = [:]
+                fingerprints = [:]; terms = built.1; termsDigest = termsRef.sha256; fingerprintRevision += 1
                 try await fetchFingerprints(backend: backend, accountID: accountID, keys: nil, mapVersion: built.0.version)
             }
             guard let engine else { return false }
@@ -163,6 +171,13 @@ final class InterestKeywordStore: @unchecked Sendable {
         } while after != nil && keys == nil && !Task.isCancelled
         for key in keys ?? [] where askedAt[InterestPool.key(key)] == nil { askedAt[InterestPool.key(key)] = Date() }
         await engine?.setFingerprints(fetched)
+        remember(fetched)
+    }
+
+    private func remember(_ values: [InterestFingerprint]) {
+        guard !values.isEmpty else { return }
+        for value in values { fingerprints[value.key] = value.vector }
+        fingerprintRevision += 1
     }
 
     #if DEBUG && FIXTURE_HOST
@@ -176,12 +191,15 @@ final class InterestKeywordStore: @unchecked Sendable {
             let engine = InterestEngine(map: map, terms: terms, mapDigest: "fixture", termsDigest: "fixture")
             let fixture = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("interest-library-v1.json"))) as? [String: Any]
             let papers = fixture?["papers"] as? [[String: Any]] ?? []
-            await engine.setFingerprints(papers.compactMap { p in
+            let values: [InterestFingerprint] = papers.compactMap { p in
                 guard let key = p["key"] as? String, let q8 = (p["q8"] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
                 return InterestFingerprint(key: key, vector: InterestQ8.decode(q8), leafID: p["leaf"] as? Int,
                                            terms: p["server_terms"] as? [String] ?? [], mapVersion: p["leaf_map_version"] as? Int)
-            })
+            }
+            await engine.setFingerprints(values)
             self.engine = engine
+            self.terms = terms; termsDigest = "fixture"
+            remember(values)
             return true
         } catch {
             status = .unavailable

@@ -99,6 +99,77 @@ final class LibraryTopicsTests: XCTestCase {
         XCTAssertEqual(chips.frame.minY, top, accuracy: 1, "The chips don't move")
     }
 
+    /// Filter + related on the public fixture library (owner, TestFlight 92; docs/architecture/INTEREST_INDEX.md "Related
+    /// papers for a tag"): “Multi-Agent” is on six papers; Filter + related keeps them first and adds after them the three
+    /// untagged papers whose titles or abstracts say "multi-agent", each with its reason. From the Tags menu (Include related
+    /// papers) and from a tag chip's own menu.
+    func testFilterPlusRelatedAddsRelatedPapersAfterTheTaggedOnes() throws {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = launch(["--library-layout=table", "--library-columns=tags"], expanded: false)
+        let tags = element("library.filter.tags", in: app)
+        XCTAssertTrue(tags.waitForExistence(timeout: 10))
+        func row(_ i: Int) -> XCUIElement { element("library.table.paper/\(paper(i))", in: app) }
+        let tagged = [7, 9, 10, 12, 13, 36], related = [8, 11, 37]
+        tags.tap()
+        let multiAgent = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Multi-Agent")).firstMatch
+        XCTAssertTrue(multiAgent.waitForExistence(timeout: 5), "The Tags menu lists Multi-Agent")
+        multiAgent.tap()
+        XCTAssertEqual(tags.label, "Tag: Multi-Agent")
+        XCTAssertTrue(row(7).waitForExistence(timeout: 5))
+        // Until the term statistics' keywords arrive a title's named words stand in, Multi-Agent among them for all nine.
+        for i in related { XCTAssertTrue(row(i).waitForNonExistence(timeout: 15), "Filter: only the tagged papers (\(i))") }
+        attach("Library filtered by a tag")
+        tags.tap()
+        let include = element("library.tags.related", in: app)
+        XCTAssertTrue(include.waitForExistence(timeout: 5), "Include related papers")
+        attach("Tags menu with Include related papers")
+        include.tap()
+        XCTAssertTrue(tags.waitForLabel("with related papers"), tags.label)
+        XCTAssertTrue(row(7).waitForExistence(timeout: 5))
+        // In order: no related row above a tagged one, before and after scrolling to the end.
+        func checkOrder() {
+            let taggedY = tagged.map(row).filter(\.exists).map(\.frame.minY), relatedY = related.map(row).filter(\.exists).map(\.frame.minY)
+            if let lastTagged = taggedY.max(), let firstRelated = relatedY.min() {
+                XCTAssertLessThan(lastTagged, firstRelated, "the related papers come after the tagged ones")
+            }
+        }
+        checkOrder()
+        attach("Library tag with related papers")
+        let table = element("library.table", in: app)
+        table.swipeUp()
+        for _ in 0..<3 where !row(37).exists || !row(37).isHittable { table.swipeUp() }
+        checkOrder()
+        for i in related {
+            XCTAssertTrue(row(i).waitForExistence(timeout: 5), "related paper \(i)")
+            XCTAssertTrue(row(i).label.contains("Mentions “multi-agent”"), row(i).label)
+        }
+        for i in [0, 30, 35] { XCTAssertFalse(row(i).exists, "KV-cache, robot and cryo-EM papers stay out (\(i))") }
+        attach("Library tag with related papers, the end")
+        // The tag's own chip: Filter + related is checked, with Show all papers; Filter takes the related papers away.
+        table.swipeDown(); table.swipeDown()
+        let chip = app.buttons["library.tagChip.Multi-Agent"].firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 5))
+        XCTAssertEqual(chip.value as? String, "Filtered, with related papers")
+        chip.tap()
+        XCTAssertTrue(app.buttons["library.tag.filter"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["library.tag.clear"].exists, "Show all papers")
+        attach("Tag chip menu, Filter + related chosen")
+        app.buttons["library.tag.filter"].tap()
+        let plain = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Tag: Multi-Agent"), object: tags)
+        XCTAssertEqual(XCTWaiter().wait(for: [plain], timeout: 5), .completed, tags.label)
+        for i in related { XCTAssertTrue(row(i).waitForNonExistence(timeout: 5), "Filter alone: no related papers (\(i))") }
+        // Another tag's chip offers its own three, and Filter + related there.
+        let other = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier != %@", "library.tagChip.", "library.tagChip.Multi-Agent")).firstMatch
+        XCTAssertTrue(other.waitForExistence(timeout: 5))
+        other.tap()
+        XCTAssertTrue(app.buttons["library.tag.related"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["library.tag.clear"].exists, "nothing to clear for a tag not chosen")
+        attach("Tag chip menu")
+        app.buttons["library.tag.related"].tap()
+        let chosen = String(other.identifier.dropFirst("library.tagChip.".count))
+        XCTAssertTrue(tags.waitForLabel("Tag: \(chosen), with related papers"), tags.label)
+    }
+
     func testRenameAndHideSyncThroughTheRegistry() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = launch(["--library-layout=list"])

@@ -28,6 +28,23 @@ seconds"* (Feed › For you after signing in). Evidence: [CHAT.md](architecture/
 | For you after sign-in | The Feed asks again whenever the account changes, not only on appear (the request was never sent until a chip was tapped) |
 | For you's query | Migration 0158: the same results, about 4.5× faster for the owner (1.55–1.59 s → 0.33–0.35 s): combination tags parsed once, author hits through the author index, topics lower-cased once (on top of 0156's similar-tier sort) |
 
+## A tag's choices: Filter, Filter + related, Search ML papers (owner feedback on TestFlight 92, 2026-10-25)
+
+Owner, of a tag chip in the Library table: *"When I click on the keyword here, the response isn't ideal. It just filters
+right now but I'd like a few different options - filter, filter++ (what it would do is try to include a bit more stuff
+that is related even if not tagged necessarily - needs a design), and search ML papers for this."* And: *"when you search
+ML papers, should it just have the keyword terms in the search or should it be keyword:<keyword>?"* Of the Device column:
+*"Is the check mark right in the middle of the column?"* (it wasn't). Agent decisions, reversible. Design and
+measurements: [INTEREST_INDEX.md › Related papers for a tag](architecture/INTEREST_INDEX.md#related-papers-for-a-tag-filter--related-built-2026-10-25-app-local-not-released).
+
+| Decision | Choice |
+|---|---|
+| A tag chip's tap | A menu headed by the tag: **Filter**, **Filter + related** ("Adds related papers that aren't tagged"), **Search ML papers for “tag”**; the current choice checked, and Show all papers when the Library is filtered by it. A click on iPad and Mac opens the same menu. Each chip is now a button for VoiceOver ("Tag: …") and Full Keyboard Access; the row still reads its tags. |
+| Elsewhere, the same three | The Tags ⌄ menu gains **Include related papers** (a checkmark item) above Search ML papers once a tag is chosen, and keeps it when another tag is picked; the chip then reads "… + related". The paper's keyword sheet lists Show library papers tagged “…”, **Show them and related library papers**, then Search ML papers (that order, as the chip). The List's rows have no tappable tags (the row opens the paper); they now show the same tags as the table (`LibraryTags`) instead of arXiv areas. |
+| Filter + related | Tagged papers first, then untagged papers that are close (cosine ≥ 0.88) to two or more tagged papers by their public fingerprints, or whose title or abstract has the tag's words as a phrase (a one-word tag: title only; never a generic tag or a phrase in more than 5 % of the pool). Each related row says why in one quiet line under its title. On the device, in the Library search's worker; nothing new is sent. The owner's starting proposal (any one tagged paper at 0.88, or the centroid) was measured and tightened: one paper at 0.88 was right about a quarter of the time on the owner's library. |
+| ML paper search for a tag | The tag's plain words, as before (no `keyword:` prefix: arXiv has no keyword field and these are Gradstep's own tags). paper-search.ts asks arXiv for all the words (a hyphenated word stays one quoted word, `all:"on-policy" AND all:distillation`) and for titles with the whole phrase, and ranks a title with the phrase first, however it is hyphenated or capitalised. Pinned by a backend test. |
+| Device column | Centred: the header and every glyph (check, cloud, warning, each in the same 32 pt box) share one centre at every width, iPhone, iPad and Mac. Pages and Chats stay right-aligned under right-aligned headers; the Feed's Add column already centred its states in one box. |
+
 ## Interest index privacy notice approved; serving may go to all (owner, 2026-10-25)
 
 Asked to "approve the interest-index privacy wording so topics and the new For you ranking can go beyond staff

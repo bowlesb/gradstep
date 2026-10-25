@@ -87,9 +87,19 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     }
 
     var column: Column {
-        Column(id: rawValue, title: title, priority: priority, width: width,
-               alignment: self == .pages || self == .chats ? .trailing : .leading,
+        Column(id: rawValue, title: title, priority: priority, width: width, alignment: alignment,
                sortKey: sortField, ascendingFirst: sortField?.defaultAscending ?? true)
+    }
+
+    /// Numbers line up at the trailing edge; Device's glyphs (check, cloud, warning) sit centred under their header, the
+    /// header and every glyph sharing one centre (owner, TestFlight 92: "Is the check mark right in the middle of the
+    /// column?"); everything else reads from the leading edge.
+    var alignment: Alignment {
+        switch self {
+        case .pages, .chats: .trailing
+        case .device: .center
+        default: .leading
+        }
     }
 
     /// The columns turned on, in row order. Those that don't fit the width scroll sideways (`TableArrangement`).
@@ -151,11 +161,11 @@ struct LibraryPaperTable<Top: View>: View {
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
                        PaperTableTitle(title: item.facts.title, highlighted: isSelected(item.entry),
-                                       reservesSpace: true, reservesSubtitleSpace: false, match: model.libraryMatches[item.entry.id])
+                                       reservesSpace: true, reservesSubtitleSpace: false, match: model.libraryMatches[item.entry.id],
+                                       note: model.libraryRelated[item.entry.id]?.text)
                    },
                    cell: { item, column in
-                       LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
-                                        filterTag: { tag in model.libraryTagFilter = model.libraryTagFilter == tag ? nil : tag },
+                       LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), model: model,
                                         download: item.facts.paper.map { paper in { model.prepareOnDevice(paper) } },
                                         isNew: model.isNew(item.facts.paper),
                                         act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
@@ -234,33 +244,37 @@ extension LibraryImportAction {
 struct LibraryTableCell: View {
     let item: LibraryTableItem
     let column: LibraryTableColumn?
-    var highlightedTag: String? = nil
-    /// Filters the Library by a tapped tag chip (again: back to all).
-    var filterTag: ((String) -> Void)? = nil
+    /// The tag chips' choices (Filter, Filter + related, Search ML papers); nil: chips are labels.
+    var model: ReaderModel? = nil
     var download: (() -> Void)? = nil
     var isNew = false
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
     var explain: (() -> Void)? = nil
+    /// The Device column's glyph box (the cloud's tap target).
+    static let deviceGlyphBox: CGFloat = 32
 
     var body: some View {
         let facts = item.facts
         switch column {
         case .device:
-            HStack(spacing: 5) {
-                if let copy = facts.deviceCopy {
-                    let symbol = Image(systemName: copy.symbol).font(.subheadline)
-                        .foregroundStyle(copy == .reader || copy == .pdf ? Color.accentColor : copy == .unavailable ? .orange : .secondary)
-                    if copy == .cloud, let download {
-                        Button(action: download) { symbol.frame(minWidth: 32, minHeight: 32) }.buttonStyle(.plain)
-                            .accessibilityLabel("Download to this device").help("Download to this device")
-                    } else { symbol.accessibilityLabel(copy.label).help(copy.label) }
-                }
+            if let copy = facts.deviceCopy {
+                // Every state in the same box, centred in the column (LibraryTableColumn.alignment), so a check and a cloud
+                // share the header's centre.
+                let symbol = Image(systemName: copy.symbol).font(.subheadline)
+                    .foregroundStyle(copy == .reader || copy == .pdf ? Color.accentColor : copy == .unavailable ? .orange : .secondary)
+                    .frame(width: LibraryTableCell.deviceGlyphBox, height: LibraryTableCell.deviceGlyphBox)
+                if copy == .cloud, let download {
+                    Button(action: download) { symbol.contentShape(Rectangle()) }.buttonStyle(.plain)
+                        .accessibilityLabel("Download to this device").help("Download to this device")
+                } else { symbol.accessibilityLabel(copy.label).help(copy.label) }
             }
         case .authors: Text(facts.authors ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
         case .year: PaperTableText(text: facts.year.map(String.init))
         case .venue: Text(facts.paper?.venue ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
-        case .tags: PaperTableChips(tags: Array(facts.tags.prefix(4)), highlighted: highlightedTag, onTap: filterTag)
+        case .tags:
+            if let model { LibraryTagChips(model: model, tags: Array(facts.tags.prefix(4))) }
+            else { PaperTableChips(tags: Array(facts.tags.prefix(4))) }
         case .source: Text(facts.source ?? "").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.middle)
         case .pages: PaperTableText(text: facts.pages.map(String.init))
@@ -555,6 +569,64 @@ struct LibrarySwipeActions: View {
     }
 }
 
+// MARK: Tags
+
+/// The Library table's tag chips. A tap (a click on iPad and Mac) opens the tag's choices as a menu (owner, TestFlight 92:
+/// "It just filters right now but I'd like a few different options"). Each chip is a button for VoiceOver and Full
+/// Keyboard Access; the chip of the tag the Library is filtered by is drawn in the accent colour.
+struct LibraryTagChips: View {
+    @Bindable var model: ReaderModel
+    let tags: [String]
+    var body: some View {
+        PaperTableChipFlow(spacing: 4, lineSpacing: 4, maxLines: 2) {
+            ForEach(tags, id: \.self) { tag in
+                Menu { LibraryTagActions(model: model, tag: tag) } label: {
+                    PaperTableChipLabel(tag: tag, on: tag == model.libraryTagFilter)
+                }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                .accessibilityLabel("Tag: \(tag)")
+                .accessibilityValue(tag == model.libraryTagFilter ? (model.libraryTagIncludesRelated ? "Filtered, with related papers" : "Filtered") : "")
+                .accessibilityHint("Filter, Filter + related, or Search ML papers")
+                .accessibilityIdentifier("library.tagChip.\(tag)")
+                #if targetEnvironment(macCatalyst)
+                .help("Filter by “\(tag)”, with related papers, or search ML papers")
+                #endif
+            }
+        }
+        .clipped()
+    }
+}
+
+/// A tag's choices wherever the Library offers them as a menu (a tag chip; the Tags menu has the same, arranged as its
+/// own): Filter (the papers with the tag), Filter + related (also untagged papers close to them or using the tag's words;
+/// TagRelated) and Search ML papers for the tag's words. The current one is checked; Show all papers clears it.
+struct LibraryTagActions: View {
+    @Bindable var model: ReaderModel
+    let tag: String
+    var body: some View {
+        let chosen = model.libraryTagFilter == tag
+        Section(tag) {
+            Button { model.filterLibrary(byTag: tag, related: false) } label: {
+                if chosen && !model.libraryTagIncludesRelated { Label("Filter", systemImage: "checkmark") } else { Text("Filter") }
+            }
+            .accessibilityIdentifier("library.tag.filter")
+            Button { model.filterLibrary(byTag: tag, related: true) } label: {
+                if chosen && model.libraryTagIncludesRelated { Label("Filter + related", systemImage: "checkmark") } else { Text("Filter + related") }
+                Text("Adds related papers that aren’t tagged")
+            }
+            .accessibilityIdentifier("library.tag.related")
+            // The tag's plain words: arXiv has no keyword field, and these are Gradstep's tags (paper-search.ts ANDs the
+            // words and favours titles with the whole phrase).
+            Button { model.searchPapers(tag) } label: { Label("Search ML papers for “\(tag)”", systemImage: "magnifyingglass") }
+                .accessibilityIdentifier("library.tag.search")
+        }
+        if chosen {
+            Button { model.libraryTagFilter = nil } label: { Label("Show all papers", systemImage: "xmark") }
+                .accessibilityIdentifier("library.tag.clear")
+        }
+    }
+}
+
 // MARK: Filters
 
 /// The Library's quick filters, above the table (and the List): the Tags menu, All, then the filters that would show
@@ -594,13 +666,19 @@ struct LibraryFilterBar: View {
         }
     }
 
-    /// One chip for tags: "Tags ⌄", or the chosen tag. Most used first. At the top, ML paper search for the chosen tag,
-    /// or for one of them (owner, build 75: "a Search ML papers for tag at the top… either external or internal": the tag
-    /// rows below are the internal one).
+    /// One chip for tags: "Tags ⌄", or the chosen tag ("… + related" with its related papers). Most used first. At the top,
+    /// for the chosen tag Include related papers and ML paper search, or ML paper search for one of them (owner, build 75:
+    /// "a Search ML papers for tag at the top… either external or internal": the tag rows below are the internal one).
     private func tagMenu(_ summary: LibraryFilterSummary) -> some View {
-        Menu {
+        let related = model.libraryTagFilter != nil && model.libraryTagIncludesRelated
+        return Menu {
             Section {
                 if let tag = model.libraryTagFilter {
+                    // Filter + related (owner, TestFlight 92), kept when another tag is chosen below.
+                    Toggle(isOn: $model.libraryTagIncludesRelated) {
+                        Text("Include related papers"); Text("Untagged papers close to these or using the words")
+                    }
+                    .accessibilityIdentifier("library.tags.related")
                     Button("Search ML papers for “\(tag)”", systemImage: "magnifyingglass") { model.searchPapers(tag) }
                         .accessibilityIdentifier("library.tags.search")
                 } else if !summary.tags.isEmpty {
@@ -615,17 +693,18 @@ struct LibraryFilterBar: View {
             }
             Section {
                 ForEach(summary.tags, id: \.tag) { entry in
-                    Button { model.libraryTagFilter = entry.tag } label: {
+                    Button { model.filterLibrary(byTag: entry.tag, related: related) } label: {
                         if model.libraryTagFilter == entry.tag { Label(entry.tag, systemImage: "checkmark") } else { Text(entry.tag) }
                         Text(entry.count == 1 ? "1 paper" : "\(entry.count) papers")
                     }
                 }
             }
         } label: {
-            ChipLabel(title: model.libraryTagFilter ?? "Tags", selected: model.libraryTagFilter != nil, systemImage: "chevron.down")
+            ChipLabel(title: model.libraryTagFilter.map { related ? "\($0) + related" : $0 } ?? "Tags", selected: model.libraryTagFilter != nil,
+                      systemImage: "chevron.down")
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(model.libraryTagFilter.map { "Tag: \($0)" } ?? "Tags")
+        .accessibilityLabel(model.libraryTagFilter.map { related ? "Tag: \($0), with related papers" : "Tag: \($0)" } ?? "Tags")
         .accessibilityIdentifier("library.filter.tags")
     }
 }
