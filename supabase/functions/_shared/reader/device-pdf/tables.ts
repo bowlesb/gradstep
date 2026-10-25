@@ -1,4 +1,4 @@
-// Tables as cells (device_pdf.table_cells and cell_span_ok), ported rule for rule; since port revision 13 with two measured
+// Tables as cells (device_pdf.table_cells and cell_span_ok), ported rule for rule; since port revision 13 with measured
 // rules of its own (TableOptions; docs/reviews/DEVICE_PDF_TABLES_20261024.md).
 import { byX, linesOf, visible } from './geometry.ts';
 import { CELL_GAP, WIDE_CELL, type Glyph } from './types.ts';
@@ -25,8 +25,14 @@ export interface TableOptions {
   columns?: boolean;
   /** A cell that joins lines keeps them as lines: its text is read line by line instead of by x across them. */
   cellLines?: boolean;
+  /** A gap of 0.45 of the line's glyph height, not 0.6, separates two cells of a line: tables set with a narrow
+   * column separation (or scaled down) no longer read two columns' entries as one cell. */
+  narrowGaps?: boolean;
 }
 
+/** The narrowGaps rule's cell gap, in glyph heights (measured on the factory's labelled tables: 0.4 splits words of
+ * loosely set text cells, 0.5 and up merges narrow columns). */
+const NARROW_CELL_GAP = 0.45;
 const lowerMedian = (values: number[]) => { const s = [...values].sort((a, b) => a - b); return s[s.length >> 1]; };
 const top = (gl: readonly Glyph[]) => Math.min(...gl.map(g => g.top));
 const bottom = (gl: readonly Glyph[]) => Math.max(...gl.map(g => g.bottom));
@@ -35,13 +41,14 @@ const extent = (r: readonly Glyph[]): [number, number] => [Math.min(...r.map(g =
 /** Rows of (cell glyphs, colspan[, lines]) from the text layer inside a table box, or null (fewer than two columns or
  * rows). */
 export function tableCells(glyphs: readonly Glyph[], options: TableOptions = {}): Cell[][] | null {
-  if (!options.columns && !options.cellLines) return referenceCells(glyphs);
+  if (!options.columns && !options.cellLines && !options.narrowGaps) return referenceCells(glyphs);
   const lines = linesOf(glyphs.filter(visible)).map((ln, i) => [ln, i] as const)
     .sort((a, b) => top(a[0]) - top(b[0]) || a[1] - b[1]).map(([ln]) => ln);
   if (lines.length < 2) return null;
   const x0 = Math.min(...glyphs.map(g => g.x0));
   const width = Math.max(1.0, Math.max(...glyphs.map(g => g.x1)) - x0);
 
+  const gapFactor = options.narrowGaps ? NARROW_CELL_GAP : CELL_GAP;
   const runsByLine: Glyph[][][] = [];
   for (const ln of lines) {
     const order = byX(ln);
@@ -49,7 +56,7 @@ export function tableCells(glyphs: readonly Glyph[], options: TableOptions = {})
     const runs: Glyph[][] = [[order[0]]];
     for (const g of order.slice(1)) {
       const last = runs[runs.length - 1];
-      if (g.x0 - last[last.length - 1].x1 > CELL_GAP * h) runs.push([]);
+      if (g.x0 - last[last.length - 1].x1 > gapFactor * h) runs.push([]);
       runs[runs.length - 1].push(g);
     }
     runsByLine.push(runs);

@@ -92,7 +92,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   useWordGaps(null);
   useLineBands(!!input.lineBands, !!input.lineReturns);
   // Table rules (tables.ts): none set reads tables as the reference does.
-  const tableOptions: TableOptions = { columns: !!input.tableColumns, cellLines: !!input.cellLines };
+  const tableOptions: TableOptions = { columns: !!input.tableColumns, cellLines: !!input.cellLines, narrowGaps: !!input.narrowCellGaps };
   useLigatures(!!input.ligatures);
   const nPages = input.pages;
   check(Number.isSafeInteger(nPages) && nPages >= 1 && nPages <= 2000, 'device_pdf_pages');

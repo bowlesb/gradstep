@@ -334,6 +334,11 @@ test('table columns: the body\'s grid sets the columns, a spanning header spans 
   assert.deepEqual(tableCells(t)!.map(text), [['Model', 'Accuracy'], ['', 'Top1Top5'], ['Dense', '91.097.1'], ['Sparse', '91.597.4']],
     'the reference: the header bridges the two result columns into one');
   assert.deepEqual(tableCells(t, { columns: true })!.map(text), [['Model', 'Accuracy/2'], ['', 'Top1', 'Top5'], ['Dense', '91.0', '97.1'], ['Sparse', '91.5', '97.4']]);
+  // narrowGaps: columns 5.5 pt apart (0.55 of a 10 pt glyph height) are two cells; the reference needs more than 0.6.
+  const tight = [...line('Model', 60, 100), ...line('Acc', 90.5, 100), ...line('Cost', 200, 100), ...line('Dense', 60, 115), ...line('91.0', 90.5, 115),
+    ...line('1.0', 200, 115), ...line('Light', 60, 130), ...line('91.5', 90.5, 130), ...line('0.4', 200, 130)];
+  assert.deepEqual(tableCells(tight)!.map(text), [['ModelAcc', 'Cost'], ['Dense91.0', '1.0'], ['Light91.5', '0.4']], 'the reference merges the two');
+  assert.deepEqual(tableCells(tight, { narrowGaps: true })!.map(text), [['Model', 'Acc', 'Cost'], ['Dense', '91.0', '1.0'], ['Light', '91.5', '0.4']]);
 });
 
 test('cell lines and captions below: a wrapped cell reads line by line; a caption printed under its table follows it', () => {

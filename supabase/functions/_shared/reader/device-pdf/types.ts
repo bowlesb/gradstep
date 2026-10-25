@@ -146,6 +146,8 @@ export interface DevicePDFInput {
   tableColumns?: boolean;
   /** A table cell of several lines read line by line (tables.TableOptions.cellLines). */
   cellLines?: boolean;
+  /** Table cells separated by gaps of 0.45 glyph heights, not 0.6 (tables.TableOptions.narrowGaps). */
+  narrowCellGaps?: boolean;
   /** A table's caption printed under it follows the table in the reading (convert, emit). */
   tableCaptionBelow?: boolean;
 }

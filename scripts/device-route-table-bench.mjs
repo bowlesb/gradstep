@@ -4,7 +4,7 @@
 // in page points, made by scripts/device-route-table-bench.py from the desktop factory's table index (arXiv tables whose
 // grids come from LaTeXML). Evaluation only; runs anywhere Node runs, in seconds per thousand tables.
 //
-//   node scripts/device-route-table-bench.mjs <bench.jsonl> [--set columns=true …] [--limit n] [--worst n]
+//   node scripts/device-route-table-bench.mjs <bench.jsonl> [--set columns=true …] [--limit n] [--worst n] [--reference-lines]
 //
 // Glyphs are mapped to label cells by their centres. Measures: tables read as a grid; cells exactly right (a predicted
 // cell holding exactly a label cell's glyphs; recall over label cells with glyphs, precision over predicted cells with
@@ -16,13 +16,19 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { tableCells } = await import(`${ROOT}/supabase/functions/_shared/reader/device-pdf/tables.ts`);
+const { useLineBands } = await import(`${ROOT}/supabase/functions/_shared/reader/device-pdf/geometry.ts`);
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
 const options = {};
 argv.forEach((a, i) => { if (a === '--set') { const [k, ...v] = argv[i + 1].split('='); options[k] = JSON.parse(v.join('=')); } });
 const limit = Number(arg('--limit', '0')), worst = Number(arg('--worst', '0'));
+// Lines as the app builds them (its lineBands and lineReturns rules), unless --reference-lines.
+useLineBands(!argv.includes('--reference-lines'), !argv.includes('--reference-lines'));
 
 const totals = { tables: 0, read: 0, labelCells: 0, predCells: 0, exact: 0, labelRel: 0, predRel: 0, rel: 0 };
+/** Why label cells are not exactly right: split across predicted rows or cells of a row, merged with another label cell
+ * of its row or column, or the table not read at all. */
+const why = { notRead: 0, splitRows: 0, splitCells: 0, mergedRow: 0, mergedColumn: 0, mergedOther: 0 };
 const perTable = [];
 const lines = readFileSync(argv[0], 'utf8').split('\n').filter(Boolean);
 for (const [n, line] of lines.entries()) {
@@ -70,6 +76,20 @@ for (const [n, line] of lines.entries()) {
       const want = labelSets.get(c.label);
       if (want && want.size === c.mapped.length && c.mapped.every(g => cellOf.get(g) === c.label)) exact++;
     }
+    // The causes, per label cell not matched exactly.
+    const where = new Map();
+    for (const c of named) for (const g of c.mapped) where.set(g, c);
+    for (const [ci, set] of labelSets) {
+      const homes = new Set([...set].map(g => where.get(g)).filter(Boolean));
+      const label = t.cells[ci];
+      if (homes.size === 1) {
+        const home = [...homes][0];
+        const others = new Set(home.mapped.map(g => cellOf.get(g)).filter(x => x !== ci));
+        if (!others.size) continue;
+        const o = t.cells[[...others][0]];
+        if (o.row === label.row) why.mergedRow++; else if (o.col === label.col) why.mergedColumn++; else why.mergedOther++;
+      } else if (new Set([...homes].map(h => h.r)).size > 1) why.splitRows++; else why.splitCells++;
+    }
     for (const c of named) {
       const right = named.filter(d => d.r === c.r && d.col >= c.col + c.span).sort((a, b) => a.col - b.col)[0];
       const below = named.filter(d => d.col <= c.col + c.span - 1 && d.col + d.span - 1 >= c.col && d.r > c.r).sort((a, b) => a.r - b.r)[0];
@@ -78,6 +98,7 @@ for (const [n, line] of lines.entries()) {
     }
     for (const x of predRel) if (labelRel.has(x)) rel++;
   }
+  if (!grid) why.notRead += labelSets.size;
   totals.labelCells += labelSets.size; totals.predCells += predCells; totals.exact += exact;
   totals.labelRel += labelRel.size; totals.predRel += predRel.size; totals.rel += rel;
   perTable.push({ paper: t.paper, page: t.page, id: t.id, cells: labelSets.size, exactRecall: exact / labelSets.size, relF1: 2 * rel / Math.max(1, labelRel.size + predRel.size) });
@@ -87,5 +108,5 @@ const f1 = (m, a, b) => r3(2 * m / Math.max(1, a + b));
 console.log(JSON.stringify({ options, tables: totals.tables, read: r3(totals.read / Math.max(1, totals.tables)),
   cell_recall: r3(totals.exact / Math.max(1, totals.labelCells)), cell_precision: r3(totals.exact / Math.max(1, totals.predCells)), cell_f1: f1(totals.exact, totals.labelCells, totals.predCells),
   adjacency_recall: r3(totals.rel / Math.max(1, totals.labelRel)), adjacency_precision: r3(totals.rel / Math.max(1, totals.predRel)), adjacency_f1: f1(totals.rel, totals.labelRel, totals.predRel),
-  tables_exact: r3(perTable.filter(p => p.exactRecall === 1).length / Math.max(1, perTable.length)) }));
+  tables_exact: r3(perTable.filter(p => p.exactRecall === 1).length / Math.max(1, perTable.length)), why }));
 if (worst) for (const p of perTable.sort((a, b) => a.relF1 - b.relF1).slice(0, worst)) console.log(JSON.stringify(p));
