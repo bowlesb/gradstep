@@ -191,6 +191,8 @@ final class ReaderModel {
     @ObservationIgnored private var librarySearchFullTextRevision: UInt64 = 0
     /// Body snippets of the displayed search results, by row ID (only rows whose match was in the paper's text).
     private(set) var librarySnippets: [String: FullTextSnippet] = [:]
+    /// With a query: each result row's match (how many words, where, the title's matched words, one excerpt).
+    private(set) var libraryMatches: [String: SearchResultMatch] = [:]
     /// Opening a search result with a snippet: its paper opens with Find in paper showing the matched words.
     var pendingPaperFind: PendingPaperFind?
 
@@ -614,6 +616,12 @@ final class ReaderModel {
     enum DiscoveryState: Equatable { case idle, searching, results, failed(String) }
     private(set) var discoveryResults: [DiscoveryResult] = []
     private(set) var discoveryState: DiscoveryState = .idle
+    /// The (trimmed) query the shown results answer.
+    private(set) var discoveryResultsQuery = ""
+    /// Each shown result's match against `discoveryMatchQuery`: how many of the words it contains and where, its title's
+    /// matched words, and its abstract around them (SearchMatch). arXiv chooses the results; this only measures them.
+    private(set) var discoveryMatches: [String: SearchResultMatch] = [:]
+    private(set) var discoveryMatchQuery = FullTextQuery("")
     /// arXiv results newest first by default (owner feedback, build 16 #2); Relevance is the server's order. Kept.
     var discoveryOrder = DiscoveryOrder(rawValue: UserDefaults.standard.string(forKey: "discover.order") ?? "") ?? .newest {
         didSet { UserDefaults.standard.set(discoveryOrder.rawValue, forKey: "discover.order") }
@@ -659,6 +667,21 @@ final class ReaderModel {
     }
     var searchExternal = false
     var searchQuery: String { get { searchExternal ? discoveryQuery : libraryQuery } set { if searchExternal { discoveryQuery = newValue } else { libraryQuery = newValue } } }
+    /// The Library / ML paper search switch: what was typed stays in the field and is searched in the new scope (owner,
+    /// TestFlight 91 session: "I just switched, but the text disappeared… The text should be preserved"). Each scope
+    /// keeps its own query (`libraryQuery`, `discoveryQuery`), so switching used to show the other, usually empty, one.
+    func setSearchScope(external: Bool) {
+        guard external != searchExternal else { return }
+        let text = searchQuery
+        if external {
+            discoveryQuery = text; searchExternal = true
+            let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Results already for these words stay; anything else is searched now (arXiv's answers are cached a day).
+            if !query.isEmpty, !(discoveryState == .results && discoveryResultsQuery == query) { runDiscovery() }
+        } else {
+            searchExternal = false; libraryQuery = text
+        }
+    }
     var showAbstracts = UserDefaults.standard.object(forKey: "library.showAbstracts") as? Bool ?? true { didSet { UserDefaults.standard.set(showAbstracts, forKey: "library.showAbstracts") } }
     var showTopics = UserDefaults.standard.object(forKey: "library.showTopics") as? Bool ?? true { didSet { UserDefaults.standard.set(showTopics, forKey: "library.showTopics") } }
     var appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system" { didSet { UserDefaults.standard.set(appearance, forKey: "appearance") } }
@@ -1340,6 +1363,7 @@ final class ReaderModel {
         if !librarySearchKeepsCurrentRows {
             libraryMatchedIDs = []; libraryRows = []; completedLibrarySearchKey = nil
             if !librarySnippets.isEmpty { librarySnippets = [:] }
+            if !libraryMatches.isEmpty { libraryMatches = [:] }
         }
         librarySearchPending = true; librarySearchIssue = nil
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
@@ -1403,9 +1427,9 @@ final class ReaderModel {
         #endif
         var candidates: [LibrarySearchCandidate] = []
         var lookup: [String: LibraryListEntry] = [:]
-        func append(_ row: LibraryListEntry, fields: [String], sequence: Int64, keys: LibrarySortKeys = .init(), fullTextKey: String? = nil) {
+        func append(_ row: LibraryListEntry, fields: [String], kinds: [SearchMatchField], sequence: Int64, keys: LibrarySortKeys = .init(), fullTextKey: String? = nil) {
             candidates.append(LibrarySearchCandidate(id: row.id, title: row.title,
-                fields: fields, recentSequence: sequence, position: candidates.count, keys: keys, fullTextKey: fullTextKey))
+                fields: fields, recentSequence: sequence, position: candidates.count, keys: keys, fullTextKey: fullTextKey, fieldKinds: kinds))
             lookup[row.id] = row
         }
         // Archive changes waiting to sync already apply here, so a swipe hides the row at once.
@@ -1423,7 +1447,7 @@ final class ReaderModel {
                                        chats: paperChatCounts[paper.id] ?? 0, tag: tags.first, pages: paper.pageCount,
                                        source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL))
             append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags,
-                   sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys, fullTextKey: paper.id.wire)
+                   kinds: [.title, .authors, .abstract, .identifier], sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys, fullTextKey: paper.id.wire)
         }
         for item in libraryImports where catalogContains(catalogKey(item)) {
             let tags = LibraryTags.tags(for: item)
@@ -1432,8 +1456,11 @@ final class ReaderModel {
             let keys = LibrarySortKeys(authors: item.metadata?.authors.first.map(LibraryFormat.familyName),
                                        year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) }, tag: tags.first,
                                        source: LibrarySourceLabel.label(sourceID: item.sourceID, url: nil))
+            let authors = item.metadata?.authors ?? []
             append(.pending(item), fields: [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
-                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []) + tags, sequence: item.createdSequence, keys: keys)
+                + authors + (item.metadata?.categories ?? []) + tags,
+                   kinds: [.identifier, .title, .abstract] + Array(repeating: .authors, count: authors.count),
+                   sequence: item.createdSequence, keys: keys)
         }
         for command in libraryCommands where filter.includesQueued && tagFilter == nil {
             // Cached mappings suppress duplicate presentation only; they do
@@ -1442,7 +1469,7 @@ final class ReaderModel {
                   command.isUnfinished, !presentedImportIDs.contains(command.id),
                   LibraryCatalogBatch.arxivKey(source).map(catalogContains) == true else { continue }
             append(.queued(command), fields: [command.display ?? "", source + (revision.map { "v\($0)" } ?? "")],
-                   sequence: Int64.max)
+                   kinds: [.title, .identifier], sequence: Int64.max)
         }
         let equivalent = candidates == librarySearchCandidates
         librarySearchCandidates = candidates; libraryRowLookup = lookup
@@ -1470,6 +1497,7 @@ final class ReaderModel {
             }
             libraryMatchedIDs = result.rowIDs; libraryRows = rows
             if librarySnippets != result.snippets { librarySnippets = result.snippets }
+            if libraryMatches != result.matches { libraryMatches = result.matches }
             completedLibrarySearchKey = result.ticket.key
             librarySearchPending = false; librarySearchIssue = nil
             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
@@ -2292,7 +2320,7 @@ final class ReaderModel {
     private func clearAccountView() {
         localAI.cancelInference()
         contextualChat = nil; contextualComposers = [:]; explainerReturn = nil; presentedExplainer = nil; promotedChatContexts = [:]
-        fullTextIndexer.detach(); librarySnippets = [:]; pendingPaperFind = nil
+        fullTextIndexer.detach(); librarySnippets = [:]; libraryMatches = [:]; pendingPaperFind = nil
         pendingAIChoice = nil; pendingLocalAIChoice = nil
         // Before the old writer retires: fence answers and keep their partials.
         retireChatGenerations()
@@ -2524,7 +2552,15 @@ final class ReaderModel {
         let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         discoveryTask?.cancel(); discoveryGeneration += 1
         let generation = discoveryGeneration
-        guard !query.isEmpty else { discoveryResults = []; discoveryState = .idle; return }
+        guard !query.isEmpty else { discoveryResults = []; discoveryMatches = [:]; discoveryResultsQuery = ""; discoveryState = .idle; return }
+        #if DEBUG && FIXTURE_HOST
+        // `--discover-fixture`: ML paper search answers with the same papers whatever the words (as arXiv answers
+        // papers that contain only some of them), so the match line can be checked.
+        if ProcessInfo.processInfo.arguments.contains("--discover-fixture") {
+            let results = (try? JSONDecoder().decode([DiscoveryResult].self, from: Data(Self.discoverFixtureJSON.utf8))) ?? []
+            showDiscovery(results, for: query); return
+        }
+        #endif
         guard let backend, let accountID else { discoveryState = .failed("Sign in to search ML papers."); return }
         discoveryState = .searching
         let scope = sessionID
@@ -2534,7 +2570,7 @@ final class ReaderModel {
                 let onDevice = await self.libraryService?.capabilities?.searchesOnDevice == true
                 let results = onDevice ? try await DeviceSearch.shared.search(query) : try await backend.discover(query: query, accountID: accountID)
                 guard self.sessionID == scope, self.discoveryGeneration == generation else { return }
-                self.discoveryResults = results; self.discoveryState = .results
+                self.showDiscovery(results, for: query)
             } catch {
                 guard self.sessionID == scope, self.discoveryGeneration == generation, !(error is CancellationError) else { return }
                 self.discoveryState = .failed((error as? DeviceSearch.Failure) == .paused
@@ -2542,6 +2578,33 @@ final class ReaderModel {
                     : "ML paper search isn’t available right now. Try again in a moment.")
             }
         }
+    }
+
+    private func showDiscovery(_ results: [DiscoveryResult], for query: String) {
+        let words = Self.discoveryMatchQuery(query)
+        discoveryMatchQuery = words
+        discoveryMatches = Dictionary(results.map { ($0.sourceID, Self.discoveryMatch($0, query: words)) }, uniquingKeysWith: { first, _ in first })
+        discoveryResults = results; discoveryResultsQuery = query; discoveryState = .results
+    }
+
+    /// The words ML paper search results are measured against: the query without Search by fields' names and years
+    /// (`title:"…"`), each word complete (it was submitted).
+    nonisolated static func discoveryMatchQuery(_ query: String) -> FullTextQuery {
+        let text = query.replacingOccurrences(of: #"(?i)\byear:"[^"]*""#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\b(title|author|abstract|ti|au|abs|all):"#, with: "", options: .regularExpression)
+        return FullTextQuery(text.trimmingCharacters(in: .whitespacesAndNewlines) + " ")
+    }
+
+    /// One ML paper search result's match: its arXiv ID, title, abstract and authors, by the Library's rules plus common
+    /// word endings (arXiv matches "learned" for "learning").
+    nonisolated static func discoveryMatch(_ result: DiscoveryResult, query: FullTextQuery) -> SearchResultMatch {
+        let match = SearchHighlighter.evaluate(query, fields: [(.identifier, result.sourceID), (.title, result.title),
+                                                               (.abstract, result.abstract ?? ""), (.authors, result.authors.joined(separator: ", "))], loose: true)
+        var out = SearchResultMatch(match: match, titleHighlights: SearchHighlighter.highlights(query, in: result.title, loose: true))
+        if let abstract = result.abstract, let excerpt = SearchHighlighter.excerpt(query, in: abstract, length: 220, loose: true) {
+            out.excerpt = excerpt; out.excerptField = .abstract
+        }
+        return out
     }
 
     // MARK: Feed — For you and the reader's topics when the server offers them (docs/architecture/
@@ -5759,6 +5822,15 @@ extension ReaderModel {
 
     /// The category fixture's rows (`installFeedFixture`), for More topics.
     nonisolated(unsafe) static var fixtureCategoryJSON = "[]"
+
+    /// ML paper search's fixture answer (`--discover-fixture`): for "diffusion policy robot", one paper with every word in
+    /// its title (100% · title), one with two in its title and the third in its abstract (100% · title, abstract), and one
+    /// with only "robot", late in its abstract (33% · abstract).
+    static let discoverFixtureJSON = """
+    [{"source_id":"2610.03011","revision":1,"title":"Diffusion Policies for Robot Manipulation","authors":["Hiro Tanaka","Lena Fischer"],"year":2026,"abstract":"Distilling a diffusion policy into a one-step consistency model keeps success rates while running at 50 Hz on hardware.","categories":["cs.RO","cs.LG"]},
+     {"source_id":"2610.04120","revision":1,"title":"Consistency Distillation for Diffusion Policies","authors":["Omar Haddad"],"year":2026,"abstract":"We distill policies into one step and evaluate them on a real robot arm across twelve household tasks.","categories":["cs.RO"]},
+     {"source_id":"2609.11890","revision":1,"title":"Calibrated Uncertainty for Reward Models","authors":["Priya Nair"],"year":2026,"abstract":"Reward models trained with preference data are overconfident. We calibrate them with a small held-out set and show that a robot learning from the calibrated reward explores more safely, measured across many training runs with varied seeds and reward scales.","categories":["cs.LG","stat.ML"]}]
+    """
 
     static let fixtureFeedTopics = [FeedTopic(name: "RL for reasoning", kind: "combined", papers: 41),
                                     FeedTopic(name: "Mechanistic interpretability", kind: "topic", papers: 12),

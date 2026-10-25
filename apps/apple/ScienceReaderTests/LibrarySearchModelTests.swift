@@ -112,6 +112,40 @@ final class LibrarySearchModelTests: XCTestCase {
         XCTAssertNil(model.librarySearchIssue, file: file, line: line)
     }
 
+    /// The Library / ML paper search switch keeps the words (owner, TestFlight 91 session: "I just switched, but the text
+    /// disappeared") and searches them in the new scope.
+    func testTheScopeSwitchCarriesTheWordsBothWaysAndSearchesThem() async {
+        let fixture = ModelSearchFixture(expectedStarts: 0)
+        let model = fixture.model
+        model.libraryQuery = "diffusion policy"
+        model.setSearchScope(external: true)
+        XCTAssertTrue(model.searchExternal)
+        XCTAssertEqual(model.searchQuery, "diffusion policy")
+        // Searched at once (signed out here, so the failure says so; never empty results).
+        XCTAssertEqual(model.discoveryState, .failed("Sign in to search ML papers."))
+        model.searchQuery = "diffusion policy robot"
+        model.setSearchScope(external: false)
+        XCTAssertFalse(model.searchExternal)
+        XCTAssertEqual(model.libraryQuery, "diffusion policy robot")
+        XCTAssertEqual(model.searchQuery, "diffusion policy robot")
+        await fixture.close()
+    }
+
+    /// ML paper search results are measured against the words alone (not Search by fields' names or years), at their
+    /// arXiv ID, title, abstract (with word endings folded, as arXiv does) and authors.
+    func testMLPaperSearchMatchesMeasureTheWordsInEachResult() throws {
+        XCTAssertEqual(ReaderModel.discoveryMatchQuery(#"title:"diffusion policy" author:"Chi" year:"2024""#).clauses.map(\.text),
+                       ["diffusion policy", "Chi"])
+        let json = #"{"source_id":"2610.03011","revision":1,"title":"Diffusion Policies for Robot Manipulation","authors":["Hiro Tanaka"],"year":2026,"abstract":"A learned policy.","categories":["cs.RO"]}"#
+        let result = try JSONDecoder().decode(DiscoveryResult.self, from: Data(json.utf8))
+        let match = ReaderModel.discoveryMatch(result, query: ReaderModel.discoveryMatchQuery("diffusion learning tanaka 2610.03011"))
+        XCTAssertEqual(match.match.label, "100% · ID, title, abstract, authors")
+        XCTAssertEqual(match.titleHighlights, [0..<9])
+        XCTAssertEqual(match.excerpt?.firstMatch, "learned")
+        let partial = ReaderModel.discoveryMatch(result, query: ReaderModel.discoveryMatchQuery("robot transformer world"))
+        XCTAssertEqual(partial.match.label, "33% · title")
+    }
+
     func testQueryAToBToAOnlyPublishesTheLastIntentAndHidesOldRowsWhilePending() async {
         let fixture = ModelSearchFixture(expectedStarts: 3)
         let model = fixture.model

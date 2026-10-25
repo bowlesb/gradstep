@@ -23,6 +23,8 @@ public struct FullTextHit: Sendable {
     public var score: Double = 0
     public var clauses: UInt64 = 0
     public var bodyClauses: UInt64 = 0
+    /// Per field (`FullTextField` order), the clauses found in it.
+    public internal(set) var fieldClauses = [UInt64](repeating: 0, count: FullTextField.allCases.count)
     /// Where the body matched, for the snippet: a term's postings entry (positions decoded only if a snippet is
     /// made) or a phrase's first position (`length` > 0).
     struct BodyReference: Sendable {
@@ -34,6 +36,14 @@ public struct FullTextHit: Sendable {
     }
     var bodyReferences: [BodyReference] = []
     init(group: String) { self.group = group }
+
+    /// The strongest field clause `index` was found in (title before abstract, authors, tags, notes, then the text).
+    public func strongestField(clause index: Int) -> SearchMatchField? {
+        guard index < 64 else { return nil }
+        let bit: UInt64 = 1 << UInt64(index)
+        return fieldClauses.indices.filter { fieldClauses[$0] & bit != 0 }
+            .compactMap { FullTextField(rawValue: $0).map(SearchMatchField.init) }.min()
+    }
 }
 
 /// A line of the paper's text around its densest match, with the matched words' ranges (UTF-16 offsets).
@@ -214,6 +224,7 @@ public final class FullTextSnapshot: @unchecked Sendable {
                 hit.score += idf * score
                 hit.clauses |= 1 << UInt64(clauseIndex)
                 if frequencies[at + FullTextField.body.rawValue] > 0 { hit.bodyClauses |= 1 << UInt64(clauseIndex) }
+                for field in 0..<fieldCount where frequencies[at + field] > 0 { hit.fieldClauses[field] |= 1 << UInt64(clauseIndex) }
                 hits[Int(slot)] = hit
             }
         }

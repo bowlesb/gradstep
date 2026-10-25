@@ -21,6 +21,22 @@ final class VisualScenarioTests: XCTestCase {
     private static let feedTableFixture = metadataFixture + ["--feed-fixture", "--feed-layout=table"]
     private static let mathpixFixture = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture"]
     private static let historyFixture = chatFixture + ["--chat-history-fixture"]
+    /// The encrypted draft fixture: a real full-text index on disk (the sample is indexed once opened).
+    private static let searchFixture = ["--draft-fixture", "--reset-draft-fixture"]
+
+    /// Types `query` in the Library's field; with `until`, waits (the sample is indexed in the background) for the sample's
+    /// row to show those words, else a moment.
+    private func searchLibrary(_ app: XCUIApplication, _ query: String, until words: String?) {
+        app.show("library")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText(query)
+        if let words {
+            let row = app.buttons[sampleID]
+            let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in row.exists && row.label.contains(words) }, object: nil)
+            _ = XCTWaiter.wait(for: [shown], timeout: 20)
+        } else { sleep(4) }
+        sleep(1)
+    }
 
     /// The catalogue. Keep steps short and deterministic; wait for the state, never for time alone when avoidable.
     private var scenarios: [String: Scenario] {
@@ -40,6 +56,21 @@ final class VisualScenarioTests: XCTestCase {
             "library-search": Scenario(arguments: ["--workflow-fixture"]) { app in
                 let search = app.searchFields.firstMatch
                 XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("attention")
+                sleep(1)
+            },
+            // Search results' match line (owner, TestFlight 91 session): over the encrypted draft fixture's real full-text
+            // index, a word only the sample's text has (List and table), and words in its abstract.
+            "search-match-text": Scenario(arguments: Self.searchFixture) { app in self.searchLibrary(app, "compatibility", until: "compatibility") },
+            "search-match-table": Scenario(arguments: Self.searchFixture + ["--library-layout=table"]) { app in
+                self.searchLibrary(app, "compatibility", until: nil)
+            },
+            "search-match-abstract": Scenario(arguments: Self.searchFixture) { app in self.searchLibrary(app, "local equations", until: nil) },
+            // Typed in the Library, then the switch to ML paper search: the words stay and are searched there.
+            "search-scope-switch": Scenario(arguments: Self.searchFixture + ["--discover-fixture"]) { app in
+                self.searchLibrary(app, "diffusion policy robot", until: nil)
+                let scope = app.segmentedControls["library.searchScope"]
+                XCTAssertTrue(scope.waitForExistence(timeout: 5)); scope.buttons["ML paper search"].tap()
+                if app.keyboards.count > 0 { app.swipeDown(velocity: .fast) }
                 sleep(1)
             },
             // Library layouts (owner decisions 2026-10-05/06) over a varied metadata fixture. The table is the
