@@ -4,7 +4,7 @@ import SwiftUI
 // delete feel like they should be hidden away? What does appearance mean to the user?" and, of Acknowledgements as a
 // Settings row, "This doesn't look like it should be there"). Settings starts with one Account row that opens the
 // Account page (email, how you sign in, sync in plain words, Sign out, Delete account); the theme is a visible
-// Light / Dark / Match device choice; version, privacy and acknowledgements sit behind About Gradstep at the bottom.
+// Light / Dark / System choice (it said Match device until the TestFlight 91 session); version, privacy and acknowledgements sit behind About Gradstep at the bottom.
 
 /// Sync in plain words, from the model's sync state (`ReaderModel.syncStatus`, `syncIssue` and the count of encrypted
 /// changes not yet sent). Pure, so the wording is tested without the UI.
@@ -151,7 +151,7 @@ struct AccountView: View {
     }
 }
 
-/// Light, Dark or Match device, visible at a glance (it was "Appearance: System"). Same stored setting
+/// Light, Dark or System (Match device until TestFlight 91), visible at a glance (it was "Appearance: System"). Same stored setting
 /// (`ReaderModel.appearance`: "light", "dark", "system"). At accessibility text sizes a menu, which has room for the
 /// words.
 struct ThemePicker: View {
@@ -160,20 +160,32 @@ struct ThemePicker: View {
 
     var body: some View {
         if dynamicTypeSize.isAccessibilitySize {
-            Picker("Theme", selection: $selection) { options }.accessibilityIdentifier("settings.theme")
+            HStack(spacing: 2) {
+                Picker("Theme", selection: $selection) { options }.accessibilityIdentifier("settings.theme")
+                info
+            }
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Theme")
+                LabelWithInfo(title: "Theme", info: Self.info, identifier: "settings.theme.info")
                 Picker("Theme", selection: $selection) { options }.pickerStyle(.segmented).labelsHidden()
                     .accessibilityIdentifier("settings.theme")
             }
         }
     }
 
+    private var info: some View { InfoButton(text: Self.info, identifier: "settings.theme.info") }
+
+    /// Owner, TestFlight 91 session: "What's the difference between Dark and Match device?" System (was Match device; the
+    /// web app's word) follows the device's own appearance setting.
+    static var info: String {
+        let device = Platform.isMac ? "Mac" : UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        return "System follows this \(device)’s Light or Dark setting and changes when it does, for example at sunset if it switches automatically."
+    }
+
     @ViewBuilder private var options: some View {
         Text("Light").tag("light")
         Text("Dark").tag("dark")
-        Text("Match device").tag("system")
+        Text("System").tag("system")
     }
 }
 

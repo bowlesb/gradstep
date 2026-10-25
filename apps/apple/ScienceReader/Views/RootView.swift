@@ -1605,6 +1605,7 @@ struct SettingsView: View {
     @AppStorage(ScreenshotReportPrompt.enabledKey) private var screenshotPrompt = true
     /// A count in Your assets: "None" when empty, as Downloaded papers.
     static func count(_ value: Int) -> String { value > 0 ? value.formatted() : "None" }
+    static let passageMarksInfo = "Passages you’ve started a chat from are underlined in the paper. Tap one to open its chat."
 
     private static var version: String {
         let info = Bundle.main.infoDictionary
@@ -1729,22 +1730,20 @@ struct SettingsView: View {
                 // The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md): only in builds that carry it.
                 if DeviceModelEngine.available {
                     Section {
-                        Toggle(isOn: $model.deviceModelReader) {
-                            LabelWithInfo(title: "On-device PDF reader", info: "Reads a paper’s PDF on this device with Gradstep’s own models: layout, formulas and text, nothing sent anywhere. It takes minutes and can be wrong; formulas it is unsure of are shown as images of the page. Choose “Read with the on-device model” in a paper’s options, then report what you see.")
-                        }
-                        .accessibilityIdentifier("settings.deviceModel")
-                        // iPhone and iPad download the models separately (DEVICE_PDF_ROUTE.md "The models as a download");
-                        // the Mac's are inside the app.
-                        if model.deviceModelReader, model.deviceModelAssets.downloadable {
-                            DeviceModelSettingsRow(assets: model.deviceModelAssets)
-                        }
+                        // One row (owner, TestFlight 91 session): off until the model is on this device; turning it on
+                        // asks before the download on iPhone and iPad (the Mac's model is inside the app).
+                        DeviceModelReaderSettingsRow(model: model)
                     } header: { Text("Experimental") }
                 }
                 // Text sizes live where you read and chat (A− / A+ on the paper, the chat's ⋯ menu; owner, build 57).
                 Section("Reading") {
                     ThemePicker(selection: $model.appearance)
-                    Toggle("Underline passages with chats", isOn: $model.showsPassageMarks)
-                        .accessibilityIdentifier("settings.passageMarks")
+                    // Owner, TestFlight 91 session: "there's no info there". What the code does (PaperPassages.swift):
+                    // a chat started from a passage underlines it; a tap opens that chat.
+                    Toggle(isOn: $model.showsPassageMarks) {
+                        LabelWithInfo(title: "Underline passages with chats", info: Self.passageMarksInfo, identifier: "settings.passageMarks.info")
+                    }
+                    .accessibilityIdentifier("settings.passageMarks")
                 }
                 // Design audit F11: rows that open something look alike (title + chevron); actions are tinted.
                 // Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough".
