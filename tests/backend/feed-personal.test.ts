@@ -253,7 +253,7 @@ const rankingSet = (candidates: FeedCandidate[], profile: ProfilePaper[] = [pape
   { own_tags: ['Tokenization'] })]) => candidateSet(profile, { candidates, pool: candidates.length });
 
 test('v2: upvotes lift a paper a little and explain it when nothing personal does', () => {
-  assert.equal(FEED_RANKING_VERSION, 'feed-heuristic-v2');
+  assert.equal(FEED_RANKING_VERSION, 'feed-heuristic-v3');
   assert.equal(trend(null), 0);
   assert.ok(trend(10) > 0 && trend(10) < trend(100));
   assert.equal(trend(5000), 1);

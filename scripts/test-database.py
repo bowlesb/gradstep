@@ -113,7 +113,7 @@ parser.add_argument('--account-usage-only', action='store_true', help='Run the Y
 parser.add_argument('--general-only', action='store_true', help='Run only the general suites against the current schema.')
 parser.add_argument('--pricing-only', action='store_true', help='Run the free AI pool, pricing, switches and spend alert fixtures (migration 0150) only.')
 parser.add_argument('--interest-only', action='store_true', help='Run the interest index fixture (migration 0152) only.')
-parser.add_argument('--feed-only', action='store_true', help='Run the For you v4-library fixture (migration 0154) only.')
+parser.add_argument('--feed-only', action='store_true', help='Run the For you fixtures (v4 library, migration 0154; library similarity, 0155) only.')
 args = parser.parse_args()
 # Migration 0152 enables pgvector: the server must offer it (docs/TESTING.md).
 _vector = subprocess.run([str(BIN / 'psql'), *BASE, '-X', '-At', '-d', 'postgres', '-c',
@@ -161,7 +161,7 @@ if args.interest_only:
     phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/interest_index.sql', ROOT / 'tests/database/interest_rebuild_due.sql'], [])
     raise SystemExit(0)
 if args.feed_only:
-    phase([*all_migrations, ROOT / 'tests/database/feed_v4_library.sql'], [])
+    phase([*all_migrations, ROOT / 'tests/database/feed_v4_library.sql', ROOT / 'tests/database/feed_similarity.sql'], [])
     raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/beta_admission_revocation.sql'], [])
@@ -196,7 +196,7 @@ phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT
 
 # Grants as a hosted project sees them (bootstrap.sql emulates Supabase's defaults): migration 135 and every final
 # function's anon/authenticated reach. First in its phase, before any fixture creates objects.
-phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql', ROOT / 'tests/database/interest_index.sql', ROOT / 'tests/database/interest_rebuild_due.sql', ROOT / 'tests/database/feed_v4_library.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', ROOT / 'tests/database/no_import_quota.sql', *SPENDING_FIXES, ROOT / 'tests/database/recommendations.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/free_ai_and_spend.sql', ROOT / 'tests/database/interest_index.sql', ROOT / 'tests/database/interest_rebuild_due.sql', ROOT / 'tests/database/feed_v4_library.sql', ROOT / 'tests/database/feed_similarity.sql'], ['testing_allowance_concurrency', 'note_assets_concurrency', 'free_ai_pool_concurrency'])
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.

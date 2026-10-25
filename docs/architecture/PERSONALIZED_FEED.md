@@ -1,5 +1,12 @@
 # Personalized feed ("For you")
 
+Update, 2026-10-24 UTC: **migration `202610240155_feed_library_similarity.sql` and ranking `feed-heuristic-v3` (written
+and tested locally, not applied to staging, `discover` not deployed)** rank For you by similarity to the reader's
+library, from the interest index's public gte-small fingerprints, wherever the interest index serves the reader. With
+0154 the owner's 70 papers counted, but their tags are broad areas, so 28 of 50 picks were explained by an author name
+shared with a library paper (mostly namesakes: "Yu Wang", "Lei Zhang", "Di Wu") and 22 by "New in …". See
+[Similarity to the library](#similarity-to-the-library-ranking-v3-migration-0155).
+
 Update, 2026-10-24 UTC: **migration `202610240154_feed_profile_v4_library.sql` (written and tested locally, not applied
 to staging)** makes For you read the HTML-first library. Before it, the profile read library papers only from the legacy
 `library_items` plus imports in flight, so a reader whose papers are all HTML-first imports (`phase='source_only'`, no
@@ -142,10 +149,11 @@ Split so ranking can change without migrations:
 
    | Kind | Shown | Chosen when |
    |---|---|---|
-   | `author` | By Noam Shazeer, an author in your library | An author key matches a library or More-like-this paper |
+   | `author` | By Noam Shazeer, an author in your library | An author key matches a library or More-like-this paper, credibly (v3: two of the reader's papers, a rare name, or a similar candidate; [below](#similarity-to-the-library-ranking-v3-migration-0155)) |
    | `tag` | In your tag: RLHF | One of the reader's own tags matches (topic or phrase) |
    | `more_like` | More like "Mamba: Linear-Time Sequence…" | Overlaps a paper marked More like this |
-   | `added` | Because you added "Direct Preference Optimization…" | Shares a topic tag with a library paper (the most recent such paper, never an upload) |
+   | `added` | Like "Direct Preference Optimization…" (v3) | Similarity to the nearest library paper ≥ 0.90 (v3; clients already show `added` as "Like: <title>") |
+   | `added` | Because you added "Direct Preference Optimization…" | Shares a specific topic tag with a library paper (the most recent such paper, never an upload); with similarity known, only at ≥ 0.87 |
    | `popular` | Added by several readers this week | ≥ 3 accounts added it, and no stronger reason |
    | `category` | New in Computer vision | Category match only, or cold start |
    | `explore` | Something different: Robotics | An exploration slot |
@@ -156,6 +164,86 @@ Split so ranking can change without migrations:
   picks** (choose 3–5 topics on first opening the Feed, stored as follows) are proposed, not built.
 - Category chips are served from the pool too when the switch is on (newest 25 in that category, Not interested
   papers removed), so chip loads stop calling arXiv. Categories outside the pool keep the live RSS path.
+
+## Similarity to the library (ranking v3, migration 0155)
+
+Owner, 2026-10-24: "start with a smaller list that's better chosen … both popular and overlaps with things I've shown to
+be interested in … we have to nail it."
+
+**Measured on staging (read-only, 2026-10-24).** The owner's 70 library papers and 8,175 window papers all have
+fingerprints (interest index, migration 0152). The cosine similarity of a pool paper to its nearest library paper is a
+clear signal: ≥ 0.90 for 232 papers, ≥ 0.88 for 1,142, ≥ 0.86 for 3,182, median 0.853. Pairs sampled by band: at
+≥ 0.90 every pair was recognizably the same line of work (agent memory ↔ agentic memory; on-policy distillation ↔
+reward-free teacher repair; dexterous hand tracking ↔ bimanual tracking); at 0.89 about six in ten; at 0.88 about half;
+at 0.87 few. 0154's candidates, chosen by shared area tags, held only **11 of the 232** papers at ≥ 0.90.
+
+**Candidates (`worker_feed_candidates_v2`, superseded by 0155, same signature).** Only when
+`app_private.interest_serves(account)` (the interest index's rule: `interest_policy.serving` `all`, or `staff` and the
+account has an app role, or `off`) and the library has fingerprints:
+
+- *Library vectors:* the profile's settled, titled, public papers (≤ 300; never pending imports or uploads) with an
+  embedded fingerprint of the current model.
+- *A "similar" tier (≤ 140):* each library paper picks its 3 nearest mid-level nodes of the published map (by centroid);
+  the window's papers in those nodes are compared only with the library papers that picked their node; papers at
+  ≥ 0.86 enter, best first, with up to +0.02 for Hugging Face upvotes. On the owner's data this finds 224 of the 231
+  papers at ≥ 0.90 from about 28 thousand comparisons instead of 572 thousand for the whole window. The other tiers
+  shrink so the set stays ≤ 400 (topic/author 150, category 50, newest 30, popular 30); without similarity or a published map they keep
+  0154's sizes (250/100/50/30).
+- *Every candidate* carries `similarity` (cosine to its nearest library vector, 4 decimals; exact, ≤ 400 × ≤ 300) and
+  `similar_to: {source_id, title}`; both null when not served or the paper has no fingerprint yet.
+- `author_counts` (every reader): how many window papers carry each of the profile's author keys.
+- `similarity: {served, library, map_version}` at the top level. The profile is now read once (it was read twice).
+- Nothing is stored. The computation uses membership For you already reads and public fingerprints, per request.
+
+**Timing (staging, read-only: the function body run as a `DO` block in a read-only transaction, its result raised back,
+nothing created).** 0154: 364–393 ms; 0155 not served: 388–428 ms; 0155 served: 447–481 ms (typical runs; the shared
+project was under other load for some runs, up to 1.7 s for every variant). EXPLAIN ANALYZE of the similarity part
+alone (same CTEs as plain SQL): similar tier 27,948 comparisons, ≈ 30 ms with the window read through
+`interest_papers_pool`; exact nearest for 392 candidates × 70 library vectors ≈ 13 ms. Most of the function's time is
+0154's candidate CTEs, not similarity. Cost grows with library size × (mid nodes + 3 × window papers per mid node): at
+300 library papers and today's 68 mid nodes ≈ 20k centroid + ≈ 110k paper comparisons.
+
+**Ranking (`_shared/feed-rank.ts`, `feed-heuristic-v3`).** With similarity (any candidate carries one):
+
+- `closeness = clamp((sim − 0.84) / 0.09, 0, 1)`;
+  `relevance = 0.55·closeness + 0.35·closeness·trend + 0.15·topic + 0.15·author + 0.05·category + 0.1·readers + 0.1·trend`,
+  where `trend` is the upvote term (log-scaled, full at 100). Popular ∩ similar ranks highest.
+- Freshness weighs less: `× (0.6 + 0.4·0.5^(age/5))` (was 0.4 + 0.6·…): upvotes take days to gather.
+- Diversity: papers whose nearest library paper is the same (at ≥ 0.87) share a lead (×0.8 per repeat).
+- Exploration: every tenth slot (5 in 50), only papers below 0.86 sharing no specific topic and outside the reader's
+  categories; with none, the slot ranks normally.
+- **Reasons, in order:** own tag; **like** (`added`, label = the library paper's title, text "Like “…”") at ≥ 0.90; an
+  author with a strong match (two of the reader's papers, or a key on ≤ 3 window papers); More like this; a specific
+  topic anchor (only at ≥ 0.87); several readers; Hugging Face popular (≥ 20 upvotes); an author vouched for only by
+  similarity (≥ 0.87, and the key on fewer than 8 window papers); category. Without `author_counts` (an older database)
+  a name on one library paper needs similarity.
+- **A smaller, better list:** a pick whose reason is only a category below 0.88, or popular but below 0.86, is left out,
+  unless fewer than 20 papers remain (then they fill to 20). Topic chips are unchanged.
+- Without similarity (interest index not serving the reader, or an older database) the v2 formula applies, with the
+  credible-author rule and the own-tag reason before the author reason.
+
+Client compatibility: no new reason kind. iOS/Mac builds up to 91 show `added` as "Like: <title>" (FeedWhy.swift) in the
+"Like papers you added" group; the web shows `reason.text`.
+
+**Offline evaluation on the owner's real candidates** (0155's function body run read-only on staging, then
+`rankForYou` locally; script and data in the session scratchpad, not committed):
+
+| | v2 ranking on 0154's candidates (today's staging) | v3 on 0155's candidates |
+|---|---|---|
+| Reasons in the 50 | author 29, category 20, trending 1 | like 28, Hugging Face popular 11, author 5, explore 3, category 3 |
+| Similarity of the 50 | (not used) | ≥ 0.90: 28; 0.88–0.90: 18; 0.86–0.88: 1; below: 3 (explore) |
+| Popular (≥ 20 upvotes) | — | 24, of which 23 at ≥ 0.88 |
+| Author reasons | mostly common-name collisions | 5, each on a paper at ≥ 0.87 or a rare name |
+
+For readers the interest index does not serve, v3 on 0154-sized candidates gives author 17, category 33 (the
+credible-author rule removes the namesakes; nothing replaces them without similarity).
+
+Tests: `tests/backend/feed-similarity.test.ts` (ranking v3) and `tests/database/feed_similarity.sql`
+(`scripts/test-database.py --feed-only`, also in the final phase).
+
+To apply: `python3 scripts/backup.py staging`, `python3 scripts/migrate-supabase.py staging`, then deploy the
+`discover` Edge function (it bundles `_shared/feed-rank.ts`). The migration alone is safe with the old ranking (new
+fields are ignored; tier sizes shrink only for readers the interest index serves).
 
 ## Specific topics and popularity (owner feedback on build 21, 2026-10-08)
 
@@ -250,7 +338,7 @@ fields below are additive; older clients ignore them.
 
 | Request | Response |
 |---|---|
-| `?feed=for_you&abstract=full` | `{ results: Result[], feed: { for_you: true, ranking: "feed-heuristic-v2", cold_start, refreshed_at, pool, topics: Chip[] } }` |
+| `?feed=for_you&abstract=full` | `{ results: Result[], feed: { for_you: true, ranking: "feed-heuristic-v3", cold_start, refreshed_at, pool, topics: Chip[] } }` |
 | `?feed=topic&topic=NAME&abstract=full` | `{ results: Result[], feed: { for_you: true, ranking, cold_start, refreshed_at, pool, topic: { name, kind } } }` |
 | `?category=cs.CL&abstract=full` | `{ results: Result[], feed?: { for_you: true, refreshed_at? } }` — `feed` is present exactly when For you is offered to this reader |
 | errors | `404 {code:"feed_unavailable"}` (For you not offered or empty pool: show category chips), `400 {code:"invalid_feed_topic"}` (chip no longer valid: go back to For you), `429` rate limit (`discover`: 60/account/h), `503` |

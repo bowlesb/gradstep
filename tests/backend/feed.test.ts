@@ -153,7 +153,7 @@ test('relevance orders the feed and every paper says why', () => {
     candidate('2610.00003', { matched_tags: ['RLHF'], categories: ['cs.CL'] }),
     candidate('2610.00001', { topics: ['Diffusion models', 'Computer vision'], categories: ['cs.CV'] }),
     candidate('2610.00009', { categories: ['cs.SE'] }),
-  ]));
+  ], { author_counts: { 'alan turing': 1, 'ada lovelace': 0 } }));
   assert.equal(cold_start, false);
   const reasons = Object.fromEntries(results.map(r => [r.source_id, r.reason]));
   assert.deepEqual(reasons['2610.00002'], { kind: 'author', label: 'Alan Turing', text: 'By Alan Turing, an author in your library' });
@@ -253,7 +253,7 @@ test('results fit the app: bounded fields, year from the identifier, first seen 
   assert.equal(result.abstract!.length, 700);
   assert.equal(result.first_seen, '2026-10-08T05:00:00Z');
   assert.equal(result.announced, '2026-10-08');
-  assert.equal(FEED_RANKING_VERSION, 'feed-heuristic-v2');
+  assert.equal(FEED_RANKING_VERSION, 'feed-heuristic-v3');
   assert.equal(categoryName('cs.CL'), 'Natural language processing');
   assert.equal(categoryName('cs.SE'), 'cs.SE');
   assert.deepEqual(poolResult({ source_id: 'hep-th/9901001', revision: 2, title: 'Old', authors: ['A'], abstract: null, categories: ['hep-th'],

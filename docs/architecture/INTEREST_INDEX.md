@@ -329,6 +329,11 @@ and build), then sets `serving='staff'`. `all` waits for step 3's device layer a
 chosen names, hidden flags, keywords or rankings. Step 3 syncs those only as an end-to-end encrypted blob (proposal,
 under 100 KB).
 
+Exception, For you (migration 0155, 2026-10-24): the Feed's server ranking, which the owner accepted on 2026-10-08 over
+server-visible library membership, also uses the public fingerprints of the reader's own library papers, per request,
+under the same `interest_policy.serving` gate as this index. Nothing is stored and nothing from it is published
+(PERSONALIZED_FEED.md "Similarity to the library"). Device-only signals stay on devices.
+
 **What each piece reveals:**
 
 | Device action | What the server learns | New? |

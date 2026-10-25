@@ -2,6 +2,19 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+For you by similarity to the library: new additive migration `202610240155_feed_library_similarity.sql` (**not applied
+to staging**) and ranking `feed-heuristic-v3` in `_shared/feed-rank.ts` (**`discover` not deployed**). With 0154 the
+owner's library counted, but their tags are broad areas, so 28 of 50 picks were "By <author>" (mostly namesakes) and 22
+"New in …". When the interest index serves the reader, candidates now carry cosine similarity to the nearest library
+paper and its title, a bounded "similar" tier (via the map's mid-level nodes) brings in 224 of the 231 window papers at
+≥ 0.90 (0154 held 11), and ranking makes similarity the main term with popular ∩ similar highest, "Like “…”" (kind
+`added`, which builds ≤ 91 already show) at ≥ 0.90, author reasons only for credible matches, and weak picks left out.
+Owner's real candidates (read-only emulation on staging): like 28, Hugging Face popular 11, author 5, explore 3, category 3 of 50;
+23 of the 24 popular picks are at ≥ 0.88. Function time on staging ≈ 450 ms served vs ≈ 380 ms for 0154. Verified:
+`tests/database/feed_similarity.sql` and `feed_v4_library.sql` (`test-database.py --feed-only`, PostgreSQL 17 +
+pgvector) pass; `tests/backend/feed-similarity.test.ts`; `npm test`. To apply: backup, `migrate-supabase.py staging`,
+deploy `discover`. Details: PERSONALIZED_FEED.md "Similarity to the library".
+
 For you treated readers on the current library as a cold start: `app_private.feed_profile` read papers only from the
 legacy `library_items` (last row added 2026-10-07) and imports in flight, while every arXiv paper added since the
 HTML-first redesign is a settled import (`source_only`, no item). On staging the owner's 71 papers gave 0 profile rows,
