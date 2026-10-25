@@ -310,8 +310,16 @@ private struct AuthenticationForm: View {
     }
 
     private func issueText(_ issue: AuthenticationCoordinator.Issue) -> some View {
-        Text(issue.message).font(.footnote).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("auth.issue")
+        VStack(alignment: .leading, spacing: 4) {
+            Text(issue.message).font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("auth.issue")
+            // Which check failed, in words that carry no credential, so a screenshot of this can be diagnosed.
+            if let failure = issue.reference(in: .shared) {
+                Text("Reference: \(failure.reference)" + (failure.detail.map { " · \($0)" } ?? ""))
+                    .font(.caption2).foregroundStyle(.tertiary).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("auth.issueReference")
+            }
+        }
     }
 
     private func progress(_ title: String, canChangeMethod: Bool) -> some View {

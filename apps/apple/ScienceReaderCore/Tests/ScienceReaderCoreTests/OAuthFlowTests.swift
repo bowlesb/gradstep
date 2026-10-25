@@ -70,6 +70,50 @@ final class OAuthFlowTests: XCTestCase {
         }
     }
 
+    /// TestFlight 92: Supabase issued the code (its 302 Location has no fragment) and the app refused the return. WebKit keeps
+    /// an earlier page's fragment across redirects, so a provider's sign-in pages can leave `#` or `#…` on it.
+    func testAFragmentTheBrowserCarriedOverIsIgnored() throws {
+        let attempt = try OAuthPKCEAttempt(callbackURL: callback)
+        let code = "0f0e0d0c-0b0a-4908-8706-050403020100"
+        for suffix in ["#", "#x", "#_=_", "#!/home", "#gid=0&tab=1", "#state=opaque"] {
+            XCTAssertEqual(try attempt.authorizationCode(from: URL(string: callback.absoluteString + "?code=" + code + suffix)!), code, suffix)
+        }
+        XCTAssertThrowsError(try attempt.authorizationCode(from: URL(string: callback.absoluteString + "?error=access_denied&error_code=signup_disabled#")!)) {
+            XCTAssertEqual($0 as? OAuthFlowError, .invitationRequired)
+        }
+        XCTAssertThrowsError(try attempt.authorizationCode(from: URL(string: callback.absoluteString + "?error=access_denied#x")!)) {
+            XCTAssertEqual($0 as? OAuthFlowError, .providerDenied)
+        }
+        // A fragment naming any OAuth parameter is still Auth's: never mixed with a query code, never a credential.
+        for suffix in ["#Access_Token=x", "#access%5Ftoken=x", "#code=other", "#error=access_denied", "#expires_in=3600",
+                       "#provider_token=x", "#refresh_token=x&gid=0"] {
+            XCTAssertThrowsError(try attempt.authorizationCode(from: URL(string: callback.absoluteString + "?code=" + code + suffix)!), suffix) {
+                XCTAssertEqual($0 as? OAuthFlowError, .invalidCallback)
+            }
+        }
+        XCTAssertThrowsError(try attempt.authorizationCode(from: URL(string: callback.absoluteString + "?code=a&code=b#")!)) {
+            XCTAssertEqual($0 as? OAuthFlowError, .invalidCallback)
+        }
+    }
+
+    func testCallbackDescriptionNamesShapesAndNeverValues() throws {
+        let attempt = try OAuthPKCEAttempt(callbackURL: callback)
+        let code = "0f0e0d0c-0b0a-4908-8706-050403020100"
+        let plain = callback.absoluteString + "?code=" + code
+        XCTAssertEqual(attempt.describeCallback(URL(string: plain)!),
+                       "destination=ok query=code fragment=none code=uuid length=\(plain.utf8.count)")
+        XCTAssertEqual(attempt.describeCallback(URL(string: plain + "#")!),
+                       "destination=ok query=code fragment=empty code=uuid length=\(plain.utf8.count + 1)")
+        let denied = callback.absoluteString + "#error=access_denied&error_code=signup_disabled&error_description=Signups+for+someone%40example.com"
+        XCTAssertEqual(attempt.describeCallback(URL(string: denied)!), "destination=ok query=none fragment=error,error_code,error_description " +
+                       "error=access_denied error_code=signup_disabled length=\(denied.utf8.count)")
+        let hostile = "other.app://elsewhere/x?code=secret%23value&state=s3cr3t&utm=campaign#access_token=t0ken&gid=0"
+        let described = attempt.describeCallback(URL(string: hostile)!)
+        XCTAssertEqual(described, "destination=scheme+host+path query=code,state,other:1 fragment=access_token,other:1 code=12ch,unsafe " +
+                       "length=\(hostile.utf8.count)")
+        for secret in ["secret", "s3cr3t", "campaign", "t0ken", "someone"] { XCTAssertFalse(described.contains(secret)) }
+    }
+
     func testOnlyConfiguredSecureAuthorizationOriginIsAccepted() throws {
         let attempt = try OAuthPKCEAttempt(callbackURL: callback)
         for value in ["http://fixture.supabase.co", "https://user@fixture.supabase.co", "https://fixture.supabase.co/extra", "https://fixture.supabase.co?override=true"] {

@@ -157,6 +157,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     /// Library read version: 5 (full entries with uploads), or 3 on a server that doesn't have v5 yet.
     private let authNetwork: URLSession
     private let credentials: any AuthenticationCredentialStore
+    private let signInDiagnostics: SignInDiagnostics
     private var credentialCleanupAttempt: UUID?
     private var signInRequest: (id: UUID, task: Task<Data, Error>)?
     private var logoutTask: (id: UUID, task: Task<Void, Never>)?
@@ -174,9 +175,11 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     private var signInAttempt: SignInAttempt?
 
     init(configuration: BackendConfiguration, network: URLSession? = nil,
-         credentials: any AuthenticationCredentialStore = KeychainAuthenticationCredentialStore()) throws {
+         credentials: any AuthenticationCredentialStore = KeychainAuthenticationCredentialStore(),
+         signInDiagnostics: SignInDiagnostics = .shared) throws {
         self.config = configuration
         self.credentials = credentials
+        self.signInDiagnostics = signInDiagnostics
         let settings = URLSessionConfiguration.ephemeral
         settings.timeoutIntervalForRequest = 60
         // A chat answer streams for minutes and an episode downloads in one request: fifteen minutes in total, not
@@ -257,8 +260,15 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     func finishGoogleSignIn(id: UUID, callbackURL: URL) async throws -> AuthSession.User {
         guard let attempt = signInAttempt, attempt.id == id, attempt.generation == authGeneration,
               case .google(let pkce) = attempt.phase else { throw CancellationError() }
-        let code = try pkce.authorizationCode(from: callbackURL)
-        return try await exchangeSignIn(attempt, route: .token(.pkce), body: ReaderCrypto.encode([
+        let code: String
+        do { code = try pkce.authorizationCode(from: callbackURL) }
+        catch {
+            // The return never reaches Auth, so this device is the only place its shape can be kept (names, never values).
+            signInDiagnostics.record(method: "google", stage: "callback", reason: SignInDiagnostics.reason(error),
+                                     detail: pkce.describeCallback(callbackURL))
+            throw error
+        }
+        return try await exchangeSignIn(attempt, method: "google", route: .token(.pkce), body: ReaderCrypto.encode([
             "auth_code": code, "code_verifier": pkce.verifier
         ]))
     }
@@ -276,7 +286,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         guard let attempt = signInAttempt, attempt.id == id, attempt.generation == authGeneration,
               case .apple(let nonce) = attempt.phase else { throw CancellationError() }
         guard Self.validToken(identityToken) else { throw OAuthFlowError.invalidCallback }
-        return try await exchangeSignIn(attempt, route: .token(.idToken), body: ReaderCrypto.encode([
+        return try await exchangeSignIn(attempt, method: "apple", route: .token(.idToken), body: ReaderCrypto.encode([
             "provider": "apple", "id_token": identityToken, "nonce": nonce.raw
         ]))
     }
@@ -356,7 +366,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         try beginAuthenticationChange()
     }
 
-    private func exchangeSignIn(_ attempt: SignInAttempt, route: AuthRoute, body: Data) async throws -> AuthSession.User {
+    private func exchangeSignIn(_ attempt: SignInAttempt, method: String, route: AuthRoute, body: Data) async throws -> AuthSession.User {
         try Task.checkCancellation()
         signInAttempt?.phase = .exchanging
         let next: AuthSession
@@ -368,6 +378,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         } catch {
             guard owns(attempt) else { throw CancellationError() }
             signInAttempt = nil
+            if !(error is CancellationError) {
+                signInDiagnostics.record(method: method, stage: "exchange", reason: SignInDiagnostics.reason(error))
+            }
             throw error
         }
         try save(next)

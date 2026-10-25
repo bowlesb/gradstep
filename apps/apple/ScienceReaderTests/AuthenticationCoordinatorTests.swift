@@ -296,12 +296,37 @@ final class AuthenticationCoordinatorTests: XCTestCase {
                 // Apple's own Cancel is the person's choice. A Google page that closes without an answer may follow a
                 // finished Google sign-in (iPad build 86), so it is never silent.
                 let issue: AuthenticationCoordinator.Issue? = error == .cancelled ? (method == .google ? .googleUnfinished : nil) :
-                    (error == .invalidCredential ? .invalidResponse : .presentation)
+                    (error == .invalidCredential ? (method == .google ? .googleUnverified : .invalidResponse) : .presentation)
                 XCTAssertEqual(fixture.coordinator.phase, .choices(issue), "\(method) \(error)")
                 XCTAssertEqual(presenter.cancellations, 1)
                 XCTAssertTrue(fixture.accepted.isEmpty)
             }
         }
+    }
+
+    /// TestFlight 92: a refused Google return said only "Couldn't verify the sign-in response. Please try again." It now
+    /// names Google and the other ways in; an exchange the server answered badly keeps the general message.
+    func testARefusedGoogleReturnSaysWhatToTry() async throws {
+        let cases: [(AuthenticationCoordinator.Method, any Error, AuthenticationCoordinator.Issue)] = [
+            (.google, OAuthFlowError.invalidCallback, .googleUnverified),
+            (.google, AuthenticationError.invalidResponse, .invalidResponse),
+            (.google, OAuthFlowError.invitationRequired, .noAccount),
+            (.google, OAuthFlowError.providerDenied, .rejected),
+            (.apple, OAuthFlowError.invalidCallback, .invalidResponse),
+        ]
+        for (method, error, expected) in cases {
+            let fixture = AuthenticationOwnerFixture(); defer { fixture.close() }
+            fixture.backend.holdExchanges = true
+            fixture.coordinator.open(readerSessionID: UUID())
+            if method == .google { fixture.coordinator.startGoogle(presenter: AuthenticationOwnerPresenter()) }
+            else { fixture.coordinator.startApple(presenter: AuthenticationOwnerPresenter()) }
+            await eventually("exchange started") { fixture.backend.begins.last.map { fixture.backend.hasExchange($0.1) } ?? false }
+            fixture.backend.releaseExchange(try XCTUnwrap(fixture.backend.begins.last?.1), result: .failure(error))
+            await eventually("\(method) \(error) is said") { fixture.coordinator.phase == .choices(expected) }
+            XCTAssertTrue(fixture.accepted.isEmpty)
+        }
+        XCTAssertTrue(AuthenticationCoordinator.Issue.googleUnverified.message.contains("Try Google again, or continue with Apple or email"))
+        XCTAssertTrue(AuthenticationCoordinator.Issue.invalidResponse.message.contains("still signed out"))
     }
 
     /// Owner report, iPad build 86: Google finished, Supabase issued a code, no exchange followed and the sheet showed

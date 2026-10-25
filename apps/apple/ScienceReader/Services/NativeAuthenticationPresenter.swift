@@ -64,18 +64,23 @@ final class NativeAuthenticationPresenter: NSObject, AuthenticationPresenting {
                     // Reduce provider errors before crossing to MainActor. No
                     // raw error, description or callback URL enters diagnostics.
                     let result: Result<URL, AuthenticationPresentationError>
+                    // Diagnostics keep only a fixed reason (the session error's number, never its text).
+                    let reason: String
                     if let error {
                         let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
                         result = .failure(cancelled ? .cancelled : .unavailable)
+                        reason = cancelled ? "closed" : "session-error-\((error as NSError).code)"
                     } else if let callbackURL, callbackURL.absoluteString.utf8.count <= 8_192 {
                         // The backend's existing PKCE validator checks the full
                         // URI, code and forbidden token fragments before exchange.
                         result = .success(callbackURL)
+                        reason = "session"
                     } else {
                         result = .failure(.invalidCredential)
+                        reason = callbackURL == nil ? "no-return" : "return-too-long"
                     }
                     Task { @MainActor [weak self] in
-                        self?.finishGoogle(id: id, result: result)
+                        self?.finishGoogle(id: id, result: result, reason: reason)
                     }
                 }
                 let session: ASWebAuthenticationSession
@@ -91,7 +96,7 @@ final class NativeAuthenticationPresenter: NSObject, AuthenticationPresenting {
                 presentation = .google(GooglePresentation(id: id, session: session, continuation: continuation))
                 Self.googleOwner = self
                 if !session.start() {
-                    finishGoogle(id: id, result: .failure(.unavailable))
+                    finishGoogle(id: id, result: .failure(.unavailable), reason: "start-failed")
                 }
             }
         } onCancel: { [weak self] in
@@ -178,15 +183,24 @@ final class NativeAuthenticationPresenter: NSObject, AuthenticationPresenting {
     static func handleOpenedURL(_ url: URL) -> Bool {
         guard isAuthenticationCallback(url) else { return false }
         guard url.absoluteString.utf8.count <= 8_192, let owner = googleOwner,
-              case .google(let current) = owner.presentation else { return true }
-        owner.finishGoogle(id: current.id, result: .success(url))
+              case .google(let current) = owner.presentation else {
+            // The page had already closed, or the return is oversized: the person was told it didn't finish.
+            SignInDiagnostics.shared.record(method: "google", stage: "callback", reason: "no-open-page",
+                                            detail: "route=app-url length=\(url.absoluteString.utf8.count)")
+            return true
+        }
+        owner.finishGoogle(id: current.id, result: .success(url), reason: "app-url")
         // Fenced above: the session's own cancellation callback finds no presentation and is ignored.
         current.session.cancel()
         return true
     }
 
-    private func finishGoogle(id: UUID, result: Result<URL, AuthenticationPresentationError>) {
+    /// `reason`: how the return arrived ("session", "app-url"), or why there was none. Recorded only for the page still
+    /// open here, so the session's answer to our own `cancel()` (after an app-URL return, or Close) adds nothing.
+    private func finishGoogle(id: UUID, result: Result<URL, AuthenticationPresentationError>, reason: String) {
         guard case .google(let current) = presentation, current.id == id else { return }
+        if case .success = result { SignInDiagnostics.shared.noteReturnRoute(reason) }
+        else { SignInDiagnostics.shared.record(method: "google", stage: "presentation", reason: reason) }
         presentation = nil
         if Self.googleOwner === self { Self.googleOwner = nil }
         switch result {
