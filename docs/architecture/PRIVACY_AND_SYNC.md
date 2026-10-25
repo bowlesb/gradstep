@@ -285,6 +285,29 @@ holding personal rows or files. Now:
   days after closing) counts with the oldest closing date and the most common last failure code; Health › Attention
   names a stall. Counts and codes only, never an account's content.
 
+**The sweep lists in milliseconds and reports each listing (2026-10-25, migration 0159; local, not deployed).** From
+2026-10-09 14:03 UTC some of the worker's `worker_account_deletions_pending` calls hit the gateway's 8 s statement
+timeout (SQLSTATE 57014, HTTP 500), and from 2026-10-12 14:01 UTC every one did (1,300–1,500 a day); the sweep
+returned silently, so only the gateway logs showed it. Cause: the wrappers of migrations 032 and 095 tested
+`a.id=any(<earlier list>(20))` inside their scan of every account, and a security-definer SQL function there runs once
+per row, so 032 made the listing quadratic in accounts and 095 cubic. On staging (883 accounts, 832 closed, nearly all
+synthetic test and check accounts) one call of 017's list took 200 ms and 032's layer alone about 3 minutes. Each
+account's file lookup also scanned all of `stored_objects`. Nothing was left waiting: on 2026-10-25 every closed account
+(667 of them closed during the outage) was finished: no login, no personal rows, no tracked file left and no Storage
+object in its folders. `account-delete` finishes a deletion itself and logged no incomplete one in that period; the
+sweep is the safety net for interrupted or raced deletions.
+- 0159 keeps the lists, their order and the deletion steps. Each wrapper reads the list below it once (an initplan);
+  indexes (`stored_objects` by owner and by document, `documents` by owner, `support_reports` by account) and an
+  index-backed `account_deletion_objects` (the same rows) make the per-account checks lookups. Local, 1,533 closed
+  accounts: listing 0.16 s, Health 0.17 s (before: cancelled). Closed accounts are kept, so the listing still grows by
+  about 0.1 ms per closed account; the check below warns above 2 s.
+- The worker logs a failed listing (`account_deletion_sweep_failed`, step `list`, the SQLSTATE or `list_failed`) and
+  reports every listing (`worker_account_deletion_sweep_report`: success or failure, count, duration).
+  `account_deletions` in Health and the service-role `worker_account_deletion_health` add the last good listing,
+  failures in a row and `untried_over_1h` (unfinished more than an hour after closing, never tried by the sweep).
+  Attention names three failed listings in a row, no good listing for 15 minutes or an untried deletion; the workflow
+  check `deletion.sweep` (every suite, so at least every 6 hours) fails on any of these or on its own failed listing.
+
 Before public release: Sign in with Apple token revocation on deletion (App Review 5.1.1(v)), and releasing an
 active App Store subscription's binding so it can attach to a new account; backup expiry of deleted data.
 

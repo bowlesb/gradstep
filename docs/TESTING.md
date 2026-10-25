@@ -449,6 +449,9 @@ Homebrew's `postgresql@17` and `pgvector` (staging runs PostgreSQL 17 with pgvec
 `initdb -A trust -E UTF8 --locale=C -D <dir>`, start it on another loopback port with `-c unix_socket_directories=''`,
 then `SCIENCE_READER_PG_BIN=/opt/homebrew/opt/postgresql@17/bin SCIENCE_READER_PG_PORT=<port> python3
 scripts/test-database.py --interest-only` (or the full suite). The Python concurrency modules keep their own 55431 guard.
+The account-deletion sweep (migrations 128 and 0159): `--deletion-sweep-only` runs `account_deletion_sweep.sql`,
+`account_deletion_sweep_speed.sql` (same lists as the 032/095/128 bodies, each layer once per call, 1,500 closed
+accounts inside 3 s, the listing reports) and the deletion suites that share its functions; both are in the final phase.
 For you on the v4 library (migration 0154): `tests/database/feed_v4_library.sql` runs in the final phase and alone with
 `--feed-only` (HTML-first imports in the profile, exclusions, the readers count, own-tag topics). Library similarity
 (migration 0155): `tests/database/feed_similarity.sql`, in the same places (the similar tier and its bound, exact

@@ -139,10 +139,23 @@ export async function closePodcastWork(service: SupabaseClient, accountID: strin
 /** Finishes deletions left incomplete (login still linked, rows written in a
  * race, files not removed). Run by the paper worker on every invocation. Each
  * outcome is reported (migration 128): a failure backs the account off, so one
- * that cannot finish never holds every slot, and a stall reaches Health. */
-export async function sweepAccountDeletions(service: SupabaseClient, log: (fields: Record<string, unknown>) => void): Promise<void> {
+ * that cannot finish never holds every slot, and a stall reaches Health.
+ * The listing itself is logged and reported too (migration 0159): from 2026-10-12 every listing timed out and only
+ * the gateway's logs showed it. */
+export async function sweepAccountDeletions(service: SupabaseClient, log: (fields: Record<string, unknown>) => void,
+  now: () => number = Date.now): Promise<void> {
+  const started = now();
   const pending = await service.rpc('worker_account_deletions_pending', { p_limit: 3 });
-  if (pending.error || !Array.isArray(pending.data)) return;
+  const ms = Math.min(86_400_000, Math.max(0, Math.round(now() - started)));
+  if (pending.error || !Array.isArray(pending.data)) {
+    // A SQLSTATE (57014: the gateway's statement timeout) or a fixed code; never the error's text.
+    const sqlstate = (pending.error as { code?: unknown } | null)?.code;
+    const code = typeof sqlstate === 'string' && /^[0-9A-Z]{5}$/.test(sqlstate) ? sqlstate : 'list_failed';
+    log({ event: 'account_deletion_sweep_failed', step: 'list', code, ms });
+    await reportListing(service, { p_ok: false, p_listed: null, p_ms: ms, p_code: code });
+    return;
+  }
+  await reportListing(service, { p_ok: true, p_listed: pending.data.length, p_ms: ms, p_code: null });
   for (const accountID of pending.data as string[]) {
     await closePodcastWork(service, accountID);
     const begun = await service.rpc('worker_delete_account_begin', { p_account_id: accountID });
@@ -156,6 +169,11 @@ export async function sweepAccountDeletions(service: SupabaseClient, log: (field
       ...(outcome.code ? { code: outcome.code } : {}) });
     await reportSweep(service, accountID, outcome.complete, outcome.complete ? null : outcome.step ?? null, outcome.code ?? null);
   }
+}
+
+/** Best effort: a database before migration 0159 has no such function, and the sweep proceeds as before. */
+async function reportListing(service: SupabaseClient, report: { p_ok: boolean; p_listed: number | null; p_ms: number; p_code: string | null }): Promise<void> {
+  try { await service.rpc('worker_account_deletion_sweep_report', report); } catch { /* the next run reports again */ }
 }
 
 /** Best effort: a database before migration 128 has no such function, and the sweep proceeds as before. */

@@ -237,6 +237,11 @@ function derive(data: HealthData, budget: Budget | null) {
   // account closed still holds personal rows or files and needs a look (scripts/finish-account-deletion.mjs).
   const deletions = data.account_deletions;
   if (deletions && deletions.stalled > 0) attention.push({ tone: 'warning', text: `${plural(deletions.stalled, 'account deletion has', 'account deletions have')} not finished more than 30 days after the account closed${deletions.top_code ? ` (most often “${codeName(deletions.top_code)}”)` : ''}. Personal data or files remain; check worker_account_deletion_status.` });
+  // Migration 0159: the sweep's own listing. From 2026-10-12 every listing timed out and only the gateway logs showed it.
+  const sweep = deletions?.sweep;
+  if (sweep && sweep.failures_in_row >= 3) attention.push({ tone: 'warning', text: `The account-deletion sweep's last ${sweep.failures_in_row} listings failed (${sweep.last_code === '57014' ? 'statement timeout' : sweep.last_code ?? 'unknown'}${sweep.last_ok_at ? `; last listed ${new Date(sweep.last_ok_at).toLocaleString()}` : ''}). Deletions left unfinished are not being finished.` });
+  else if (sweep?.last_ok_at && Date.now() - Date.parse(sweep.last_ok_at) > 15 * 60_000) attention.push({ tone: 'warning', text: `The account-deletion sweep has not listed pending deletions since ${new Date(sweep.last_ok_at).toLocaleString()} (the worker runs it every minute).` });
+  if (deletions?.untried_over_1h) attention.push({ tone: 'warning', text: `${plural(deletions.untried_over_1h, 'account deletion is', 'account deletions are')} unfinished more than an hour after closing and the sweep has not tried ${deletions.untried_over_1h === 1 ? 'it' : 'them'}.` });
   if (data.reliability.reports_open) attention.push({ tone: 'info', text: `${plural(data.reliability.reports_open, 'support report is', 'support reports are')} open.` });
   // Interest index (migration 0152): a backlog, failures, a stale map, failed or blocked rebuilds, model mismatch.
   for (const item of data.interest_index?.attention ?? []) attention.push({ tone: 'warning', text: interestAttention(item) });

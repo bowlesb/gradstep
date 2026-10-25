@@ -197,7 +197,11 @@ export interface Health {
   provider_billing?: { last_hour: number; last_24h: number; last_at: string | null; by_provider: Record<string, number> };
   /** Migration 128 (PRIVACY_AND_SYNC.md, review A22): closed accounts still holding personal rows, a login or files; `stalled`
    * is over 30 days after closing. Counts and one failure code only. Absent on older servers. */
-  account_deletions?: { unfinished: number; retrying: number; stalled: number; oldest_closed_at: string | null; top_code: string | null };
+  account_deletions?: { unfinished: number; retrying: number; stalled: number; oldest_closed_at: string | null; top_code: string | null;
+    /** Migration 0159: unfinished deletions closed over an hour ago that the sweep never tried, and the worker's listings
+     * (when one last succeeded, failures in a row and their SQLSTATE or code, how long it took). Absent before 0159. */
+    untried_over_1h?: number;
+    sweep?: { last_ok_at: string | null; last_failed_at: string | null; failures_in_row: number; last_code: string | null; last_ms: number | null } };
   /** Migration 0101 (review A4): OpenRouter price cards that lapse within `warn_days`. Absent on older servers. */
   tariffs?: { warn_days: number; soonest_valid_until: string | null; expiring: { model: string; tariff: string; valid_until: string }[] };
   /** Migration 0102 (review A6): unresolved provider attempts the automatic reconciler cannot settle. Absent on older servers. */
