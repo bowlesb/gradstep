@@ -556,9 +556,9 @@ a search for related papers below using a heuristic we come up with. iPhone and 
   neighbours share a specific topic 55 % of the time against 16 % for random pairs.
 - **Measured.** Download (staging, `interest-index`, one synthetic tester account deleted afterwards, three runs from
   the Mac): manifest 1,310 B in 0.30–0.46 s; three shards 620,423 + 1,372,058 + 621,907 = **2.61 MB** for 8,230 papers
-  in **2.0–2.6 s**, once (kept on disk by digest; later only new shards). Ranking on the real shards (Mac, debug build):
-  decode once ≈ 0.87 s (release: see IMPLEMENTATION_STATUS), nearest **2.6 ms per paper** over 8,230 × 384; on 8,000
-  random vectors 1.7 ms. With every title known, 200 opened papers showed a median of 10 related, none for 27, fewer
+  in **2.0–2.6 s**, once (kept on disk by digest; later only new shards). Ranking on the real shards (M1 Max, release build):
+  decode once **20 ms**, nearest **0.38 ms per paper** over 8,230 × 384 (debug build 0.87 s and 2.6 ms); on 8,000
+  random vectors 1.7 ms (debug). With every title known, 200 opened papers showed a median of 10 related, none for 27, fewer
   than 3 for 55. Examples: "Beyond Perfect Teammates: Multi-Agent Collaboration with Unreliable Colleagues" →
   "Training LLMs for Multi-Agent Collaboration with Verifiable Information Rewards" (0.919), "Competence-Aware
   Orchestration for LLM-Based Multi-Agent Systems" (0.911); a video-action corpus → five temporal action papers

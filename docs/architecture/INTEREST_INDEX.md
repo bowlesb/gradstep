@@ -627,8 +627,8 @@ On Cloud Run, revision 00055 loaded the model and embedded 3 re-pended papers at
 - Not yet: the map and term statistics are downloadable with `artifact(_:)` but not decoded into models (step 3);
   library fingerprints (`v1_interest_library_fingerprints`) aren't called.
 - Measured on staging (one synthetic tester account, deleted afterwards): manifest 1,310 B in 0.30–0.46 s; three
-  shards, 2,614,388 B for 8,230 papers, in 2.0–2.6 s sequentially from the Mac; nearest over the window 2.6 ms per
-  paper (debug build, Mac).
+  shards, 2,614,388 B for 8,230 papers, in 2.0–2.6 s sequentially from the Mac; decode 20 ms and nearest over the window 0.38 ms per
+  paper (release build, M1 Max; debug 0.87 s and 2.6 ms).
 - Privacy: unchanged from §5. The device downloads the same bytes as everyone; which paper it ranks stays on it.
 
 ## Decisions taken for Phase B (lead's interim decisions; the owner can revisit)
