@@ -6,6 +6,26 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-25
 
+43. **A figure printed before the Introduction reads after the paragraph that first cites it** (owner, TestFlight 92,
+    WorldCast 2610.20731v2: "Is the Figure displayed in the right place"; reader revision 27, model readings port 15).
+    The paper, its HTML and its PDF put Figures 1 and 2 between the abstract and "1 Introduction" (the foot of page 1,
+    the top of page 2), so the phone showed two large figures, then the keywords, then the Introduction, whose second
+    paragraph cites Figure 1. Now a figure or table between the title and the first section that the first section
+    cites moves to just after the whole paragraph citing it (its displays and closing words included). Floats keep
+    their numbered order: a later one written before the first section follows, to its own first citation or right
+    behind the one before (WorldCast's uncited Figure 2 follows Figure 1); none passes a float of the body or reaches
+    the references. Kept as written: a teaser the Introduction doesn't cite (DDPM's samples, cited in §4) and every
+    float in the body (614 of 1,509 cited figures sit before their first citation, half within 500 characters, usually
+    at the top of the section discussing them). The **keywords row sits right after the abstract**, before any figure
+    kept there. The move changes no id (ids follow source order), so links, explanations, snippets and Show in PDF
+    address the same figures. 186 cached papers: 21 change, 35 floats move (ViewCraft had all 11 before its
+    Introduction), none refused; 4 of 76 recorded model readings change (venue papers with Figure 1 above the abstract). *Why:* on paper a float at the top of a page is
+    seen beside the text that cites it; a phone has no page, so the nearest place is right after that text; a figure
+    the opening doesn't cite is a visual abstract and keeps its place. *Undo:* drop the `floatsNearCitations` call
+    (arxiv-html.ts) and `floatsNearMentions` (device-pdf/emit.ts) and bump both revisions; the keywords row's place is
+    `paperTagsPlace` in reader-bridge.js. *Wider option not taken:* the same rule for body floats (about 300 figures
+    in another section than their first citation).
+
 32. **The six-place bar is chosen by the window's size alone: at least 730 pt wide and 600 pt tall** (`TallBar` in
     ScienceReaderCore). Every iPad upright gets six; Split View, Slide Over and a phone sideways (up to 956 pt wide, but
     at most 440 tall) get Library · Paper · Chat · More. *Why:* the shape rule already reads only the window (owner,

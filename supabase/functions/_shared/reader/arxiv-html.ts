@@ -4,8 +4,8 @@
 // The converter's components (docs/proposals/READER_ARCHITECTURE_RETHINK.md, step 2) live in ./arxiv/: the shared
 // context (context.ts), source preparation (source.ts), front matter and authors (front-matter.ts, authors.ts), the page
 // flow (flow.ts), running text (inline.ts), math (math.ts), tables (tables.ts), figures (figures.ts), inline pictures
-// (pictures.ts) and the finished page (finish.ts). This module keeps the public API and the order of the passes.
-// `scripts/arxiv-converter-equivalence.mjs` proves a restructuring changes no output.
+// (pictures.ts), where floats read (floats.ts) and the finished page (finish.ts). This module keeps the public API and
+// the order of the passes. `scripts/arxiv-converter-equivalence.mjs` proves a restructuring changes no output.
 import { elements, serialize } from './html.ts';
 import { LIMITS } from './profile.ts';
 import { check, sha256Hex, utf8 } from './util.ts';
@@ -15,6 +15,7 @@ import { article, omitForeignGraphics } from './arxiv/source.ts';
 import { svgOnly, svgTextLabels, withSharedDefinitions } from './arxiv/pictures.ts';
 import { catalogHeader, catalogTitle, dropRepeatedTitle, frontMatterFirst, frontAffiliations } from './arxiv/front-matter.ts';
 import { flow } from './arxiv/flow.ts';
+import { floatsNearCitations } from './arxiv/floats.ts';
 import { checkMathCoverage, checkNotStub, closingNote, compose, dropEmptyParagraphs, dropMacroParagraphs } from './arxiv/finish.ts';
 
 export { ARXIV_ID, arxivAssetURL, arxivHTMLURL } from './arxiv/urls.ts';
@@ -42,9 +43,11 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * that Unicode spells is text, so the title's index text has no macro ("VLA-Δ", not "VLA- \Delta "), and an affiliation
  * keeps its bracketed web address instead of an empty "()", 2610.21306v1 on the fresh-paper sweep; revision 26: an
  * aligned group (align, alignat, eqnarray) is one display per number with its relations aligned, not a centred line per
- * cell, and accents are drawn over their letter in WebKit, 2610.27450v1 equations (2) and (3) on TestFlight 92), so a
- * device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 26;
+ * cell, and accents are drawn over their letter in WebKit, 2610.27450v1 equations (2) and (3) on TestFlight 92; revision
+ * 27: a float written before the first section that the first section cites reads after the paragraph citing it, not
+ * between the abstract and the Introduction, 2610.20731v2 on TestFlight 92), so a device re-prepares papers it compiled
+ * with an older app (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 27;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {
@@ -98,6 +101,8 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   dropMacroParagraphs(cx);
   dropEmptyParagraphs(cx);
   dropRepeatedTitle(cx);
+  // Floats written before the first section read where the first section cites them.
+  floatsNearCitations(cx);
   checkNotStub(cx);
   closingNote(cx);
   checkMathCoverage(cx);

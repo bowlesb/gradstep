@@ -1,6 +1,7 @@
 {
  "renderer_id": "gradstep-arxiv-html-mathml-v2",
  "versions": [
+  {"revision": 27, "date": "2026-10-25", "build_sha256": "33b5531f3d5024c1e61be4178d54922921b473626c58fc71d8814b40f79fd77f", "note": "A figure printed before the Introduction reads after the paragraph that first mentions it; the keywords sit right under the abstract."},
   {"revision": 26, "date": "2026-10-25", "build_sha256": "3ece1190907482549bb07aff781339d2d21b5835106335ddf3dbc7a5e0a68319", "note": "Aligned equations keep each relation on one line, aligned at its sign, with their number beside them; a bar or dot accent sits over its letter."},
   {"revision": 25, "date": "2026-10-24", "build_sha256": "d31e1a339dbff08feb187dfed7f10174184c5886464ab9874a7bc9c19055172a", "note": "A figure drawing with photos or screenshots inside it shows in the paper instead of a note that the PDF has it."},
   {"revision": 24, "date": "2026-10-24", "build_sha256": "7e454c9425b8ed434be789c4b0023e501a428da2b31e9a9acd0c8b94b78851bf", "note": "Symbols in titles and headings read as characters (VLA-Δ) instead of TeX commands; an affiliation keeps its web address in brackets, with no empty brackets left."},

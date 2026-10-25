@@ -35,6 +35,19 @@ Slow, opt-in: `-only-testing:ScienceReaderUITests/GlobalSearchJourneyTests` on a
 100 ms p95). Rerun `SearchMatchJourneyTests`, `LibraryFullTextJourneyTests` and
 `SnippetsFeedbackTests/testSearchCoversEveryTextOfASnippet` after a tokenizer change.
 
+## Floats before the first section (reader revision 27, device port 15) — October 25
+
+Fast (in `npm test`): `tests/backend/arxiv-float-placement.test.ts` (WorldCast's two front figures, a teaser cited later
+or never, a citing paragraph with a display, order kept and the body's floats not passed, a table float, `\captionof`
+with and without the image shown, a caption-only float that holds the others; the bridge's keywords place; the same rule
+on model-reading blocks). Slow, opt-in: a replay of cached sources against the previous revision
+(`scripts/arxiv-converter-equivalence.mjs --ignore-ids` lists what changed), the fresh-paper sweep, and recorded model
+readings through `scripts/device-route-replay.mjs`. Screenshots: compile `node scripts/reader-device-compile.mjs
+--ids=2610.20731v2 --out=<dir>`, then on an iPhone Simulator
+`-only-testing:ScienceReaderUITests/ReaderNavigationTests/testTestFlight92FigurePlacement` with
+`TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`, `TEST_RUNNER_READER_SHOT_NAME=<prefix>` and `TEST_RUNNER_GS_SCREENSHOT_DIR`
+(skipped without the bundle; about 9 minutes, most of it held drags). Screenshots under `.artifacts/tf92-figures/`.
+
 ## Aligned equations and accents (reader revision 26, device port 14) — October 25
 
 Fast (in `npm test`): `tests/backend/arxiv-equations.test.ts` (LaTeXML align with two column pairs, separately numbered

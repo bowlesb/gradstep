@@ -424,3 +424,19 @@ formula's accents take the arXiv reader's form (`accents.ts`: Temml's not-stretc
 the low-set twin over a single letter; \check keeps its mark). `tests/backend/arxiv-equations.test.ts` covers both; the
 reading's text and gate are otherwise unchanged.
 
+
+## Floats before the first section — port revision 15, 2026-10-25
+
+From the arXiv reader's revision 27 (owner, TestFlight 92, WorldCast 2610.20731v2; [HTML_FIRST_READER.md](HTML_FIRST_READER.md)
+"Floats before the first section", JUDGMENT_LOG 43). A model reading follows the pages, so it has the same placement: a
+float printed at the foot of page 1, at the top of page 2, or above the abstract of a two-column venue paper reads
+between the title and the Introduction. `emit` now applies the shared rule (`float-placement.ts`) through
+`device-pdf/floats.ts`: a float is a figure or table block (a figure without its picture reads as its caption) whose
+caption names it ("Figure 2", "Fig. 2.", "Table 1"); a paragraph (the abstract's too) cites it by naming it ("Figs. 1
+and 3"), since a model reading has no links; a float lands after the citing paragraph, its displays, a lower-case
+continuation after a display, and the rest of a sentence a column or page break cut. A figure no caption names never
+moves. The index's equations and figures are re-sorted into page order after a move; the trace (the converter's
+reading, scored against the reference) is unchanged. Replaying the 76 recorded model readings
+(`.artifacts/device-route/accuracy/*/record.json`) through this converter: 4 change, each moving Figure 1 of a venue
+paper (ACL 2024 long 42 and 233, EMNLP 2024 105, a NeurIPS 2024 paper) into its Introduction; none refused.
+`tests/backend/arxiv-float-placement.test.ts` covers the rule on model-reading blocks.

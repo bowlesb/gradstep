@@ -1184,6 +1184,23 @@
     while (anchor?.nextElementSibling?.classList.contains('reader-authors')) anchor = anchor.nextElementSibling;
     if (anchor) anchor.after(line); else document.body.prepend(line);
   };
+  // BEGIN PAPER TAGS PLACE
+  // The keywords row reads right after the abstract (owner, TestFlight 92, WorldCast 2610.20731v2: it sat under two
+  // figures, between the abstract and the Introduction): before the first figure, table, caption or section that follows
+  // the abstract's heading, so a teaser the paper keeps under its abstract comes after the row. `nodes` are the page's
+  // top-level elements; null (no abstract heading before the first section) keeps the row before the first section.
+  const paperTagsPlace = nodes => {
+    const text = node => String(node.textContent || '').trim();
+    const named = (node, name) => (' ' + String(node.className || '') + ' ').includes(' ' + name + ' ');
+    const section = node => /^H[2-6]$/i.test(node.tagName) && !/^(abstract|contents|table of contents)$/i.test(text(node));
+    const float = node => /^FIGURE$/i.test(node.tagName) || named(node, 'reader-table') || named(node, 'reader-caption');
+    // The abstract's heading, or a model reading's abstract paragraph (`reader-abstract`).
+    const abstract = nodes.findIndex(node => (/^(H[1-6]|P)$/i.test(node.tagName) && /^abstract[.:]?$/i.test(text(node))) || named(node, 'reader-abstract'));
+    const first = nodes.findIndex(section);
+    if (abstract < 0 || (first >= 0 && first < abstract)) return null;
+    return nodes.slice(abstract + 1).find(node => section(node) || float(node)) ?? null;
+  };
+  // END PAPER TAGS PLACE
   // The paper's tags as chips under the paper line (or the title and authors). A chip offers a search for its keyword
   // (owner, builds 73 and 75: "an option right at the top to search ML papers based on this keyword"); anywhere else on
   // the row opens Edit keywords, without an "Edit" word (build 72).
@@ -1214,7 +1231,8 @@
       event.preventDefault();
       post(chip ? {type:'tag', name: chip.getAttribute('data-sr-tag')} : {type:'tags'});
     });
-    const heading = [...document.querySelectorAll('h2,h3,h4,h5,h6')].find(h => !/^(abstract|contents|table of contents)$/i.test(h.textContent.trim()));
+    const place = paperTagsPlace([...document.body.children]);
+    const heading = place ?? [...document.querySelectorAll('h2,h3,h4,h5,h6')].find(h => !/^(abstract|contents|table of contents)$/i.test(h.textContent.trim()));
     if (heading) heading.before(row);
     else document.body.append(row);
   };
