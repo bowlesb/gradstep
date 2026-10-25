@@ -142,7 +142,9 @@ struct RootView: View {
             // Feed · Library · Paper · Chat · Notes (owner, 2026-10-20): on iPhone Settings is the last section of every ⋯
             // menu; on iPad it is the sixth, beside Snippets (owner, 2026-10-24), and opens over the screen as before.
             ForEach(places) { tab in
-                let selected = tab == .settings ? model.settingsPresented : model.tab == tab
+                // While Settings is over the screen (iPad), it is the selected place.
+                let settingsShown = places.contains(.settings) && model.settingsPresented
+                let selected = tab == .settings ? settingsShown : model.tab == tab && !settingsShown
                 Button {
                     if tab == .settings { model.openSettings(); return }
                     // A second tap on Notes goes back to its list, as a system tab bar does.

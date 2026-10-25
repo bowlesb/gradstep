@@ -18,13 +18,13 @@ enum Platform {
     /// iPad or Mac: the layouts that put panes side by side and center scrolling columns. The Mac
     /// uses the same wide workspace as the browser (Library/Feed, Reader and Chat panes), while
     /// reusing the iPad's SwiftUI surfaces and shared model for behavioral parity.
-    /// The iPad (not the Mac, whose idiom can also be pad): its six places and no Settings in ⋯ menus (owner, 2026-10-24).
-    @MainActor static var isPad: Bool { !isMac && UIDevice.current.userInterfaceIdiom == .pad }
-
     @MainActor static var isLargeScreen: Bool {
         let idiom = UIDevice.current.userInterfaceIdiom
         return idiom == .pad || idiom == .mac
     }
+
+    /// The iPad (not the Mac, whose idiom can also be pad): its six places and no Settings in ⋯ menus (owner, 2026-10-24).
+    @MainActor static var isPad: Bool { !isMac && UIDevice.current.userInterfaceIdiom == .pad }
 
     /// Visual checks (docs/VISUAL_CHECK.md): `--appearance=dark|light` pins the appearance for a capture where no
     /// Simulator setting can (the Mac). Nil otherwise: the system appearance.

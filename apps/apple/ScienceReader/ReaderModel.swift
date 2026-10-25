@@ -1282,6 +1282,8 @@ final class ReaderModel {
         podcasts.host = self
         fullTextIndexer.inputs = { [weak self] in self?.fullTextInputs() ?? .init() }
         fullTextIndexer.changed = { [weak self] in self?.fullTextIndexChanged() }
+        // The Feed's former "Hide papers in your library" choice: hiding is now the only behaviour (owner, 2026-10-24).
+        UserDefaults.standard.removeObject(forKey: "feed.hidesLibrary")
     }
 
     /// The signed-in, activated account's podcast service and local folder; nil before activation or when signed out.
