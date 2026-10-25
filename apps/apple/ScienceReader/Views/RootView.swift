@@ -353,7 +353,8 @@ struct LibraryView: View {
                 } else if !model.librarySearchPending && model.libraryRows.isEmpty && model.libraryFiltered {
                     // A filter with nothing in it (the last failed import was retried, say): one way back.
                     ContentUnavailableView {
-                        Label(model.libraryTagFilter.map { "No papers tagged “\($0)”" } ?? model.libraryFilter.emptyTitle,
+                        Label(model.libraryTagFilter.map { "No papers tagged “\($0)”" } ?? model.libraryTopicFilter.map { "No papers in “\($0.label)” here" }
+                              ?? model.libraryFilter.emptyTitle,
                               systemImage: "line.3.horizontal.decrease.circle")
                     } description: {
                         Text("Other papers are in All.")
@@ -376,6 +377,7 @@ struct LibraryView: View {
                         banners(inset: false).listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
                         LibraryFilterBar(model: model)
+                        LibraryTopicsSection(model: model)
                     }
                     .refreshable { await model.refreshLibrary() }
                     .overlay(alignment: .top) { updatingIndicator }
@@ -385,6 +387,8 @@ struct LibraryView: View {
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
+            // The Library's topics pick up reading done since they were last worked out (LibraryInterest.swift).
+            .task { model.scheduleInterestUpdate(after: .milliseconds(800)) }
             // iPad and Mac: drop PDFs on the Library to add them (docs/architecture/PDF_UPLOADS.md).
             .acceptsDroppedPDFs(model: model)
             .slotSheet(isPresented: $showColumns) {
@@ -401,7 +405,7 @@ struct LibraryView: View {
             }
             // A search starts from the whole library: an earlier tag filter would hide results without saying so
             // (build 75: "I somehow got here, I wonder if a search was not escaped").
-            .onChange(of: searching) { _, now in if now { model.libraryTagFilter = nil } }
+            .onChange(of: searching) { _, now in if now { model.libraryTagFilter = nil; model.libraryTopicFilter = nil } }
             // Mac menu bar: Edit › Search Library (⌘F) / Search ML Papers (⇧⌘F).
             .onChange(of: MacCommandRequests.shared.librarySearch, initial: true) { _, request in
                 if request != nil { MacCommandRequests.shared.librarySearch = nil; searchFocused = true }
@@ -419,7 +423,7 @@ struct LibraryView: View {
         model.libraryLayout == .table && !model.searchExternal && !dynamicTypeSize.isAccessibilitySize && !sidebar
     }
 
-    private func clearFilters() { model.libraryFilter = .all; model.libraryTagFilter = nil }
+    private func clearFilters() { model.libraryFilter = .all; model.libraryTagFilter = nil; model.libraryTopicFilter = nil }
 
     /// Only states the reader can act on; none while browsing normally.
     @ViewBuilder private func banners(inset: Bool) -> some View {
@@ -501,7 +505,7 @@ struct LibraryView: View {
 
     private func cancelSearch() {
         // Back to the whole library: no tag filter is left behind (build 75).
-        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
+        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil; model.libraryTopicFilter = nil
         searchFocused = false
     }
 
@@ -690,6 +694,7 @@ struct LibraryView: View {
             banners(inset: false).listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
             LibraryFilterBar(model: model)
+            LibraryTopicsSection(model: model)
             ForEach(model.libraryRows) { entry in
             #if OFFLINE_RESOURCE_MEASUREMENTS
             let resourceDocumentID: UUID? = {

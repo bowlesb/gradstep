@@ -32,6 +32,19 @@ XCUITest's 60 s "animations complete not received" wait after turning sideways (
 Mac's load at 44–55 and a second Simulator running); alone, after the test that preceded it, and in a diagnostic launch
 it ran with no such wait (103 s, 107 s), so not reproduced. Screens (before | after, iPad Pro 13-inch light and dark;
 test screens): `/Users/benbowlwes/science-reader/.artifacts/nav-20261024/`. Not yet on a device.
+Interest index step 3, the Library's topics on the device (2026-10-25; [architecture](architecture/INTEREST_INDEX.md#device-layer-step-3-built-2026-10-25-app-local-not-released),
+[decisions](DECISIONS.md#library-topics-on-the-device-interest-index-step-3-2026-10-25-agent-decisions-reversible)):
+`ScienceReaderCore/Interest/` decodes the map and term statistics and keeps an exact interest state; step 2's topic
+rule with hysteresis; labels and per-paper keywords from the step-2 term layer (keywords use the full text the encrypted
+full-text index holds); the synced registry (names, hidden, colours, shown topics, reading levels) as end-to-end
+encrypted `note` events, no server change. App: `Services/LibraryInterest.swift`, `ReaderModel+Interest.swift`
+(library fingerprints through `v1_interest_library_fingerprints`), and a collapsible topics ring under Library › All's
+filter chips whose slices filter the list (`Views/LibraryTopicsChart.swift`). Uploaded PDFs are not in topics yet.
+Verified: `swift test` (ScienceReaderCore: Swift Testing 483 and XCTest 97, 3 opt-in skips) including step-2 parity, the
+Python reference on a public 38-paper fixture, the published map's decode and descent, and a 44 KB encrypted record for
+1,000 papers and 200 topics; opt-in measurement of the owner's library on staging's published map (15 topics; 468 ms
+first, 41 ms again, debug); `xcodebuild build-for-testing` (iOS Simulator). **Pending:** `LibraryTopicsTests` and
+screenshots wait for a Simulator turn; nothing deployed; not on a device.
 
 Feed card details and related papers (owner, 2026-10-24; DECISIONS.md "Feed: a card's details…"): a tap on a List card
 or Table row (not Full abstract, Add or links) opens its details — Tall a large sheet swiped down, Wide the right slot

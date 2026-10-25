@@ -111,6 +111,7 @@ extension ReaderModel {
             try configureLibraryMetadataFixture(sample: sample)
         }
         if ProcessInfo.processInfo.arguments.contains("--feed-fixture") { installFeedFixture() }
+        if Self.interestFixtureDirectory != nil { try configureInterestFixture() }
         if ProcessInfo.processInfo.arguments.contains("--study-fixture") { try configureStudyFixture() }
         if AddPaperFixture.isEnabled { try configureAddPaperFixture() }
         if RecommendFixture.isEnabled { configureRecommendFixture() }

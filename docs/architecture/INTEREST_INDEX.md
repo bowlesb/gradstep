@@ -624,12 +624,149 @@ On Cloud Run, revision 00055 loaded the model and embedded 3 re-pended papers at
   by the server's own `codec.ts` (`Fixtures/interest-shard-v1.gsi`).
 - `InterestPool`: the window's shards as one contiguous normalised matrix (8,230 × 384 floats ≈ 12.6 MB); a paper
   listed twice keeps its later fingerprint; versions are stripped from IDs. `similarities(to:)` is one `vDSP_mmul`.
-- Not yet: the map and term statistics are downloadable with `artifact(_:)` but not decoded into models (step 3);
-  library fingerprints (`v1_interest_library_fingerprints`) aren't called.
+- Step 3 (below) decodes the map and term statistics and calls `v1_interest_library_fingerprints`.
 - Measured on staging (one synthetic tester account, deleted afterwards): manifest 1,310 B in 0.30–0.46 s; three
   shards, 2,614,388 B for 8,230 papers, in 2.0–2.6 s sequentially from the Mac; decode 20 ms and nearest over the window 0.38 ms per
   paper (release build, M1 Max; debug 0.87 s and 2.6 ms).
 - Privacy: unchanged from §5. The device downloads the same bytes as everyone; which paper it ranks stays on it.
+
+## Device layer (step 3; built 2026-10-25, app local, not released)
+
+The reader's topics, labels, keywords and Library chart, on the device; the reader's choices sync end to end encrypted.
+Agent decisions (reversible) are in [DECISIONS.md](../DECISIONS.md#library-topics-on-the-device-interest-index-step-3-2026-10-25-agent-decisions-reversible).
+
+| Piece | Code (`apps/apple/`) |
+|---|---|
+| Map (`gradstep-map/1`): nodes, q8 centroids, retired IDs and successors; canonical descent; `live(id)` follows successors | `ScienceReaderCore/…/Interest/InterestMap.swift` |
+| Term statistics (`gradstep-terms/1`) and the scikit-learn tokenizer (`InterestPhrases`) | `…/Interest/InterestTerms.swift` |
+| Interest state (per node: count, mass, Σ weight × fingerprint) and weights | `…/Interest/InterestState.swift` |
+| Topic rule (step 2 + hysteresis) | `…/Interest/InterestTopics.swift` |
+| Labels and per-paper keywords | `…/Interest/InterestLabels.swift` |
+| Registry (sync records and merge) | `…/Interest/InterestRegistry.swift` |
+| Library model (inputs → state → topics → slices) | `…/Interest/InterestLibrary.swift` |
+| App service (artifacts, library fingerprints, engine actor, keyword store) | `ScienceReader/Services/LibraryInterest.swift` |
+| When to recompute, inputs, encrypted writes, the reader's actions, UI fixture | `ScienceReader/ReaderModel+Interest.swift` |
+| Library › All chart | `ScienceReader/Views/LibraryTopicsChart.swift` |
+| Offline reference and fixtures | `tools/interest-eval/device_fixtures.py`, `fetch_device_inputs.py` |
+
+### Inputs
+
+- **Map and term statistics**: the manifest's `map` and `terms` artifacts through `InterestIndexClient` (shared with
+  Related papers; kept by SHA-256), decoded once per version off the main actor. Terms are searched in place (sorted
+  phrases, binary search; 57k phrases today); no dictionary is built.
+- **Library fingerprints**: `v1_interest_library_fingerprints` with no arguments (the server derives the papers from
+  membership), pages of 500, on the first load and whenever the map or terms change; afterwards only papers the
+  device has no fingerprint for, by `p_source_ids` (≤ 500), each asked again at most every 10 minutes while
+  `pending`. The server's `leaf_id` is used when its `map_version` matches the map; otherwise the device descends the
+  map (agreement on the fixture: ≥ 37 of 38 papers, test). Fingerprints are kept in memory for the session, not on disk.
+- **Which papers**: every library paper except the sample, in every catalog, archived ones at half weight. A paper's
+  key is its public identifier without version.
+- **Weights** (owner decisions 2026-10-24): `(archived ? 0.5 : 1) × (0.4 + 0.6 e^(−age/120 d)) × (own tags ? 1.5 : 1) ×
+  (1 + 0.0625 × reading level + 0.25 if it has snippets + 0.25 if it has chats)`. Ages count whole UTC days, so devices
+  agree on the same day. Reading level 0–4 from this device's progress (10 / 35 / 60 / 90 %) and the deepest level any of
+  the reader's devices shared (registry); snippets and chats come from the synced notes and chats.
+- **Uploaded and device PDFs are not in topics yet.** They have no public fingerprint, and an on-device gte-small is
+  not practical in this step: the fp32 model is 133 MB (fp16 Core ML ≈ 67 MB; int8 34 MB moves 8 % of top-10
+  neighbours, which the server rejected), it needs a WordPiece port with parity tests, and the owner has just moved the
+  PDF models out of the app because of size. The chart's ⓘ says how many uploads are left out. A later option is the
+  same model as an On-Demand Resource next to the PDF models, embedding title + first page on the device.
+
+### State and topics
+
+- `InterestState`: weights in 1/4096 and fingerprint components in 1/32768 as integers, so per-node sums are exact:
+  add/remove is the exact inverse and the state is independent of arrival order (tests). Lift = the node's share of the
+  reader's weighted mass ÷ its share of the map's pool papers (`size` ÷ Σ level-1 sizes).
+- `InterestTopicRule` ports `topic_rule2.py`: deepest level first, nodes by lift; a node becomes a topic with ≥ 3
+  unclaimed papers; leftovers rise; a level-1 node keeps its rest only with enough left; an outside paper folds into the
+  topic of its nearest paper at cos ≥ 0.86; "emerging" = 2 outside papers in a leaf with lift ≥ 8. **Hysteresis**: a
+  topic that is already shown keeps with 2 papers and leaves at 1. "Already shown" is the registry's synced `shown`
+  register, so every device decides the same from the same inputs.
+- **Parity with step 2**: on the owner's 62 papers over step 2's offline map the Swift rule reproduces step 2's 14
+  topics exactly (nodes, papers, folded counts, shares to 1e-4, Other and its groups; anonymised fixture
+  `interest-step2-topics.json`).
+- On the published staging map (version 1), the owner's 62 papers give 15 topics and Other 11 % (7 papers); first
+  computation 468 ms, again 41 ms (debug build, M1 Max; opt-in `InterestLibraryMeasurementTests`).
+
+### Labels and keywords (until the map is named in November)
+
+- **Topic label**: weighted log-odds with an informative Dirichlet prior (a0 = 1000) of the phrases the topic's papers
+  use in their title (twice) and abstract against the pool's document frequencies; candidates shared by ≥ 2 papers
+  (≥ 40 % above 4 papers); the top 60 re-ranked by `z/z_max + 2 (closeness − mean)`; behind the concept filter
+  (conceptness ≥ 0.02); its 1–3 best terms, title-cased with usual acronyms, while the label stays ≤ 44 characters.
+  Never a generic area or broad subject (vocabulary areas, `TagVocabulary.generic`, "attention", "regression"…).
+- **No phrase embeddings on the device**, so "closeness" uses a stand-in: a phrase is the weighted centroid of the
+  reader's papers that use it. Measured additions that made labels readable: +1 for a phrase the server's own per-paper
+  terms chose (KeyBERT with real phrase embeddings, returned with the fingerprints), +0.5 for a two- or three-word phrase,
+  single words in more than 2 % of the pool never label a topic, and one phrase labels one topic only (largest first).
+  Without a usable phrase the map node's own terms label it.
+- **Per-paper keywords**: sublinear TF-IDF (IDF from the pool) over the title twice, the abstract and, when the paper
+  was read on this device, its full text from the encrypted full-text index (`FullTextSnapshot.bodyText`; the index's
+  own postings are stemmed single words, which the pool's phrase statistics can't use), n-grams × 1.25, the top 40
+  re-ranked by closeness to the paper (the same stand-in, plus the server's terms), behind the concept filter; five,
+  in sentence case. Shown wherever the Library shows a paper's keywords (`LibraryTags`: table Tags column and chips,
+  rows, the reader's header, filters), first four of them then two vocabulary names, unless the reader set their own
+  tags. Computed at utility priority, cached per paper and recomputed only when its text changes (≈ 14 ms a paper for
+  title and abstract, debug).
+- Python reference of every device rule: `tools/interest-eval/device_fixtures.py`; the Swift port matches it exactly on
+  a public 38-paper fixture (topics, shares to 1e-12, labels, keywords).
+
+### Sync (end-to-end encrypted, no server change)
+
+- Records are ordinary `PrivateEvent`s of kind `note`, entity `6f1e2d3c-4b5a-4968-8778-a69584736251`, no parents, `text`
+  = compact JSON `{format: "gradstep-interest-v1", batch, device, topics[], shown[], reading[]}`:
+  `topics` = `{id, e, n, h, c}` (map node, epoch, the reader's name or null, hidden, colour slot or null), `shown` =
+  `{id, e, on}`, `reading` = `{p, e, l}` (paper key, epoch, level 0–4). Sealed and uploaded through the existing
+  journal, outbox and `v2_*` sync as format-1 envelopes; the server stores ciphertext only.
+- **Merge**: last writer wins per topic ID (user state and shown flag separately) and per (paper, device) for reading,
+  ordered by (epoch, device, batch); an epoch is one more than the greatest the device has seen (Lamport). A paper's
+  level is the maximum over devices. Old topic IDs follow the map's successors. The same records in any order give the
+  same registry (tests).
+- **Compatibility**: the Notes reducer, the catalog reducer, older builds and the browser ignore it (a `note` payload
+  that isn't theirs; tested both ways in Swift; the browser's reducers filter by entity and by `gradstep-notes-`).
+  Records of a later format are counted, never dropped.
+- **Size and growth**: one record ≤ 64 KB of JSON; 200 renamed topics + 200 shown flags + 1,000 reading levels split
+  into 3 records, the largest 44,022 B encrypted (test; under 100 KB). Writes: names, colours and hidden on the
+  reader's action; shown flags only from a fully loaded library with every fingerprint present, at most once a minute;
+  reading levels only when they increased, at most every 6 hours. A level only rises (5 steps), so a paper adds at most
+  four reading entries per device ever.
+- Never sent in plaintext (§5 invariant holds): topics, labels, weights, lifts, keywords and names stay on the device
+  or inside sealed events.
+
+### Library chart (owner decision 4)
+
+Under the filter chips of Library › All (List and Table; not while searching or on another quick filter, so the chips
+never move): a header row "Topics N" with the chosen topic as a ✕ chip, ⓘ and a chevron; opened, a 104 pt thin ring
+(inner radius 72 %, 1 pt gaps) with the papers in topics in its centre and a legend (swatch, label, papers · share; two
+columns on regular width). Up to eight largest topics are coloured by size from the chart palette (slots 1–8, validated
+for adjacent segments on white and black) or by the reader's colour; the rest and the papers outside every topic are a
+neutral Other whose row opens the smaller topics, "Outside topics" and hidden topics. A slice or row filters the list
+to that topic (`ReaderModel.libraryTopicFilter`); again, or the chip, shows everything. Touch and hold: Rename…,
+Colour, Hide topic (Show topic under Other). Collapsed or open is remembered (`library.topics.collapsed`). Identifiers
+`library.topics.*`. UI fixture: `INTEREST_FIXTURE_DIR` = the Core fixtures folder.
+
+### Seam for step 4 (For you in topic sections)
+
+`InterestLibraryModel` (inside `LibraryInterest.engine`) holds the state; `InterestTopicSelection.topics` give node IDs
+and papers and `centroid(of:)` the section anchor; `InterestPool` gives the window's candidates. Step 4 adds a ranking
+over those and a Feed presentation; nothing in step 3 needs to change.
+
+### Tests
+
+- `InterestTopicsTests` (Swift Testing): step-2 parity; exact, order-independent state updates; weights; the published
+  map's decode and descent; successors; term statistics and the tokenizer against scikit-learn (`ngrams.json`); the
+  public library against the Python reference; hysteresis; label casing.
+- `InterestRegistryTests`: last writer wins in any order; registers; successors; other reducers ignore records and
+  vice versa; validation; encrypted size.
+- `InterestLibraryMeasurementTests` (opt-in, `INTEREST_DEVICE_DIR`): a real library on the published artifacts.
+- UI: `LibraryTopicsTests` (collapse remembered, legend row and slice filter, Table, rename and hide).
+
+### Open
+
+- Labels on broad level-1 "rest" topics are still weak ("Graph, Learned", "Answer, Languages, Questions" on the owner's
+  library): those papers share no specific phrase. November's naming of map nodes and step 2's coherence test (demote
+  grab-bags) address it; the reader can rename meanwhile.
+- Topics cover every catalog; the chart filters the current catalog's list.
+- Uploaded PDFs (above). The browser client is not built (step 5).
 
 ## Decisions taken for Phase B (lead's interim decisions; the owner can revisit)
 

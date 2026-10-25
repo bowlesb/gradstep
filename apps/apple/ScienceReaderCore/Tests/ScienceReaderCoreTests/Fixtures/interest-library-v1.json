@@ -1,0 +1,6275 @@
+{
+"note": "Public Feed-pool papers on staging's published map (version 1); expected values from tools/interest-eval/device_fixtures.py's reference of the device rules.",
+"now": "2026-10-25T00:00:00+00:00",
+"map_version": 1,
+"background_total": 9890,
+"nodes": [
+{
+"id": 1,
+"level": 1,
+"parent": null,
+"size": 452,
+"terms": [
+"policy",
+"reinforcement",
+"optimization",
+"regret",
+"policies",
+"optimal"
+],
+"name": null
+},
+{
+"id": 2,
+"level": 2,
+"parent": 1,
+"size": 201,
+"terms": [
+"reinforcement",
+"policy",
+"policies",
+"rl",
+"control",
+"optimization"
+],
+"name": null
+},
+{
+"id": 3,
+"level": 3,
+"parent": 2,
+"size": 24,
+"terms": [
+"policy",
+"reinforcement",
+"optimization",
+"ppo",
+"rl",
+"gradient"
+],
+"name": null
+},
+{
+"id": 4,
+"level": 3,
+"parent": 2,
+"size": 36,
+"terms": [
+"multi-agent",
+"reinforcement learning",
+"cooperative",
+"agents",
+"marl",
+"reward"
+],
+"name": null
+},
+{
+"id": 5,
+"level": 3,
+"parent": 2,
+"size": 71,
+"terms": [
+"policy",
+"reinforcement learning",
+"rl",
+"policies",
+"critic",
+"offline"
+],
+"name": null
+},
+{
+"id": 6,
+"level": 3,
+"parent": 2,
+"size": 39,
+"terms": [
+"reinforcement",
+"pomdps",
+"policy",
+"control",
+"markov decision",
+"action"
+],
+"name": null
+},
+{
+"id": 7,
+"level": 3,
+"parent": 2,
+"size": 31,
+"terms": [
+"policy",
+"reinforcement learning",
+"policies",
+"value",
+"safe",
+"guarantees"
+],
+"name": null
+},
+{
+"id": 8,
+"level": 2,
+"parent": 1,
+"size": 97,
+"terms": [
+"regret",
+"bandits",
+"bounds",
+"algorithm",
+"stochastic",
+"sqrt"
+],
+"name": null
+},
+{
+"id": 9,
+"level": 3,
+"parent": 8,
+"size": 80,
+"terms": [
+"regret",
+"bandits",
+"bounds",
+"sqrt",
+"algorithm",
+"optimal"
+],
+"name": null
+},
+{
+"id": 10,
+"level": 3,
+"parent": 8,
+"size": 17,
+"terms": [
+"stochastic",
+"optimization",
+"regret",
+"bound",
+"gradient",
+"exp-concave"
+],
+"name": null
+},
+{
+"id": 11,
+"level": 2,
+"parent": 1,
+"size": 154,
+"terms": [
+"optimization",
+"decision",
+"allocation",
+"optimal",
+"selection",
+"cost"
+],
+"name": null
+},
+{
+"id": 12,
+"level": 3,
+"parent": 11,
+"size": 41,
+"terms": [
+"trading",
+"allocation",
+"market",
+"decisions",
+"demand",
+"risk"
+],
+"name": null
+},
+{
+"id": 13,
+"level": 3,
+"parent": 11,
+"size": 14,
+"terms": [
+"federated",
+"client",
+"decentralized",
+"personalization",
+"communication",
+"personalized"
+],
+"name": null
+},
+{
+"id": 14,
+"level": 3,
+"parent": 11,
+"size": 46,
+"terms": [
+"allocation",
+"communication",
+"optimal",
+"scheduling",
+"rounds",
+"agents"
+],
+"name": null
+},
+{
+"id": 15,
+"level": 3,
+"parent": 11,
+"size": 53,
+"terms": [
+"optimization",
+"instances",
+"search",
+"selection",
+"routing",
+"heuristic"
+],
+"name": null
+},
+{
+"id": 16,
+"level": 1,
+"parent": null,
+"size": 534,
+"terms": [
+"neural",
+"networks",
+"graph",
+"attention",
+"representations",
+"learned"
+],
+"name": null
+},
+{
+"id": 17,
+"level": 2,
+"parent": 16,
+"size": 77,
+"terms": [
+"graph",
+"node",
+"neural",
+"networks",
+"representations",
+"edge"
+],
+"name": null
+},
+{
+"id": 18,
+"level": 3,
+"parent": 17,
+"size": 52,
+"terms": [
+"graph",
+"node",
+"networks",
+"neural",
+"gnns",
+"edge"
+],
+"name": null
+},
+{
+"id": 19,
+"level": 3,
+"parent": 17,
+"size": 25,
+"terms": [
+"graph",
+"neural",
+"transformer",
+"node",
+"network",
+"circuit"
+],
+"name": null
+},
+{
+"id": 20,
+"level": 2,
+"parent": 16,
+"size": 163,
+"terms": [
+"representations",
+"feature",
+"attention",
+"network",
+"learned",
+"architectures"
+],
+"name": null
+},
+{
+"id": 21,
+"level": 3,
+"parent": 20,
+"size": 18,
+"terms": [
+"federated",
+"local",
+"personalized",
+"communication",
+"client",
+"devices"
+],
+"name": null
+},
+{
+"id": 22,
+"level": 3,
+"parent": 20,
+"size": 13,
+"terms": [
+"expert",
+"moe",
+"routing",
+"merging",
+"merged",
+"token"
+],
+"name": null
+},
+{
+"id": 23,
+"level": 3,
+"parent": 20,
+"size": 54,
+"terms": [
+"tabular",
+"foundation",
+"distillation",
+"prediction",
+"representations",
+"adversarial"
+],
+"name": null
+},
+{
+"id": 24,
+"level": 3,
+"parent": 20,
+"size": 78,
+"terms": [
+"attention",
+"architectures",
+"learned",
+"feature",
+"kernel",
+"representation"
+],
+"name": null
+},
+{
+"id": 25,
+"level": 2,
+"parent": 16,
+"size": 131,
+"terms": [
+"neural",
+"networks",
+"spiking",
+"memory",
+"forgetting",
+"continual"
+],
+"name": null
+},
+{
+"id": 26,
+"level": 3,
+"parent": 25,
+"size": 44,
+"terms": [
+"spiking",
+"neural",
+"networks",
+"neuromorphic",
+"snns",
+"neurons"
+],
+"name": null
+},
+{
+"id": 27,
+"level": 3,
+"parent": 25,
+"size": 16,
+"terms": [
+"eeg",
+"foundation",
+"brain",
+"electrode",
+"spectral",
+"neural"
+],
+"name": null
+},
+{
+"id": 28,
+"level": 3,
+"parent": 25,
+"size": 71,
+"terms": [
+"forgetting",
+"continual",
+"memory",
+"memorization",
+"catastrophic",
+"neural"
+],
+"name": null
+},
+{
+"id": 29,
+"level": 2,
+"parent": 16,
+"size": 163,
+"terms": [
+"networks",
+"neural",
+"transformers",
+"attention",
+"linear",
+"gradient"
+],
+"name": null
+},
+{
+"id": 30,
+"level": 3,
+"parent": 29,
+"size": 30,
+"terms": [
+"networks",
+"relu",
+"neural",
+"functions",
+"width",
+"polynomial"
+],
+"name": null
+},
+{
+"id": 31,
+"level": 3,
+"parent": 29,
+"size": 63,
+"terms": [
+"networks",
+"neural",
+"gradient",
+"deep",
+"loss",
+"spectral"
+],
+"name": null
+},
+{
+"id": 32,
+"level": 3,
+"parent": 29,
+"size": 30,
+"terms": [
+"error",
+"networks",
+"neural",
+"compression",
+"muon",
+"linear"
+],
+"name": null
+},
+{
+"id": 33,
+"level": 3,
+"parent": 29,
+"size": 40,
+"terms": [
+"transformers",
+"attention",
+"layer",
+"gradient",
+"trained",
+"softmax"
+],
+"name": null
+},
+{
+"id": 34,
+"level": 1,
+"parent": null,
+"size": 739,
+"terms": [
+"robot",
+"action",
+"manipulation",
+"policy",
+"success",
+"world"
+],
+"name": null
+},
+{
+"id": 35,
+"level": 2,
+"parent": 34,
+"size": 192,
+"terms": [
+"robot",
+"policy",
+"manipulation",
+"action",
+"success",
+"policies"
+],
+"name": null
+},
+{
+"id": 36,
+"level": 3,
+"parent": 35,
+"size": 22,
+"terms": [
+"demonstrations",
+"manipulation",
+"action",
+"robot",
+"policies",
+"policy"
+],
+"name": null
+},
+{
+"id": 37,
+"level": 3,
+"parent": 35,
+"size": 63,
+"terms": [
+"policy",
+"robot",
+"action",
+"policies",
+"manipulation",
+"success"
+],
+"name": null
+},
+{
+"id": 38,
+"level": 3,
+"parent": 35,
+"size": 21,
+"terms": [
+"reinforcement",
+"policy",
+"policies",
+"rl",
+"exploration",
+"planning"
+],
+"name": null
+},
+{
+"id": 39,
+"level": 3,
+"parent": 35,
+"size": 45,
+"terms": [
+"embodied",
+"execution",
+"robot",
+"agents",
+"success",
+"experience"
+],
+"name": null
+},
+{
+"id": 40,
+"level": 3,
+"parent": 35,
+"size": 41,
+"terms": [
+"manipulation",
+"robot",
+"success",
+"policy",
+"execution",
+"policies"
+],
+"name": null
+},
+{
+"id": 41,
+"level": 2,
+"parent": 34,
+"size": 153,
+"terms": [
+"world",
+"action",
+"future",
+"latent",
+"prediction",
+"visual"
+],
+"name": null
+},
+{
+"id": 42,
+"level": 3,
+"parent": 41,
+"size": 34,
+"terms": [
+"world",
+"robot",
+"scene",
+"action",
+"motion",
+"physical"
+],
+"name": null
+},
+{
+"id": 43,
+"level": 3,
+"parent": 41,
+"size": 61,
+"terms": [
+"action",
+"world",
+"wams",
+"future",
+"prediction",
+"robot"
+],
+"name": null
+},
+{
+"id": 44,
+"level": 3,
+"parent": 41,
+"size": 17,
+"terms": [
+"world",
+"interactive",
+"action",
+"gameplay",
+"video",
+"embodied"
+],
+"name": null
+},
+{
+"id": 45,
+"level": 3,
+"parent": 41,
+"size": 41,
+"terms": [
+"world",
+"planning",
+"latent",
+"future",
+"driving",
+"action"
+],
+"name": null
+},
+{
+"id": 46,
+"level": 2,
+"parent": 34,
+"size": 72,
+"terms": [
+"humanoid",
+"motion",
+"robot",
+"whole-body",
+"loco-manipulation",
+"policy"
+],
+"name": null
+},
+{
+"id": 47,
+"level": 3,
+"parent": 46,
+"size": 23,
+"terms": [
+"motion",
+"robot",
+"human",
+"loco-manipulation",
+"pose",
+"egocentric"
+],
+"name": null
+},
+{
+"id": 48,
+"level": 3,
+"parent": 46,
+"size": 49,
+"terms": [
+"humanoid",
+"motion",
+"whole-body",
+"loco-manipulation",
+"g1",
+"robot"
+],
+"name": null
+},
+{
+"id": 49,
+"level": 2,
+"parent": 34,
+"size": 133,
+"terms": [
+"manipulation",
+"contact",
+"dexterous",
+"robot",
+"tactile",
+"demonstrations"
+],
+"name": null
+},
+{
+"id": 50,
+"level": 3,
+"parent": 49,
+"size": 61,
+"terms": [
+"manipulation",
+"robot",
+"contact",
+"object",
+"demonstrations",
+"bimanual"
+],
+"name": null
+},
+{
+"id": 51,
+"level": 3,
+"parent": 49,
+"size": 36,
+"terms": [
+"tactile",
+"contact",
+"manipulation",
+"touch",
+"robot",
+"policies"
+],
+"name": null
+},
+{
+"id": 52,
+"level": 3,
+"parent": 49,
+"size": 36,
+"terms": [
+"dexterous",
+"hand",
+"demonstrations",
+"manipulation",
+"human",
+"retargeting"
+],
+"name": null
+},
+{
+"id": 53,
+"level": 2,
+"parent": 34,
+"size": 189,
+"terms": [
+"vla",
+"vision-language-action",
+"robot",
+"manipulation",
+"success",
+"policy"
+],
+"name": null
+},
+{
+"id": 54,
+"level": 3,
+"parent": 53,
+"size": 21,
+"terms": [
+"navigation",
+"vln",
+"sr",
+"human",
+"robot",
+"goal"
+],
+"name": null
+},
+{
+"id": 55,
+"level": 3,
+"parent": 53,
+"size": 54,
+"terms": [
+"vla",
+"vision-language-action",
+"manipulation",
+"success",
+"robot",
+"policies"
+],
+"name": null
+},
+{
+"id": 56,
+"level": 3,
+"parent": 53,
+"size": 41,
+"terms": [
+"robot",
+"manipulation",
+"embodied",
+"planning",
+"action",
+"success"
+],
+"name": null
+},
+{
+"id": 57,
+"level": 3,
+"parent": 53,
+"size": 63,
+"terms": [
+"vla",
+"vision-language-action",
+"robot",
+"success",
+"policies",
+"policy"
+],
+"name": null
+},
+{
+"id": 58,
+"level": 3,
+"parent": 53,
+"size": 10,
+"terms": [
+"robotic",
+"planning",
+"reactive",
+"llms",
+"navigation",
+"physical"
+],
+"name": null
+},
+{
+"id": 59,
+"level": 1,
+"parent": null,
+"size": 507,
+"terms": [
+"scene",
+"reconstruction",
+"geometry",
+"geometric",
+"gaussian",
+"camera"
+],
+"name": null
+},
+{
+"id": 60,
+"level": 2,
+"parent": 59,
+"size": 166,
+"terms": [
+"gaussian",
+"scene",
+"splatting",
+"video",
+"reconstruction",
+"motion"
+],
+"name": null
+},
+{
+"id": 61,
+"level": 3,
+"parent": 60,
+"size": 51,
+"terms": [
+"reconstruction",
+"gaussian",
+"rendering",
+"video",
+"scene",
+"camera"
+],
+"name": null
+},
+{
+"id": 62,
+"level": 3,
+"parent": 60,
+"size": 48,
+"terms": [
+"splatting",
+"gaussian",
+"scene",
+"rendering",
+"reconstruction",
+"primitives"
+],
+"name": null
+},
+{
+"id": 63,
+"level": 3,
+"parent": 60,
+"size": 24,
+"terms": [
+"motion",
+"hand",
+"video",
+"human-object",
+"body",
+"world-space"
+],
+"name": null
+},
+{
+"id": 64,
+"level": 3,
+"parent": 60,
+"size": 43,
+"terms": [
+"world",
+"video",
+"scene",
+"camera",
+"consistency",
+"memory"
+],
+"name": null
+},
+{
+"id": 65,
+"level": 2,
+"parent": 59,
+"size": 175,
+"terms": [
+"geometry",
+"reconstruction",
+"geometric",
+"scene",
+"spatial",
+"object"
+],
+"name": null
+},
+{
+"id": 66,
+"level": 3,
+"parent": 65,
+"size": 36,
+"terms": [
+"geometry",
+"mesh",
+"shape",
+"geometric",
+"surface",
+"reconstruction"
+],
+"name": null
+},
+{
+"id": 67,
+"level": 3,
+"parent": 65,
+"size": 33,
+"terms": [
+"scene",
+"semantic",
+"segmentation",
+"open-vocabulary",
+"geometry",
+"gaussian"
+],
+"name": null
+},
+{
+"id": 68,
+"level": 3,
+"parent": 65,
+"size": 65,
+"terms": [
+"geometry",
+"reconstruction",
+"geometric",
+"view",
+"feed-forward",
+"pose"
+],
+"name": null
+},
+{
+"id": 69,
+"level": 3,
+"parent": 65,
+"size": 41,
+"terms": [
+"spatial",
+"geometry",
+"assembly",
+"geometric",
+"assets",
+"design"
+],
+"name": null
+},
+{
+"id": 70,
+"level": 2,
+"parent": 59,
+"size": 166,
+"terms": [
+"pose",
+"lidar",
+"geometric",
+"scene",
+"camera",
+"localization"
+],
+"name": null
+},
+{
+"id": 71,
+"level": 3,
+"parent": 70,
+"size": 39,
+"terms": [
+"driving",
+"perception",
+"autonomous",
+"occupancy",
+"depth",
+"scene"
+],
+"name": null
+},
+{
+"id": 72,
+"level": 3,
+"parent": 70,
+"size": 35,
+"terms": [
+"lidar",
+"depth",
+"point",
+"geometric",
+"monocular",
+"sonar"
+],
+"name": null
+},
+{
+"id": 73,
+"level": 3,
+"parent": 70,
+"size": 44,
+"terms": [
+"scene",
+"spatial",
+"navigation",
+"mapping",
+"indoor",
+"object"
+],
+"name": null
+},
+{
+"id": 74,
+"level": 3,
+"parent": 70,
+"size": 48,
+"terms": [
+"pose",
+"localization",
+"estimation",
+"camera",
+"monocular",
+"slam"
+],
+"name": null
+},
+{
+"id": 75,
+"level": 1,
+"parent": null,
+"size": 345,
+"terms": [
+"neural",
+"network",
+"dynamics",
+"operator",
+"error",
+"flow"
+],
+"name": null
+},
+{
+"id": 76,
+"level": 2,
+"parent": 75,
+"size": 213,
+"terms": [
+"neural",
+"dynamics",
+"networks",
+"operator",
+"equations",
+"flow"
+],
+"name": null
+},
+{
+"id": 77,
+"level": 3,
+"parent": 76,
+"size": 23,
+"terms": [
+"neural",
+"energy",
+"stress",
+"physics-informed",
+"finite element",
+"mechanical"
+],
+"name": null
+},
+{
+"id": 78,
+"level": 3,
+"parent": 76,
+"size": 23,
+"terms": [
+"design",
+"optimisation",
+"cma-es",
+"adaptive",
+"cfd",
+"optimization"
+],
+"name": null
+},
+{
+"id": 79,
+"level": 3,
+"parent": 76,
+"size": 47,
+"terms": [
+"neural",
+"dynamics",
+"physics",
+"nonlinear",
+"networks",
+"physical"
+],
+"name": null
+},
+{
+"id": 80,
+"level": 3,
+"parent": 76,
+"size": 54,
+"terms": [
+"neural",
+"gradient",
+"momentum",
+"dynamics",
+"operators",
+"networks"
+],
+"name": null
+},
+{
+"id": 81,
+"level": 3,
+"parent": 76,
+"size": 66,
+"terms": [
+"neural",
+"pde",
+"operator",
+"equations",
+"numerical",
+"solver"
+],
+"name": null
+},
+{
+"id": 82,
+"level": 2,
+"parent": 75,
+"size": 132,
+"terms": [
+"reconstruction",
+"inverse",
+"neural",
+"diffusion",
+"sampling",
+"imaging"
+],
+"name": null
+},
+{
+"id": 83,
+"level": 3,
+"parent": 82,
+"size": 24,
+"terms": [
+"imaging",
+"reconstruction",
+"dose",
+"measurements",
+"acquisition",
+"scattering"
+],
+"name": null
+},
+{
+"id": 84,
+"level": 3,
+"parent": 82,
+"size": 74,
+"terms": [
+"inverse",
+"posterior",
+"sampling",
+"diffusion",
+"reconstruction",
+"gaussian"
+],
+"name": null
+},
+{
+"id": 85,
+"level": 3,
+"parent": 82,
+"size": 34,
+"terms": [
+"estimation",
+"neural",
+"noise",
+"underwater",
+"networks",
+"doa"
+],
+"name": null
+},
+{
+"id": 86,
+"level": 1,
+"parent": null,
+"size": 447,
+"terms": [
+"retrieval",
+"evidence",
+"search",
+"query",
+"memory",
+"semantic"
+],
+"name": null
+},
+{
+"id": 87,
+"level": 2,
+"parent": 86,
+"size": 74,
+"terms": [
+"recommendation",
+"user",
+"semantic",
+"ranking",
+"item",
+"retrieval"
+],
+"name": null
+},
+{
+"id": 88,
+"level": 3,
+"parent": 87,
+"size": 22,
+"terms": [
+"personalization",
+"search",
+"e-commerce",
+"generative retrieval",
+"product",
+"sid"
+],
+"name": null
+},
+{
+"id": 89,
+"level": 3,
+"parent": 87,
+"size": 52,
+"terms": [
+"recommendation",
+"item",
+"user",
+"ranking",
+"recommender",
+"semantic"
+],
+"name": null
+},
+{
+"id": 90,
+"level": 2,
+"parent": 86,
+"size": 211,
+"terms": [
+"retrieval",
+"knowledge",
+"document",
+"query",
+"graph",
+"evidence"
+],
+"name": null
+},
+{
+"id": 91,
+"level": 3,
+"parent": 90,
+"size": 31,
+"terms": [
+"graph",
+"knowledge",
+"entity",
+"semantic",
+"relational",
+"extraction"
+],
+"name": null
+},
+{
+"id": 92,
+"level": 3,
+"parent": 90,
+"size": 59,
+"terms": [
+"retrieval",
+"evidence",
+"citation",
+"research",
+"document",
+"graph"
+],
+"name": null
+},
+{
+"id": 93,
+"level": 3,
+"parent": 90,
+"size": 47,
+"terms": [
+"retrieval",
+"rag",
+"text",
+"topic",
+"documents",
+"queries"
+],
+"name": null
+},
+{
+"id": 94,
+"level": 3,
+"parent": 90,
+"size": 43,
+"terms": [
+"document",
+"query",
+"selection",
+"gains",
+"heterogeneous",
+"scoring"
+],
+"name": null
+},
+{
+"id": 95,
+"level": 3,
+"parent": 90,
+"size": 31,
+"terms": [
+"retrieval",
+"query",
+"document",
+"queries",
+"search",
+"index"
+],
+"name": null
+},
+{
+"id": 96,
+"level": 2,
+"parent": 86,
+"size": 162,
+"terms": [
+"retrieval",
+"memory",
+"evidence",
+"answer",
+"context",
+"query"
+],
+"name": null
+},
+{
+"id": 97,
+"level": 3,
+"parent": 96,
+"size": 49,
+"terms": [
+"retrieval",
+"search",
+"evidence",
+"query",
+"reasoning",
+"queries"
+],
+"name": null
+},
+{
+"id": 98,
+"level": 3,
+"parent": 96,
+"size": 44,
+"terms": [
+"memory",
+"long-term",
+"retrieval",
+"evidence",
+"memories",
+"answer"
+],
+"name": null
+},
+{
+"id": 99,
+"level": 3,
+"parent": 96,
+"size": 16,
+"terms": [
+"conversational",
+"user",
+"retrieval",
+"query",
+"questions",
+"search"
+],
+"name": null
+},
+{
+"id": 100,
+"level": 3,
+"parent": 96,
+"size": 53,
+"terms": [
+"answer",
+"questions",
+"evidence",
+"rag",
+"retrieval",
+"context"
+],
+"name": null
+},
+{
+"id": 101,
+"level": 1,
+"parent": null,
+"size": 989,
+"terms": [
+"agents",
+"llm",
+"execution",
+"agentic",
+"systems",
+"ai"
+],
+"name": null
+},
+{
+"id": 102,
+"level": 2,
+"parent": 101,
+"size": 135,
+"terms": [
+"agents",
+"llm",
+"agentic",
+"verification",
+"tool",
+"systems"
+],
+"name": null
+},
+{
+"id": 103,
+"level": 3,
+"parent": 102,
+"size": 27,
+"terms": [
+"proof",
+"lean",
+"formal",
+"theorem",
+"provers",
+"verification"
+],
+"name": null
+},
+{
+"id": 104,
+"level": 3,
+"parent": 102,
+"size": 43,
+"terms": [
+"agents",
+"llm",
+"agentic",
+"design",
+"requirements",
+"ai"
+],
+"name": null
+},
+{
+"id": 105,
+"level": 3,
+"parent": 102,
+"size": 65,
+"terms": [
+"llm",
+"agents",
+"agentic",
+"tool",
+"verification",
+"checks"
+],
+"name": null
+},
+{
+"id": 106,
+"level": 2,
+"parent": 101,
+"size": 152,
+"terms": [
+"agent",
+"evidence",
+"llm",
+"failure",
+"execution",
+"tool"
+],
+"name": null
+},
+{
+"id": 107,
+"level": 3,
+"parent": 106,
+"size": 44,
+"terms": [
+"agent",
+"evidence",
+"claim",
+"record",
+"decision",
+"governance"
+],
+"name": null
+},
+{
+"id": 108,
+"level": 3,
+"parent": 106,
+"size": 44,
+"terms": [
+"agent",
+"failures",
+"tool",
+"llm",
+"auditing",
+"recovery"
+],
+"name": null
+},
+{
+"id": 109,
+"level": 3,
+"parent": 106,
+"size": 18,
+"terms": [
+"failure",
+"attribution",
+"systems",
+"multi-agent",
+"incident",
+"llm-based"
+],
+"name": null
+},
+{
+"id": 110,
+"level": 3,
+"parent": 106,
+"size": 46,
+"terms": [
+"agent",
+"safety",
+"actions",
+"tool",
+"execution",
+"policy"
+],
+"name": null
+},
+{
+"id": 111,
+"level": 2,
+"parent": 101,
+"size": 216,
+"terms": [
+"agents",
+"memory",
+"execution",
+"experience",
+"llm",
+"success"
+],
+"name": null
+},
+{
+"id": 112,
+"level": 3,
+"parent": 111,
+"size": 80,
+"terms": [
+"agents",
+"execution",
+"agentic",
+"tool",
+"long-horizon",
+"success"
+],
+"name": null
+},
+{
+"id": 113,
+"level": 3,
+"parent": 111,
+"size": 43,
+"terms": [
+"agents",
+"skill",
+"environment",
+"experience",
+"execution",
+"world"
+],
+"name": null
+},
+{
+"id": 114,
+"level": 3,
+"parent": 111,
+"size": 35,
+"terms": [
+"web",
+"agents",
+"gui",
+"user",
+"success",
+"environments"
+],
+"name": null
+},
+{
+"id": 115,
+"level": 3,
+"parent": 111,
+"size": 3,
+"terms": [
+"manga",
+"script",
+"animation",
+"motion generation",
+"text-to-motion",
+"self-evolving multi-agent"
+],
+"name": null
+},
+{
+"id": 116,
+"level": 3,
+"parent": 111,
+"size": 55,
+"terms": [
+"memory",
+"agents",
+"experience",
+"context",
+"llm",
+"reuse"
+],
+"name": null
+},
+{
+"id": 117,
+"level": 2,
+"parent": 101,
+"size": 80,
+"terms": [
+"ai",
+"systems",
+"human",
+"intelligence",
+"design",
+"governance"
+],
+"name": null
+},
+{
+"id": 118,
+"level": 3,
+"parent": 117,
+"size": 21,
+"terms": [
+"ai",
+"systems",
+"abstraction",
+"intelligence",
+"cognitive",
+"distinctions"
+],
+"name": null
+},
+{
+"id": 119,
+"level": 3,
+"parent": 117,
+"size": 59,
+"terms": [
+"ai",
+"systems",
+"human",
+"governance",
+"creativity",
+"autonomy"
+],
+"name": null
+},
+{
+"id": 120,
+"level": 2,
+"parent": 101,
+"size": 154,
+"terms": [
+"agents",
+"coding",
+"software",
+"harness",
+"tests",
+"execution"
+],
+"name": null
+},
+{
+"id": 121,
+"level": 3,
+"parent": 120,
+"size": 28,
+"terms": [
+"skills",
+"self-improvement",
+"agent",
+"recursive",
+"edits",
+"repair"
+],
+"name": null
+},
+{
+"id": 122,
+"level": 3,
+"parent": 120,
+"size": 69,
+"terms": [
+"coding",
+"agents",
+"software",
+"repository",
+"tests",
+"engineering"
+],
+"name": null
+},
+{
+"id": 123,
+"level": 3,
+"parent": 120,
+"size": 33,
+"terms": [
+"harness",
+"agent",
+"evolution",
+"self-improvement",
+"evolving",
+"self-improving"
+],
+"name": null
+},
+{
+"id": 124,
+"level": 3,
+"parent": 120,
+"size": 24,
+"terms": [
+"software",
+"agents",
+"tests",
+"engineering",
+"environments",
+"repository"
+],
+"name": null
+},
+{
+"id": 125,
+"level": 2,
+"parent": 101,
+"size": 119,
+"terms": [
+"agents",
+"research",
+"scientific",
+"discovery",
+"ai",
+"agentic"
+],
+"name": null
+},
+{
+"id": 126,
+"level": 3,
+"parent": 125,
+"size": 67,
+"terms": [
+"research",
+"agents",
+"scientific",
+"discovery",
+"tools",
+"evidence"
+],
+"name": null
+},
+{
+"id": 127,
+"level": 3,
+"parent": 125,
+"size": 16,
+"terms": [
+"research",
+"scientific",
+"agents",
+"mathematical",
+"open",
+"ai"
+],
+"name": null
+},
+{
+"id": 128,
+"level": 3,
+"parent": 125,
+"size": 36,
+"terms": [
+"evolutionary",
+"search",
+"agent",
+"optimization",
+"harness",
+"recursive self-improvement"
+],
+"name": null
+},
+{
+"id": 129,
+"level": 2,
+"parent": 101,
+"size": 133,
+"terms": [
+"agents",
+"multi-agent",
+"collaboration",
+"systems",
+"llm",
+"communication"
+],
+"name": null
+},
+{
+"id": 130,
+"level": 3,
+"parent": 129,
+"size": 47,
+"terms": [
+"multi-agent",
+"agents",
+"llm",
+"reasoning",
+"debate",
+"decision"
+],
+"name": null
+},
+{
+"id": 131,
+"level": 3,
+"parent": 129,
+"size": 59,
+"terms": [
+"multi-agent",
+"collaboration",
+"agents",
+"coordination",
+"communication",
+"systems"
+],
+"name": null
+},
+{
+"id": 132,
+"level": 3,
+"parent": 129,
+"size": 27,
+"terms": [
+"agents",
+"multi-agent",
+"population",
+"collective",
+"cooperation",
+"behavior"
+],
+"name": null
+},
+{
+"id": 133,
+"level": 1,
+"parent": null,
+"size": 580,
+"terms": [
+"visual",
+"multimodal",
+"vision-language",
+"reasoning",
+"evidence",
+"video"
+],
+"name": null
+},
+{
+"id": 134,
+"level": 2,
+"parent": 133,
+"size": 117,
+"terms": [
+"video",
+"temporal",
+"understanding",
+"evidence",
+"visual",
+"grounding"
+],
+"name": null
+},
+{
+"id": 135,
+"level": 3,
+"parent": 134,
+"size": 55,
+"terms": [
+"video",
+"temporal",
+"understanding",
+"grounding",
+"frames",
+"event"
+],
+"name": null
+},
+{
+"id": 136,
+"level": 3,
+"parent": 134,
+"size": 44,
+"terms": [
+"video",
+"understanding",
+"evidence",
+"question",
+"answering",
+"visual"
+],
+"name": null
+},
+{
+"id": 137,
+"level": 3,
+"parent": 134,
+"size": 18,
+"terms": [
+"video",
+"memory",
+"streaming",
+"world",
+"egocentric",
+"recall"
+],
+"name": null
+},
+{
+"id": 138,
+"level": 2,
+"parent": 133,
+"size": 163,
+"terms": [
+"visual",
+"vision-language",
+"evidence",
+"image",
+"vlms",
+"reasoning"
+],
+"name": null
+},
+{
+"id": 139,
+"level": 3,
+"parent": 138,
+"size": 13,
+"terms": [
+"hallucination",
+"vision-language",
+"vlms",
+"object",
+"visual",
+"image"
+],
+"name": null
+},
+{
+"id": 140,
+"level": 3,
+"parent": 138,
+"size": 44,
+"terms": [
+"visual",
+"image",
+"evidence",
+"verification",
+"test",
+"vlms"
+],
+"name": null
+},
+{
+"id": 141,
+"level": 3,
+"parent": 138,
+"size": 53,
+"terms": [
+"visual",
+"question",
+"evidence",
+"answering",
+"multimodal",
+"reasoning"
+],
+"name": null
+},
+{
+"id": 142,
+"level": 3,
+"parent": 138,
+"size": 53,
+"terms": [
+"vision-language",
+"visual",
+"vlms",
+"image",
+"evidence",
+"answer"
+],
+"name": null
+},
+{
+"id": 143,
+"level": 2,
+"parent": 133,
+"size": 115,
+"terms": [
+"spatial",
+"reasoning",
+"visual",
+"vision-language",
+"multimodal",
+"grounding"
+],
+"name": null
+},
+{
+"id": 144,
+"level": 3,
+"parent": 143,
+"size": 38,
+"terms": [
+"reasoning",
+"visual",
+"multimodal",
+"grounding",
+"gui",
+"memory"
+],
+"name": null
+},
+{
+"id": 145,
+"level": 3,
+"parent": 143,
+"size": 38,
+"terms": [
+"spatial",
+"reasoning",
+"geometry",
+"vision-language",
+"perception",
+"visual"
+],
+"name": null
+},
+{
+"id": 146,
+"level": 3,
+"parent": 143,
+"size": 39,
+"terms": [
+"navigation",
+"vision-language",
+"visual",
+"driving",
+"perception",
+"vln"
+],
+"name": null
+},
+{
+"id": 147,
+"level": 2,
+"parent": 133,
+"size": 185,
+"terms": [
+"visual",
+"multimodal",
+"vision-language",
+"image",
+"text",
+"semantic"
+],
+"name": null
+},
+{
+"id": 148,
+"level": 3,
+"parent": 147,
+"size": 28,
+"terms": [
+"retrieval",
+"text",
+"image",
+"visual",
+"embeddings",
+"document"
+],
+"name": null
+},
+{
+"id": 149,
+"level": 3,
+"parent": 147,
+"size": 57,
+"terms": [
+"vision-language",
+"visual",
+"fine-grained",
+"recognition",
+"representations",
+"alignment"
+],
+"name": null
+},
+{
+"id": 150,
+"level": 3,
+"parent": 147,
+"size": 45,
+"terms": [
+"multimodal",
+"visual",
+"mllms",
+"modality",
+"image",
+"cross-modal"
+],
+"name": null
+},
+{
+"id": 151,
+"level": 3,
+"parent": 147,
+"size": 33,
+"terms": [
+"visual",
+"vision-language",
+"token",
+"compression",
+"attention",
+"ocr"
+],
+"name": null
+},
+{
+"id": 152,
+"level": 3,
+"parent": 147,
+"size": 22,
+"terms": [
+"segmentation",
+"referring",
+"open-vocabulary",
+"semantic",
+"object",
+"expression"
+],
+"name": null
+},
+{
+"id": 153,
+"level": 1,
+"parent": null,
+"size": 459,
+"terms": [
+"bounds",
+"distribution",
+"gaussian",
+"conditional",
+"error",
+"optimal"
+],
+"name": null
+},
+{
+"id": 154,
+"level": 2,
+"parent": 153,
+"size": 165,
+"terms": [
+"bound",
+"optimal",
+"gaussian",
+"varepsilon",
+"dimension",
+"convergence"
+],
+"name": null
+},
+{
+"id": 155,
+"level": 3,
+"parent": 154,
+"size": 22,
+"terms": [
+"dimension",
+"complexity",
+"bound",
+"optimal",
+"classes",
+"varepsilon"
+],
+"name": null
+},
+{
+"id": 156,
+"level": 3,
+"parent": 154,
+"size": 48,
+"terms": [
+"bounds",
+"gaussian",
+"spectral",
+"dimension",
+"minimax",
+"prove"
+],
+"name": null
+},
+{
+"id": 157,
+"level": 3,
+"parent": 154,
+"size": 41,
+"terms": [
+"sgd",
+"gradient",
+"convergence",
+"stochastic",
+"descent",
+"noise"
+],
+"name": null
+},
+{
+"id": 158,
+"level": 3,
+"parent": 154,
+"size": 54,
+"terms": [
+"varepsilon",
+"bounds",
+"optimal",
+"algorithm",
+"samples",
+"lower"
+],
+"name": null
+},
+{
+"id": 159,
+"level": 2,
+"parent": 153,
+"size": 140,
+"terms": [
+"conditional",
+"causal",
+"bayesian",
+"posterior",
+"estimation",
+"inference"
+],
+"name": null
+},
+{
+"id": 160,
+"level": 3,
+"parent": 159,
+"size": 25,
+"terms": [
+"diffusion",
+"conditional",
+"discrete",
+"sampling",
+"generative",
+"score"
+],
+"name": null
+},
+{
+"id": 161,
+"level": 3,
+"parent": 159,
+"size": 49,
+"terms": [
+"bayesian",
+"posterior",
+"inference",
+"conditional",
+"prior",
+"amortized"
+],
+"name": null
+},
+{
+"id": 162,
+"level": 3,
+"parent": 159,
+"size": 30,
+"terms": [
+"estimation",
+"gaussian",
+"conditional",
+"linear",
+"variance",
+"estimator"
+],
+"name": null
+},
+{
+"id": 163,
+"level": 3,
+"parent": 159,
+"size": 36,
+"terms": [
+"causal",
+"treatment",
+"effects",
+"variables",
+"observational",
+"conditional"
+],
+"name": null
+},
+{
+"id": 164,
+"level": 2,
+"parent": 153,
+"size": 154,
+"terms": [
+"calibration",
+"regression",
+"prediction",
+"conformal",
+"distribution",
+"selection"
+],
+"name": null
+},
+{
+"id": 165,
+"level": 3,
+"parent": 164,
+"size": 38,
+"terms": [
+"classification",
+"classifier",
+"aggregation",
+"machine",
+"multiclass",
+"shapley"
+],
+"name": null
+},
+{
+"id": 166,
+"level": 3,
+"parent": 164,
+"size": 57,
+"terms": [
+"regression",
+"conformal",
+"prediction",
+"covariate",
+"selection",
+"coverage"
+],
+"name": null
+},
+{
+"id": 167,
+"level": 3,
+"parent": 164,
+"size": 44,
+"terms": [
+"bound",
+"calibration",
+"identification",
+"minimax",
+"error",
+"risk"
+],
+"name": null
+},
+{
+"id": 168,
+"level": 3,
+"parent": 164,
+"size": 15,
+"terms": [
+"clustering",
+"group",
+"clusters",
+"anomaly detection",
+"wasserstein",
+"distributional"
+],
+"name": null
+},
+{
+"id": 169,
+"level": 1,
+"parent": null,
+"size": 281,
+"terms": [
+"clinical",
+"evidence",
+"medical",
+"patient",
+"prediction",
+"decision"
+],
+"name": null
+},
+{
+"id": 170,
+"level": 2,
+"parent": 169,
+"size": 122,
+"terms": [
+"clinical",
+"prediction",
+"patient",
+"health",
+"multimodal",
+"longitudinal"
+],
+"name": null
+},
+{
+"id": 171,
+"level": 3,
+"parent": 170,
+"size": 46,
+"terms": [
+"patient",
+"clinical",
+"health",
+"treatment",
+"prediction",
+"longitudinal"
+],
+"name": null
+},
+{
+"id": 172,
+"level": 3,
+"parent": 170,
+"size": 36,
+"terms": [
+"clinical",
+"medical",
+"report generation",
+"concept",
+"classification",
+"prediction"
+],
+"name": null
+},
+{
+"id": 173,
+"level": 3,
+"parent": 170,
+"size": 40,
+"terms": [
+"clinical",
+"depression",
+"health",
+"multimodal",
+"wearable",
+"assessment"
+],
+"name": null
+},
+{
+"id": 174,
+"level": 2,
+"parent": 169,
+"size": 159,
+"terms": [
+"clinical",
+"medical",
+"evidence",
+"reasoning",
+"patient",
+"decision"
+],
+"name": null
+},
+{
+"id": 175,
+"level": 3,
+"parent": 174,
+"size": 52,
+"terms": [
+"evidence",
+"clinical",
+"review",
+"medical",
+"agreement",
+"risk"
+],
+"name": null
+},
+{
+"id": 176,
+"level": 3,
+"parent": 174,
+"size": 29,
+"terms": [
+"scientific",
+"ai",
+"research",
+"assessment",
+"review",
+"explanations"
+],
+"name": null
+},
+{
+"id": 177,
+"level": 3,
+"parent": 174,
+"size": 34,
+"terms": [
+"clinical",
+"patient",
+"evidence",
+"extraction",
+"text",
+"report"
+],
+"name": null
+},
+{
+"id": 178,
+"level": 3,
+"parent": 174,
+"size": 44,
+"terms": [
+"clinical",
+"medical",
+"patient",
+"ai",
+"reasoning",
+"decision"
+],
+"name": null
+},
+{
+"id": 179,
+"level": 1,
+"parent": null,
+"size": 553,
+"terms": [
+"reasoning",
+"teacher",
+"distillation",
+"policy",
+"reinforcement",
+"student"
+],
+"name": null
+},
+{
+"id": 180,
+"level": 2,
+"parent": 179,
+"size": 138,
+"terms": [
+"reasoning",
+"answer",
+"cot",
+"chain-of-thought",
+"token",
+"steps"
+],
+"name": null
+},
+{
+"id": 181,
+"level": 3,
+"parent": 180,
+"size": 14,
+"terms": [
+"answer",
+"reasoning",
+"teacher",
+"distillation",
+"confidence",
+"correct"
+],
+"name": null
+},
+{
+"id": 182,
+"level": 3,
+"parent": 180,
+"size": 91,
+"terms": [
+"reasoning",
+"cot",
+"chain-of-thought",
+"answer",
+"steps",
+"thinking"
+],
+"name": null
+},
+{
+"id": 183,
+"level": 3,
+"parent": 180,
+"size": 33,
+"terms": [
+"reasoning",
+"answer",
+"test-time",
+"token",
+"budget",
+"mathematics"
+],
+"name": null
+},
+{
+"id": 184,
+"level": 2,
+"parent": 179,
+"size": 195,
+"terms": [
+"reinforcement",
+"policy",
+"rl",
+"agents",
+"rewards",
+"credit"
+],
+"name": null
+},
+{
+"id": 185,
+"level": 3,
+"parent": 184,
+"size": 23,
+"terms": [
+"reinforcement",
+"rl",
+"reward",
+"policy",
+"verifiable",
+"exploration"
+],
+"name": null
+},
+{
+"id": 186,
+"level": 3,
+"parent": 184,
+"size": 38,
+"terms": [
+"rl",
+"reinforcement learning",
+"policy",
+"grpo",
+"rollout",
+"rewards"
+],
+"name": null
+},
+{
+"id": 187,
+"level": 3,
+"parent": 184,
+"size": 55,
+"terms": [
+"credit",
+"reinforcement",
+"rewards",
+"rl",
+"agents",
+"long-horizon"
+],
+"name": null
+},
+{
+"id": 188,
+"level": 3,
+"parent": 184,
+"size": 20,
+"terms": [
+"user",
+"simulators",
+"policy",
+"behavior",
+"trained",
+"better"
+],
+"name": null
+},
+{
+"id": 189,
+"level": 3,
+"parent": 184,
+"size": 59,
+"terms": [
+"agents",
+"policy",
+"long-horizon",
+"reinforcement learning",
+"feedback",
+"alfworld"
+],
+"name": null
+},
+{
+"id": 190,
+"level": 2,
+"parent": 179,
+"size": 99,
+"terms": [
+"teacher",
+"distillation",
+"student",
+"on-policy",
+"opd",
+"supervision"
+],
+"name": null
+},
+{
+"id": 191,
+"level": 3,
+"parent": 190,
+"size": 43,
+"terms": [
+"on-policy distillation",
+"teacher",
+"opd",
+"student",
+"supervision",
+"distillation on-policy"
+],
+"name": null
+},
+{
+"id": 192,
+"level": 3,
+"parent": 190,
+"size": 56,
+"terms": [
+"teacher",
+"distillation",
+"student",
+"on-policy",
+"supervision",
+"privileged"
+],
+"name": null
+},
+{
+"id": 193,
+"level": 2,
+"parent": 179,
+"size": 121,
+"terms": [
+"reward",
+"continual",
+"feedback",
+"policy",
+"knowledge",
+"gains"
+],
+"name": null
+},
+{
+"id": 194,
+"level": 3,
+"parent": 193,
+"size": 46,
+"terms": [
+"continual",
+"knowledge",
+"forgetting",
+"updates",
+"replay",
+"retention"
+],
+"name": null
+},
+{
+"id": 195,
+"level": 3,
+"parent": 193,
+"size": 31,
+"terms": [
+"tutoring",
+"learner",
+"reward",
+"feedback",
+"students",
+"rubric"
+],
+"name": null
+},
+{
+"id": 196,
+"level": 3,
+"parent": 193,
+"size": 44,
+"terms": [
+"reward",
+"policy",
+"hacking",
+"prompt",
+"feedback",
+"grpo"
+],
+"name": null
+},
+{
+"id": 197,
+"level": 1,
+"parent": null,
+"size": 537,
+"terms": [
+"decoding",
+"tokens",
+"inference",
+"memory",
+"llm",
+"attention"
+],
+"name": null
+},
+{
+"id": 198,
+"level": 2,
+"parent": 197,
+"size": 101,
+"terms": [
+"gpu",
+"inference",
+"moe",
+"llm",
+"expert",
+"serving"
+],
+"name": null
+},
+{
+"id": 199,
+"level": 3,
+"parent": 198,
+"size": 28,
+"terms": [
+"moe",
+"expert",
+"pruning",
+"routing",
+"inference",
+"sparse"
+],
+"name": null
+},
+{
+"id": 200,
+"level": 3,
+"parent": 198,
+"size": 16,
+"terms": [
+"quantization",
+"bit",
+"precision",
+"batch",
+"fp8",
+"pretraining"
+],
+"name": null
+},
+{
+"id": 201,
+"level": 3,
+"parent": 198,
+"size": 57,
+"terms": [
+"gpu",
+"inference",
+"llm",
+"serving",
+"latency",
+"hardware"
+],
+"name": null
+},
+{
+"id": 202,
+"level": 2,
+"parent": 197,
+"size": 75,
+"terms": [
+"decoding",
+"speculative",
+"draft",
+"tokens",
+"parallel",
+"acceptance"
+],
+"name": null
+},
+{
+"id": 203,
+"level": 3,
+"parent": 202,
+"size": 37,
+"terms": [
+"decoding",
+"parallel",
+"diffusion",
+"token",
+"autoregressive",
+"pass"
+],
+"name": null
+},
+{
+"id": 204,
+"level": 3,
+"parent": 202,
+"size": 38,
+"terms": [
+"speculative",
+"decoding",
+"draft",
+"acceptance",
+"tokens",
+"target"
+],
+"name": null
+},
+{
+"id": 205,
+"level": 2,
+"parent": 197,
+"size": 95,
+"terms": [
+"kv",
+"cache",
+"attention",
+"compression",
+"memory",
+"long-context"
+],
+"name": null
+},
+{
+"id": 206,
+"level": 3,
+"parent": 205,
+"size": 41,
+"terms": [
+"kv",
+"cache",
+"compression",
+"quantization",
+"long-context",
+"memory"
+],
+"name": null
+},
+{
+"id": 207,
+"level": 3,
+"parent": 205,
+"size": 54,
+"terms": [
+"attention",
+"kv",
+"context",
+"memory",
+"cache",
+"prefill"
+],
+"name": null
+},
+{
+"id": 208,
+"level": 2,
+"parent": 197,
+"size": 266,
+"terms": [
+"llms",
+"tokens",
+"diffusion",
+"fine-tuning",
+"pretraining",
+"inference"
+],
+"name": null
+},
+{
+"id": 209,
+"level": 3,
+"parent": 208,
+"size": 41,
+"terms": [
+"quantization",
+"compression",
+"bit",
+"muon",
+"weight",
+"ptq"
+],
+"name": null
+},
+{
+"id": 210,
+"level": 3,
+"parent": 208,
+"size": 58,
+"terms": [
+"fine-tuning",
+"selection",
+"llms",
+"optimization",
+"zeroth-order",
+"lora"
+],
+"name": null
+},
+{
+"id": 211,
+"level": 3,
+"parent": 208,
+"size": 51,
+"terms": [
+"llms",
+"token",
+"text",
+"computed",
+"patch",
+"modeling"
+],
+"name": null
+},
+{
+"id": 212,
+"level": 3,
+"parent": 208,
+"size": 22,
+"terms": [
+"unlearning",
+"forgetting",
+"tokens",
+"utility",
+"pretraining",
+"memory"
+],
+"name": null
+},
+{
+"id": 213,
+"level": 3,
+"parent": 208,
+"size": 42,
+"terms": [
+"diffusion language",
+"masked",
+"tokens",
+"parallel",
+"denoising",
+"autoregressive"
+],
+"name": null
+},
+{
+"id": 214,
+"level": 3,
+"parent": 208,
+"size": 24,
+"terms": [
+"routing",
+"reasoning",
+"loop",
+"depth",
+"recurrent",
+"computation"
+],
+"name": null
+},
+{
+"id": 215,
+"level": 3,
+"parent": 208,
+"size": 28,
+"terms": [
+"translation",
+"multilingual",
+"languages",
+"low-resource",
+"parallel",
+"llms"
+],
+"name": null
+},
+{
+"id": 216,
+"level": 1,
+"parent": null,
+"size": 447,
+"terms": [
+"speech",
+"audio",
+"acoustic",
+"speaker",
+"recognition",
+"asr"
+],
+"name": null
+},
+{
+"id": 217,
+"level": 2,
+"parent": 216,
+"size": 262,
+"terms": [
+"speech",
+"speaker",
+"asr",
+"audio",
+"acoustic",
+"voice"
+],
+"name": null
+},
+{
+"id": 218,
+"level": 3,
+"parent": 217,
+"size": 44,
+"terms": [
+"speech",
+"speaker",
+"acoustic",
+"verification",
+"enrollment",
+"asr"
+],
+"name": null
+},
+{
+"id": 219,
+"level": 3,
+"parent": 217,
+"size": 33,
+"terms": [
+"speech",
+"text",
+"tts",
+"word",
+"acoustic",
+"speaker"
+],
+"name": null
+},
+{
+"id": 220,
+"level": 3,
+"parent": 217,
+"size": 27,
+"terms": [
+"full-duplex",
+"speech",
+"spoken",
+"conversational",
+"conversations",
+"interaction"
+],
+"name": null
+},
+{
+"id": 221,
+"level": 3,
+"parent": 217,
+"size": 41,
+"terms": [
+"speech",
+"asr",
+"recognition",
+"adaptation",
+"word",
+"english"
+],
+"name": null
+},
+{
+"id": 222,
+"level": 3,
+"parent": 217,
+"size": 46,
+"terms": [
+"speech",
+"asr",
+"recognition",
+"languages",
+"speaker",
+"multilingual"
+],
+"name": null
+},
+{
+"id": 223,
+"level": 3,
+"parent": 217,
+"size": 45,
+"terms": [
+"speech",
+"voice",
+"tts",
+"acoustic",
+"emotion",
+"speaker"
+],
+"name": null
+},
+{
+"id": 224,
+"level": 3,
+"parent": 217,
+"size": 26,
+"terms": [
+"audio",
+"speech",
+"acoustic",
+"recognition",
+"emotion",
+"depression"
+],
+"name": null
+},
+{
+"id": 225,
+"level": 2,
+"parent": 216,
+"size": 57,
+"terms": [
+"music",
+"audio",
+"transcription",
+"piano",
+"timbre",
+"recordings"
+],
+"name": null
+},
+{
+"id": 226,
+"level": 3,
+"parent": 225,
+"size": 57,
+"terms": [
+"music",
+"audio",
+"transcription",
+"piano",
+"timbre",
+"lyrics"
+],
+"name": null
+},
+{
+"id": 227,
+"level": 2,
+"parent": 216,
+"size": 128,
+"terms": [
+"audio",
+"acoustic",
+"speech",
+"sound",
+"detection",
+"temporal"
+],
+"name": null
+},
+{
+"id": 228,
+"level": 3,
+"parent": 227,
+"size": 32,
+"terms": [
+"detection",
+"acoustic",
+"audio",
+"deepfake",
+"speech",
+"sound"
+],
+"name": null
+},
+{
+"id": 229,
+"level": 3,
+"parent": 227,
+"size": 58,
+"terms": [
+"audio",
+"sound",
+"acoustic",
+"auditory",
+"lalms",
+"spatial"
+],
+"name": null
+},
+{
+"id": 230,
+"level": 3,
+"parent": 227,
+"size": 38,
+"terms": [
+"audio",
+"acoustic",
+"speech",
+"hearing",
+"microphone",
+"enhancement"
+],
+"name": null
+},
+{
+"id": 231,
+"level": 1,
+"parent": null,
+"size": 409,
+"terms": [
+"diffusion",
+"image",
+"video",
+"generative",
+"quality",
+"visual"
+],
+"name": null
+},
+{
+"id": 232,
+"level": 2,
+"parent": 231,
+"size": 131,
+"terms": [
+"video",
+"diffusion",
+"quality",
+"temporal",
+"motion",
+"autoregressive"
+],
+"name": null
+},
+{
+"id": 233,
+"level": 3,
+"parent": 232,
+"size": 33,
+"terms": [
+"video",
+"autoregressive",
+"forcing",
+"quality",
+"cache",
+"diffusion"
+],
+"name": null
+},
+{
+"id": 234,
+"level": 3,
+"parent": 232,
+"size": 52,
+"terms": [
+"video",
+"diffusion",
+"motion",
+"denoising",
+"temporal",
+"quality"
+],
+"name": null
+},
+{
+"id": 235,
+"level": 3,
+"parent": 232,
+"size": 46,
+"terms": [
+"video",
+"editing",
+"multi-shot",
+"creation",
+"generative",
+"quality"
+],
+"name": null
+},
+{
+"id": 236,
+"level": 2,
+"parent": 231,
+"size": 128,
+"terms": [
+"image",
+"editing",
+"visual",
+"generative",
+"quality",
+"text"
+],
+"name": null
+},
+{
+"id": 237,
+"level": 3,
+"parent": 236,
+"size": 39,
+"terms": [
+"editing",
+"image",
+"editors",
+"edits",
+"content",
+"preservation"
+],
+"name": null
+},
+{
+"id": 238,
+"level": 3,
+"parent": 236,
+"size": 51,
+"terms": [
+"image",
+"text",
+"visual",
+"generative",
+"generated",
+"quality"
+],
+"name": null
+},
+{
+"id": 239,
+"level": 3,
+"parent": 236,
+"size": 38,
+"terms": [
+"image",
+"restoration",
+"enhancement",
+"low-light",
+"illumination",
+"generative"
+],
+"name": null
+},
+{
+"id": 240,
+"level": 2,
+"parent": 231,
+"size": 150,
+"terms": [
+"diffusion",
+"image",
+"generative",
+"flow",
+"matching",
+"denoising"
+],
+"name": null
+},
+{
+"id": 241,
+"level": 3,
+"parent": 240,
+"size": 32,
+"terms": [
+"diffusion",
+"image",
+"latent",
+"generative",
+"pixel-space",
+"representation"
+],
+"name": null
+},
+{
+"id": 242,
+"level": 3,
+"parent": 240,
+"size": 31,
+"terms": [
+"diffusion",
+"text-to-image",
+"denoising",
+"attention",
+"transformers",
+"concept"
+],
+"name": null
+},
+{
+"id": 243,
+"level": 3,
+"parent": 240,
+"size": 56,
+"terms": [
+"diffusion",
+"sampling",
+"image",
+"denoising",
+"fid",
+"generative"
+],
+"name": null
+},
+{
+"id": 244,
+"level": 3,
+"parent": 240,
+"size": 31,
+"terms": [
+"flow",
+"matching",
+"generative",
+"velocity",
+"distribution",
+"image"
+],
+"name": null
+},
+{
+"id": 245,
+"level": 1,
+"parent": null,
+"size": 223,
+"terms": [
+"quantum",
+"molecular",
+"discovery",
+"chemical",
+"structure",
+"scientific"
+],
+"name": null
+},
+{
+"id": 246,
+"level": 2,
+"parent": 245,
+"size": 45,
+"terms": [
+"quantum",
+"classical",
+"machine learning",
+"circuit",
+"variational",
+"optimization"
+],
+"name": null
+},
+{
+"id": 247,
+"level": 3,
+"parent": 246,
+"size": 45,
+"terms": [
+"quantum",
+"classical",
+"machine learning",
+"circuit",
+"variational",
+"trainable"
+],
+"name": null
+},
+{
+"id": 248,
+"level": 2,
+"parent": 245,
+"size": 178,
+"terms": [
+"molecular",
+"discovery",
+"chemical",
+"scientific",
+"structure",
+"materials"
+],
+"name": null
+},
+{
+"id": 249,
+"level": 3,
+"parent": 248,
+"size": 52,
+"terms": [
+"molecular",
+"chemical",
+"chemistry",
+"discovery",
+"scientific",
+"molecules"
+],
+"name": null
+},
+{
+"id": 250,
+"level": 3,
+"parent": 248,
+"size": 24,
+"terms": [
+"discovery",
+"scientific",
+"search",
+"equation",
+"symbolic",
+"hypotheses"
+],
+"name": null
+},
+{
+"id": 251,
+"level": 3,
+"parent": 248,
+"size": 60,
+"terms": [
+"materials",
+"density",
+"molecular",
+"interatomic",
+"structures",
+"electronic"
+],
+"name": null
+},
+{
+"id": 252,
+"level": 3,
+"parent": 248,
+"size": 42,
+"terms": [
+"protein",
+"rna",
+"design",
+"sequence",
+"molecular",
+"structural"
+],
+"name": null
+},
+{
+"id": 253,
+"level": 1,
+"parent": null,
+"size": 402,
+"terms": [
+"attack",
+"safety",
+"detection",
+"llm",
+"agents",
+"security"
+],
+"name": null
+},
+{
+"id": 254,
+"level": 2,
+"parent": 253,
+"size": 154,
+"terms": [
+"safety",
+"agents",
+"attack",
+"security",
+"ai",
+"llm"
+],
+"name": null
+},
+{
+"id": 255,
+"level": 3,
+"parent": 254,
+"size": 43,
+"terms": [
+"safety",
+"harmful",
+"refusal",
+"llms",
+"benign",
+"requests"
+],
+"name": null
+},
+{
+"id": 256,
+"level": 3,
+"parent": 254,
+"size": 25,
+"terms": [
+"monitor",
+"decision",
+"rule",
+"auditing",
+"fallback",
+"correct"
+],
+"name": null
+},
+{
+"id": 257,
+"level": 3,
+"parent": 254,
+"size": 24,
+"terms": [
+"safety",
+"ai",
+"risks",
+"attack",
+"refusal",
+"security"
+],
+"name": null
+},
+{
+"id": 258,
+"level": 3,
+"parent": 254,
+"size": 62,
+"terms": [
+"attack",
+"agents",
+"security",
+"llm",
+"injection",
+"malicious"
+],
+"name": null
+},
+{
+"id": 259,
+"level": 2,
+"parent": 253,
+"size": 109,
+"terms": [
+"privacy",
+"detection",
+"federated",
+"attacks",
+"evidence",
+"fraud"
+],
+"name": null
+},
+{
+"id": 260,
+"level": 3,
+"parent": 259,
+"size": 32,
+"terms": [
+"federated",
+"detection",
+"clients",
+"fl",
+"malicious",
+"attacks"
+],
+"name": null
+},
+{
+"id": 261,
+"level": 3,
+"parent": 259,
+"size": 29,
+"terms": [
+"privacy",
+"leakage",
+"membership",
+"private",
+"attack",
+"inference"
+],
+"name": null
+},
+{
+"id": 262,
+"level": 3,
+"parent": 259,
+"size": 48,
+"terms": [
+"fraud",
+"transaction",
+"detection",
+"graph",
+"evidence",
+"scam"
+],
+"name": null
+},
+{
+"id": 263,
+"level": 2,
+"parent": 253,
+"size": 139,
+"terms": [
+"attack",
+"backdoor",
+"adversarial",
+"detection",
+"prompt",
+"llm"
+],
+"name": null
+},
+{
+"id": 264,
+"level": 3,
+"parent": 263,
+"size": 35,
+"terms": [
+"backdoor",
+"attacks",
+"trigger",
+"adversarial",
+"attack success",
+"defenses"
+],
+"name": null
+},
+{
+"id": 265,
+"level": 3,
+"parent": 263,
+"size": 33,
+"terms": [
+"attack",
+"watermark",
+"text",
+"detection",
+"detector",
+"adversarial"
+],
+"name": null
+},
+{
+"id": 266,
+"level": 3,
+"parent": 263,
+"size": 71,
+"terms": [
+"attack",
+"jailbreak",
+"harmful",
+"malicious",
+"safety",
+"prompt"
+],
+"name": null
+},
+{
+"id": 267,
+"level": 1,
+"parent": null,
+"size": 742,
+"terms": [
+"llms",
+"human",
+"reasoning",
+"answer",
+"text",
+"languages"
+],
+"name": null
+},
+{
+"id": 268,
+"level": 2,
+"parent": 267,
+"size": 106,
+"terms": [
+"llms",
+"semantic",
+"human",
+"text",
+"linguistic",
+"representations"
+],
+"name": null
+},
+{
+"id": 269,
+"level": 3,
+"parent": 268,
+"size": 47,
+"terms": [
+"text",
+"llms",
+"corpus",
+"label",
+"hallucination",
+"heads"
+],
+"name": null
+},
+{
+"id": 270,
+"level": 3,
+"parent": 268,
+"size": 21,
+"terms": [
+"human",
+"words",
+"creativity",
+"lexical",
+"llms",
+"writing"
+],
+"name": null
+},
+{
+"id": 271,
+"level": 3,
+"parent": 268,
+"size": 38,
+"terms": [
+"semantic",
+"representations",
+"linguistic",
+"meaning",
+"brain",
+"llms"
+],
+"name": null
+},
+{
+"id": 272,
+"level": 2,
+"parent": 267,
+"size": 160,
+"terms": [
+"social",
+"human",
+"llms",
+"ai",
+"discourse",
+"political"
+],
+"name": null
+},
+{
+"id": 273,
+"level": 3,
+"parent": 272,
+"size": 21,
+"terms": [
+"survey",
+"respondents",
+"human",
+"preferences",
+"people",
+"cultural"
+],
+"name": null
+},
+{
+"id": 274,
+"level": 3,
+"parent": 272,
+"size": 45,
+"terms": [
+"political",
+"discourse",
+"sentiment",
+"detection",
+"hate",
+"social"
+],
+"name": null
+},
+{
+"id": 275,
+"level": 3,
+"parent": 272,
+"size": 54,
+"terms": [
+"social",
+"responses",
+"user",
+"ai",
+"human",
+"chatbots"
+],
+"name": null
+},
+{
+"id": 276,
+"level": 3,
+"parent": 272,
+"size": 40,
+"terms": [
+"social",
+"persuasion",
+"ai",
+"gender",
+"human",
+"people"
+],
+"name": null
+},
+{
+"id": 277,
+"level": 2,
+"parent": 267,
+"size": 114,
+"terms": [
+"llms",
+"judge",
+"legal",
+"scores",
+"human",
+"decision"
+],
+"name": null
+},
+{
+"id": 278,
+"level": 3,
+"parent": 277,
+"size": 66,
+"terms": [
+"llm",
+"safety",
+"scores",
+"prompt",
+"judge",
+"rubric"
+],
+"name": null
+},
+{
+"id": 279,
+"level": 3,
+"parent": 277,
+"size": 31,
+"terms": [
+"legal",
+"judge",
+"decision",
+"llms",
+"bias",
+"court"
+],
+"name": null
+},
+{
+"id": 280,
+"level": 3,
+"parent": 277,
+"size": 17,
+"terms": [
+"review",
+"peer",
+"writing",
+"ai",
+"documents",
+"text"
+],
+"name": null
+},
+{
+"id": 281,
+"level": 2,
+"parent": 267,
+"size": 149,
+"terms": [
+"languages",
+"multilingual",
+"llms",
+"english",
+"text",
+"translation"
+],
+"name": null
+},
+{
+"id": 282,
+"level": 3,
+"parent": 281,
+"size": 33,
+"terms": [
+"cultural",
+"languages",
+"llms",
+"multilingual",
+"english",
+"bias"
+],
+"name": null
+},
+{
+"id": 283,
+"level": 3,
+"parent": 281,
+"size": 38,
+"terms": [
+"llms",
+"text",
+"classification",
+"unlearning",
+"test",
+"compare"
+],
+"name": null
+},
+{
+"id": 284,
+"level": 3,
+"parent": 281,
+"size": 45,
+"terms": [
+"multilingual",
+"languages",
+"translation",
+"english",
+"pairs",
+"machine"
+],
+"name": null
+},
+{
+"id": 285,
+"level": 3,
+"parent": 281,
+"size": 33,
+"terms": [
+"text",
+"sentiment",
+"arabic",
+"detection",
+"corpus",
+"macro-f1"
+],
+"name": null
+},
+{
+"id": 286,
+"level": 2,
+"parent": 267,
+"size": 213,
+"terms": [
+"answer",
+"reasoning",
+"llms",
+"question",
+"prompt",
+"decision"
+],
+"name": null
+},
+{
+"id": 287,
+"level": 3,
+"parent": 286,
+"size": 50,
+"terms": [
+"reasoning",
+"answer",
+"llms",
+"languages",
+"questions",
+"logical"
+],
+"name": null
+},
+{
+"id": 288,
+"level": 3,
+"parent": 286,
+"size": 35,
+"terms": [
+"steering",
+"direction",
+"safety",
+"refusal",
+"activation",
+"alignment"
+],
+"name": null
+},
+{
+"id": 289,
+"level": 3,
+"parent": 286,
+"size": 54,
+"terms": [
+"option",
+"answer",
+"decision",
+"jev",
+"prompt",
+"question"
+],
+"name": null
+},
+{
+"id": 290,
+"level": 3,
+"parent": 286,
+"size": 59,
+"terms": [
+"answer",
+"prompt",
+"hallucination",
+"factual",
+"activation",
+"response"
+],
+"name": null
+},
+{
+"id": 291,
+"level": 3,
+"parent": 286,
+"size": 15,
+"terms": [
+"sycophancy",
+"user",
+"pushback",
+"pressure",
+"framing",
+"sycophantic"
+],
+"name": null
+},
+{
+"id": 292,
+"level": 1,
+"parent": null,
+"size": 440,
+"terms": [
+"control",
+"navigation",
+"robot",
+"motion",
+"autonomous",
+"planning"
+],
+"name": null
+},
+{
+"id": 293,
+"level": 2,
+"parent": 292,
+"size": 196,
+"terms": [
+"navigation",
+"planning",
+"control",
+"robots",
+"autonomous",
+"motion"
+],
+"name": null
+},
+{
+"id": 294,
+"level": 3,
+"parent": 293,
+"size": 23,
+"terms": [
+"autonomous",
+"driving",
+"vehicle",
+"trajectory",
+"control",
+"safety"
+],
+"name": null
+},
+{
+"id": 295,
+"level": 3,
+"parent": 293,
+"size": 36,
+"terms": [
+"navigation",
+"robot",
+"environments",
+"planning",
+"path",
+"map"
+],
+"name": null
+},
+{
+"id": 296,
+"level": 3,
+"parent": 293,
+"size": 50,
+"terms": [
+"control",
+"locomotion",
+"policy",
+"quadrotor",
+"reinforcement",
+"navigation"
+],
+"name": null
+},
+{
+"id": 297,
+"level": 3,
+"parent": 293,
+"size": 33,
+"terms": [
+"multi-robot",
+"robots",
+"aerial",
+"coordination",
+"decentralized",
+"planning"
+],
+"name": null
+},
+{
+"id": 298,
+"level": 3,
+"parent": 293,
+"size": 54,
+"terms": [
+"planning",
+"motion",
+"obstacles",
+"collision",
+"safety",
+"control"
+],
+"name": null
+},
+{
+"id": 299,
+"level": 2,
+"parent": 292,
+"size": 155,
+"terms": [
+"control",
+"robotic",
+"motion",
+"robots",
+"contact",
+"physical"
+],
+"name": null
+},
+{
+"id": 300,
+"level": 3,
+"parent": 299,
+"size": 63,
+"terms": [
+"motion",
+"control",
+"robot",
+"humanoid",
+"tracking",
+"whole-body"
+],
+"name": null
+},
+{
+"id": 301,
+"level": 3,
+"parent": 299,
+"size": 50,
+"terms": [
+"contact",
+"force",
+"robotic",
+"tactile",
+"actuation",
+"sensing"
+],
+"name": null
+},
+{
+"id": 302,
+"level": 3,
+"parent": 299,
+"size": 14,
+"terms": [
+"control",
+"robotic",
+"industrial robots",
+"vascular",
+"insertion",
+"thermal"
+],
+"name": null
+},
+{
+"id": 303,
+"level": 3,
+"parent": 299,
+"size": 28,
+"terms": [
+"physical",
+"robotic",
+"robots",
+"digital",
+"humanoid",
+"control"
+],
+"name": null
+},
+{
+"id": 304,
+"level": 2,
+"parent": 292,
+"size": 89,
+"terms": [
+"navigation",
+"localization",
+"estimation",
+"autonomous",
+"robots",
+"odometry"
+],
+"name": null
+},
+{
+"id": 305,
+"level": 3,
+"parent": 304,
+"size": 33,
+"terms": [
+"navigation",
+"vehicle",
+"autonomous",
+"perception",
+"wind",
+"aerial"
+],
+"name": null
+},
+{
+"id": 306,
+"level": 3,
+"parent": 304,
+"size": 56,
+"terms": [
+"navigation",
+"localization",
+"odometry",
+"inertial",
+"robots",
+"estimation"
+],
+"name": null
+},
+{
+"id": 307,
+"level": 1,
+"parent": null,
+"size": 282,
+"terms": [
+"forecasting",
+"series",
+"time",
+"temporal",
+"prediction",
+"forecasts"
+],
+"name": null
+},
+{
+"id": 308,
+"level": 2,
+"parent": 307,
+"size": 169,
+"terms": [
+"forecasting",
+"series",
+"time",
+"temporal",
+"prediction",
+"future"
+],
+"name": null
+},
+{
+"id": 309,
+"level": 3,
+"parent": 308,
+"size": 51,
+"terms": [
+"forecasting",
+"series",
+"time",
+"temporal",
+"dynamics",
+"volatility"
+],
+"name": null
+},
+{
+"id": 310,
+"level": 3,
+"parent": 308,
+"size": 25,
+"terms": [
+"series",
+"time",
+"anomaly",
+"multivariate",
+"classification",
+"detection"
+],
+"name": null
+},
+{
+"id": 311,
+"level": 3,
+"parent": 308,
+"size": 65,
+"terms": [
+"forecasting",
+"series",
+"time",
+"forecasts",
+"foundation",
+"event"
+],
+"name": null
+},
+{
+"id": 312,
+"level": 3,
+"parent": 308,
+"size": 28,
+"terms": [
+"forecasting",
+"future",
+"traffic",
+"prediction",
+"trajectory",
+"spatio-temporal"
+],
+"name": null
+},
+{
+"id": 313,
+"level": 2,
+"parent": 307,
+"size": 113,
+"terms": [
+"weather",
+"forecasting",
+"forecasts",
+"prediction",
+"operational",
+"probabilistic"
+],
+"name": null
+},
+{
+"id": 314,
+"level": 3,
+"parent": 313,
+"size": 46,
+"terms": [
+"weather",
+"forecast",
+"precipitation",
+"era5",
+"probabilistic",
+"climate"
+],
+"name": null
+},
+{
+"id": 315,
+"level": 3,
+"parent": 313,
+"size": 38,
+"terms": [
+"cloud",
+"disaster",
+"sensor",
+"monitoring",
+"satellite",
+"anomaly"
+],
+"name": null
+},
+{
+"id": 316,
+"level": 3,
+"parent": 313,
+"size": 29,
+"terms": [
+"forecasting",
+"pv",
+"photovoltaic",
+"forecasts",
+"irradiance",
+"solar"
+],
+"name": null
+},
+{
+"id": 317,
+"level": 1,
+"parent": null,
+"size": 522,
+"terms": [
+"image",
+"segmentation",
+"detection",
+"classification",
+"spatial",
+"features"
+],
+"name": null
+},
+{
+"id": 318,
+"level": 2,
+"parent": 317,
+"size": 141,
+"terms": [
+"detection",
+"images",
+"fusion",
+"features",
+"segmentation",
+"sensing"
+],
+"name": null
+},
+{
+"id": 319,
+"level": 3,
+"parent": 318,
+"size": 34,
+"terms": [
+"detection",
+"infrared",
+"fusion",
+"object",
+"small target",
+"features"
+],
+"name": null
+},
+{
+"id": 320,
+"level": 3,
+"parent": 318,
+"size": 25,
+"terms": [
+"spectral",
+"image",
+"db",
+"channel",
+"feature",
+"bands"
+],
+"name": null
+},
+{
+"id": 321,
+"level": 3,
+"parent": 318,
+"size": 50,
+"terms": [
+"remote sensing",
+"imagery",
+"images",
+"segmentation",
+"species",
+"detection"
+],
+"name": null
+},
+{
+"id": 322,
+"level": 3,
+"parent": 318,
+"size": 32,
+"terms": [
+"anomaly",
+"detection",
+"defect",
+"images",
+"inspection",
+"industrial"
+],
+"name": null
+},
+{
+"id": 323,
+"level": 2,
+"parent": 317,
+"size": 222,
+"terms": [
+"segmentation",
+"image",
+"mri",
+"medical",
+"imaging",
+"clinical"
+],
+"name": null
+},
+{
+"id": 324,
+"level": 3,
+"parent": 323,
+"size": 52,
+"terms": [
+"medical",
+"chest",
+"classification",
+"images",
+"imaging",
+"x-ray"
+],
+"name": null
+},
+{
+"id": 325,
+"level": 3,
+"parent": 323,
+"size": 34,
+"terms": [
+"pathology",
+"whole-slide",
+"tissue",
+"cancer",
+"images",
+"wsi"
+],
+"name": null
+},
+{
+"id": 326,
+"level": 3,
+"parent": 323,
+"size": 46,
+"terms": [
+"segmentation",
+"medical",
+"image",
+"anatomical",
+"dice",
+"ct"
+],
+"name": null
+},
+{
+"id": 327,
+"level": 3,
+"parent": 323,
+"size": 50,
+"terms": [
+"mri",
+"brain",
+"tumor",
+"segmentation",
+"clinical",
+"imaging"
+],
+"name": null
+},
+{
+"id": 328,
+"level": 3,
+"parent": 323,
+"size": 11,
+"terms": [
+"gene",
+"spatial",
+"transcriptomics",
+"expression",
+"cell",
+"molecular"
+],
+"name": null
+},
+{
+"id": 329,
+"level": 3,
+"parent": 323,
+"size": 29,
+"terms": [
+"ct",
+"anatomical",
+"x-ray",
+"images",
+"imaging",
+"registration"
+],
+"name": null
+},
+{
+"id": 330,
+"level": 2,
+"parent": 317,
+"size": 159,
+"terms": [
+"image",
+"recognition",
+"detection",
+"classification",
+"facial",
+"representations"
+],
+"name": null
+},
+{
+"id": 331,
+"level": 3,
+"parent": 330,
+"size": 33,
+"terms": [
+"facial",
+"face",
+"detection",
+"recognition",
+"images",
+"deepfake"
+],
+"name": null
+},
+{
+"id": 332,
+"level": 3,
+"parent": 330,
+"size": 32,
+"terms": [
+"eeg",
+"recognition",
+"activity",
+"wearable",
+"signals",
+"channel"
+],
+"name": null
+},
+{
+"id": 333,
+"level": 3,
+"parent": 330,
+"size": 40,
+"terms": [
+"image",
+"classification",
+"vision",
+"fundus",
+"deep",
+"samples"
+],
+"name": null
+},
+{
+"id": 334,
+"level": 3,
+"parent": 330,
+"size": 54,
+"terms": [
+"segmentation",
+"representations",
+"image",
+"semantic",
+"spatial",
+"space"
+],
+"name": null
+}
+],
+"generic": [
+"accuracy",
+"ai",
+"ai agents",
+"ai and society",
+"ai for science",
+"ai safety",
+"ai systems",
+"algorithm",
+"algorithms",
+"artificial intelligence",
+"attention",
+"benchmark",
+"benchmarks",
+"classification",
+"computer vision",
+"deep learning",
+"deep neural networks",
+"evaluation",
+"evolutionary computation",
+"fine-tuning",
+"foundation model",
+"foundation models",
+"generalization",
+"generative ai",
+"graph learning",
+"healthcare and medicine",
+"human-ai interaction",
+"inference",
+"information retrieval",
+"language llms",
+"language model",
+"language models",
+"large language",
+"large language model",
+"large language models",
+"learning",
+"learning theory",
+"llm",
+"llm-based",
+"llms",
+"machine learning",
+"ml",
+"ml systems",
+"mllm",
+"mllms",
+"multi-agent systems",
+"multimodal learning",
+"natural language processing",
+"network",
+"networks",
+"neural",
+"neural network",
+"neural networks",
+"optimization",
+"prediction",
+"reasoning",
+"recommender systems",
+"regression",
+"reinforcement learning",
+"representation",
+"representations",
+"robotics",
+"security",
+"speech and audio",
+"statistics",
+"time series",
+"training",
+"transformer",
+"transformers",
+"vision-language models",
+"vlm",
+"vlms"
+],
+"papers": [
+{
+"key": "2610.08811",
+"title": "KVFetch: Temporal Prefetching for the Missing Half of KV Cache Compression",
+"abstract": "As context windows scale to tens or hundreds of thousands of tokens, KV cache compression has become essential for efficient LLM inference. Existing methods fall into three families: score-based eviction, summary compensation, and offload-and-recall. Yet all three decide what to keep or recall by content relevance to the current query. We show this shared design is structurally incomplete. A cache supports two access modes: associative lookup by content and sequential traversal by position; current compressors implement only the first. The gap matters in practice: retrieval-augmented generation, code completion, and structured-data extraction all require the model to reproduce identifiers, field values, or code tokens verbatim from the context. Under compression, content-based eviction retains the head of such a sequence but discards its continuation, causing verbatim copying to break irreversibly midway, a failure we call sequential forgetting. This failure resists better scoring, larger budgets, summary compensation, and dynamic re-scoring; it is the dominant source of remaining quality loss under compression. We propose KVFetch, a training-free, drop-in framework that opens a temporal recall channel for any score-based compressor. It demotes evicted candidates to a quantized cold tier, detects active copying through a monotone read pointer, and prefetches positional successors into fixed-size hot-tier slots without increasing attention cost. On RULER-16K under an iso-budget control, KVFetch recovers verbatim copying from 0.8 to 78.4 and raises the 13-task average by +8.4, with gains concentrating on tasks that require sequential access. On LongBench, where no task requires sequential access, the channel remains dormant and imposes no cost.",
+"days_ago": 2,
+"archived": false,
+"own_tags": true,
+"reading": 4,
+"snippets": 2,
+"chats": 1,
+"q8": "/egfO+gOCP4DBgAHEPIB8B0QBBIEEPP7GvAICv//5u3yn/foFAYM8+kc8hoNCvH1+OwG9Pn59QAEDwUaCBINDAz/ygsVDfcGBB7eGAseFwL+9fz99/Tx8uj6/O0a8/Xs/xDa/RQe8lvrFP/3DvEEB/gD//4T8ioIIgjzEPETDO0N3gMtCP8T8+71Av0MAwrn6/sO9uUzAP/f7wUK+/MQEwgj8wcC7PUZ8fD5CQPwFg3u/RYQ3ggFBgbt7hQV3fT9AxT4EgL79vP6Cw3kBf7tCwcB6vwZEPz4EPv06QcK+BQF6Pud/v74C9sNBBIKAPLsEPMQEwTyEf8C9NQV8mEUFOcGB/zPGwwOB/zz5AT7z/Lx7fvyAxTuEALz7OX38v4S+gHqF/n89BHq5/nv+gIMEv3p+SzyC/8KGiAXGvX8COv0BP+BDwIM/x4U/fsH/RME7f4QKO4O7wQDXv8JB/v7GfoLDCny+hHzHgkKAAnv+iD5AtX4/fsBAgsXCvPp9vUC6vwAAg==",
+"leaf": 206,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.10871",
+"title": "Sparse Attention Is Matrix Approximation, Not Choosing from a Bag of Values",
+"abstract": "Large Language Models (LLMs) achieve strong performance across many domains, but their efficiency is limited by the quadratic cost of attention with respect to prompt length. Sparse attention reduces this cost by retaining only a small fraction of query-key interactions to approximate the full attention matrix. However, existing methods are trapped in a mathematically wrong view: they simply keep large scalar entries or high-mass regions of the attention matrix. This treats the attention matrix as a bag of values, ignoring that it is used as a structured matrix whose entries jointly determine the attention output through multiplication with value vectors. We argue that this is the core conceptual issue: sparse attention should be formulated as matrix approximation, not as blindly choosing the largest values from a bag of entries. Based on this view, we propose Matrix Approximation Sparse Attention (MASA). MASA replaces raw attention-mass ranking with a closed-form score that measures how much each sparse unit reduces matrix-product approximation error. As a theory-grounded plug-in correction, MASA can be added to existing sparse attention frameworks without changing their sparse kernels or budgets. Extensive experiments across multiple sparse attention methods, benchmarks, and LLM backbones show consistent accuracy gains, supporting both MASA and the matrix-approximation view of sparse attention.",
+"days_ago": 5,
+"archived": false,
+"own_tags": false,
+"reading": 3,
+"snippets": 0,
+"chats": 1,
+"q8": "vLgdO+sC9v7/AwYKI/316holFAoHC+/xEPX99QQG8O3mkQT4LAcF+fkE9AIIEO4L59/q++brBecOCBkJEQ4LDRYQyhkdB+35/RX+FfoUDfz+/Q8AEvbv8vrzAfsH6ufy7Pvs9xQO3Fb6Fw3qCfb9A/oDBPgK8BQBMAr18wAADfQP4xA2GRIc++fwCQINBhD/7ekD3eU87vXy8PsNC9wMAw0F4QEC9PQXA+P3AfLqEhHmGhYZ4AsN/hT49xsJ7vzyBQDoEwEE8e0E+AbyBgLmAwkS+gMSFOr/EPHm9QUR9w8M5uKl9wzxDdQY8hstAu/2FAET/BL3+BEG9+IJ/FsRBvUPGvbbCgoiBPoFAvr90vH7Af3xERjxEwH/49z39QUB6A/0Cv75+v706hf9/xUODfv5/CgLDfgeCzD4DPP2A/PqDPCBHwz8AAUU/vgKCR0I6/URGvIL4/0OUvcI+Pr5B/kCCiPqERXtGgkBABDn7Cn6BPIBAvwADAsOAPMD8fT84vEJ/g==",
+"leaf": 207,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.13060",
+"title": "KV-Repurpose: A Testbed for Evaluating Non-Prefix KV-Cache Reuse",
+"abstract": "KV-cache reuse in large language model serving is commonly limited to exact prompt prefixes, preventing reuse when the same retrieved document appears after different system prompts, conversation histories, or dynamic metadata. We present KV-Repurpose, an open-source, vLLM-based system for developing and evaluating segment-wise KV-cache reuse beyond exact prefixes. The system combines cache-aware segment scheduling, prompt construction, capacity management, workload generation, and runtime monitoring. Experiments on long-context benchmarks show that naive segment reuse largely preserves output quality for single-document question answering and summarization, while exposing clear limitations in cross-document reasoning. Under a Zipfian RAG-style workload in which 20% of requests share a fixed prefix, KV-Repurpose achieves a substantially higher token-level cache hit rate than prefix caching at the same 30 GB cache capacity, 63.9% versus 3.3%, resulting in lower TTFT. Even with 1 TB of cache capacity, prefix caching reaches only a 17.9% hit rate in this workload. Source code is available under the Apache-2.0 license at https://github.com/taiga333/eval-kv-repurpose.",
+"days_ago": 6,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "STseO9//Dg0G9v7/Avb68R0WBwEB+/rxHOX1/AD99PPojQPkDwcC/fIl8RkVFPfx/evq+P39BvMCAAUUHQsPBhANxRYBD+kEBxHsGRAdBwnz7voB+Pbq+vTv9e4M9v3+DAPo6BMU5mHrAwzo//YHBQAF+/cH7RoOJwn8B/ALCPMF4Ssn+wsJ7PXoAgAK/Av58PEB6ec6/wbr9AoF++cN/Q0Y+gcI8+4mDNfyCf32Eg35DCAf3QMFAxb15hQM2/ADBhHvEAIA+/r2CAvpFgbwC/0H6wIaGv8A/e/96QkCEyAE8PyeCQP6Et0X9w4H/+juCg4RBAHv/Q8B+t4cAlMQCewcDADHHxIXAvsB8wX0yvTu6v75BALvBw797uT8A/cLCfvsCvwD+P3o7hzyBgQPDv/07zLvF/gPDRoODfj0APLsBAWBHwYF/RsGDvIQCR//8vsQJP4V3AIJUvgBCgEHGe3//Cz+9BDsCwcE/w7x9Rv2AdUIBf38ARgQBvHw3vEH8gYNAg==",
+"leaf": 100,
+"leaf_map_version": 1,
+"server_terms": [
+"kv-cache reuse",
+"workload",
+"segment",
+"runtime monitoring",
+"question answering"
+]
+},
+{
+"key": "2610.15186",
+"title": "SAFE-KV: Causal Suffix Repair for Behavior-Preserving Non-Prefix KV Cache Reuse in RAG",
+"abstract": "Retrieval-augmented generation (RAG) reuses the same documents across many requests, making non-prefix KV-cache reuse attractive. Yet a cached document state is not reusable text: it is a context-conditioned causal state whose keys and values depend on the prefix, position, and preceding documents under which it was computed. We formulate non-prefix KV reuse as a behavior-preservation problem with full prefill on the exact prompt as the reference, and introduce SAFE-KV, which repairs a composed cache by re-encoding the causal suffix from a selected start document. On Qwen2.5-7B-Instruct, prefix-conditioned composition preserves only 47.2% of HotpotQA-500 and 37.8% of 2Wiki-500 full-prefill answers; SAFE-KV with risk-guided K2 selection restores 99.8%/98.4% (donor-copy protocol) and 100.0%/98.4% with actual suffix forwarding. Document-only and fixed-window repairs recover far less, because the document states after the repaired region keep histories that omit it. Reuse without repair is exact up to four documents and degrades at sixteen, where suffix repair recovers 98-100%. Faithful repair re-encodes most of the context, so in a single-request L40S study SAFE-KV's operating rule serves every workload by full prefill. SAFE-KV thus establishes the causal-state contract for non-prefix reuse and a validated repair mechanism that meets it.",
+"days_ago": 9,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "jfYfO9oK/gUA9vsC/fwC8R8Z/AsDC/H4HPIHAP4F+PHvkPvqBQcF/+sn+SQYDPjs++/z7QH5APwADQoUHQoA/xIRxxMaB+73AxTqGQUbEwr27PgD9fXqA/Pk/uUQBvPxEgPt7wkg9mfmDQrzC/EIBff3/+0U9hX/IBT/+PkTCf0B5B8o/goI8/Lw9+7+AAny9O795Ocy/A3s9QEA/OYOBw4a9gcC9OUhBePxCPn+EAwCCxcc7Pr/CBDs4RcS8fMGDBL2CP/0+vrz/QnsCgbpAQEP9fEYDvQCAPTq8gMQChUH8f+iAO8CDuIT8w32/O3mCvwZE/z9+gn//tcjB1EfEOQRB/LRHBgLE/n1AQn3z/nn4/T3DAIBBgz2+fP8//8B+wblD/4Q/Arm7Rju/vsUAgTw6yfrIf0PER0TC/P5+ezlCwyBDgcF9B4TCPEb/hUD8wISJPIN3v4QXgcD//oLFP0RCB7+/ALuDwf19BPt9h4L+eQDAff7/QUKENr56vQPCw0a+Q==",
+"leaf": 95,
+"leaf_map_version": 1,
+"server_terms": [
+"kv cache reuse",
+"repair",
+"retrieval-augmented generation rag",
+"causal"
+]
+},
+{
+"key": "2610.17966",
+"title": "BELT : BEhavior-Aligned Low-Rank KV Cache Compression with Learned Top-k Rank Allocation",
+"abstract": "Long-context inference makes the key-value (KV) cache a major memory bottleneck for large language models. We propose BELT, a low-rank KV cache compression framework. Its key-side objective targets attention distributions rather than raw keys or pre-softmax logits, yielding a quadratic surrogate with a closed-form low-rank solution. A learned global rank allocator uses differentiable soft selection during training and hard selection at deployment to meet a user-specified component budget. Experiments demonstrate improved model quality under aggressive compression and increased decoding throughput at comparable accuracy. Evaluated across three LLMs and multiple benchmarks, BELT achieves up to 70% low-rank KV cache compression while outperforming the strongest baseline by up to 23.3 points on LongBench, and up to 17.8x overall KV cache reduction when combined with quantization. With Triton-based GPU kernels and a quantized cache, BELT delivers up to 2.7x speedup for the attention module and 3.3x end-to-end decoding throughput.",
+"days_ago": 12,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "ifocO+oMBgIB+/UGDukG4hIXFgYPA/LtHOcC+fr78vHzlffrHwMD8+gN3hgJGPD7/e4A8vP1AQH6BwYCHhUGBBIPwhER/PcJBBDsEBEYEQD/9wb1DO/e+Pfx/voG8/Tv+w7g9wAX31v4BAbpEeL/A+v8Bv4K9R0CKRP9Ee0YBOsN4AIzDf0M/O/4+AAJFA3u4PUC7Oo5+QPo/BEKCuUOBQQV6gb68e8fA+zuBQfyHAXtChgO3Ar4Bgvq7wMP5gADEgT5Egb9+fz4/QPvDQfaFAL58vcVCfQOEwL48wYWCBMV4PmbEwbxHt0f8xkYAvXrFAghBQP5AAcC9NcWA2ETF+n+FQHRJxYaAPIE6gL8zfX59RL39xXjEwP43uj58wIC6AfyBv/99Qns7QX2ARgJCQD4+C35GvgYGBsLB/Tv/+z0D/eBFwv/+QgU9u4I+x0H8QAQIeYX8gEISQ0WAusGG/wBDCT4ACLqHQoMCgr06yH+/+b7+gIM8QEKF/bw9vsK6fMC9Q==",
+"leaf": 206,
+"leaf_map_version": 1,
+"server_terms": [
+"kv cache compression",
+"decoding throughput",
+"gpu kernels",
+"allocation"
+]
+},
+{
+"key": "2610.19026",
+"title": "Joint Subspace Sparse Attention for Efficient Long-Context Decoding",
+"abstract": "Sparse attention reduces the KV-cache traffic that dominates long-context LLM decoding, but practical methods largely operate at coarse granularity. Token-level selection offers finer control, yet presents two challenges: low-dimensional scoring may lose query--key structure needed for accurate ranking, while gathering scattered selected tokens can offset the resulting latency benefit. We introduce Joint Subspace Sparse Attention (JSSA) to address both challenges. For selection quality, JSSA learns a shared low-dimensional query--key subspace by minimizing token-score preservation error. We upper-bound the resulting non-convex objective with a tractable marginal objective that admits a closed-form spectral solution; direct refinement of the exact objective provides no measurable improvement in the tested settings. For execution efficiency, we develop a gather-free token-level indexed-attention kernel that supports distinct per-KV-head selections under the standard grouped-query attention (GQA) KV-cache layout. Across standard GQA, hybrid sliding-window/global attention, and Multi-head Latent Attention (MLA) models, JSSA consistently remains close to full-KV accuracy while avoiding the substantial generation-length inflation and architecture-dependent failures observed with competing methods. On an NVIDIA B200 GPU, JSSA achieves up to $6.43\\times$ the decoding throughput of full-KV attention at 128K context. JSSA achieves reasoning accuracy comparable to model-native DSA without model training and reaches 96--99\\% of its decoding throughput even at 700B scale large models.",
+"days_ago": 1,
+"archived": false,
+"own_tags": false,
+"reading": 2,
+"snippets": 1,
+"chats": 0,
+"q8": "kdwcO/QDCgEC+QADGPny6wcjDhIMEvD8CusD9f0A7+P2jwQBI/0E7fYM5Q0HCOz98OX4/Pb4AvoECRcRCgoJBxEWxhQUBvn9AxL3DRMMCQAB+xP5DPTh7fD58QsP+Ov98w3o9xQU5VjtBgPvEejzA/cIAf4SARMBKAr4CvcPCugN3RM6EhEO9e7rBgcREwL86e8S7/Qx8Pj6/AgLBusBAwoJ6gf48fUgAt7z/wH7CwPtIRsc1hIA/vzf6wgW6wr8CQDp/fUK+Pr+/BD1C/zhEhP8+PgNFO8PEfjx7PcN+RcY6OKd/P/sB9sZ+CcjEQruAggfBBD5/PwN9+UXDV8MDOkNHvLVDQ4bCvD86vr/0+/xAgX7CB/hHPoB6+3r8QkG5wDrDAP0BQzu9APrDBMHIfX6+CQBFQUaDyIKBebkBunvB/GBBgns+wce+eMM9xX48AYRKe0M8QABUf8N/usCEAUEES/i/Rr1HhkNCA783CX7/vH7/gL6Bv4JA+rsCP3/5PEF+w==",
+"leaf": 207,
+"leaf_map_version": 1,
+"server_terms": [
+"sparse attention",
+"decoding throughput",
+"subspace",
+"attention multi-head",
+"llm decoding"
+]
+},
+{
+"key": "2610.25456",
+"title": "System X: An LLM Decision Model That Replies from Its Own KV Cache",
+"abstract": "Decision models return probabilities over supplied options, but a deployed agent may also need to reply in words. The present study introduces System X, a large language model (LLM) decision model that adds a text-reply option to the LLM-as-Jev readout. When this option wins, or confidence is low, the same model continues from the decision's key-value (KV) cache, avoiding a repeated prompt prefill. Qwen3-0.6B has been fine-tuned with LoRA on Reason-9k and Bitext reply rows. JevBench accuracy shows no statistically significant change (55.4% to 54.5%, p=0.87), while expected calibration error falls from 0.292 to 0.169. Held-out Bitext routing accuracy reaches 98.3%. Cache reuse saves 15-37% of latency on an Apple M4 Pro, with token-identical replies in the FP32 demonstration cases. Scoring options on copies of the prompt cache matches full-sequence scoring to within 1.4e-6 in probability. Adding dialogue, industry and complaint data (System X+) improves support-task results but lowers IFEval accuracy from 55.5% to 45.0%. System X v4 uses Qwen3-1.7B, rebalanced data and teacher-rewritten reply targets. Against its base LLM, JevBench accuracy rises from 55.0% to 61.0% (p=0.04), with no statistically significant IFEval change (p=0.71). A matched latency test on unadapted Qwen3-1.7B saves 17-39%. One LLM judge prefers v4 replies to an unadapted 1.7B second call (31 to 11 pairs, p=0.003); the other's preference is not significant. These reply comparisons also differ in prompts and generation limits. State conflicts and unsupported reply details remain failure modes. Further studies with several seeds, human raters and real support data are recommended.",
+"days_ago": 18,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "G0APO9f/Evz49REWFvj5/B0SERAM8P/9DuoA9vz86PHkjgHwFfTtAPcA8xwIEQP79uLt8PL+Au8GAw4VHRcLARIHrCQMDusAAxbpGAskBwcD7wwD9fDl8gLZ+foi7vj/+wrd8g4H02sAB//oG/D6+PAIA/4UAAcWKQb++/YfC/cQ2R48/Q0Y3+3wBxQJAAf09NwK6OQ//wnoAv4OC+4JGQgE4g4L6PUbDevcBQ7sGwvyBQAG2v/9Bxz69g8O7PDzFQb2D/wN6/Pu+w7tEQnZDv8A7QMlDecIG/jk+Q8PDQwFDPWVBgb+Hd0X5hglBOgFH/0Q+Qbn//0G9ssJAVwNBvAQGvjTLB8b9+8B7A0G0+Pp5f7v+gf0FAQE9tkL+AQPB/XvFfv15wfu8x//CwwjAu3k7C/rBRMTERIRDPf7CO7iCPWBEwYM5hAR/OMa/hYD9/r/LukO7QYGYQMdDfb9Fvok/CTuCxDeCg768gbz9CkF/d0MCe349AYd/PDy7vUO/RoI+g==",
+"leaf": 289,
+"leaf_map_version": 1,
+"server_terms": [
+"kv cache",
+"decision return",
+"cache reuse",
+"human raters",
+"expected calibration"
+]
+},
+{
+"key": "2610.07030",
+"title": "LLM-Based Multi-Agent Collaboration for Constrained Multi-Objective Container Placement",
+"abstract": "Container placement in data centers must simultaneously minimize power consumption and maximize affinity preferences, while satisfying multi-resource capacity and anti-affinity constraints. Traditional approaches typically rely on fixed rules, which lack adaptability to dynamic cluster states and are difficult to extend for adaptive decision-making. On the other hand, meta-heuristic methods, although more flexible, are often computationally expensive, slower and prone to getting trapped in local optima. In this work, we propose an adaptive and efficient approach based on an LLM-driven multi-agent collaboration framework, where four specialized agents operate in a closed-loop ReAct cycle at each placement step. A Power Consumption Agent and an Affinity Agent debate over competing objectives, while a Placement Agent resolves conflicts using Tolerance-Gated Arbitration (TGA). A Rearrangement Agent further refines decisions through the Monotone Improvement Rule (MIR) in a post-placement refinement phase. All the agents reason over deterministic, feasibility-filtered candidate tables provided by the environment, ensuring that every proposed action inherently satisfies hard constraints. Based on experimental evaluation using the Google Cluster Trace with a configuration of 100 applications and 25 machines, the proposed framework consumes 8.36% less power and achieves 39.30% higher affinity than the power-greedy baseline. Ablation studies confirm that each architectural component, the multi-round debate mechanism, the TGA in the Placement Agent, and the MIR in the Rearrangement Agent, contributes meaningfully to the overall performance, with removal of any single component degrading both power consumption and affinity satisfaction.",
+"days_ago": 3,
+"archived": false,
+"own_tags": true,
+"reading": 1,
+"snippets": 0,
+"chats": 0,
+"q8": "iTEZO+v6EPcG+wwFC/UU6hkUAQP4CwX7Eev02ggI4PftiwL4CvcGAPgZ6f4NDPj45ff1A/j6EfEDCAQkHSMPDR4QuyQz9/D5AB/6BQAcERHxDRYK/+nzDO/n+PMRB/oG+Q7o5/YG51X2Fgf+COwL8Pr6/AYM/goPCAkF9ewQAwMK4wIz/gcM9f//IwwL8gcF9PUJxAE2/Afn9//59PcBCBEW8A31CPQj7s/w8wn4Bh/xCxQE7/jvBQkA8P8O9vPwAgXeBQYi/O8HAw7lGAThEgj78/UWEOYIEALkDQwPBwIgAe6fAO0JCwYRA+4WHO7tCgIADhr2BBn75N0WB2AECQcWBuvLAxUZ5/rx5R7xvv30/RLo+RPt+/r+/OkK+ggK+P4DHfkD+AnvAxT4+RQHB/vs+Bn2AxEaDhcN+fsIAewCEfmBCgD35gcGDPb8/gv3FQL8HOr/2fsVZfIEFgoH/fT1/iTdDR3oFxfu6wsC9SoN+uUW+fIA8vYSAOXm6fgA+wQGBg==",
+"leaf": 131,
+"leaf_map_version": 1,
+"server_terms": [
+"multi-agent collaboration",
+"power consumption",
+"affinity",
+"multi-objective",
+"hard constraints"
+]
+},
+{
+"key": "2610.11600",
+"title": "Error-Propagation Modeling for Failure Attribution in LLM-Based Multi-Agent Systems",
+"abstract": "LLM-based multi-agent systems (MASs) are increasingly used to solve complex tasks through coordinated reasoning, tool use, and interaction with external resources. However, attributing failures in such systems remains challenging because the observed outcome often does not directly reveal the error responsible for the failed execution. In this work, the attribution target is the decisive error, defined as the agent--step pair whose correction would recover the failed execution. Existing approaches largely identify suspicious steps without explicitly modeling how errors propagate across interactions or persist in unresolved loops, making decisive errors difficult to distinguish from downstream failure symptoms. We propose \\textbf{E}rror-Propagation \\textbf{M}odeling for \\textbf{F}ailure \\textbf{A}ttribution (\\textbf{EMFA}). EMFA constructs a structured representation of the failed trajectory, models both cascading propagation and persistent interaction loops, and uses propagation-aware candidate screening followed by counterfactual verification to identify the decisive agent--step pair. On the Who\\&When benchmark, EMFA achieves state-of-the-art step-level attribution accuracy and remains competitive at the agent level. It improves the previous best step-level results by 3.45 and 4.40 percentage points on the Hand-Crafted and Algorithm-Generated subsets, respectively.",
+"days_ago": 24,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "pHEgO9z/EvcABAUNE/4V5BUT/BfrIQACB/j/8foX8O/ui/3tBe74+uYF8gENCwLq+e0BBPvv9fALCA8UHSIPDhQNvQchEPT+Ah36AwccDwkQAAISA+nxAvLiDPoh9v4M8g/v8PwG6lX6AQ4IFOr87fkF9gYc7w0VIAz+9gIPEP751w48CgIB/Or5DQMEBAIF9v3+5eQt9gjs8e74AQz+/BoT5BP78ukm6eL5Bxn+Awnq9QcD7QQNBxX4/h8U9PrxBQb0BQgG8fTw8ALvCf/tAf4G8AkBFOEBGPvsAAUQAAgTA/yu6AP5BvcM/wAnHukA/wMR8Qf3Dfz68NcF/WETDv4QGfbhLQwX5Afu5g//0PPp5wvq+xP/DQL07+gO8AMG/Qj3HPf+4BT5+SH7/gUF+e3w8RryBv4L+AwAEvMRDOkGDPaBBg0P1AAWBO4ABxH+CA0BFe0F4AkKWgMGGAkEEPcICB7qExPlEgz4/AgF7i7++OYCDfH17/wOAPrx6v/58hYH/A==",
+"leaf": 109,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.14903",
+"title": "Conflict-Aware Autonomous Resource Orchestration for 5G Edge Slicing Using Multi-Agent Systems and LLMs",
+"abstract": "5G edge network slicing must reconcile two coupled requirements: understanding high-level operator intent and reallocating scarce computing and bandwidth resources under dynamic contention. Centralized optimization can face computational and responsiveness challenges under rapidly changing edge contention, and Multi-Agent System (MAS)-based auctions can support resource arbitration but still depend on operator-defined economic parameters and priorities. Embedding a Large Language Model (LLM) directly in a recurring control loop, by contrast, may introduce non-negligible inference latency and non-deterministic behavior. This paper proposes a two-timescale architecture that addresses this gap: an LLM-based Strategist translates natural-language network intents into economic policy parameters (budget, income, and bidding-aggressiveness) at the macro scale, while a deterministic, Vickrey-inspired second-price mechanism run by SPADE-based slice agents resolves recurring resource contention at the operational scale, with the resulting allocations enforced by patching Kubernetes CPU limits and Calico CNI bandwidth annotations directly on User Plane Function pods. We evaluate the architecture end-to-end on a real Kubernetes/Open5GS edge cluster across two complementary scenarios, each repeated 30 times: a Smart-City scenario, in which natural-language public-safety intents propagate into measurable changes in slice bids and bandwidth allocations within a few auction rounds, and a Hierarchical-slicing scenario, in which the mechanism provides priority-dependent resource and QoE differentiation, adapts to abrupt demand changes, and preserves configured minimum guarantees while maintaining near-complete allocation of the shared bandwidth pool.",
+"days_ago": 27,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "gS4XO+PsE/YI/gkfBPcR9Q8RGvjxAP/7F+gE+wgP6/r1mgz5Fu8A6/IG9A8XEPbz9d/0/+fq9/nxDw0fGCQbCwwAuyUX/gUL9RP2HRMTDA8C+gYK9+7pAvfiAvAUAuwH+gLd9QX63l8BCAPzG+vo++0Q8/4Q+A0EFw4R++sQAwMQ3wc4/wcC9/zuEgIE8voG8AQM1vglBRrv9uwEAP0BBRMM7QT0++U68NT2AgLuCAfiAA0J2wPx+g/zAwgH2/LyE//mGQYQ+fnzAQ32EQLjBwMBAAwKHwPvEwzr/RMiBgrwAu6g/vbwFAwP6gUXF+nvEAMKEQX5ERgB2d0TFG0ECwEYFtnQECEo9vn64QXvzf386g337QvoEgX4+ekV9f0H9frqJgP76vjy/xb4ARMWH/sB/yXxDP8K+h4PEPwHBeziG++BGBAF9hkHB98CAzEGAAQAJu/+7g77WfIYEvT+BfQV/yTaFgvv/hQL6AgFDRz76+UIB//xAP0QAOn66vn/4+v6AQ==",
+"leaf": 131,
+"leaf_map_version": 1,
+"server_terms": [
+"slicing",
+"bandwidth",
+"conflict-aware",
+"edge",
+"multi-agent systems"
+]
+},
+{
+"key": "2610.16039",
+"title": "When Agents Talk, Secrets Travel: Topology-Driven Leakage and Recipient-Conditioned Sanitization in Multi-Agent LLM Systems",
+"abstract": "Multi-agent LLM systems (MALS) introduce a privacy-leakage problem that conventional sensitivity-based defenses miss, since information disclosed to one authorized agent can propagate through routine coordination to an unauthorized one, without compromise or malicious behavior. This motivates topology-aware enforcement that blocks unauthorized propagation while preserving authorized disclosure. We evaluate 485 scenarios across coordinator-worker, peer-to-peer, and hierarchical topologies, instrumenting seven communication channels and measuring surface leakage and disclosure to topology-introduced recipients. We introduce RECONS, a Detect -&gt; Decide -&gt; Transform sanitizer conditioning intervention on recipient and execution context rather than sensitivity alone. Topology changes where protected information propagates, with disclosure to topology-introduced recipients rising from 0% to 52.2% while surface leakage stays nearly flat at 60.6-62.8%. This effect persists across four generator models and a second orchestration framework, though magnitude and relay paths differ; framework choice separately drives a 150x leakage spread, so topology alone is not sufficient. RECONS reduces residual disclosure from 96.7% without sanitization to 29.25%, preserving 94.1% of authorized disclosures versus 20.5% under blanket redaction. Detection coverage is the dominant bottleneck, accounting for 95.5% of residual disclosures. These results show that privacy enforcement in MALS must reason about the recipient and communication path realized at runtime, not sensitivity or topology assumptions alone.",
+"days_ago": 40,
+"archived": true,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "pUQfO/z6B/cD7Q4IEPkH9g8OEgfyE/r7DvIC9AUI6/TomA3vBf4D9O796g0HCgLp8esU+PPjDvIMGQ4JHREACw8avxkWEuYCBgz9CQL+Egb4/wwH/+j0BefqCfAW8+wIAQTv9fwB61f7CA35IfMH8/UP/fQMAg0HHxj89PkaDQcJ4RU3CQgI/wr+EvwEDRD+6gIF1vY3/QvkA/r8AOr78AQV5RAI+AA5AN76+xnxARL09wEH4wDv/wLz+wz99PX8BBvnFfIA6fb/+vbxBADpD/sA+e8IHesDCfHyAw0WCf//Duio+vv5DvIX5QkPHPD1EQEWCBQIBxD5+doGAmkBBfgJBfXUFQwA7wPt6Qn40Pjp7Qnh+xgFGRQB5/YE7R8GCQbtJ/b16hLy+Bn28vwKCfHf8Cj7BBQBARMWEPcG+u7zEP+B/v0O2gQZBub+EiX0EQILKvIA+w8IawcKEwQUBfYEBhjlCwH0CAj66P8F9Cjw5ewXAfv58wMbCenz/gT87gQS+g==",
+"leaf": 258,
+"leaf_map_version": 1,
+"server_terms": [
+"multi-agent llm systems",
+"disclosure",
+"leakage",
+"authorized",
+"talk"
+]
+},
+{
+"key": "2610.17869",
+"title": "ECMR: Evidence-Aware Deliberation Control for Multi-Agent LLM Reasoning",
+"abstract": "Multi-agent Large Language Model (LLM) systems typically commit to a deliberation protocol before inference. A fixed protocol cannot allocate computation differently to resolved and unresolved instances, and it may mistake repeated support for independent confirmation. We study this failure as semantic false consensus: a confident group answer supported by narrow, duplicated, or correlated rationales. We introduce ECMR, an evidence-aware controller over frozen role-conditioned LLMs. At each step, ECMR summarizes answer concentration, support diversity and independence, contradictions, role behavior, verification history, and remaining budget, then selects whether to propose, challenge, verify, arbitrate, diversify, correct a role, or stop. We formulate this decision as finite-horizon budgeted control and derive sufficient conditions under which state conditioning, risk-triggered verification, and role correction improve cost-adjusted utility. Across a declared held-out evaluation of 9,000 records from MedQA, CaseHOLD, and FinQA, ECMR-Full increases pooled accuracy from 62.1% to 84.9%, reduces false-consensus rate from 40.7% to 17.0%, and raises evidence-support rate from 58.0% to 88.7%. State shuffling loses 11.7 accuracy points with only 0.7 fewer rounds, while harder traces shift from early stopping toward arbitration. ECMR-Full uses the largest token budget, yielding the strongest absolute reliability rather than uniformly superior token efficiency.",
+"days_ago": 33,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "L6YWO9b+BAb79QYNCfgK4g8iEwr2CAYDC+X8Av8N6OzulgPnBQH+9/sK6wIJFAnk9PYBC+34DeIFAQ4eDhYVCRIStjEBEOkCCRH/Fw0cF/sN+wYG+vfs9vXmBu4F8fz//Qn3AAoF5Vn2+/vxF+UH7/8E7vsa9AgaLPvq9PERDfz92RBBBQQQ+P7sEwf9ABDz8Ob94No1+gLkAvACBu4JCB8O8AYF+vgx8+Dn/RH1BgTy9w4J6Af/BRXqARv97OrxEgHyG/8H5usJBRD+AfrbCAoH+QcTDPUUC/bx/A0XAPkUA/yb8QgCEvEJ8wkfBPL6BfgRCAj6FwQD8tYf/WgQB/UEDvnPIRcG7QHz9wHry+j1+iDmBBXxDwrq9NYCAQoPDwDyK/359Bfu8Br6CwEeDNnt+C34CwsRChcMD/AYDd3+DPKBDwAG5BMECOD/Ax/7CPMJGuYN7g8MXQQOHg//Cv0H9R7pCQveCSIE6A0O6S4J+eoABvD/5AAP9v3n6/jj8w8M+Q==",
+"leaf": 130,
+"leaf_map_version": 1,
+"server_terms": [
+"multi-agent llm",
+"evidence-aware",
+"deliberation"
+]
+},
+{
+"key": "2610.22316",
+"title": "Learning to Steer LLM Agents and Multi-Agent Systems",
+"abstract": "Large language model (LLM)-based agents and multi-agent systems increasingly tackle complex tasks through long-horizon tool use and inter-agent collaboration. However, these systems are prone to deviating from the overall goal as execution unfolds, which wastes execution resources and leads to undesired outcomes, a failure termed goal drift. In this work, we propose a steering agent that supervises execution on the fly and steers the system back on track when drift occurs. The steering agent observes the execution context, deciding when to intervene with a low-cost fast path and how to intervene with a high-cost slow path. To unlock its steering intelligence, the ability to assess goal drift and generate effective interventions, we jointly train the two paths with reinforcement learning, combining a pairwise ranking objective with group-relative policy optimization (GRPO). Experiments on information-seeking search tasks show that the steering agent provides effective supervision for both single-agent and multi-agent systems, improving their performance and efficiency. The learned steering intelligence generalizes to out-of-domain tasks, transfers to unseen executors, and supports controllable intervention frequency without retraining.",
+"days_ago": 36,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "PeEUO/L7CAAC9wMJC/Ua7h8g/grqGQjwDvj/7PQS4urymRDqAAT+COgS9goODvnl++P+++728tkPBR8bEBYLCAICsSAVG+//DBjyBQcRFgoB8g4LDuLq6ernB/YpAgD48gby+AMJ3lgGAQjvFvf5BPn99gwA+hMTGg72A/4AF/AP4QZAEQsX6Pn6CgcB/fz36vIDz+g7/wvr/O/9BvcCCh8P4QTr9ucf/+Dt9AH3BQzsABoN1Q3z+Rbk+gv+8fLw/wL2Gw0I8vUF+wb5Cv/dEgT59vkIDewQIQHr/wMY+xAVCPqc+wD6A+YU+QosF+D6EP8aBBIJERbw89QR+2gUCPIFE/fQGgQV5/7y9gf1x/X89QPs/Rf2DwTQ8esQ6QIVCPzyGf0H6BsD8xT2+AgKBfTv9SP9Cw0N7yPxEQUNAeH6Hu6BHwkM4gwNBOgNBRf8DgMFJvEH4AkXYf4ZDvwBFPj3ByHfEyDlGQ0Q9BEV5yQJ+t/vC/gK6AIWBO3s8P384w0H9g==",
+"leaf": 112,
+"leaf_map_version": 1,
+"server_terms": [
+"agents multi-agent systems",
+"steering",
+"llm agents"
+]
+},
+{
+"key": "2610.25208",
+"title": "BrandEval: A Two-Track Multi-Agent Benchmark for Risk-Sensitive LLM Crisis Communication",
+"abstract": "Evaluating LLMs for crisis communication requires more than judging isolated responses, because public feedback and competitor actions can reshape trust over time. Existing benchmarks remain largely static and single-turn, offering limited evidence about long-horizon risk-sensitive communication. We introduce \\textbf{BrandEval}, a two-track benchmark for product-crisis communication, focusing on public brand responses to product-related safety, quality, service, and trust incidents. BrandEval-Static evaluates stakeholder-aware strategic analysis, while BrandEval-Dynamic stress-tests response policies in \\textbf{BrandPolis}, a controlled multi-agent sandbox with consumer feedback, competitor responses, and trust-risk trajectories. We also construct \\textbf{BrandSRD}, a Chinese crisis-response dataset, and instantiate a reference Strategic Agent using \\textbf{Strategic Rationale (SR)}. Across proprietary and open-source models, we find that static strategic quality is informative but incomplete: it aligns with some end-state outcomes but does not reliably predict volatility and delayed recovery; dynamic stress tests further expose tail-risk failures under manipulative or weakly grounded policies. The code and dataset will be available at https://github.com/htgan-ai/BrandEval.",
+"days_ago": 39,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "g8wdO/D+BPQGCBQYEOYE8h0YFQoQAfoMB+kA9Aj25gPfoQ36D/UN//AD/QQMC/rs7tsJBPjdCPUQBwkMFQsWFQ8DuRILFOwd/RcBBRUcDxAJ4/n//PTo7/PkFfgWAPsGAw3g7QP64VzkDgfxHe8DAfgL+AAY9Q0NFgoA8AAfF/f94R8vBPz/8uv8B/vuCQUI9vP62OU0DQrnCAT+CvgF/Q8c6QYL6PEq7tjtARP0Bw8D9Av65fH3EAvx/h/78/jxDAXxAP0X8fj0AQX3/fzlBfoK/wIBCfURC/r4/R4X/QoODe6W+/PvFgAR4RAeL+74EgkN/QX1+/YE6NsN8FoG+/cL//LiMxYQ/9/29/cC1vnv+BnYDw/5Egb05uAM+gb1BA8AEv0G9xH57izy9AkMA+je9if+DhIH8RsPGvgBBuL2BvWBCP0T4AkKE+0BERz9AxH9FucQ/gUKUwP8BgIECwAa/SLcD/3wGQAD7wAO+Sb46uP6EvMA9/8DBvn3APH8+gX/BQ==",
+"leaf": 257,
+"leaf_map_version": 1,
+"server_terms": [
+"risk-sensitive",
+"crisis",
+"strategic",
+"communication",
+"multi-agent"
+]
+},
+{
+"key": "2610.09493",
+"title": "The Attribution Blind Spot: Layerwise Trajectory Diagnostics for Source Reliance in Retrieval-Augmented Language Models",
+"abstract": "A retrieval-augmented model can match a document without relying on it. Controlled knowledge conflicts make source choice observable and let us ask a second question that prediction alone cannot answer: which internal-state properties define useful intervention directions? We study paired hidden-state changes with Latent Trajectory Shift (LTS), a signed projection onto a training-fitted first principal component (PC1), and keep verified training exposure separate from behavioral source choice. Across the evaluated conflicts, state-change magnitude is often the stronger predictor, whereas signed PC1 is the stronger selective controller: equal-norm interventions change source preference while better preserving non-target behavior, and the frozen direction transfers across the tested datasets and aligned model pairs. A same-system OLMo study further combines positive choice and control results with inconclusive exposure detection at the achieved power. The central result is a separation: representations that diagnose what a model will choose need not be the representations that best control that choice.",
+"days_ago": 12,
+"archived": false,
+"own_tags": false,
+"reading": 4,
+"snippets": 1,
+"chats": 1,
+"q8": "UykaO+cHCBEHDBIUEgkF/v4XEQ/2DvQGCfT89/oa7u7ykPnrAe34+uAQ+f4TFAPt7wAIAu/w9+sAFQ0XGiH+DQYdrxkOGvP59xPwF/kMEvoDAQD3FwTgAPTV+uYU8ffp/Aru+gsX7F7xDwD0AvAB+fL89voN7Q8RIBH9/OwDAPP/3h8+//EH5vH0BwX/CAwH9/n/3OZL7v/mBgkTAvoWAwH+7gn07PEd9Ojp+Q/2EhT8Ag4E5AH1AhbZ7yYR6QD7CyT5BgL48vnvAgb1+g3s+fwT+PEZAtgMG/r2+fsQAhAA+wah/wMHGeQN/BcZBu76EQEI/w37CQf35NwKAlMeD/sGCffUIxYW7/bsB/H+1P3t+AjpDA7zCA3u9OUG6wkN+AjiGxDx5yID8hX0AwgEAO3i/i31EQoIAS3zG/YDBuvtHAGBHAIT7QcWBOgJ/BUM7v0SJfES5wgbVfoZ7vUCFPoNBxbxCBHsDvz4/A304y4F+v0GBfoR+AYUBe3u9uEO8Q0AAg==",
+"leaf": 290,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.14789",
+"title": "Training-Free BioNEL-RAG: Advancing Biomedical Entity Linking through Retrieval-Augmented Generation and Large Language Model",
+"abstract": "Biomedical Named Entity Linking (BioNEL) is the task of mapping mentions extracted from biomedical texts to canonical entities or concepts in the standardized knowledge base. Although existing methods have achieved remarkable performance in mapping accuracy, most rely on training with domain-specific datasets, which fundamentally limits their cross-domain adaptability. To address this limitation, we propose BioNEL-RAG, a novel training-free framework that combines retrieval-augmented generation (RAG) with large language models (LLMs). Within this framework, the RAG module focuses on retrieving candidate entities, while the large language model module plays the role of selecting the most appropriate candidate for entity normalization, which is based on the analysis of the mention's context, with the aid of its remarkable text comprehension capabilities. Experimental results demonstrate that BioNEL-RAG achieves performance comparable to existing methods without requiring training on subdomain datasets, whereas these methods necessitate fine-tuning on specific subdomains such as genes, diseases, or chemical compounds.",
+"days_ago": 45,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "oO4VO/T/EP0I/AURDvz41RUSERYJLOkOFesd+gEA8fromvjwEg8CAuoo/hAX9gD/DPb5APj79fADDAgQEP//ERwjuiEW/+4HCA/4DhAmDwcM+hD9/fry7Qz6+uAPDOLk+wXl4gsD9lXeEQvvE/P1+vfu//0L+SIJLgTx+fMFBPwL9RU6EPgVAdzxBgYD8PkF7uT34eY8/Qv0/wIV/v4NGSEH+/EQ5f4uDtblCfr9D/cBFBMG6vALAAjf/SH+3PYEAwzvFAMBAPPx+QvlIxfgDvIH/fkTCPX7EPTw//AHAx4Z+e6eDAYEDOoJ/wESCv/rA+QfIQcAAQj0BNgT92MeAuUQBvy3DgUW/Pf56gf82PP38fnuIwX0DAIF8eMD3wEU/gLoDuwA/w3i3iL8CQ8QDOLpACPvHvsHCy70Ee339+bpDfGBFwgP8AwS/voCEvsP9/kTG+gR+hb5WfsE9OHyChMF/SEDGhPpBw/0+P7k8iEFBub0DPAA/wkQBQrd9err/eQV9g==",
+"leaf": 91,
+"leaf_map_version": 1,
+"server_terms": [
+"entity linking",
+"retrieval-augmented generation",
+"biomedical",
+"generation language",
+"mentions"
+]
+},
+{
+"key": "2610.19528",
+"title": "Retrieve What Helps, Only When It Helps: Agentic Reinforcement Learning for Selective Retrieval-Augmented Machine Translation",
+"abstract": "Retrieving external knowledge can improve large language model (LLM) translation by providing supplementary information such as idiom interpretations and terminology. However, existing retrieval-augmented machine translation systems typically apply predefined retrieval strategies uniformly across all inputs. We argue that translation operates in a partial-evidence regime: LLM's parametric knowledge suffices for many inputs, while external evidence benefits a subset and usually supports rather than directly provides the desired translation. This creates two challenges: deciding when to retrieve and what evidence to acquire. We introduce Selective Retrieval-Augmented Translation (SRAT), an agentic reinforcement learning framework that learns when to translate directly or retrieve, what to retrieve, and how to integrate these decisions by optimizing final translation quality. To align evidence retrieval with downstream translation quality rather than simple semantic similarity, we further develop joint Plackett--Luce optimization and translation-quality contrastive training for retriever-training. Experiments on idiom, knowledge-intensive, and document-level translation with offline or online retrieval show that SRAT consistently outperforms never- and always-retrieve baselines, and quality-aligned retriever training provides further gains when similarity-based retrieval is insufficient. The results demonstrate the benefit of treating retrieval as a learnable translation action rather than fixed preprocessing.",
+"days_ago": 48,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "VL8XO94BB/sJAgEdGAEI8QoWEgX8G+3xF/cKAgUE7f/0l/vv+wkHCOcN+xUQDAP78vsNBPDzBPIOChMXGioH+wgcsi39D+0LBxf8Ew8hCwAF6w7nBOrs8/LdBucXBAAA8RLw9wUX71r+BgTwAf75Bf744gUZ+RkQKQb++fAEC/EA2REyBwIW8PPyDAIE5/MK9+/53ds7+vzk9fwZDvkOCh8H4e8D8PEm/u3fBATwFArtChL72vv9/RLZChwT8vDzDBH8HAH57/fuAAbwFvzX/vwF/fsOCfwKGQrw+wkNAQD7+/uX9/X0H90P+hseAernIv8KGRT6AxD+4tf+A1olCvUHBvK7FgMW/fX/AQjz3uru7gzqFBIHBgfp8uL86vwP+gjmHff4+wsB6xXrEQIaDO3n+CT0GP8W/iD3FfgIANb5DfGBFwQX3w4L++4LBAsJ9fMNLvsV5wQVX/cCAgH5BPgBAxXyECPkEQn/8Az/+SAK8unvDvcG7PgQBPnv+wAG9AsG/w==",
+"leaf": 97,
+"leaf_map_version": 1,
+"server_terms": [
+"machine translation",
+"agentic reinforcement learning",
+"translation quality",
+"retrieval-augmented",
+"retrieve evidence"
+]
+},
+{
+"key": "2610.23618",
+"title": "ThetreStageAI: Multi-View Retrieval-Augmented Generation for Structured Bengali Theatre Production Planning",
+"abstract": "Staging a theatre performance requires coordinating dialogue, actor movement, stage directions, lighting focus, cue timing, and equipment constraints within the same production plan. This work presents ThetreStageAI, a retrieval augmented framework for structured Bengali theatre production planning. Rather than retrieving from one mixed corpus, the system maintains separate scene, actor-blocking, and lighting views. Bengali text is embedded with BGE-M3 and indexed in view-specific Qdrant collections. Retrieved references are combined with a production brief and passed to Gemini, which generates schema-constrained JSON containing characters, scenes, dialogue, stage directions, blocking, lighting, and optional sound cues. Structural and semantic checks are applied before acceptance, with at most one constrained repair attempt. We also construct a human-guided, LLM-assisted synthetic dataset of 500 short Bengali theatre records that expands to 1,500 retrieval documents. Dataset diagnostics confirm consistent identifiers and valid lighting fields while also revealing substantial dialogue repetition. A paired camera-ready evaluation compares single-combined and full multi-view retrieval under matched settings. The source code, dataset, and evaluation materials are publicly available.",
+"days_ago": 51,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "K0sTO/QCDvsBGQME+QT85CAWD/QYFPX7FPr77wYF9+TlkwHyG//y8vglCxECAgTY5u7r+d/88/AHBf4KECj6CBkKtiD/C/P/FRbpDRkX+/QC9PL++Pnk+/32//oDAuv29QrmAQMNCXf9ABn9+PDvAgj++v8U9B0NIA7y8gMQDvAC0yUsDAAgAef0/QoM7Azs/+AE5epC+RDd8vEQBfgHBwYi9wkM+eUZ/cb0/fvsBhDuCxcU4gQAEgre9QkK5QD4DBfuCvAC/fYE8w/tEhHPDBD/8P4aEuH4J/rw9wIQCBT9+PqXEQT0DNgA8BkcHev7GvUJBAj9DxAC98oAAG4NCugQFNDHEAkZCPr//wD92fvq8/zpCgT2BQrv+94H+QcH/RXwDwIE9wMB4hL1Awz4DPD68iP/CgAKECfuF/wPAeEBDgGBEwEN7A4M/vwRCwb98wv+KfgU7hUQXfwCBA/2EAMD8TDyBRv3GggJ6Q7v+y8KBvn+/uMb6AUI/Pz/8fgA7/0B9g==",
+"leaf": 93,
+"leaf_map_version": 1,
+"server_terms": [
+"bengali",
+"retrieval-augmented generation",
+"lighting",
+"dialogue",
+"multi-view"
+]
+},
+{
+"key": "2610.27114",
+"title": "Joint Constraint Aggregation for Qualifier-Sensitive Retrieval-Augmented QA",
+"abstract": "Retrieval-augmented QA can fail even when the correct answer is in the retrieved evidence. This can happen when a competing answer satisfies some, but not all, of the question's requirements and is mentioned frequently in the retrieved documents, which can make it appear to be the best-supported answer. To test whether this retrieval skew actually affects the decision, we manipulate it directly: increasing the prevalence of passages that favor the competing answer makes the model more likely to select it. This points to a decision problem that candidate-level support alone cannot resolve. We therefore introduce Joint Constraint Aggregation (JCA), which compares candidates against the same question-derived requirements using the retrieved evidence. Across three evaluation settings and three instruction-tuned backbones, JCA improves overall accuracy, and its advantage grows when retrieval favors a competing answer. Together, these results suggest that when partial matches and retrieval prominence pull models toward a competing answer, comparing candidates against the question's full requirements can make selection more reliable.",
+"days_ago": 54,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "4fgUO9UL/QUJAwkKEfj57BcQFhABJO0UBf4C8gQL+Of0mP/vCwAEB+8UAg8bGvzo8/bn/e4FB+4A9hAlHhr8CAsXsy4LA/EBARj9ERATCQgA7RP8+frhDAPdAOwSAu/0/Ajo8gcJ7WTxBgbpE+/5/vLwAPoV7g0KHf/19PERGggC3xoy9/sT5PLtBfoH+/gZ69YO3eNM9ADu9BL1AvUJCwgL8v4D+v8s/9z8Av/yHQ/2EBIM7Q4DAw7e9xsP+/z7/wvrA/QL/P4E9RvtBQjhEAAK/PcSCPD7CPXz+xAABRUN+Q+RAvYPG+MBAPoQCADiDPgKEgf6BPoK89wVDF4S/u4TBuDTGxML/vL3AhMC3vPw/BDkGAH2EPv15tT57hAOAQXqHP36FQvq6BD0EQEeIuv+1iDmGQARCyb9DeoE9+vqEe+BDQYZ6RAd/u0PAhX98wUPJfkT4AwQY/ABCf71DPYP8yvt/hzoGBcE9AHj+SwDBdr7+e7x9vH9Ae3c8+0I+gwY+A==",
+"leaf": 100,
+"leaf_map_version": 1,
+"server_terms": [
+"joint constraint",
+"retrieved evidence",
+"retrieval-augmented",
+"aggregation",
+"decision"
+]
+},
+{
+"key": "2610.29792",
+"title": "MAPS: Macro-Adaptive Parallel Reasoning for Regulating Search Momentum in Retrieval-Augmented Generation",
+"abstract": "Retrieval-Augmented Generation (RAG) improves the performance of Large Language Models (LLMs) by retrieving external knowledge. Recently, some RAG methods interleave reasoning and retrieval, enabling LLMs to progressively generate sub-queries and retrieve external knowledge. However, these methods may suffer from redundant or ineffective sub-queries and insufficiently diverse query exploration. Moreover, due to the tightly interleaved nature of reasoning and retrieval, it remains unclear how the evolving reasoning process influences query intent. To characterize the evolution of query intent during reasoning, we introduce search momentum, which captures the accumulated retrieval tendency induced by historical changes in generated sub-queries along the reasoning trajectory. Through momentum-based analysis, we find that the query generation process tends to continuously evolve along existing retrieval trajectories. Based on this observation, we propose MAPS, a Macro-Adaptive Parallel Reasoning framework for regulating search momentum and mitigating query-intent drift. MAPS first retains the retrieved knowledge and a refined reasoning state, thereby reducing the influence of historical reasoning trajectories on subsequent sub-query generation. Subsequently, MAPS extends the conventional sequential reasoning process into a parallel reasoning paradigm. At each iteration, MAPS identifies complementary retrieval directions, generates corresponding sub-queries for parallel retrieval, and consolidates the retrieved evidence to update the knowledge and reasoning states. Experiments on six question-answering benchmarks demonstrate that MAPS consistently outperforms representative RAG methods across different backbone models. All code and resources are available at https://github.com/NEUIR/MAPS.",
+"days_ago": 57,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "d0MYO9sLA//8A/0EDP8B4yEQCwX+EffyEPT79wED8fjpgQTqE/7y+vQgAhwNBfX4/QD5CfXn+ef6/xEjCiIGBRYGuygCA/QEABL2EhAbHPwADQr7/+3q+QXf8vUV/Pf39w/w8gsY8l/mBRDqAPT6APD0/QEZ/w4ELQXp//UJEOgS4Q45/PoU8/n6A/0J7QIO5u4F1+tC8Pnm8vYOBOr3GhcW9/f6/PAmB97mAQLyCBH8BxwE6Ar6BwjkCxr+3e/3ERwFDgn7Ae3/AhfvFgbmBfcR+wEWFwEBCPUD8PoJBxUD9AKoAf/9EOoA7QII/vXuFvwLDxf4/wQJ9coG9F8XCe8YBPfOFxkb+gIF/BTs2/L1AAD9HAz2FgT06NoG/QcE/gX9Evnw+gHn5x/wCPwgF+r67CjpIPMD/zH+CO73AezrDfaBE/oK5BceBvYRByX67fwSIewf7xMSZAMQEvnwEwoA8RvxChLsBxXz9g3w9hcMBObrA+8D/gAU+vrj5fUJ8gz+AQ==",
+"leaf": 97,
+"leaf_map_version": 1,
+"server_terms": [
+"reasoning retrieval",
+"momentum",
+"generation retrieval-augmented",
+"retrieved evidence"
+]
+},
+{
+"key": "2610.08882",
+"title": "FinVector-Market-4B: A Controlled Study of LoRA Adaptation for Structured Financial Tasks",
+"abstract": "FinVector-Market-4B adapts Qwen/Qwen3.5-4B with rank-16 LoRA on a 22,000-example corpus for structured financial tasks. We evaluate the base and adapted models on the same 600-example benchmark under implicit and explicit JSON-schema contracts. Supplying the schema alone raises base-model JSON validity from 0% to 91.3%. Under matched explicit prompting, the frozen scores improve from 14.7% to 40.0% for FinQA answer exact match, from 48.0% to 82.7% for calculator-expression correctness, from 20.1% to 89.5% for scenario branch-label agreement, and from 52.4% to 87.2% for implication-direction agreement. A post-hoc policy-scoring audit shows that the reported macro-F1 decline reflects a changing label set; using the same three target classes gives 77.4% for the base and 83.1% for the adapter. Filing overlap and calculator-target inconsistencies qualify the benchmark's generalization claims. The results show that compact financial domain adaptation can produce substantial task-specific gains beyond output-format learning under matched prompting, with gains bounded by the evaluated task distribution and prompt contract.",
+"days_ago": 90,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "8NQNO+jo/gIVAv8FCvcE7gYJEvD+CvIcCu389hgM8vjkjRXqBAwKCNoQ/A4FBPLT7t3rC+Dv+tMJDQoUJRULEQIMqiADEfQM/hX1CxIQHAoE+AQKBvrs9unrAvgWAO/3Awzi+g4N8F4LBQjqEfj9+Avy7wUE8fv7HgMKBQoW/+383hUxDx4f6t/uBfsGBBUM6eX47d1O+gv6/PERANUDDxkQ8gMJ4ukk/NP29wT4ERjoDhgP6Aj8CAnm8wgG+/rzCwvzC+8I4/YBAfLrBRnwCP8F9gArEu4IHADv+wcBEQ0J8wiEAfrvE+wW/BYp+ejyA/AQ//X6CPUG9NcSAWj9CfcTCPbFIQgc/+b1/AcH0t4L8fvqEhD2Ewnu8dkK7PwABRT8EwQN9QDm7RAb9AgZC+Xv8DD+HgIRHif9Evj2BeT7HvCBDPwV/hD6A98bCRkS+AMJH+4Q9RYdbPAM+fr5MwcYCiT0ERnmFAfz+RH4/CcM/s74BPjt7v0U9fDz9uv89QMM8Q==",
+"leaf": 284,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.12728",
+"title": "A Categorical Atlas of Parameter-Efficient Fine-Tuning: Cones, Orbits, and Gauges",
+"abstract": "Parameter-efficient fine-tuning has hundreds of methods, usually compared by parameter count and benchmark score. We compare them as maps. A pretrained checkpoint is a base point in weight space, and a weight-space method is a smooth map from a small parameter space that starts at that point. These maps form a slice category in which the frozen model is initial and full fine-tuning terminal. Three invariants of the map do most of the work. Its image near the base point governs expressivity, through the first-order image, the dimension, a min-cut bound on rank and whether that point is smooth or an apex. Its fibres, with the optimizer's metric, govern training dynamics. Base change moves the base point and covers splitting initialisations, quantisation, restarts and merging. We prove, for example, that zero-initialised LoRA, and Householder reflection adaptation at its default start under stated rank and parity conditions, begin at the apex of a cone; that no exact initialisation lets LoRA reach an update of rank above twice its own; that exactly orthogonal methods never change a weight's singular values in exact arithmetic, however often they are merged; that under Adam with no epsilon, weight decay or clipping and one shared schedule, LoRA+ from the standard zero initialisation follows exactly the trajectory of plain LoRA with its scale multiplied by the learning-rate ratio; that Adam with shared hyperparameters respects only the signed permutations inside LoRA's continuous symmetry group of full-rank factors; and that the activation function decides when a scaling adapter folds into preceding weights. We classify 382 methods from 138 papers by seven coordinates read off their formulas, with 403 simulation arrows and 485 obstructions. Every numbered result is proved in full, and results due to others are credited where we re-derive them.",
+"days_ago": 3,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "We4iO+TnCgf0BgMJGgUM4xEV+/0DFev7DAP4/xT99OvzgwbxEQDu+/oI9QEMDuv49+7wBfPw+er0CQcUHxEgCwENvBYM9ervByfxEhYDGPwA/wcMAvD2BgL5+fIbAv8C8wv0/BIN8ln2EQsFBvH5+fv5/vQH6A8ABwkGBgf8DPIT8wE8EBAT+uz8/QwT8QkA7vb35vg17QX08fUD9+8BBwYK9Qvs8+Ub+OfqCAIAFQHvDCAR2vwDBBTk/RER8/roDQD0C/kA9vr5BQHqBwP9CP0A7QAQJ+0FB/f88v0G6RAS4uqb+AP+JeUWAgQNAfX6DfMXCAz1CvkX8c8b+lYCH/sK/gTrGwoh9v3wBwf22vD79APp/wvtDf3t6OAR7Ab94Pj0C/z99A329wz/9RUEAgfsARQPDhD9+SsDDAgIEtv4FQOBBwkE/RAV+PfyARYPFRASIukW8wITWPkEBvcEFwUIARrzExzuEgr6BQ74Ax38+fQCAAEE9/ITBODv6+oE+QAK/A==",
+"leaf": 24,
+"leaf_map_version": 1,
+"server_terms": [
+"parameter-efficient fine-tuning",
+"orbits",
+"atlas",
+"training dynamics",
+"exact arithmetic"
+]
+},
+{
+"key": "2610.16664",
+"title": "Making LoRA Identifiable: Orthogonal Alignment for Continual Learning",
+"abstract": "There is growing interest in applying Parameter-Efficient Fine-Tuning (PEFT) to Continual Learning, as it enables faster training, mitigates catastrophic forgetting, and facilitates better adaptation to new tasks. Prior approaches have explored a range of strategies, including extending new LoRA branches for each incoming task, training under orthogonal loss objectives across all task-specific LoRA modules, and employing gating mechanisms to integrate new and existing LoRA modules. However, these methods incur memory costs that grow linearly with the number of tasks, limiting their scalability. More recent approaches investigate training a single LoRA by leveraging asymmetries in its parameterization; however, they often suffer from insufficient representational alignment across the LoRA parameter space. To address these limitations, we propose Stiefel Optimization and Aligned Rotation (SOAR), a two-stage framework for continual LoRA learning. First, we constrain the A matrix to lie on the Stiefel manifold, thereby reducing coordinate misalignment to the space of orthogonal rotation matrices. Second, we introduce an Orthogonal Procrustes alignment procedure for the B matrix to estimate the optimal rotation, coupled with a per-rank retention merging strategy that quantifies directional agreement between representations of new and previously learned tasks. We conduct extensive experiments across multiple models and benchmarks, demonstrating that SOAR achieves strong continual learning performance without incurring additional memory overhead.",
+"days_ago": 6,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "YCwcO/DtBPwGBvkTFf0L7Q8QCP74I/MGA/v3CP0C6Pj5igf8CwLm/vQb+f/5DfD44Oz3/AT0DusGEg8dJAoRAwb3whsOA/HxCxfpGgwQGQbz+/IKGAEB/u7qBOIT/fD1+A3j9A8n3VbrEQwBD+/v+/UBA/YI4BcUFRUL//8PCPUT4fo9ERUU+O7v/xX98wv88fIP3uM86QXv+PL4/vQNEQsS+v/s8ekaBeP0+fb+IQ/7BhMY5hINERLf9QgM+ALuCQL8FgH15/b+5w3tEQT0BgcG6wMWFvT3D/jtAvQK+g0b9/akFgb7F+QGAA4RAPX9Be4VGgj+FvYP8c8e+2gJA+sIDQfVExMe+vzw/hEO0uPs5wjtBxHtFPfx8d397Pb76/76Ifv97xb68gj98w8CE/bsBA/8FxIfDCf2F/oOE+n5AgGBDP8K+hUIAv0J/SITDwgTHfYT4goIVesA9OwCEPn47RrzDR/oEg/8Af3x9iz2/PH0+AD9A/0G9O7t9OoH5v8B/A==",
+"leaf": 28,
+"leaf_map_version": 1,
+"server_terms": [
+"continual learning",
+"orthogonal",
+"soar",
+"rotation",
+"parameter-efficient fine-tuning"
+]
+},
+{
+"key": "2610.23343",
+"title": "How Finite-Rank Bottlenecks Shape the Low-Rank Adaptation Landscape",
+"abstract": "Low-rank adaptation (LoRA) has become the standard method for parameter-efficient fine-tuning of large pretrained models, yet theoretical explanations for why low-rank updates suffice remain incomplete. Most existing analyses rely on the Neural Tangent Kernel (NTK) regime, which linearizes the network around the pretrained weights. In this work, we take a different approach that requires no linearization: our key observation is that, once the backbone is frozen, the loss sees each adapted weight matrix only through a finite-rank linear map induced by the frozen activations. Trace-norm regularization then forces the optimizer to pick a low-rank matrix among all matrices that produce the same observed output. This yields global minimizers whose ranks are controlled by the rank of this map, which we call the \\emph{bottleneck rank}, rather than the sample size. For multi-head attention, we obtain tighter rank upper bounds by exploiting two additional invariances: row-wise softmax is insensitive to additive row constants in the score matrix, and value updates are observable only after attention weighting and frozen output projection. For the factorized LoRA objective with weight decay, we prove a complementary result on the nonconvex side: after an arbitrarily small generic positive semidefinite perturbation, every first-order stationary point is rank-deficient once the LoRA rank exceeds a threshold determined by the bottleneck rank. Finally, we show that global minimizers of the perturbed objective are near-optimal for the original trace-norm problem, and we provide uniform generalization bounds governed by the spectral structure of the frozen features.",
+"days_ago": 9,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "B10bO+TuBfoCDwcDFPkX5xETCP4OGOgC/PYA/hH5+P7xgQ7xFgD8+vMW9gcGDevm6O73DPLoAecEChsFGBIPEQMMugghBeH1+xrtEhUHH/j3Bv0NFPn79Aj2DvEPB+r4/hDw+hgT60wAFQYHGPbzCO/4+v8F8BX8Gh79CPoJDuAb7QNBCRkd7uX6AfwO/w745u4H4+tI5/vt9fr/7fISAAMG7RLv9+4S+PH6/QQBFQfxESQE0gEACRHh8xMLAgf4FQjq/QAG7vryARTyAwLtBggA+u0OGvIEFv7w+/8GAQcU8OegCP/7Ed4m/Q8eD/34GPUb/wML+fwX8Ngl7FkFEPT1F/3fDREd4+v9+/UH0uUAAwXn+Q3sGfL279kQ6QYE4QPtFvz8/hT48f4H/xsCEu3r+Bn7AAkLESjrAQPzCdb0GfmJAxT2/gQGC/QQ/h4P/gQTIN0b8e4JWuwIAPD8GQAKCyfvDhvtGgMIAhX58SX7+fHwBwEHA/4TB+7w8/UC5+7+8g==",
+"leaf": 24,
+"leaf_map_version": 1,
+"server_terms": [
+"low-rank adaptation",
+"neural tangent kernel",
+"multi-head attention",
+"parameter-efficient fine-tuning",
+"matrix"
+]
+},
+{
+"key": "2610.27444",
+"title": "LoRASpace: A Pool-Wide Shared Substrate for Static and Dynamic Multi-LoRA Composition",
+"abstract": "Low-rank adaptation (LoRA) attaches small low-rank matrices to a frozen backbone, and public repositories host many LoRAs per backbone, each for a different concept or task. Combining several LoRAs in one generation forces a trade-off. Merging their weights into one update needs a single forward pass, but LoRAs trained for different concepts interfere and quality drops. Running each LoRA in its own forward pass (composite) preserves quality, but inference time grows linearly with the number of active LoRAs. We study a property of LoRA pools overlooked by prior multi-LoRA work. In real LoRA pools, the stacked low-rank factors need far fewer directions than their summed ranks. Using singular value decomposition, we find the minimal subspace that keeps 99% of the factor energy. On three diffusion pools, only 46% to 57% of the summed LoRA ranks is needed, and the subspace grows sub-linearly with pool size. A 48-LoRA sub-pool of LoRA-Hub on FLAN-T5 tasks shows comparable overlap (62%), while the diversity-curated LoRA-Retriever benchmark sits near the no-overlap baseline (96%), so pool composition rather than modality predicts where compression is large. We build on this overlap with LoRASpace, a training-free method that computes the subspace once per pool and reuses it in two inference modes, a static mode at merge cost and a dynamic mode for input-dependent routing. On the diffusion pools, static LoRASpace matches composite quality at merge cost, and dynamic LoRASpace is more than 6x faster than composite with six active LoRAs on a 17-LoRA pool, mainly because it runs one backbone pass instead of six. In an ablation, static variants at the same rank match LoRASpace, so the quality gain does not depend on the pool-wide basis. On the near-orthogonal LoRA-Retriever benchmark, compression is small and gains come from coupling with external retrieval.",
+"days_ago": 12,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "BB8fO+7y/AIHB/wQGvka6BARF/cBGvz4C/3+/wn+6/jqjAfwFwkGAfQQ7AUGD/X47Or2B/n4CesAFxIVHg4EDgkLwA0W+ur+/RL1GBURJREGCf4DD/L79/TvB/QQ/+b5BhPq5hcM/Vr0DBLyAPAGAvPyBPoJ9RP6GQ7yA+sADd4N4xBCDhsGBuzyCAUX+gsC7vQK8upE8vv1++sM9/QIAAkJ8RTx8e8X7uH1/QsBGv/zDxkJ2gwFCQrp9B4J9/v6BQXgAPYE5/D4/gruAg7jC/n++f0FHfHyGQX96gT/DwMG1/GmFAIEHO0TCQUYCvn+D/QSGwgA+/4IAtId+mAMCAH8EgDRDxkq7+z79vv/x+b2+gfz+xbmCfjs+OAW9Pv17AbqGPH+Bwz18f8J+RMHDOvr+iL2BhETCiH9C+//Bd74Ev6BEREF7wMP/vcGCRMMBgkZJfQG7AMFWvL9APP5FQX//x/kDhnwEQj98wTw/R71/+fm/gQA9/cT9/j17gAJ7vgC/w==",
+"leaf": 199,
+"leaf_map_version": 1,
+"server_terms": [
+"loras",
+"subspace",
+"merge",
+"singular value decomposition"
+]
+},
+{
+"key": "2610.08827",
+"title": "Child ASR Adaptation with Adult Retention: An Empirical Study",
+"abstract": "Automatic Speech Recognition (ASR) systems often underperform for children and non-native speakers, while adapting adult ASR models to child speech can cause adult-speech forgetting. We study child ASR adaptation with adult retention across Arabic and English. We compare full fine-tuning, LoRA, and post-hoc weight-space merging across encoder--decoder, encoder--CTC, and AudioLLM-based ASR systems. Experiments use Arabic native and non-native child speech, English MyST child speech, and adult benchmarks from MGB-2 and LibriSpeech test-clean. We evaluate recognition quality with WER and quantify the adaptation--retention trade-off using Retention Index, Child Adaptation Gain, and Adaptation Recovery. Results show that child adaptation is necessary, especially for non-native Arabic and English child speech, but direct adaptation often reduces adult ASR performance. Bilingual adaptation is more stable than language-specific adaptation. Weight-space merging often improves the trade-off, especially for encoder--CTC, Whisper, and AudioLLM-based ASR, with LERP favoring adult retention and TIES recovering stronger child gains. For the encoder--decoder model, direct bilingual fine-tuning remains strongest in raw WER.\\footnote{Code, and models are available at https://github.com/qcri/Child-ASR-Adaptation.",
+"days_ago": 8,
+"archived": false,
+"own_tags": false,
+"reading": 2,
+"snippets": 0,
+"chats": 0,
+"q8": "kaQUO9f5Bv32DgAIAf4f8xYGD/4LEeUTBgUK/AMQ2Oj0khfkD+/0BO0P6gf+FQHg5OroCv3u/u0WDvkXIRMSEQIRoxz9Ffn4+wzyDQ0gEQEG7goJBv/j/fPiB+QG+MII/iDz5goI5FkHCgfoC+cD9vT+9v0OBBgGGAUDCQIFAvYW4hk0Dhsp6PT4FQ8J8QvxA9AB7e5B6AnqAPgaB/kOFQ8H8QUE5/QU89rY9P7zFwj3ARMC4RAEEgTi+xAN4vTjFhH4Du33+QP38wjxCAfyBQQG+PgcFv7/Gvvv/gQK/woU9fKdEB7xIecZBiMN/gD2J+UNDwoPCvkOAOAb9kj5I/gYFfzMFxUZ5Prx+AAN1OP45/rcCQP3GwLx7+wK8A/q+v/bDPnv7vcC7x4C7vYYCNbv6A75FQIXDyEHAP8BEQP2A/2BBf0O/gsNA/EQ+RUG8wMTJf4U8wsSTf0OAu0GF/MOFC3oFBXkDA7/ARrX9CkAAOIF9/3uBf0RGerw9PEg8/IL+Q==",
+"leaf": 221,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.14479",
+"title": "AphaVoice: Text-to-Speech Model for Aphasia Patient Simulation",
+"abstract": "While language therapy is the primary treatment for post-stroke aphasia, limited clinical resources often restrict patient access to proper care. Addressing this gap requires reliable training simulations for medical professionals. However, current AI efforts focus almost exclusively on speech processing, leaving speech generation largely unexplored. This study introduces AphaVoice, a novel text-to-speech (TTS) framework explicitly engineered to synthesize highly realistic aphasic speech. Evaluated against state-of-the-art TTS systems, AphaVoice demonstrates a superior ability to capture the clinical feature of dysfluency, outperforming existing models in temporal metrics while consistently maintaining speaker identity. By leveraging latent space shifting, the model also supports multi-speaker generation without sacrificing phonetic realism. Ultimately, AphaVoice provides a scalable, high-fidelity tool for medical training and clinical simulation related to aphasia.",
+"days_ago": 18,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "YKIjO+oDCPrm+/8MB/v/7gcQEQ/1AvMVFQMJ9wUR8e3tqP32GOb2/vIZ/Rr+Ffrg/9jsAf/5B/AOCgQJDxMNB/4LsTEJBvvoCQbuChMWFf0I6hMCBvfo/+vvB+b0/OkG+RHj8gYM81n9CwjnDeD29voJ9/cS+QgTGgn19wIVAvgN5Bs4FgIf+AYE/QAA+AkLBfHs7ec17gjwBfoX+/8NARQP8REC4+wtC+PiAgj2EPvtAxUN6vr68w7x8BUE6f3wEgkBCu/89fX68Qvq+wXeBg4D9AMcFe4BJgDpCfoH9xQI8e61Agn9EvwKBRcXC/QCAAIPBgP+/Q4C8N0XBFIAD+r7C/vSJwMiBPXr6g/45fUF3v/oBhvsEfr47NIH5/kEAw/uFfry6woH9BT2ERcICOnt6hPyDREGCBoGC+7/EO74D/yBFAcX+wT9E+n8+QwN+vkIL/0a4/oHUfMR7/cJFPID/kDoCRDoCv/6BQn9+RoLAP4BHPcC+QkWE/339fMC7/8G9Q==",
+"leaf": 224,
+"leaf_map_version": 1,
+"server_terms": [
+"aphasia",
+"text-to-speech",
+"simulation language",
+"patient",
+"speaker identity"
+]
+},
+{
+"key": "2610.19869",
+"title": "SEA-HELM Audio: Evaluating Multilingual ASR-LLM Pipeline Performance Across SEA-HELM Subsets",
+"abstract": "We introduce SEA-HELM Audio, a Southeast Asian (SEA) multilingual evaluation framework that extends the text-based SEA-HELM benchmark to assess performance degradation in cascaded automatic speech recognition and large language model (ASR-LLM) pipelines. Using synthesized speech, we compare speech-input and text-input performance across five languages (Chinese, English, Malay, Indonesian, and Tamil) on multiple-choice reasoning and instruction-following tasks. We evaluate open-weight and commercial ASR-LLM systems using identical verifiers and quantify the speech gap as the difference between text and speech accuracy. Results show substantial degradation, with accuracy drops of 9.00 to 18.50 percentage points for multiple-choice reasoning and 20.00 to 42.86 points for instruction following. Tamil exhibits the largest degradation, exceeding 40 percentage points. Our findings highlight the limitations of text-only benchmarks in predicting voice-agent reliability and demonstrate the value of SEA-HELM Audio for evaluating multilingual voice-agent systems.",
+"days_ago": 21,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "ocUYO9j1CvLuA/wKA/4W3xQeDwgHA/j3EQEB8v8Q8er6lATvEQfm8eoB9gIBFQPl+uDh/Ovt+uQRD/8BESYOE/4VpzACH/v3+wb0DBceFhISBAQCDPLt+fP8/gH18usM/BTy9goD4VoCAe7rGfny7PgK8AAG/wgPHP/+AfUHBvAN4CQlCBIn8vT5GfwMBwL59+P86e1D7A/mAfoRC/sTBhAX7vwC5u4eAODc/AbzBQvz8wkL5g7zAQjs+g0F6fLlAwz9CgEE8Pb77xLvC/39AwAOAAUOGuwCJAnu7BEQ/P4H6+Sd/xb9HewGDCAVAvUAGgERBB76EwH+79wXAGIBDwARGvnQKw4f5vz16wD/0uj95gbl/gQCDA/r79kI8AAVBQf3D/b39Ar86hz2+AERBNr07yEJD/wUCBP9EfsBBvoEDxCBDggT5QL9DeMSCCQD9/8FLvMh+f4VSwP7DQr4CfoJBjTjAhXiFwwH/grw5ST8CdsCBQD6+vgPFPX16u8K6wkHAQ==",
+"leaf": 221,
+"leaf_map_version": 1,
+"server_terms": [
+"voice-agent",
+"tamil",
+"multilingual",
+"synthesized speech",
+"audio"
+]
+},
+{
+"key": "2610.26614",
+"title": "Conducting Reliable Keyword Estimation with Unreliable ASR in Police Audio Data",
+"abstract": "Extracting insights from large audio data sets using human transcription is expensive and time-consuming. Off-the-shelf Automatic Speech Recognition (ASR) systems offer an easy-to-use scalable alternative, but systematic transcription errors, especially in domain-specific settings, can bias downstream analyses and lead to unreliable conclusions. We investigate whether imperfect ASR transcripts can still be used to obtain statistically valid keyword frequency estimates by combining model outputs with a small set of human-labeled examples, following Prediction Powered Inference and Design-based Supervised Learning frameworks. We evaluate this approach on police radio communications from Baltimore and Chicago, a domain in which keyword distributions could provide valuable insights into police activity, but off-the-shelf ASR systems exhibit systematic errors on operationally important terminology. Using bootstrap-based confidence interval coverage as our evaluation metric, we find that our approach substantially increases the number of domain-specific keywords that can be analyzed with statistically valid confidence intervals, from 43.0% using ASR alone and 27.2% using only a small set of human-labeled transcriptions to 56.2% in the Baltimore dataset, with similar improvements observed in Chicago data. Our results demonstrate that post-hoc error correction can improve statistical validity of downstream analyses even for poor-quality transcriptions, offering an avenue for better leveraging off-the-shelf ASR models for large-scale speech analysis.",
+"days_ago": 24,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "oyQPO+zxB+8KBQf9+foL/P8GDRMQD/kP//MRA/353erniAbtG/sD8+QYAyAEAwHl5fPwC+/u//0SCwT6KBQPGPoRmRkJC/n28Qn7FBohAvoE6wIABt70AvTiCvUDBOf7/Bjn9w0M51D9Eu/fDOv29/MDAwQC8yEOMgf6A/YDDAMF5BAzCgcP9fX5DxAUGgcJBtPq9epF2gXoAfYNBfYRFisJ6vwM6PcV9N/dAg7qF/sDDxAB4BH9EADh7BYJ7fjiEiL9/v/v7fD59gz5+/X8BAUb+AgEB/38Iwby9QscBBAE+O2QBgoCE9YWCRUs+/cCEPAiBP73FvsG3tMc/FoHGvkIDBDPKwceDvEH6Q4B1t7s4gLZBA33HwT289oH+wEL9RnmBgLw7wr88EL7/A0L+9Do8iX4H/0dFC0KGf0GDPrrCAWBBAgL5/cSCOYC9h4P5wQWJwAN8QkUT/EGA/P4De4H7SgBDB7yGg0DBPHy9Czy++kMHtrt+fcOF+3vAPYN6fQC/A==",
+"leaf": 221,
+"leaf_map_version": 1,
+"server_terms": [
+"police",
+"keyword",
+"transcriptions",
+"recognition asr systems",
+"audio"
+]
+},
+{
+"key": "2610.08870",
+"title": "From Wearable Interfaces to Dexterous Policies: Contact Shifts and Tactile Representations",
+"abstract": "Unlike conventional teleoperation, wearable interfaces allow operators to collect dexterous demonstrations through their own hand motions while directly interacting with task objects. This direct interaction reduces dependence on the target robot during collection, but it also makes the collection hardware part of the physical process that generates each demonstration. Interface geometry can influence both how a task is performed and what tactile observations are recorded for learning. We study two versions of a DexUMI-family exoskeleton that share the same robot command definition, mapping procedure, and tactile module type but differ in hand-side geometry. The revised interface reduces reported physical demand, improves selected device ratings, enables tactile access in a precision grasp that is mechanically blocked by the baseline, and produces task-dependent changes in recorded contact. Lid twisting primarily exhibits a change in contact location, whereas egg carton opening primarily exhibits a change in contact occurrence. We then train matched policies using either a binary aggregate input or a spatial-plus-force input. On lid twisting and egg carton opening, policies trained on revised-interface demonstrations achieve higher success than those trained on baseline demonstrations, with a significant pooled interface effect. Across these and two additional tasks, USB insertion and soldering tool pick and place, the spatial-plus-force input likewise outperforms binary aggregation. These results show that wearable collection hardware is part of the data-generation process for robot learning. Such interfaces should therefore be evaluated not only through operator experience, but also through the tactile interactions they make recordable and the policy performance their demonstrations support.",
+"days_ago": 200,
+"archived": true,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "VmcYO/D7GALwCBsg8/779Qse8wD8DuQPFeny7fQP5Pr3jQH8DPfvAPQH+QgHB/zr9+0B+QvxAfoWDxsSDRoKEBUFvTAVE/z4DPP+AwoZB/Dr6O8H8O32DunyEekbDegH5Afv+w0U6Vf1BBL6DeP06+oLBvzvBg8LFA4J+AkO+/f45g1A+voP6N/9+gwEBhUY/PMR1vg58RXyFQ0V/QICEhkS7BHp+f8cBdnu/Af5FAvqBCUJ2Pr9AxTl/f0KFAIBES0OCwAEB/MG+e7++wX0DAUG7PYbE+0NI/PxAAMG9ggA9u+TEfYDD9sW9wvwC+zrBfMWCwnu+/wA9OwO/Fv4DO36DeLXJhYN7gXp3hIEzvvy6gLoC/3qEezo5uQK8QwFABXpDgv86Qrt/B0SAwUEDvkA6BcJCRUN/yP5GOYBDOz9Gg2BIgwa+wQN8v8H7hULHAkWIesQ2f0HXQUX/+T4F+sI8v7xEQvyA/cD+Ajt/S8H9uoDBfj0B/8QDvrw6/YZ5vz4CA==",
+"leaf": 51,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.14335",
+"title": "PILOT: Guiding Long-Horizon World-Model Planning for Robot Manipulation with Visual Subgoals and Policy Priors",
+"abstract": "Latent world-model planning has shown promising results in goal-conditioned robotic manipulation, but remains challenging for long-horizon planning due to limited temporal guidance and inefficient action search. A distant visual goal provides little guidance for preparatory actions, while uninformed action sampling makes local optimization inefficient. We propose PILOT (Policy-Initialized Local Optimization with Temporal subgoals), which uses a video model to generate intermediate visual subgoals and a learned policy to initialize the cross-entropy method (CEM). CEM refines candidate action sequences toward each subgoal using an action-conditioned world model in a receding-horizon control loop. In our primary real-robot evaluation across four UR5e manipulation tasks, PILOT achieves 68.8% success, compared with 55.0% without policy initialization, 13.8% for policy-only execution, and 0.0% for direct final-goal planning. Simulation results show that these gains persist over longer horizons: PILOT exceeds direct execution of the same policy by 30 percentage points on long Push-T tasks and by 22 percentage points on LIBERO-10. Policy initialization also accelerates local optimization: on Push-T, CEM matches the cost reached by generic initialization after 10 iterations in only 4 iterations and reduces the final planning cost by 24.1% under the same sampling budget. These results show that combining temporal subgoals with policy-guided action search improves both long-horizon task execution and local planning efficiency. Videos are available on the webpage: https://pilot-planner.github.io/.",
+"days_ago": 30,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "GbwdO/72FvgDEgQVCQAN8w0Z/Q3rF/L4G+MN4gMQ8egBmAzpB/8CAu4Y4RcXB/ru8eIA9/Hz/er3CCATGQ4QCQ8MvBoPHun2DwTsCxcb/fb67AD9CPPr9/D4+e0VBffz8BTs9hEO4FT5EBn6FO3hAfEV9g0Q/AoMHhT0/wgHDQMA2QI8Avkd7Pf5/gAZ9xz19///0voo9wzq+fgSAfMEDQYT4wvz8vUVA+Hx9AH++P7tASQb3Az8BBTX/v4N9Q33BwX8EvwM/fn/8Az3CP3y9v4J8e0QEfIQHe/2AgAJBwQP8Qiq/Oz/GOID4hIJEOf7CQEaCgjsBfv6+tYG8loEEvMUCObiE/su4wPr8gDu1urx8RkB+hryCPDp9er+8xr79wb8Fv0O6xL4+BQdARgDFAbq9Rn5CgkJ7RryB/4E/94SIQaBGQca9gUr/fsK8iMOFgP9GgET4wkMWAka9/vnF+8HDQbrFBzuFwIF9AYU8R3/9PTtCucE+PgQE/bp4/D96w0C9A==",
+"leaf": 37,
+"leaf_map_version": 1,
+"server_terms": [
+"world-model planning",
+"planning robot",
+"long-horizon planning",
+"manipulation",
+"iterations"
+]
+},
+{
+"key": "2610.19518",
+"title": "HiFun: a Hierarchical Framework for Efficient Functional Dexterous Manipulation Learning",
+"abstract": "While multi-fingered dexterous robot hands have the potential to provide human-level dexterity, using them for functional manipulation remains difficult because task success depends on precise contact, coordinated arm-hand motion, and reactive recovery from execution errors. Precise contact depends on complex contact dynamics that are difficult to model accurately in simulation, motivating real-world learning. However, real-world demonstrations in the full arm-hand control space are costly and noisy because each trajectory must coordinate arm motion with high-DoF multi-finger contact. Small execution deviations can further cause slipped contact or premature force application, making recovery from off-nominal contact states important for robust execution. To deal with these challenges, we propose HiFun, a hierarchical real-world RL framework for functional dexterous manipulation tasks. Our key insight is to decouple the control complexity into a functional hand skill for precise contact execution and an arm-hand coordination policy for arm control and hand-skill activation. This design enables effective real-time human intervention for reactive recovery learning and efficient data collection with Dynamic Movement Primitive (DMP) augmentation. Across six real-world tasks on two dexterous hands, HiFun achieves 98.3% average success within one hour of online training and remains robust to dynamic disturbances. The project page is available at https://hly-123.github.io/HiFun/.",
+"days_ago": 33,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "BLAZO+3tC/H3Aw8YCAEI9Acc9/YDH90AEuv77AEB5u7sjf35BQEKDfEI6wYDDAL9/+z4+fj99PEBDiMQIA0NDRMUxiEUAP7vFwTyAgohAubv3f36BvXwAPMBBugS/O0C8wbpAxkH2lrpDBL1C+709O/1/vgL+hkQHQYB+xoAD+sT2wA9Dvsb8PHuBxT+BBER+/T8zvkk8RjtEfMF9Pv6BiYX8A3o9vcc+dP3AAf/BgfxAyoW4QMODBTk/AwXBv/4JA7vGgL3BPAE7fr+AgDjBgMVAAAFIPgFGeP1BQ4V+A8F6vSdDP3zEPMN4xgFDvPuAv8VAwny/e3+Ae4gAl36EOYEEvfmJP8f5fzu8wX3yAL27P3iDBTxCvnf8ecR4R8TAgnvFQ4O6A3p7w8RDBIJDu8A6Rb5Cg8B7Sn/EO/9E+MDFgSBEBYg7gAc+v0F7h4QEw/8HQYJzv0pTvkL//HuD9kFAf7yCRPoCPz/+gEC8yIA8esNGPQBCgEL/A3i3/kI+AIA/A==",
+"leaf": 52,
+"leaf_map_version": 1,
+"server_terms": [
+"dexterous manipulation",
+"robot hands",
+"dynamic movement",
+"arm"
+]
+},
+{
+"key": "2610.24885",
+"title": "Goal Images Are Control Targets: Spatially-Grounded Goal-Image Synthesis for Robotic Manipulation",
+"abstract": "Goal-conditioned manipulation policies are steered by a goal image, a picture of the desired post-manipulation scene synthesized from the current observation and a language instruction. The prevailing assumption is that better image-editing quality yields better goals, so goal generators are built and compared using general image-editing metrics. We show this assumption is false. Across two independent goal-conditioned policies on CALVIN, the image editors that top aggregate editing-quality leaderboards (Gemini 3 Pro Image and GPT Image 1.5) produce worse control targets than our proposed far smaller finetuned open models, and the gap widens sharply for the multi-step (long-horizon) tasks robots actually face. A per-dimension analysis explains why. Downstream policy success is governed almost entirely by manipulation adherence (selecting the right object and the right final state; Spearman $\u03c1\\approx 0.9$ with success), while photorealism and aesthetic fidelity, precisely where large proprietary editors excel, are uncorrelated with success ($\u03c1\\approx 0$). This dissociation holds on both CALVIN and the real-world-aligned SIMPLER-Bridge benchmark. We then present SGE-Goal, a spatially-grounded decomposed editing framework that predicts initial and final 2D edit-region masks before goal-image synthesis. SGE-Goal turns open base models (FLUX.1 Kontext, FLUX.2 klein) into the strongest goal generators we evaluate on CALVIN, and second only to Gemini 3 Pro Image on SIMPLER-Bridge. Base models fine-tuned with SGE-Goal also hold up under chaining far better than the best proprietary editor, sustaining roughly seven times the success rate at the longest (five-step) chains. We release code, datasets, checkpoints, and a human-aligned diagnostic evaluator. Our results argue that goal generators must be selected by downstream utility, not by editing-quality leaderboards.",
+"days_ago": 36,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "WpkcO/brGvICA/0QAx0b6Q4c8AzvB/EZFfAJ6AgQ8ubxkwTyE/b+A+4E6vcWCfnp8+zw/fD8/O7+FSgNGiMUBgscvxUVC+73+xTz/QIUCe789fQDBP32Aub2CfAcBgDm8gfu/A4K5131AhTyHujy//ED/foR8hUJEhABAgYQD/Tu6RI4Cf8e+vELAf0bBw7/8/kD1vY46hLnAP0U+QbyDf0K7gEA8OAT+ObwAggL+Ar8AhkW2BH5AxDm+g8N7AX0EhjzGv8L8/f+9Pn96wL1AfIH9fsNFtwHD+7oAAEOBQ0EBPeVA/HxHeH68gkJFuD6CvMR+/v+7/8O++ML8lsXGf4NEO/ZGQ4c8AUB/QH1yvTy8wr3BgzsAvLi8toP9SEA+wnrLQP/5w8ABBYO+xMHDAX95Q4CABIU9Rv5Ce4FBuT9HvyBDwgP+Q0cB/EN8RkNB/0GHfIm3/QVVQYC+vfwGPsODgv2FB3nIPf76RUK+in+8P79AvME9O7+Bffw5QAD9gQO8g==",
+"leaf": 40,
+"leaf_map_version": 1,
+"server_terms": [
+"image-editing",
+"robotic manipulation",
+"editors",
+"leaderboards",
+"synthesis"
+]
+},
+{
+"key": "2610.09254",
+"title": "RoboRender: Robot-Oriented Video Generation for Visual Sim-to-Real Transfer",
+"abstract": "Simulation enables large-scale, low-cost robot data generation, but policies trained in simulation often fail to transfer to the real world due to the sim-to-real visual discrepancies. Existing approaches often rely on intermediate representations, which can discard rich semantic information or require additional perception modules at deployment. We address this visual sim-to-real gap with RoboRender, a framework that converts simulated trajectories into photorealistic RGB videos for policy learning. RoboRender trains a robot-oriented video generation model conditioned on simulated depth videos, language instructions, and robot RGB mask videos, preserving simulator geometry, robot motion, and action labels while synthesizing realistic textures, backgrounds, and distractors. The generated RGB videos are paired with simulator-provided states and actions to train policies for zero-shot real-world deployment. On robot video test sets, our video model outperforms depth-conditioned video generation baselines in generation quality. In real-world experiments across pick-and-place, articulated-object manipulation, and mobile manipulation tasks, policies trained on RoboRender-generated data achieve a 71% average success rate, outperforming raw simulation renderings and conventional visual domain randomization by approximately 7.1x and 3.6x, respectively. We further show that policy performance improves with more generated videos per simulation trajectory, increasing opening-task success by 65 percentage points. These results demonstrate that generative video rendering mitigates the visual sim-to-real gap for zero-shot policy transfer. Project website: https://robo-render.github.io/.",
+"days_ago": 1,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 2,
+"q8": "+CseO/0AB/ARGgYF+wQW5RcdDvj1D+r5HukL4/sJ7vjqnQLkE//9/egT6goP+e/08fgB8v3tBegPAw8FHxoUDAgYvxcDBvYEBwne/wEaCOn74/oC7PHvBvUACPAHE/AM8gHt/AkC8FvuDRr/FvPrA/MK8vsS+gD6HBby8w4WEPQL1BM/B/kS/fP+BQoNAAMHAAr03fcp8RbuBPoNB/78AA4S6Qzy5v8LAdruCA369//vBCoH1PkCAxPfAQoSBP/5DQgJD+wDAwn26/3xAPXnAfv9+AEZEPAMFPjn+vYIC/f++/qcEPP0DegB8hcKHObyEPgI/xbnBfAB/NEN/GYLIvQOEvzaEgYp+g/p+hL9zgvm6xvx/QTvEvbq+O8R/hj8+hnuFP8M5hoJAx8b/xQaBfj55w4FAQ8Q/RP4EPMDB+H2EfyBDQsY/vcdDvUM7w8YD/wRHwAT6AABUe8C/vHsI+z2CBXkDyPvFfn39v8RARII/Pr7FN8C9f8hEPLv6/sF6wUA7Q==",
+"leaf": 37,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.18779",
+"title": "GAD: Geometry Attention Distillation for Consistent Video Generation",
+"abstract": "Video diffusion models generate visually compelling short-term sequences but often struggle to preserve scene geometry and object structure over time. In this paper, we first demonstrate that current video attention cannot identify reliable correspondences across frames, with responses dispersed across multiple regions even after recognizable scene structure has emerged. We argue that reliable cross-frame associations are essential for information exchange as scene structure forms in video generation. Thus, we introduce Geometry Attention Distillation (GAD), which transfers correspondences from a frozen geometry model's attention to video attention. Extracted from clean videos, these correspondences link the same static surface or moving object across frames. Since structure formation begins in deeper layers at higher noise and shallower layers at lower noise, we apply attention distillation at a student layer selected according to the noise timestep. After training, video attention focuses more consistently on corresponding locations. Experiments across all three video backbones demonstrate improved long-range scene consistency and dynamic temporal consistency, with geometric gains across generation lengths. On Wan2.2 5B, GAD improves cross-frame matching accuracy by at least 30% over the Wan baseline on both long-range benchmarks. Notably, GAD achieves these gains without additional inference modules, offering a promising approach to efficient and consistent video-based world simulation. Project page: https://fantasy-amap.github.io/GAD/.",
+"days_ago": 42,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "JhkrO/P5FP4TCQb+BP/54hgiARL5A/L6DfMZ6wH/9gjwnP30Awvs6ugR6wwKEPPq6er6AP7aCOQICf8eEAsREQwByRQQD+vz8wvsDAgVD/b5+fvo+/j0/wL5DfoL9OP56gfv9ggDAkrxCRn/G/Tr/vUSAfP/+wYCGhHx5QULCOoD3QMwFQcZAfr4/P8X/g70/vsD5/01/RnwCgsB9/ML/v4R7Qvr/fMaBeb2AQUICgvuCTIH1ggLABbk/QYP7/74CRT4D/T58v/+AA34BgPtAv0O+fwJHfP/Bfjw8Q4F/QwL6v2kAwgCG+8P+RkTE/H3/AgO8w/x8wL98eIRAFcKBPgGFvzlBAoY+/Dt5w0H1u788A3wChjjIAf09fUC9RL++wv4Ff316Bf5+xf6/BgUFgD07RjyCwgmCgn/COsFDO/5/vuBCf8MAPQhFPf4/QQOAfoiF+wJ8/oLVPYI7eX7Fvb3DRPtBhwAEhIL+/4D+xkH/v75C+0JBg8TCvH5+Pn15fn69w==",
+"leaf": 64,
+"leaf_map_version": 1,
+"server_terms": [
+"scene structure",
+"video generation",
+"attention video",
+"world simulation",
+"frozen geometry"
+]
+},
+{
+"key": "2610.11403",
+"title": "Learning from Hetero Density for Cryo-EM Protein Reconstruction",
+"abstract": "Reconstructing protein structures from cryo-electron microscopy (cryo-EM) maps is essential for understanding macromolecular assemblies. Although learning-based methods have improved protein reconstruction, information from hetero components remains underused. Our analysis finds both false predictions and reference protein sites near hetero components; filtering nearby candidates can improve or impair chain construction. We introduce CryoCue, a framework that uses hetero information to guide protein reconstruction. An anchor-supervised detector learns hetero representations across five component classes. Multiscale hetero features guide backbone localization, while predicted hetero candidates condition structure refinement through their class, confidence, and frame-relative geometry. Experiments show that CryoCue improves backbone localization near hetero components and achieves more accurate protein structure reconstruction.",
+"days_ago": 45,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "YyEeO+7yCvkP/QsVAfIB5AsVBQD5KvAHDfUJBRAVAQzulwbUDP0V+/wa5RUVDvvp/eD++gbuBfcCCBAcGQ4QHAQZwyUjBfEECiYCGAII//L++QEE+ub8Af33DvEVCATz7g/fBQoO+0jlDhrrBPIB+fACAvMD2w0DBwLo+/v6CfkZ4/s4GgoZAfz1ABH58QTu9PD+5dsr5g7n9wES6A8ICfkL8wfq894h/tnyD/cADRoF/hsW1fQECgLa8hIb7wfz+hz2FfII9ff9EQvwHwbtBu7+DwERBfL3Af3yAQUEAA/62uWeAQD+CfoU+iYdDP/nCOQVHATyCAMN9uwV/l4VAwL2Be3cFQMQ9vkC8gYK0O7t8hfhExvnFfvv+vwB8Q8W6fjwFfT9+xXm+Qn8BQwAHOrh+ArxAwoOEiH8AP4L++/0CwuBARMK7QUS+voB+/oX+vUXHdgg7PoKXv4PDPIFAQEPCA/wFxfxCQoKAwPt7igA+fL+A/n89PARE/nt7vsH9uEJ+w==",
+"leaf": 252,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.09120",
+"title": "The Deceptive Bandit Problem: Exploratory Coupling and the Fragility of Multi-Agent Learning",
+"abstract": "Randomized exploration is central to bandit learning, multi-agent reinforcement learning, and zeroth-order policy search, yet its independence and privacy are usually only treated as technical assumptions. We show that these properties are critical for security purposes and demonstrate how an adversarial agent can exploit privileged information on another agent's exploration. We analyze a deceiver-victim pair in the minimal two-player strongly monotone setting, where a deceptive player obtains leaked signals that are merely correlated with the victim's exploration. We show that, by coupling their own exploratory action with this information, the deceptive player injects an externality that steers the learning dynamics to a new steady state, called the deceptive Nash equilibrium (DNE). We prove that the deceptive bandit learning (DBL) dynamics converge to an arbitrarily small neighborhood of the DNE while retaining optimal convergence rates. Interestingly, our analysis attains these optimal rates while relaxing second-order smoothness conditions from standard bandit optimization literature. We characterize conditions under which deception strictly shifts the steady state and its effect on the deceiver's cost, illustrating the results in a resource-allocation game.",
+"days_ago": 48,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "4VoiO/T4CfT/ERUJFAsL9g8VDgfuCPoDA+v84wwD9NrrqhPlAfgI8PcM/RELCvnm8v0AA/3lCfsRDRIMEyYQEQIOyxIfHu/0EgcQFv7+D/nu7AL+Ce37DPneDO8l9wcL7wrpD/0M5VH/Dgb4E/fu9AYL9QEa+wEIARHz/vgAGQQI4/pCCg/05vz+CRb2Ewz55f8B2OYlEwnw//X/+esDCw8N5hD45wguBu37/QD1B//jBhL/2gX9+AP68xYU9/z6ExfkCPMH5vMRAfP8APnkAwsCEesECvT+AvLsCgYb7gQH9vyi/O3+DOoe7g8YG+/tEg0XDQ4HDAcI+98PAV8e/PUOCurVCAAa6P3yAP/93e706xnpBhsHE/X/4eIJ5hgB7v3lFwP96CEE/REH/vkMEOXhAhLzCAf98Rf9CPX6COT1F/WBCgn67AoRA+zt/h8JCg0OKeMS8QwPWvUJFvgaAfYDAhfjFBj1EAsI7/7+ASUG6fr5DfYB9eMUAuXwCv4E9vj1+g==",
+"leaf": 9,
+"leaf_map_version": 1,
+"server_terms": null
+},
+{
+"key": "2610.09034",
+"title": "Shared-Roadmap Generation and Evaluator for Multi-Agent Path Planning Using Heterogeneous Graph Neural Network",
+"abstract": "Multi-agent path planning (MAPP) in continuous environments often relies on roadmaps to balance safety and search efficiency. However, traditional roadmap generation methods, such as lattice grids or standard sampling-based approaches, frequently face a trade-off between graph density and the likelihood of finding feasible, high-quality solutions. In this paper, we propose a scalable heterogeneous Graph Neural Network (GNN) framework for the automated generation and evaluation of shared multi-agent roadmaps. Our model covers the representation of waypoints, agent locations, and task locations as distinct nodes in a heterogeneous graph, allowing it to reason over global connectivity and inter-agent interactions. By training on occupation density maps aggregated and collected from expert solver trajectories, the GNN learns to identify critical points of interest and prune redundant nodes and edges. This process produces a compact, coordination-aware roadmap that is invariant to task permutations and is reusable for multi-agent pick and delivery tasks. Experimental results demonstrate that our framework can reduce planning effort and can potentially find better solutions, reaching at least 40% reduction in runtime and in graph size for dense roadmaps.",
+"days_ago": 51,
+"archived": false,
+"own_tags": false,
+"reading": 0,
+"snippets": 0,
+"chats": 0,
+"q8": "+H0PO+7wFPUIEAEVCQYW7hQnCwvbFAXwCQAE5A0K+/bikwrvEfX1//4i9wQZDP/yBfLt+vvwEtr48QgbEBwIFA0MtRYsGO7zCg0AIRUMFAD77woF7fLc/APj9Pgi8Af48Bbi7gEM62LyCQz6+vb26ugQ6u0S8gcSGxz29wEDFvoQ2AQ3DwYcB/n6CwcH+vQB9wMA0uU+9wH69fAGCAPvDhsN5Bv5+N41/s7r+AsG9hX2BBcP2BT58wX09RAQ5/jv+gj9DQgG+wL1+RTyD+vt9/fz8wH7G+T9FPjwAw0TBg8N9e6sBP76EfMN7QElMvL4CfkdBA/0ERD779cQBWwMDPQOFOnSEgUl5wPf5PT0xe7o9Rj6ABXz//bw5/gY5w8D9/3/JAMA8Bj3+SAC+hPrBwn78hPdEBER7AzuFP4Z+eb5H/mBGhkO3/8hE/cHCyX7BPsCIe4P2wsRcPwbHfXuFfL+Ax3VKRf+Hgf38/wQ6x0C5/H+DO757PMZCAzq4vT55AXx/A==",
+"leaf": 295,
+"leaf_map_version": 1,
+"server_terms": null
+}
+],
+"expected": {
+"topics": [
+{
+"id": 205,
+"level": 2,
+"papers": [
+"2610.08811",
+"2610.10871",
+"2610.17966",
+"2610.19026"
+],
+"folded": 0,
+"share": 0.17205810912430375,
+"residual": false,
+"terms": [
+"kv cache compression",
+"decoding throughput",
+"sparse attention"
+]
+},
+{
+"id": 129,
+"level": 2,
+"papers": [
+"2610.07030",
+"2610.11600",
+"2610.14903",
+"2610.17869",
+"2610.22316"
+],
+"folded": 2,
+"share": 0.137400262196461,
+"residual": false,
+"terms": [
+"llm-based multi-agent",
+"cluster",
+"collaboration"
+]
+},
+{
+"id": 16,
+"level": 1,
+"papers": [
+"2610.12728",
+"2610.16664",
+"2610.23343",
+"2610.27444"
+],
+"folded": 1,
+"share": 0.10508488111320366,
+"residual": false,
+"terms": [
+"parameter-efficient fine-tuning",
+"low-rank adaptation",
+"orthogonal"
+]
+},
+{
+"id": 96,
+"level": 2,
+"papers": [
+"2610.13060",
+"2610.19528",
+"2610.27114",
+"2610.29792"
+],
+"folded": 0,
+"share": 0.0907306230826052,
+"residual": false,
+"terms": [
+"retrieved evidence",
+"retrieval-augmented"
+]
+},
+{
+"id": 267,
+"level": 1,
+"papers": [
+"2610.08882",
+"2610.09493",
+"2610.25456"
+],
+"folded": 0,
+"share": 0.08858779921341062,
+"residual": false,
+"terms": [
+"conflicts",
+"lora"
+]
+},
+{
+"id": 35,
+"level": 2,
+"papers": [
+"2610.09254",
+"2610.14335",
+"2610.24885"
+],
+"folded": 0,
+"share": 0.0805621918027005,
+"residual": false,
+"terms": [
+"robotic manipulation"
+]
+},
+{
+"id": 221,
+"level": 3,
+"papers": [
+"2610.08827",
+"2610.19869",
+"2610.26614"
+],
+"folded": 0,
+"share": 0.07840605846847985,
+"residual": false,
+"terms": [
+"recognition asr systems",
+"automatic speech"
+]
+},
+{
+"id": 90,
+"level": 2,
+"papers": [
+"2610.14789",
+"2610.15186",
+"2610.23618"
+],
+"folded": 0,
+"share": 0.06980814406164944,
+"residual": false,
+"terms": [
+"retrieval-augmented generation",
+"repair"
+]
+}
+],
+"other": [
+"2610.08870",
+"2610.09034",
+"2610.09120",
+"2610.11403",
+"2610.14479",
+"2610.16039",
+"2610.18779",
+"2610.19518",
+"2610.25208"
+],
+"other_groups": [
+{
+"node": 34,
+"papers": [
+"2610.08870",
+"2610.19518"
+]
+},
+{
+"node": 253,
+"papers": [
+"2610.16039",
+"2610.25208"
+]
+},
+{
+"node": 1,
+"papers": [
+"2610.09120"
+]
+},
+{
+"node": 59,
+"papers": [
+"2610.18779"
+]
+},
+{
+"node": 216,
+"papers": [
+"2610.14479"
+]
+},
+{
+"node": 245,
+"papers": [
+"2610.11403"
+]
+},
+{
+"node": 292,
+"papers": [
+"2610.09034"
+]
+}
+],
+"emerging": [],
+"keywords": {
+"2610.08811": [
+"kv cache compression",
+"copying",
+"compensation",
+"channel"
+],
+"2610.10871": [
+"sparse attention",
+"matrix",
+"approximation",
+"language llms strong",
+"conceptual"
+],
+"2610.13060": [
+"kv-cache reuse",
+"workload",
+"runtime monitoring",
+"segment",
+"question answering"
+],
+"2610.15186": [
+"kv cache reuse",
+"repair",
+"causal",
+"retrieval-augmented generation rag",
+"kv-cache"
+],
+"2610.17966": [
+"kv cache compression",
+"decoding throughput",
+"gpu kernels",
+"allocation"
+],
+"2610.19026": [
+"sparse attention",
+"decoding throughput",
+"subspace",
+"kv-cache"
+],
+"2610.25456": [
+"kv cache",
+"decision return",
+"human raters",
+"expected calibration",
+"complaint"
+],
+"2610.07030": [
+"power consumption",
+"multi-agent collaboration",
+"affinity",
+"multi-objective",
+"hard constraints"
+],
+"2610.11600": [
+"llm-based multi-agent systems",
+"agent level"
+],
+"2610.14903": [
+"slicing",
+"bandwidth",
+"conflict-aware",
+"edge",
+"allocations"
+],
+"2610.16039": [
+"multi-agent llm systems",
+"disclosure",
+"authorized",
+"leakage",
+"talk"
+],
+"2610.17869": [
+"evidence-aware",
+"deliberation",
+"multi-agent llm",
+"llm reasoning",
+"llm systems"
+],
+"2610.22316": [
+"agents multi-agent systems",
+"steering"
+],
+"2610.25208": [
+"risk-sensitive",
+"crisis",
+"strategic",
+"communication",
+"multi-agent"
+],
+"2610.09493": [
+"retrieval-augmented language",
+"principal component",
+"conflicts",
+"trajectory"
+],
+"2610.14789": [
+"entity linking",
+"generation language",
+"biomedical",
+"mentions",
+"entities"
+],
+"2610.19528": [
+"machine translation",
+"agentic reinforcement learning",
+"retrieval-augmented",
+"retrieve evidence",
+"retrieval strategies"
+],
+"2610.23618": [
+"bengali",
+"lighting",
+"multi-view",
+"dialogue",
+"retrieval-augmented generation"
+],
+"2610.27114": [
+"joint constraint",
+"retrieved evidence",
+"aggregation",
+"retrieval-augmented",
+"decision"
+],
+"2610.29792": [
+"reasoning retrieval",
+"momentum",
+"generation retrieval-augmented",
+"retrieved evidence",
+"maps"
+],
+"2610.08882": [
+"structured financial",
+"domain adaptation",
+"lora",
+"contracts",
+"schema"
+],
+"2610.12728": [
+"parameter-efficient fine-tuning",
+"orbits",
+"atlas",
+"exact arithmetic",
+"training dynamics"
+],
+"2610.16664": [
+"continual learning",
+"soar",
+"orthogonal",
+"rotation",
+"parameter-efficient fine-tuning"
+],
+"2610.23343": [
+"low-rank adaptation",
+"neural tangent kernel",
+"multi-head attention",
+"matrix",
+"parameter-efficient fine-tuning"
+],
+"2610.27444": [
+"loras",
+"merge",
+"singular value decomposition",
+"subspace",
+"dynamic"
+],
+"2610.08827": [
+"child",
+"adult",
+"arabic english",
+"non-native",
+"bilingual"
+],
+"2610.14479": [
+"aphasia",
+"text-to-speech",
+"patient",
+"simulation language",
+"speaker identity"
+],
+"2610.19869": [
+"tamil",
+"voice-agent",
+"multilingual",
+"synthesized speech",
+"audio"
+],
+"2610.26614": [
+"police",
+"keyword",
+"transcriptions",
+"recognition asr systems",
+"audio"
+],
+"2610.08870": [
+"tactile representations",
+"wearable",
+"twisting",
+"interfaces",
+"hand motions"
+],
+"2610.14335": [
+"world-model planning",
+"iterations",
+"manipulation"
+],
+"2610.19518": [
+"dexterous manipulation",
+"dynamic movement",
+"robot hands",
+"arm",
+"contact dynamics"
+],
+"2610.24885": [
+"image-editing",
+"leaderboards",
+"editors",
+"robotic manipulation",
+"synthesis"
+],
+"2610.09254": [
+"rgb videos",
+"generation visual",
+"motion action",
+"video rendering"
+],
+"2610.18779": [
+"scene structure",
+"attention video",
+"world simulation",
+"frozen geometry",
+"distillation"
+],
+"2610.11403": [
+"protein",
+"cryo-em",
+"reconstruction",
+"localization",
+"assemblies"
+],
+"2610.09120": [
+"deceptive",
+"multi-agent learning",
+"bandit",
+"player",
+"adversarial agent"
+],
+"2610.09034": [
+"heterogeneous graph",
+"multi-agent path",
+"gnn",
+"density maps",
+"nodes"
+]
+},
+"hysteresis": {
+"topic": 221,
+"removed": "2610.08827",
+"without_established": false,
+"with_established": true
+}
+}
+}

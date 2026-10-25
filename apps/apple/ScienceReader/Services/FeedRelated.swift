@@ -52,7 +52,8 @@ struct BackendInterestTransport: InterestIndexTransport {
     static let cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         .appendingPathComponent("interest-index", isDirectory: true)
 
-    private func indexClient(backend: BackendClient, accountID: UUID) -> InterestIndexClient {
+    /// The account's interest index client, shared with the Library's topics (one client per cache folder).
+    func indexClient(backend: BackendClient, accountID: UUID) -> InterestIndexClient {
         if let client, client.accountID == accountID { return client.client }
         let made = InterestIndexClient(directory: Self.cacheDirectory, transport: BackendInterestTransport(backend: backend, accountID: accountID))
         client = (accountID, made)
