@@ -5,7 +5,7 @@ import Foundation
 /// (block-compressed, still plaintext in memory; sealed when committed).
 public struct FullTextBatch: Sendable {
     let segment: FullTextSegment?
-    let documents: [(id: FullTextDocumentID, fingerprint: String)]
+    let documents: [(id: FullTextDocumentID, fingerprint: String, info: String?)]
     let bodyTexts: [Int: Data]
     public var isEmpty: Bool { documents.isEmpty }
 }
@@ -40,12 +40,18 @@ public actor FullTextIndexStore {
         let fingerprint: String
         /// The body text's file ID (body documents).
         let text: String?
-        enum CodingKeys: String, CodingKey { case id = "i", segment = "s", index = "n", fingerprint = "f", text = "t" }
+        /// The caller's own few words about the document (global search: its kind, paper, container and date), sealed with
+        /// the manifest; absent in the Library's index.
+        var info: String? = nil
+        enum CodingKeys: String, CodingKey { case id = "i", segment = "s", index = "n", fingerprint = "f", text = "t", info = "m" }
     }
 
     private let directory: URL
     private let accountID: UUID
     private let key: SymmetricKey
+    /// The associated data's namespace: `search-index` (the Library's papers) or `everything-index` (global search), so a
+    /// file of one index never opens as the other's.
+    private let namespace: String
     private var manifest: Manifest
     private var loaded: [UInt64: FullTextSegment] = [:]
     private var current: FullTextSnapshot?
@@ -54,11 +60,13 @@ public actor FullTextIndexStore {
     /// True when this open found no usable index (first run, version change or damage) and started empty.
     public private(set) var startedEmpty: Bool
 
-    public init(directory: URL, accountID: UUID, localKey: Data) throws {
+    public init(directory: URL, accountID: UUID, localKey: Data, namespace: String = FullTextIndexStore.libraryNamespace) throws {
         guard localKey.count == 32 else { throw FullTextIndexError.invalidKey }
+        guard !namespace.isEmpty, namespace.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else { throw FullTextIndexError.invalidKey }
         self.directory = directory.standardizedFileURL
         self.accountID = accountID
         self.key = SymmetricKey(data: localKey)
+        self.namespace = namespace
         var attributes: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
         #if os(iOS)
         attributes[.protectionKey] = FileProtectionType.complete
@@ -73,7 +81,7 @@ public actor FullTextIndexStore {
 
         let manifestURL = self.directory.appendingPathComponent("manifest.bin")
         if let sealed = try? Data(contentsOf: manifestURL),
-           let plain = try? Self.open(sealed, key: SymmetricKey(data: localKey), aad: Self.manifestAAD(accountID)),
+           let plain = try? Self.open(sealed, key: SymmetricKey(data: localKey), aad: Self.manifestAAD(accountID, namespace)),
            let decoded = try? JSONDecoder().decode(Manifest.self, from: plain),
            decoded.version == Self.version, decoded.account == accountID {
             manifest = decoded; startedEmpty = false
@@ -87,7 +95,7 @@ public actor FullTextIndexStore {
             && !referenced.contains(url.lastPathComponent) {
             try? manager.removeItem(at: url)
         }
-        if startedEmpty { try Self.write(manifest, to: self.directory, key: key, accountID: accountID) }
+        if startedEmpty { try Self.write(manifest, to: self.directory, key: key, accountID: accountID, namespace: namespace) }
     }
 
     // MARK: Reading
@@ -96,6 +104,14 @@ public actor FullTextIndexStore {
     public func fingerprints() -> [FullTextDocumentID: String] {
         Dictionary(manifest.docs.map { ($0.id, $0.fingerprint) }, uniquingKeysWith: { _, last in last })
     }
+
+    /// Each current document's info (`FullTextDocument.info`), by group.
+    public func infos() -> [String: String] {
+        Dictionary(manifest.docs.compactMap { doc in doc.info.map { (doc.id.group, $0) } }, uniquingKeysWith: { _, last in last })
+    }
+
+    /// The manifest's file (tests check it is sealed).
+    public nonisolated var directoryURL: URL { directory }
 
     public var generation: UInt64 { manifest.generation }
 
@@ -142,7 +158,7 @@ public actor FullTextIndexStore {
         for (index, document) in documents.enumerated() where document.id.part == .body {
             texts[index] = FullTextBodyText.encode(document.fields[.body] ?? "")
         }
-        return FullTextBatch(segment: segment, documents: documents.map { ($0.id, $0.fingerprint) }, bodyTexts: texts)
+        return FullTextBatch(segment: segment, documents: documents.map { ($0.id, $0.fingerprint, $0.info) }, bodyTexts: texts)
     }
 
     /// Adds or replaces the batch's documents and removes `removing`, in one manifest write; then merges segments
@@ -164,21 +180,21 @@ public actor FullTextIndexStore {
                 let id = next.nextSegment
                 next.nextSegment += 1
                 let encoded = segment.encoded()
-                try seal(encoded, aad: Self.segmentAAD(accountID, id), name: "seg-\(id).bin"); written.append("seg-\(id).bin")
+                try seal(encoded, aad: Self.segmentAAD(accountID, id, namespace), name: "seg-\(id).bin"); written.append("seg-\(id).bin")
                 next.segments.append(SegmentRecord(id: id, docs: segment.docs.count, bytes: encoded.count))
                 for (index, document) in batch.documents.enumerated() {
                     var textID: String?
                     if let text = batch.bodyTexts[index] {
                         let fileID = UUID().wire
-                        try seal(text, aad: Self.textAAD(accountID, fileID), name: "txt-\(fileID).bin"); written.append("txt-\(fileID).bin")
+                        try seal(text, aad: Self.textAAD(accountID, fileID, namespace), name: "txt-\(fileID).bin"); written.append("txt-\(fileID).bin")
                         textID = fileID
                     }
-                    next.docs.append(DocRecord(id: document.id, segment: id, index: index, fingerprint: document.fingerprint, text: textID))
+                    next.docs.append(DocRecord(id: document.id, segment: id, index: index, fingerprint: document.fingerprint, text: textID, info: document.info))
                 }
                 if current != nil || !loaded.isEmpty { loaded[id] = segment }
             }
             next.generation &+= 1
-            try Self.write(next, to: directory, key: key, accountID: accountID)
+            try Self.write(next, to: directory, key: key, accountID: accountID, namespace: namespace)
         } catch {
             for name in written { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
             throw error
@@ -202,7 +218,7 @@ public actor FullTextIndexStore {
         }
         manifest = Manifest(version: Self.version, account: accountID, generation: manifest.generation &+ 1)
         loaded = [:]; current = nil; textCache.removeAll(); startedEmpty = true
-        try Self.write(manifest, to: directory, key: key, accountID: accountID)
+        try Self.write(manifest, to: directory, key: key, accountID: accountID, namespace: namespace)
     }
 
     // MARK: Merging
@@ -217,7 +233,7 @@ public actor FullTextIndexStore {
             var next = manifest
             next.segments.removeAll { (live[$0.id] ?? 0) == 0 }
             next.generation &+= 1
-            try Self.write(next, to: directory, key: key, accountID: accountID)
+            try Self.write(next, to: directory, key: key, accountID: accountID, namespace: namespace)
             manifest = next; current = nil
             for record in empty { loaded[record.id] = nil; try? FileManager.default.removeItem(at: directory.appendingPathComponent("seg-\(record.id).bin")) }
         }
@@ -239,7 +255,7 @@ public actor FullTextIndexStore {
         let id = next.nextSegment
         next.nextSegment += 1
         let encoded = merged.encoded()
-        try seal(encoded, aad: Self.segmentAAD(accountID, id), name: "seg-\(id).bin")
+        try seal(encoded, aad: Self.segmentAAD(accountID, id, namespace), name: "seg-\(id).bin")
         let position = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($1.id, $0) })
         for index in next.docs.indices {
             guard let s = position[next.docs[index].segment], let newIndex = mapping[s][next.docs[index].index] else { continue }
@@ -248,7 +264,7 @@ public actor FullTextIndexStore {
         next.segments.removeAll { chosen.contains($0.id) }
         next.segments.append(SegmentRecord(id: id, docs: merged.docs.count, bytes: encoded.count))
         next.generation &+= 1
-        do { try Self.write(next, to: directory, key: key, accountID: accountID) }
+        do { try Self.write(next, to: directory, key: key, accountID: accountID, namespace: namespace) }
         catch { try? FileManager.default.removeItem(at: directory.appendingPathComponent("seg-\(id).bin")); throw error }
         manifest = next
         self.current = nil
@@ -261,21 +277,23 @@ public actor FullTextIndexStore {
     private func makeSnapshot(_ segments: [FullTextSegment]) -> FullTextSnapshot {
         var current = Set<String>()
         var texts: [String: String] = [:]
+        var infos: [String: String] = [:]
         for doc in manifest.docs {
             current.insert("\(doc.segment)/\(doc.index)")
             if let text = doc.text { texts[doc.id.group] = text }
+            if let info = doc.info { infos[doc.id.group] = info }
         }
         let ids = manifest.segments.map(\.id)
-        let reader = FullTextTextReader(directory: directory, key: key, accountID: accountID, files: texts, cache: textCache)
+        let reader = FullTextTextReader(directory: directory, key: key, accountID: accountID, namespace: namespace, files: texts, cache: textCache)
         return FullTextSnapshot(segments: segments, current: { s, d in current.contains("\(ids[s])/\(d)") }, texts: reader,
-                                generation: manifest.generation)
+                                generation: manifest.generation, infos: infos)
     }
 
     private func loadSegment(_ id: UInt64) throws -> FullTextSegment {
         let url = directory.appendingPathComponent("seg-\(id).bin")
         guard try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw FullTextIndexError.corrupt }
         let sealed = try Data(contentsOf: url, options: .mappedIfSafe)
-        return try FullTextSegment.decode(try Self.open(sealed, key: key, aad: Self.segmentAAD(accountID, id)))
+        return try FullTextSegment.decode(try Self.open(sealed, key: key, aad: Self.segmentAAD(accountID, id, namespace)))
     }
 
     private func seal(_ plain: Data, aad: Data, name: String) throws {
@@ -288,15 +306,15 @@ public actor FullTextIndexStore {
         catch { throw FullTextIndexError.corrupt }
     }
 
-    private static func write(_ manifest: Manifest, to directory: URL, key: SymmetricKey, accountID: UUID) throws {
+    private static func write(_ manifest: Manifest, to directory: URL, key: SymmetricKey, accountID: UUID, namespace: String) throws {
         guard let plain = try? JSONEncoder().encode(manifest),
-              let sealed = try? AES.GCM.seal(plain, using: key, authenticating: manifestAAD(accountID)).combined else {
+              let sealed = try? AES.GCM.seal(plain, using: key, authenticating: manifestAAD(accountID, namespace)).combined else {
             throw FullTextIndexError.storageUnavailable
         }
         try writeAtomically(sealed, to: directory.appendingPathComponent("manifest.bin"))
     }
 
-    private static func writeAtomically(_ data: Data, to url: URL) throws {
+    static func writeAtomically(_ data: Data, to url: URL) throws {
         #if os(iOS)
         let options: Data.WritingOptions = [.atomic, .completeFileProtection]
         #else
@@ -306,10 +324,16 @@ public actor FullTextIndexStore {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private static let aadPrefix = "science-reader/search-index/"
-    static func manifestAAD(_ account: UUID) -> Data { Data((aadPrefix + "manifest/v1/" + account.wire).utf8) }
-    static func segmentAAD(_ account: UUID, _ id: UInt64) -> Data { Data((aadPrefix + "segment/v1/" + account.wire + "/" + String(id)).utf8) }
-    static func textAAD(_ account: UUID, _ id: String) -> Data { Data((aadPrefix + "text/v1/" + account.wire + "/" + id).utf8) }
+    /// The Library's index (its associated data is unchanged since 2026-10-24).
+    public static let libraryNamespace = "search-index"
+    private static func aadPrefix(_ namespace: String) -> String { "science-reader/\(namespace)/" }
+    static func manifestAAD(_ account: UUID, _ namespace: String = libraryNamespace) -> Data { Data((aadPrefix(namespace) + "manifest/v1/" + account.wire).utf8) }
+    static func segmentAAD(_ account: UUID, _ id: UInt64, _ namespace: String = libraryNamespace) -> Data {
+        Data((aadPrefix(namespace) + "segment/v1/" + account.wire + "/" + String(id)).utf8)
+    }
+    static func textAAD(_ account: UUID, _ id: String, _ namespace: String = libraryNamespace) -> Data {
+        Data((aadPrefix(namespace) + "text/v1/" + account.wire + "/" + id).utf8)
+    }
 }
 
 /// Reads one paper's sealed body text for a snippet. Recently read texts stay decoded in a small shared cache.
@@ -317,18 +341,19 @@ final class FullTextTextReader: @unchecked Sendable {
     private let directory: URL
     private let key: SymmetricKey
     private let accountID: UUID
+    private let namespace: String
     private let files: [String: String]
     private let cache: FullTextTextCache
 
-    init(directory: URL, key: SymmetricKey, accountID: UUID, files: [String: String], cache: FullTextTextCache) {
-        self.directory = directory; self.key = key; self.accountID = accountID; self.files = files; self.cache = cache
+    init(directory: URL, key: SymmetricKey, accountID: UUID, namespace: String, files: [String: String], cache: FullTextTextCache) {
+        self.directory = directory; self.key = key; self.accountID = accountID; self.namespace = namespace; self.files = files; self.cache = cache
     }
 
     func body(group: String) -> FullTextBodyText? {
         guard let file = files[group] else { return nil }
         if let cached = cache.value(file) { return cached }
         guard let sealed = try? Data(contentsOf: directory.appendingPathComponent("txt-\(file).bin")),
-              let plain = try? FullTextIndexStore.open(sealed, key: key, aad: FullTextIndexStore.textAAD(accountID, file)),
+              let plain = try? FullTextIndexStore.open(sealed, key: key, aad: FullTextIndexStore.textAAD(accountID, file, namespace)),
               let body = try? FullTextBodyText.decode(plain) else { return nil }
         cache.store(body, for: file)
         return body
