@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generationRecord, lookupGeneration } from '../../supabase/functions/_shared/openrouter-generation.ts';
+import { generationRecord, lookupGeneration, readGeneration } from '../../supabase/functions/_shared/openrouter-generation.ts';
 
 const identity = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', operationID: 'bbbbbbbb-0000-4000-8000-000000000001' };
 const record = { id: 'gen-1', model: 'anthropic/claude-sonnet-5.5', provider_name: 'Google', external_user: identity.accountID,
@@ -50,4 +50,25 @@ test('the lookup waits for a 404 with bounded tries, stops on other errors and n
   assert.equal(await lookupGeneration({ apiKey: 'k', fetch: async () => { throw new Error('secret'); } }, 'gen-1', identity, new AbortController().signal), null);
   assert.equal(await lookupGeneration({ apiKey: 'k', fetch: async () => new Response('x'.repeat(70_000)) }, 'gen-1', identity, new AbortController().signal), null);
   assert.equal(await lookupGeneration({ apiKey: 'k', fetch: async () => { throw new Error('must not fetch'); } }, 'bad id/../', identity, new AbortController().signal), null);
+});
+
+test('0162: only a 404 on every read is "absent"; a record that fails its checks exists; anything else is unreadable', async () => {
+  const read = (fetch: typeof globalThis.fetch, id = 'gen-1', tries = 2) =>
+    readGeneration({ apiKey: 'k', sleep: async () => {}, fetch }, id, identity, new AbortController().signal, tries);
+  assert.deepEqual(await read(async () => new Response(null, { status: 404 })), { missing: 'absent' });
+  assert.equal(('record' in await read(async () => Response.json({ data: record }))), true);
+  // OpenRouter's record of this generation, for another account or implausible: a record exists (never "not found").
+  assert.deepEqual(await read(async () => Response.json({ data: { ...record, external_user: identity.operationID } })), { missing: 'invalid' });
+  assert.deepEqual(await read(async () => Response.json({ data: { ...record, total_cost: 31 } })), { missing: 'invalid' });
+  // Our expired key, a server error, a timeout, a body that is not this generation's record: nothing is known.
+  for (const status of [401, 402, 403, 429, 500, 503]) assert.deepEqual(await read(async () => new Response('no', { status })), { missing: 'unreadable' }, String(status));
+  let n = 0;
+  assert.deepEqual(await read(async () => ++n === 1 ? new Response(null, { status: 404 }) : new Response('no', { status: 500 })), { missing: 'unreadable' },
+    'a 404 then a 500 is not a clean answer');
+  assert.deepEqual(await read(async () => { throw new DOMException('timed out', 'TimeoutError'); }), { missing: 'unreadable' });
+  assert.deepEqual(await read(async () => new Response('<html>proxy</html>')), { missing: 'unreadable' });
+  assert.deepEqual(await read(async () => Response.json({ data: null })), { missing: 'unreadable' });
+  assert.deepEqual(await read(async () => Response.json({ data: { ...record, id: 'gen-9' } })), { missing: 'unreadable' });
+  assert.deepEqual(await read(async () => new Response('x'.repeat(70_000))), { missing: 'unreadable' });
+  assert.deepEqual(await read(async () => { throw new Error('must not fetch'); }, 'bad id/../'), { missing: 'unreadable' });
 });

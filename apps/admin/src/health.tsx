@@ -204,6 +204,11 @@ function derive(data: HealthData, budget: Budget | null) {
   const r = data.reconciliation, manual = r ? r.gave_up + r.without_generation : 0;
   if (r && manual > 0) attention.push({ tone: 'warning', text: `${plural(manual, 'OpenRouter attempt')} cannot be reconciled automatically (${[
     r.gave_up ? `${r.gave_up} without an OpenRouter record after 12 tries` : '', r.without_generation ? `${r.without_generation} lost before OpenRouter named the generation` : ''].filter(Boolean).join(', ')}). Reconcile each with OpenRouter's generation record (scripts/pipeline-ops.py attempts, then reconcile).` });
+  // Migration 0162 (JUDGMENT_LOG 21): attempts settled at $0 because no output reached us and OpenRouter had no record after
+  // 12 tries. Shown so an OpenRouter bill above the ledger stands out against it; a late record corrects them on its own.
+  const zero = r?.assumed_zero;
+  if (zero && zero.contradicted > 0) attention.push({ tone: 'warning', text: `${plural(zero.contradicted, 'OpenRouter attempt')} settled at $0 without a record now ${zero.contradicted === 1 ? 'has' : 'have'} one that does not match the request. Reconcile ${zero.contradicted === 1 ? 'it' : 'each'} with OpenRouter's generation record (scripts/pipeline-ops.py reconcile).` });
+  if (zero && zero.attempts > 0) attention.push({ tone: 'info', text: `Assumed zero this month: ${plural(zero.attempts, 'OpenRouter attempt')} settled at $0 (ceilings ${dollarsShort(zero.ceiling_microusd)}): nothing reached us and OpenRouter had no record after 12 tries.${zero.corrected ? ` ${zero.corrected} later corrected by a late record (${dollarsShort(zero.corrected_microusd)}).` : ''} If OpenRouter's bill for the month is above the ledger by about this much, look here first.` });
   const legacy = r?.legacy;
   if (r && (legacy?.attempts ?? r.other_providers) > 0) {
     const named = legacy ? Object.entries(legacy.by_provider).map(([p, n]) => `${n} ${providerName(p)}`).join(', ') : `${r.other_providers} from retired direct providers`;

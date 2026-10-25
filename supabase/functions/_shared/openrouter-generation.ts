@@ -58,12 +58,18 @@ export function generationRecord(value: unknown, id: string, identity: { account
     finishReason: typeof r.finish_reason === 'string' ? /^[a-z_]{1,32}$/.test(r.finish_reason) ? r.finish_reason : 'other' : null };
 }
 
+/** What one lookup established: the record, or why there is none. `absent`: OpenRouter answered 404 to every read (it
+ * has no record of the generation, or has not written it yet). `invalid`: it returned a record for this generation that
+ * fails the checks (another account or operation, implausible numbers): a record exists. `unreadable`: anything else (a
+ * 401 from a lapsed key, a 5xx, a timeout, an abort, a body that is not a record): nothing is known. Only `absent` may
+ * ever count as "no record" (the reconciler's assumed zero, migration 0162). */
+export type GenerationRead = { record: GenerationRecord } | { missing: 'absent' | 'invalid' | 'unreadable' };
+
 /** Reads one generation's record, waiting while OpenRouter has not written it yet (404): `tries` reads, the first at
- * once and then after 250 ms doubling to at most 4 s. Any other answer, an aborted `signal` or an implausible record
- * gives null: the caller keeps the attempt's whole ceiling as unresolved liability. Never throws. */
-export async function lookupGeneration(options: GenerationLookupOptions, id: string, identity: { accountID: string; operationID: string },
-  signal: AbortSignal, tries = 8): Promise<GenerationRecord | null> {
-  if (!/^[a-zA-Z0-9._:-]{1,256}$/.test(id)) return null;
+ * once and then after 250 ms doubling to at most 4 s. Never throws. */
+export async function readGeneration(options: GenerationLookupOptions, id: string, identity: { accountID: string; operationID: string },
+  signal: AbortSignal, tries = 8): Promise<GenerationRead> {
+  if (!/^[a-zA-Z0-9._:-]{1,256}$/.test(id)) return { missing: 'unreadable' };
   const sleep = options.sleep ?? wait;
   try {
     for (let n = 0; n < tries; n++) {
@@ -72,11 +78,24 @@ export async function lookupGeneration(options: GenerationLookupOptions, id: str
         { signal, redirect: 'error', headers: { authorization: `Bearer ${options.apiKey}`, 'X-Session-ID': identity.operationID } });
       if (response.ok) {
         const raw = await response.text();
-        return raw.length <= MAX_RECORD_CHARS ? generationRecord(JSON.parse(raw), id, identity) : null;
+        if (raw.length > MAX_RECORD_CHARS) return { missing: 'unreadable' };
+        const value: unknown = JSON.parse(raw);
+        const record = generationRecord(value, id, identity);
+        if (record) return { record };
+        // A record that names this generation but fails a check exists; one that does not name it is not a record.
+        return { missing: object(object(value).data).id === id ? 'invalid' : 'unreadable' };
       }
       await response.body?.cancel().catch(() => {});
-      if (response.status !== 404) return null;
+      if (response.status !== 404) return { missing: 'unreadable' };
     }
-  } catch { /* aborted, transport or malformed: unresolved */ }
-  return null;
+    return { missing: 'absent' };
+  } catch { /* aborted, transport or malformed */ }
+  return { missing: 'unreadable' };
+}
+
+/** The record, or null for any other outcome: the caller keeps the attempt's whole ceiling as unresolved liability. */
+export async function lookupGeneration(options: GenerationLookupOptions, id: string, identity: { accountID: string; operationID: string },
+  signal: AbortSignal, tries = 8): Promise<GenerationRecord | null> {
+  const read = await readGeneration(options, id, identity, signal, tries);
+  return 'record' in read ? read.record : null;
 }

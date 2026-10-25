@@ -21,6 +21,32 @@ Server state at upload: migrations through 0161 applied to staging; `chat`, `rec
 with the labelled Haiku fallback on. Waiting for the owner: the website (privacy page, then the interest flip to `all`)
 and the admin site deploys.
 
+## OpenRouter attempts assumed zero (JUDGMENT_LOG 21) — 2026-10-25 UTC (local: migration 0162 not applied, worker and admin not deployed)
+
+- **What:** an OpenRouter attempt left `unknown` that no model output reached (chat's caller, no `first_data_ms`, no
+  receipt) and that OpenRouter answers 404 for on or after its 12th reconciliation try (or whose generation id was never
+  issued) settles at zero: `reconciled`, 0, units `{"estimated":1}` (never provider-reported), failure code kept, hold
+  and liability released, reader never charged, adjustment evidence `openrouter-no-record:…` keeping the ceiling as the
+  assumed-zero amount, event `settled_reason: no_record_no_bytes`. Read daily for a late record until 30 days old; a late
+  record corrects it to its cost; a mismatching one shows as a contradiction (Health warning, `budget.health` fails) until
+  an owner reconciles it. The worker's lookup now tells a clean 404 from an unreadable read (401/5xx/timeout, before
+  recorded as `not_found`) and from a record failing its checks (now `mismatch`). Health › Attention, `budget.health` and
+  Spending show the month's count and assumed ceilings.
+  [PROVIDER_SPENDING.md "Assumed zero"](architecture/PROVIDER_SPENDING.md#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied).
+- **Tests:** `tests/database/openrouter_assumed_zero.sql` (fails before 0162, passes after; PostgreSQL 17.x + pgvector,
+  disposable port 55473): `--assumed-zero-only`, `--spending-fixes-only`, `--model-health-only`, `--account-usage-only`,
+  `--interest-only`, `--recommendations-only` all pass (`--note-assets-only`: its SQL passes; its concurrency module
+  refuses any port but 55431, as documented). Backend: `tests/backend/openrouter-reconcile.test.ts`,
+  `openrouter-generation.test.ts`. `npm test` passes.
+- **Staging, read-only (2026-10-25 ~19:45 UTC):** none would settle yet (no unresolved attempt has finished 12 tries).
+  Eligible once their 12th try reads a clean 404 under the new worker: `9975bf7c` (Gemini Flash, 10-24 19:40, broken after
+  38.5 s, 87,647 µ$, try 9, 12th ≈ 10-28 14:23), `2b371a12` (10-25 13:01, silent 119.5 s, 155,545 µ$, try 7, 12th ≈ 10-29
+  07:44), `30651944` (10-25 16:22, silent 60 s, 148,227 µ$, try 6, 12th ≈ 10-29 11:02): 391,419 µ$ in all. All three
+  predate first-output recording (from 16:55 UTC), so "no output" for them is "none recorded". `f92ab6d2` (DeepSeek
+  10-22, 48,750 µ$) is not eligible: OpenRouter has a record (`mismatch`), so it stays manual.
+- **Deploy:** apply 0162, then the pipeline worker (Cloud Run; it calls `worker_openrouter_reconcile_absent` and reports
+  `unreadable`, which the 0102 function refuses), then the admin site. No Edge function changes.
+
 ## AI provider reliability: fallback, model health, busy retry — 2026-10-25 UTC (0161 applied 16:53 UTC; chat, recommend and worker deployed; app part in TestFlight 93)
 
 - **Owner report (TestFlight 92, 16:05 UTC):** a figure explainer on Gemini Flash failed twice: HTTP 429 from the pinned

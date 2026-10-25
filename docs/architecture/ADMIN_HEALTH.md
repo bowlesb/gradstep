@@ -70,6 +70,13 @@ unresolved provider attempts the automatic reconciler cannot settle with the amo
 window (A2). Support pages older reports and offers Close/Reopen, Accounts says when the list is truncated, every admin
 request is bounded to 30 s, and an abandoned authenticator enrolment no longer blocks a new one (D10).
 
+**Added 2026-10-25 (migration 0162, JUDGMENT_LOG 21; not deployed).** Attention gains an information line for OpenRouter
+attempts settled at $0 this UTC month because no output reached us and OpenRouter had no record after 12 tries, with
+the ceilings assumed zero and any later corrections (`reconciliation.assumed_zero`), so an OpenRouter bill above the
+ledger stands out against it, and a warning when a later read finds a record that does not match one of them. Such
+attempts still waiting for their 12th try are counted as automatic, not manual. Spending shows the window's assumed
+zeros under Provider attempts ([PROVIDER_SPENDING.md](PROVIDER_SPENDING.md#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied)).
+
 ## Who counts
 
 **OpenRouter cutover, 2026-10-18:** the billing-refusal alert's provider groups retain their historical/logical

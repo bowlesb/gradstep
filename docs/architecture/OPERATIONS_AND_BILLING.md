@@ -8,7 +8,9 @@ A Gemini Flash answer that fails before writing anything is asked once of Claude
 ($0.008–0.016 on the probe's paper) with a Haiku one ($0.0015–0.012). At the week's rate (about 6 % of Flash calls
 failing before output) and this month's Flash volume on staging (127 attempts, $1.04), the fallbacks cost under $0.10 a
 month; the forecast and the $100/month budget are unchanged. A silent first attempt keeps its ceiling as an unresolved
-liability until the reconciler settles it (those seen so far have no OpenRouter record). The 2026-10-25 reliability probe
+liability until the reconciler settles it (those seen so far have no OpenRouter record; from migration 0162 one with no
+output that OpenRouter still answers 404 for after 12 tries settles at zero automatically, counted against the month on
+Health, `budget.health` and Spending: [Assumed zero](PROVIDER_SPENDING.md#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied)). The 2026-10-25 reliability probe
 spent $0.367654 (at most $0.515881 with the silent attempt's held ceiling) of a $1.00 allowance, inside the staging
 provider budget.
 

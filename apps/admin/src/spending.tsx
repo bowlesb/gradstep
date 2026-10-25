@@ -24,6 +24,9 @@ export interface SpendingSummary {
   note_assets?: NoteAssetUsage;
   /** Granted provider attempts in the rolling window (migration 0100, review A2); absent before it. */
   attempt_capacity?: AttemptCapacity;
+  /** Migration 0162: OpenRouter attempts settled at $0 in the window (no output, no record after 12 tries), the ceilings
+   * that were assumed zero, and those a late record corrected (at the record's cost); absent before it. */
+  assumed_zero?: { attempts: number; ceiling_microusd: number; corrected: number; corrected_microusd: number };
 }
 export interface AttemptCapacity { window_hours: number; platform_used: number; platform_limit: number; account_limit: number;
   busiest_account_id: string | null; busiest_account_used: number; eighty_percent: boolean }
@@ -118,6 +121,7 @@ export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ow
         </tbody></table></div>
         {!summary.providers.length && <p className="empty">No tracked provider attempts in this period.</p>}
         {summary.providers.length >= summary.provider_group_limit && <p className="muted">Showing the {summary.provider_group_limit} busiest provider/model groups. Filter by account for a narrower view.</p>}
+        {!!summary.assumed_zero?.attempts && <p className="muted">Assumed zero: {summary.assumed_zero.attempts} OpenRouter attempt{summary.assumed_zero.attempts === 1 ? '' : 's'} settled at $0 with {money(summary.assumed_zero.ceiling_microusd)} of ceilings released; nothing reached us and OpenRouter had no record after 12 tries. Counted as estimates, never as reported cost{summary.assumed_zero.corrected ? `; ${summary.assumed_zero.corrected} later corrected to OpenRouter's cost (${money(summary.assumed_zero.corrected_microusd)})` : ''}.</p>}
         <p className="muted">Attempt tracking began {date(summary.coverage_started_at)}. Earlier records: {summary.legacy.usage_records}, estimated {money(summary.legacy.estimated_microusd)}, adjustments {money(summary.legacy.reconciliation_microusd)}. They may not include every retry.</p>
       </section>
       <OperationList key={`${days}:${account}:${reloadKey}:${retry}`} api={api} days={days} account={account} onSelect={(value, trigger) => { detailTrigger.current = trigger; setSelected(value); }} />

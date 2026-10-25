@@ -492,6 +492,14 @@ accounts inside 3 s, the listing reports) and the deletion suites that share its
 Model health and the answer fallback (migration 0161): `tests/database/model_health.sql` (calls answered and failed per
 model, p90 first output, attention thresholds, `first_data_ms` accepted, Your AI usage naming the fallback) runs in the
 final phase, with `--account-usage-only`, and with `--model-health-only` (plus the usage, OpenRouter and spending fixtures).
+Assumed zero (migration 0162, JUDGMENT_LOG 21): `tests/database/openrouter_assumed_zero.sql` (only a chat attempt with no
+first output, no receipt, no record ever read and a settled operation settles at 0 on or after its 12th try, or without a
+generation id; its audit trail, the released hold, unchanged credits, unreported usage, the failure kept for model health;
+Health and Spending figures; daily reads with a capped back-off; a late record's correction; a contradiction cleared by an
+owner's reconciliation) is one of the spending fixtures (final phase, `--spending-fixes-only`, `--model-health-only`);
+`--assumed-zero-only` runs it with the reconciler, OpenRouter-only reporting, costs, usage and model health fixtures.
+Fast: `tests/backend/openrouter-reconcile.test.ts` (only a clean 404 on a final try, or no generation id, asks the database;
+a lapsed key, a 5xx or a record for another account never does) and `openrouter-generation.test.ts` (`readGeneration`).
 For you on the v4 library (migration 0154): `tests/database/feed_v4_library.sql` runs in the final phase and alone with
 `--feed-only` (HTML-first imports in the profile, exclusions, the readers count, own-tag topics). Library similarity
 (migration 0155): `tests/database/feed_similarity.sql`, in the same places (the similar tier and its bound, exact

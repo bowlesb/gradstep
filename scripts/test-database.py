@@ -115,6 +115,7 @@ parser.add_argument('--general-only', action='store_true', help='Run only the ge
 parser.add_argument('--pricing-only', action='store_true', help='Run the free AI pool, pricing, switches and spend alert fixtures (migration 0150) only.')
 parser.add_argument('--interest-only', action='store_true', help='Run the interest index fixture (migration 0152) only.')
 parser.add_argument('--feed-only', action='store_true', help='Run the For you fixtures (v4 library, migration 0154; library similarity, 0155) only.')
+parser.add_argument('--assumed-zero-only', action='store_true', help='Run the OpenRouter reconciler fixtures: automatic reconciliation (0102), OpenRouter-only reporting (0140) and assumed zero (0162), with the usage and model health fixtures they touch.')
 parser.add_argument('--deletion-sweep-only', action='store_true', help='Run the account-deletion sweep fixtures (migrations 128 and 0159) and the deletion suites they share functions with.')
 args = parser.parse_args()
 # Migration 0152 enables pgvector: the server must offer it (docs/TESTING.md).
@@ -126,7 +127,8 @@ if _vector.returncode == 0 and _vector.stdout.strip() == '0':
 # Review 2026-10-21 (docs/reviews/WEB_SERVER_REVIEW_20261021.md): spending, budget and reconciliation fixes, in
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
 # OpenRouter-only reporting (0140) and the owner's per-account costs (0141) follow them (owner, 2026-10-21).
-SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql', 'openrouter_auto_reconcile.sql', 'budget_pauses_persist.sql', 'owner_budget_limit.sql', 'testing_allowance_safeguards.sql', 'scoped_provider_breakers.sql', 'openrouter_admit_and_dispatch.sql', 'sql_hot_paths.sql', 'openrouter_only_reporting.sql', 'account_costs.sql']]
+# Assumed zero (0162, JUDGMENT_LOG 21): an attempt with no output and no OpenRouter record after 12 tries settles at 0.
+SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql', 'openrouter_auto_reconcile.sql', 'budget_pauses_persist.sql', 'owner_budget_limit.sql', 'testing_allowance_safeguards.sql', 'scoped_provider_breakers.sql', 'openrouter_admit_and_dispatch.sql', 'sql_hot_paths.sql', 'openrouter_only_reporting.sql', 'account_costs.sql', 'openrouter_assumed_zero.sql']]
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
 fence = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql'
 if args.reader_issuer_fence_candidate:
@@ -156,6 +158,10 @@ if args.account_usage_only:
 if args.model_health_only:
     phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / 'tests/database/account_usage.sql', ROOT / 'tests/database/ai_usage_reported_tokens.sql',
            ROOT / 'tests/database/model_health.sql', ROOT / 'tests/database/openrouter_all_inference.sql', *SPENDING_FIXES], [])
+    raise SystemExit(0)
+if args.assumed_zero_only:
+    phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', *[ROOT / 'tests/database' / name for name in ['openrouter_auto_reconcile.sql',
+           'openrouter_only_reporting.sql', 'account_costs.sql', 'openrouter_assumed_zero.sql', 'ai_usage_reported_tokens.sql', 'model_health.sql']]], [])
     raise SystemExit(0)
 if args.general_only:
     current_schema_phase(all_migrations, CURRENT_GENERAL)

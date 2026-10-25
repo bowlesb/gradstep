@@ -37,6 +37,8 @@ function summary(account: string | null, empty: boolean): SpendingSummary {
     ], provider_group_limit: 100,
     customers: { settled_credits: empty ? 0 : account === ACCOUNT_A ? 11 : account === ACCOUNT_B ? 22 : 27, platform_funded_operations: 1, held_credits: 0 },
     legacy: { usage_records: empty ? 0 : 42, estimated_microusd: empty ? 0 : 925_000, reconciliation_microusd: 0 }, allowances: [],
+    // Migration 0162: the 2026-10-24/25 Gemini attempts with no output and no OpenRouter record, one corrected later.
+    assumed_zero: empty ? { attempts: 0, ceiling_microusd: 0, corrected: 0, corrected_microusd: 0 } : { attempts: 3, ceiling_microusd: 391_419, corrected: 1, corrected_microusd: 2_400 },
     forecast: { period: '2026-10-01', operating_limit_microusd: 100_000_000, provider_allocation_microusd: 25_000_000,
       overhead_allocation_microusd: 10_000_000, funded_plan_microusd: 35_000_000, complete: false, missing_components: 7,
       components: [{ id: 'tavily_subscription', label: 'Tavily subscription', observation_id: 'synthetic-observation', measure: 'commitment',

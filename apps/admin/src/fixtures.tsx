@@ -330,6 +330,12 @@ function healthFixture(days: number, state: string | null): HealthData {
         provider: Math.round(sum(window, r => r.chats) * 0.015), limit: Math.round(sum(window, r => r.chats) * 0.01), connection: Math.round(sum(window, r => r.chats) * 0.005) },
       today: { uncharged: empty ? 0 : 31, absorbed_microusd: empty ? 0 : 380_000 },
       accounts_over_today: quiet || empty ? [] : [{ account_id: '5f0c2a91-7d3e-4b8a-9c11-2e6f8a4b7c90', uncharged: 24, absorbed_microusd: 290_000 }] },
+    // Migrations 0102/0140/0162: nothing manual; unless empty, the three 2026-10-24/25 Gemini attempts settled at $0 (no
+    // output, no OpenRouter record after 12 tries) and still read daily for a late record.
+    reconciliation: { automatic_pending: 0, gave_up: 0, without_generation: 0, other_providers: 0, manual_held_microusd: 0, reconciled_24h: empty ? 0 : 2,
+      legacy: { attempts: 0, held_microusd: 0, oldest_at: null, by_provider: {} }, search_unresolved: 0,
+      assumed_zero: { month_start: monthStart, attempts: empty ? 0 : 3, ceiling_microusd: empty ? 0 : 391_419, corrected: 0, corrected_microusd: 0,
+        checking: empty ? 0 : 3, contradicted: 0 } },
     // Migration 0161: the 2026-10-25 staging day (Flash on Vertex US answering 8 of 12, slow to start; Haiku all), unless quiet.
     models: { window_hours: 24, thresholds: { min_calls: 10, success_rate: 0.9, p90_first_data_ms: 20_000 },
       models: empty ? [] : [

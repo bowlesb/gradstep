@@ -160,6 +160,9 @@ export interface PipelineMetrics {
 }
 
 /** v1_admin_health (migration 069, docs/architecture/ADMIN_HEALTH.md): daily series over the window, UTC days. */
+/** Migration 0162 (JUDGMENT_LOG 21): OpenRouter attempts assumed zero this UTC month. */
+export interface AssumedZero { month_start: string; attempts: number; ceiling_microusd: number; corrected: number; corrected_microusd: number;
+  checking: number; contradicted: number }
 export interface Health {
   generated_at: string; since: string; today: string; days: number; month_start: string;
   people: { accounts: number; new_in_window: number; active_7d: number; active_30d: number; returning_7d: number;
@@ -207,7 +210,10 @@ export interface Health {
   /** Migration 0102 (review A6): unresolved provider attempts the automatic reconciler cannot settle. Absent on older servers. */
   reconciliation?: { automatic_pending: number; gave_up: number; without_generation: number; other_providers: number; manual_held_microusd: number; reconciled_24h: number;
     /** Migration 0140: unresolved attempts of retired direct providers (legacy history), by provider; Tavily's apart. Absent on older servers. */
-    legacy?: { attempts: number; held_microusd: number; oldest_at: string | null; by_provider: Record<string, number> }; search_unresolved?: number };
+    legacy?: { attempts: number; held_microusd: number; oldest_at: string | null; by_provider: Record<string, number> }; search_unresolved?: number;
+    /** Migration 0162: attempts settled at $0 this UTC month (no output reached us and OpenRouter had no record after 12
+     * tries), their ceilings, later corrections by a late record, those still read daily and those a read contradicted. */
+    assumed_zero?: AssumedZero };
   /** Migration 0143: AI recommendations (requests, papers added, charged, failed), last 24 h and 30 days. Absent on older servers. */
   recommendations?: { enabled: boolean; daily_runs: number;
     last_24h: { runs: number; papers_added: number; charged: number; failed: number; running: number; accounts: number };

@@ -698,8 +698,14 @@ check('budget.health', {title:'Platform budget is enabled, under 80 %, without a
  if(!h.next_period_exists)problems.push('next month has no budget row');
  const legacy=h.reconciliation?.legacy;
  const legacyNote=legacy&&Number(legacy.attempts)>0?`; legacy (not OpenRouter, settled by the owner): ${legacy.attempts} attempt(s) holding ${usd(Number(legacy.held_microusd)/1e6)} (${Object.entries(legacy.by_provider??{}).map(([p,n])=>`${p} ${n}`).join(', ')})`:'';
- const summary=`${h.period}: ${usd(spent/1e6)} spent, ${usd(reserved/1e6)} reserved of ${usd(limit/1e6)}; next month ${h.next_period_exists?'ready':'missing'}${legacyNote}`;
- return problems.length?fail(`${summary}; ${problems.join('; ')}`):pass(summary,{spent_microusd:spent,reserved_microusd:reserved,limit_microusd:limit});
+ // Migration 0162 (JUDGMENT_LOG 21): attempts settled at $0 this month because nothing reached us and OpenRouter had no record
+ // after 12 tries. Named so an OpenRouter bill above the ledger stands out against them; one a later read contradicts fails.
+ const zero=h.reconciliation?.assumed_zero;
+ if(zero&&Number(zero.contradicted)>0)problems.push(`${zero.contradicted} attempt(s) settled at $0 now have an OpenRouter record that does not match (reconcile by hand)`);
+ const zeroNote=zero&&Number(zero.attempts)>0?`; assumed zero this month (no output, no OpenRouter record after 12 tries): ${zero.attempts} attempt(s), ceilings ${usd(Number(zero.ceiling_microusd)/1e6)}${Number(zero.corrected)>0?`, ${zero.corrected} corrected later to ${usd(Number(zero.corrected_microusd)/1e6)}`:''}`:'';
+ const summary=`${h.period}: ${usd(spent/1e6)} spent, ${usd(reserved/1e6)} reserved of ${usd(limit/1e6)}; next month ${h.next_period_exists?'ready':'missing'}${legacyNote}${zeroNote}`;
+ return problems.length?fail(`${summary}; ${problems.join('; ')}`):pass(summary,{spent_microusd:spent,reserved_microusd:reserved,limit_microusd:limit,
+  assumed_zero_attempts:Number(zero?.attempts??0),assumed_zero_microusd:Number(zero?.ceiling_microusd??0)});
 });
 
 // The metadata comes from DataCite (migration 077: our servers never contact arXiv); a device's own record for the

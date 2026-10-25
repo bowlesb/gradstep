@@ -13,6 +13,62 @@ Provider SDK and search transport retries are disabled. A new explicit request, 
 continuation, needs a new grant and must fit the operation's remaining ceiling. The database records
 admission, final usage and reconciliation; application logs contain identifiers and counts only.
 
+## Assumed zero: no output and no OpenRouter record (migration 0162, 2026-10-25; local, not applied)
+
+[JUDGMENT_LOG 21](../JUDGMENT_LOG.md) (owner: "make a good judgment and keep a log"). Before, an OpenRouter attempt left
+`unknown` kept its whole ceiling as Gradstep's liability until its generation record was read, and after the
+reconciler's 12 tries (about 3.8 days) only an owner could release it (`scripts/pipeline-ops.py reconcile`). On staging
+three Gemini Flash attempts that never answered (2026-10-24 19:40 broken after 38.5 s, 2026-10-25 13:01 silent for
+119.5 s, 16:22 silent for 60 s) held $0.391419 that way; OpenRouter has no record of any of them.
+
+- **Exactly which attempts.** `app_private.openrouter_zero_candidate`: OpenRouter, `unknown` (never `admitted`),
+  dispatched by chat's `admittedModelCalls` (caller `chat`: chat and recommend), finished through its normal path
+  (`attempts` among the units; not `transport_unknown`, whose units are empty), **no `first_data_ms`** (the model's
+  first output, recorded since migration 0161), **no receipt**, between 2 minutes and 30 days old; no read of it ever
+  found a record (the queue's new `record_seen`, set by any `mismatch`, including a record for this generation that
+  fails the account/operation check); and its operation settled (the reader's charge is final). Attempts finished before
+  `first_data_ms` was recorded (staging: before 2026-10-25 16:55 UTC) carry no evidence either way; for them no receipt
+  and no first-output record count as no output. "No output" is the adapter's first-data rule: keep-alive comments and
+  an empty opening chunk do not count as output.
+- **No record, read cleanly.** The worker's lookup (`readGeneration`) now tells a 404 (`absent`) from a record that fails
+  its checks (`invalid`, recorded as `mismatch`) and from anything else (`unreadable`: a 401 from a lapsed key, a 5xx, a
+  timeout, a body that is not the record). Before, all of those were `not_found`. Only a 404 on or after the 12th try
+  (the claim says `final`) asks the database; an attempt whose generation id was never issued has no record to read and
+  counts as `absent` without a request. A candidate past its 12th try is read once a day until a 404 settles it or it is
+  30 days old (the back-off is capped at a day). The new worker must make that read: the old worker's `not_found` was
+  ambiguous and is never trusted.
+- **The settlement** (`worker_openrouter_reconcile_absent`, service role; the database checks every condition again and
+  otherwise records the read as `not_found`): state `reconciled`, actual 0, units `{"estimated":1}`, the original
+  failure code kept; `provider_attempt_apply` releases the ceiling from the month's reservation and the operation's
+  liability and spends nothing. Audit: an adjustment with no actor, before 0, after 0, `released_liability_microusd` =
+  the ceiling (the "assumed zero" amount), evidence `openrouter-no-record:<generation id>` (or `no-generation-id`), reason
+  "Automatic: assumed zero; no output received and no OpenRouter record after 12 tries"; a `reconciled` event with
+  `settled_reason: no_record_no_bytes` and `assumed_zero_microusd`; the queue's `assumed_zero` outcome and time.
+- **Never mixed with reported usage, never charged.** 0160's `usage_reported` treats `estimated` units as unreported, so
+  Your AI usage adds no tokens and flags the call; Spending counts the 0 as an estimate. Model health still counts the
+  failure (a reconciled attempt without a failure code would count as answered). Credits are never touched: the
+  operation was already settled.
+- **A late record corrects it.** Assumed-zero attempts with a generation id are read once a day until 30 days old. A
+  matching record goes through `worker_openrouter_reconcile` as before, which now recognizes the assumed zero: the cost
+  becomes the record's (added to the operation's month; nothing left to release), the failure code stays, the adjustment
+  reads "Automatic: a late OpenRouter record corrects an assumed zero" and the event `corrects: no_record_no_bytes`. A
+  record that does not match is a contradiction: Health › Attention warns and `budget.health` fails until an owner
+  reconciles it (`scripts/pipeline-ops.py reconcile` accepts a reconciled attempt).
+- **Visible.** `openrouter_reconcile_health().assumed_zero` (Admin Health and `worker_budget_health`): `month_start`,
+  `attempts` and `ceiling_microusd` settled this UTC month, `corrected` / `corrected_microusd` (of those, corrected by a
+  late record), `checking` (still read daily) and `contradicted`. Health › Attention shows an information line ("Assumed
+  zero this month: …; if OpenRouter's bill is above the ledger by about this much, look here first"); `budget.health`
+  names them in its summary and metrics. `v1_admin_spending.assumed_zero` (Spending, the window and the account filter)
+  shows the attempts, the ceilings released and the corrections. Candidates still waiting for their 12th try count as
+  `automatic_pending`, not `gave_up` or `without_generation` (manual).
+- **Everything else is unchanged:** output arrived, a record ever seen, a read that was not a clean 404 at the end,
+  podcast/tag callers, our own lost calls, an open operation, `admitted` attempts and legacy providers keep 12 tries and
+  manual reconciliation.
+- **Deploy:** migration 0162 before the pipeline worker (the worker calls the new function and reports `unreadable`,
+  which the 0102 miss function refuses). No Edge function changes. Admin site for the Health and Spending lines.
+- **Undo:** stop the worker calling `worker_openrouter_reconcile_absent` (or revoke it from `service_role`); attempts
+  already assumed zero stay auditable and can be re-reconciled by hand.
+
 ## A fallback attempt, first output times and dated records (2026-10-25; local, not deployed)
 
 [Design and evidence](CHAT.md#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed). An answer whose chosen model (Gemini Flash) fails before any of its
@@ -230,6 +286,8 @@ for every tester. DECISIONS.md (2026-10-18) requires actual-cost reconciliation.
   generation (no id to look up), and older attempts of retired direct providers (for example the 2026-10-17
   direct-Anthropic attempt with $0.000138 reserved) keep their ceilings and are listed in Health › Attention and
   `worker_budget_health.reconciliation` (counts and the reserved amount) until an owner reconciles them with evidence.
+  Since migration 0162 an attempt among these that sent no output and that OpenRouter answers 404 for settles at zero
+  instead ([Assumed zero](#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied)).
 - Key: the reconciler reads records with the key that created them (one chat key today; per-feature keys, A13, map by
   the attempt's recorded `feature`).
 

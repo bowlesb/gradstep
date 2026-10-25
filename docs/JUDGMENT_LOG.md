@@ -28,10 +28,15 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
     price) only if that degrades too. *Undo / change:* the route in `chat-profiles.ts`.
 20. **Figure explainers keep Gemini Flash as the default** (it cites about three times as many paragraphs as Haiku);
     the fallback covers its failures. *Undo:* make Haiku the figures default (faster, about one-sixth the cost).
-21. **Planned, not built:** an attempt that received no bytes and still has no OpenRouter record after its 12
-    reconciliation tries settles at zero automatically, counted in Health so an unexpected bill would stand out.
-    Three such attempts hold $0.39 today. *Why:* they need manual work otherwise and OpenRouter can't bill a
-    generation it has no record of. *Undo:* back to manual reconciliation.
+21. **Built (migration 0162 and the pipeline worker; local, not applied or deployed):** an attempt that received no
+    output and still has no OpenRouter record after its 12 reconciliation tries settles at zero automatically, counted
+    in Health, `budget.health` and Spending so an unexpected bill would stand out. Only a clean 404 counts as "no
+    record" (a lapsed key or an outage never does); an attempt with output, a record ever read, another caller or an
+    open operation stays manual; a late record corrects it. Three such attempts hold $0.39 today (they settle at their
+    12th try, 10-28/29, once deployed). One caveat: they predate first-output recording, so "no output" for them means
+    none was recorded; the 10-24 one is a stream that broke after 38.5 s. *Why:* they need manual work otherwise and
+    OpenRouter can't bill a generation it has no record of. *Undo:* stop the worker calling
+    `worker_openrouter_reconcile_absent` ([PROVIDER_SPENDING.md](architecture/PROVIDER_SPENDING.md#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied)).
 
 13. **Global search: the bar is Library · Paper · Chat · More, with 🔍 beside it** (iPhone, and iPad windows too narrow
     for six). Feed, Snippets and Settings move under More. *Why:* the app opens to the Library, Paper ↔ Chat is the
