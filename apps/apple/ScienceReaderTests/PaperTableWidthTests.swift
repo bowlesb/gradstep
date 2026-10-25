@@ -42,9 +42,11 @@ final class PaperTableWidthTests: XCTestCase {
                        // Under each row, as wide as the row is offered: its leading edge is the row's.
                        detail: { row, _ in Color.clear.frame(height: 1).probe("lead.\(row.id)", probes) },
                        top: { EmptyView() })
-                // The slot: its own width, at the window's leading edge, as TwoSlotLayout's list slot.
+                // The slot: its own width, at the window's leading edge, as TwoSlotLayout's list slot. The minimum keeps
+                // the window's width when the slot is wider (an iPhone host is 402 pt): without it the frame takes the
+                // slot's width and the window centres it, past its left edge.
                 .frame(width: slot.width)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 

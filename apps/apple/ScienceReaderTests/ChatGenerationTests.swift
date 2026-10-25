@@ -126,6 +126,21 @@ final class ChatGenerationOutcomeTests: XCTestCase {
 @MainActor
 final class ChatGenerationTests: XCTestCase {
     private let sampleID = UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!
+    /// The test host is the app, so Settings › AI choices a UI journey saved on this Simulator (a per-activity default
+    /// such as Haiku · Low · Brief for papers) would decide what a new chat starts with. Each test starts from none and
+    /// leaves the device's own choices as they were.
+    private static let aiPreferenceKeys = ["chat.defaultProfile", ReaderModel.scenarioProfilesKey, "ai.scenarioLocals"]
+    private var savedAIPreferences: [String: Any] = [:]
+
+    override func setUp() async throws {
+        for key in Self.aiPreferenceKeys {
+            savedAIPreferences[key] = UserDefaults.standard.object(forKey: key)
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+    override func tearDown() async throws {
+        for key in Self.aiPreferenceKeys { UserDefaults.standard.set(savedAIPreferences[key], forKey: key) }
+    }
 
     func testTestingAllowanceDecodesAlongsideLegacyBalances() throws {
         let decoder = JSONDecoder()

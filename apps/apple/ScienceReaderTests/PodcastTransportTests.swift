@@ -312,11 +312,11 @@ final class PodcastPresentationTests: XCTestCase {
         XCTAssertEqual(offer.selectedWriter, "deepseek", "the server lists the default first")
         XCTAssertEqual(offer.writers.map(\.label), ["DeepSeek V4 Pro", "Claude Sonnet 5.5"])
         let ten = PodcastFixtureTransport.lengths[2]
-        XCTAssertEqual(offer.maxCredits(ten), 300)
-        XCTAssertTrue(offer.affordable(ten, credits: 300))
+        XCTAssertEqual(offer.maxCredits(ten), 380)
+        XCTAssertTrue(offer.affordable(ten, credits: 380))
         offer.selectedWriter = "anthropic"
-        XCTAssertEqual(offer.maxCredits(ten), 360, "Sonnet's maximum for ten minutes")
-        XCTAssertFalse(offer.affordable(ten, credits: 300), "360 > 300 once Sonnet writes")
+        XCTAssertEqual(offer.maxCredits(ten), 540, "Sonnet's maximum for ten minutes")
+        XCTAssertFalse(offer.affordable(ten, credits: 380), "540 > 380 once Sonnet writes")
         XCTAssertEqual(ten.maxCredits(for: "flash"), ten.maxCredits, "an unknown writer falls back to the length's own maximum")
         let plain = PodcastLength(profile: "podcast-5min-v1", label: "5 min", targetSeconds: 300, maxCredits: 150)
         XCTAssertEqual(plain.writers, [], "servers without the choice list no writers")
@@ -449,10 +449,11 @@ final class PodcastFixtureTests: XCTestCase {
         for quote in quotes { XCTAssertTrue(text.contains(quote), "Not in the sample: \(quote)") }
     }
 
-    /// The fixture's maximums are the serving-limit (v2) profiles staging serves, and a ready length never needs credits.
+    /// The fixture's maximums are the profiles staging serves (OpenRouter profiles 6/7, migration 089, read back
+    /// 2026-10-18), and a ready length never needs credits.
     @MainActor func testFixtureLengthsAreTheServingLimitProfiles() {
-        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.maxCredits), [140, 150, 300, 520], "the default writer's (DeepSeek, version 5) maxima")
-        XCTAssertEqual(PodcastFixtureTransport.lengths.map { $0.maxCredits(for: "anthropic") }, [180, 200, 360, 610], "Sonnet's maxima")
+        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.maxCredits), [230, 240, 380, 590], "the default writer's (DeepSeek) maxima")
+        XCTAssertEqual(PodcastFixtureTransport.lengths.map { $0.maxCredits(for: "anthropic") }, [350, 370, 540, 800], "Sonnet's maxima")
         XCTAssertEqual(PodcastFixtureTransport.lengths[1].writers.map(\.label), ["DeepSeek V4 Pro", "Claude Sonnet 5.5"])
         XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.targetSeconds), [150, 300, 600, 1200])
         XCTAssertEqual(PodcastFixtureTransport.fixtureCredits(arguments: ["--podcast-fixture", "--podcast-fixture-credits=200"]), 200)
