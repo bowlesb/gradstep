@@ -168,6 +168,25 @@ import Testing
         #expect(leftovers.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
     }
 
+    /// The journal kept between launches stays small: after a 6 MB save it is emptied when the store closes (and capped at
+    /// 4 MB while open, `journal_size_limit`).
+    @Test func theKeptJournalStaysSmall() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("journal-\(UUID().wire)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("state.sqlite")
+        let account = UUID(), device = UUID(), key = ReaderCrypto.randomKey(), keys = KeyBundle.generate(accountID: account)
+        do {
+            let store = try EncryptedStore(url: path, accountID: account, localKey: key, keys: keys)
+            let text = String(repeating: "A long note written in one save. ", count: 1_800) // about 60 KB
+            try await store.appendBatch((0..<100).map { _ in (id: UUID(), event: PrivateEvent(kind: .note, text: text)) }, deviceID: device)
+            try await store.append(PrivateEvent(kind: .note, text: "a small one after"), deviceID: device)
+        }
+        let wal = directory.appendingPathComponent("state.sqlite-wal")
+        let bytes = (try? wal.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        #expect(FileManager.default.fileExists(atPath: wal.path))
+        #expect(bytes <= 4 * 1024 * 1024, "\(bytes) bytes kept")
+    }
+
     /// A draft checkpoint on a full disk fails as out of space; the last saved draft is what reopens.
     @Test func aDraftSavedOnAFullDiskKeepsTheLastSavedText() async throws {
         guard let disk = SmallDisk() else { return }

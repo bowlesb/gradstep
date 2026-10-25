@@ -1193,7 +1193,7 @@ public actor EncryptedStore {
     ///    snapshot (`snapshot: true`); the store then swaps in a writable connection at its first save after space is
     ///    freed (`reopenWritable`).
     private static func openDatabase(_ url: URL) throws -> (database: SQLiteConnection, snapshot: Bool) {
-        let settings = "PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=128;"
+        let settings = "PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=128; PRAGMA journal_size_limit=4194304;"
         let database = try SQLiteConnection(url: url)
         database.keepWALFiles()
         do {

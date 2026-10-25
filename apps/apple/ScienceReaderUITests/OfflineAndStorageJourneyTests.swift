@@ -97,11 +97,16 @@ final class OfflineAndStorageJourneyTests: XCTestCase {
         let issue = text(containing: "You’re offline. Your question is saved; try again when you’re connected.", in: app)
         XCTAssertTrue(issue.waitForExistence(timeout: 10), "Said as offline, not as an interrupted answer")
         capture("chat-sent-offline")
-        // Back online (the fixture's window ends 20 s after launch).
+        // Back online: the fixture's window ends 20 s after the app started (a little after `started`); a Try again
+        // made just before then fails offline again, harmlessly, and is tried once more.
         let wait = 21 - Date().timeIntervalSince(started)
         if wait > 0 { Thread.sleep(forTimeInterval: wait) }
-        app.buttons["chat.retryAnswer"].tap()
-        XCTAssertTrue(text(containing: "This is a synthetic fixture answer", in: app).waitForExistence(timeout: 15), "Answered once online")
+        let answer = text(containing: "This is a synthetic fixture answer", in: app)
+        for _ in 0..<6 where !answer.exists {
+            app.buttons["chat.retryAnswer"].tap()
+            if answer.waitForExistence(timeout: 6) { break }
+        }
+        XCTAssertTrue(answer.exists, "Answered once online")
         XCTAssertFalse(issue.exists)
         XCTAssertEqual(questions(question, in: app), 1, "The question isn't duplicated by the retry")
         capture("chat-answered-back-online")
@@ -122,10 +127,17 @@ final class OfflineAndStorageJourneyTests: XCTestCase {
         let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue((composer.value as? String ?? "").contains(question), "The question stays in the box: \(String(describing: composer.value))")
         XCTAssertEqual(questions(question, in: app), 0, "Nothing was sent")
+        // The fixture's window ends 25 s after the store opened (a little after `started`): a Send just before then is
+        // refused again, harmlessly, and is tried once more.
         let wait = 26 - Date().timeIntervalSince(started)
         if wait > 0 { Thread.sleep(forTimeInterval: wait) }
-        app.buttons["chat.send"].tap()
-        XCTAssertTrue(text(containing: "This is a synthetic fixture answer", in: app).waitForExistence(timeout: 15))
+        let answer = text(containing: "This is a synthetic fixture answer", in: app)
+        for _ in 0..<6 where !answer.exists {
+            app.buttons["chat.send"].tap()
+            if answer.waitForExistence(timeout: 6) { break }
+            if alert.exists { alert.buttons.firstMatch.tap() }
+        }
+        XCTAssertTrue(answer.exists, "Sent and answered once there is room")
         XCTAssertEqual(questions(question, in: app), 1)
     }
 
