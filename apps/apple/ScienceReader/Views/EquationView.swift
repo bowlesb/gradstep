@@ -137,8 +137,9 @@ enum EquationViewOutcome {
                     transcript: [.init(role: .user, text: context.label)], selection: context.latex, action: action, profile: profile)
                     .forLocalInference(paperText: PaperChatContext.text(context.bundle.index), focus: context.paragraph)
             } else if let local = context.localContext {
-                request = try .equation(action, operationID: UUID(), label: context.label, latex: context.latex, profile: profile,
-                                        localContext: local, visualAnswers: model.visualAnswers)
+                request = try ChatGenerationRequest.equation(action, operationID: UUID(), label: context.label, latex: context.latex, profile: profile,
+                                                             localContext: local, visualAnswers: model.visualAnswers)
+                    .linked(item: context.equationID)
             } else { set(action, Part(state: .unavailable)); return }
         } catch {
             let message = localModelID != nil ? ChatFailureText.message(for: "local_context_large") : "This equation couldn’t be sent."

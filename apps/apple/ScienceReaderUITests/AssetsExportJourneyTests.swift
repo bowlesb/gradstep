@@ -75,4 +75,54 @@ final class AssetsExportJourneyTests: XCTestCase {
         XCTAssertTrue(download.waitForExistence(timeout: 10), "Back in Settings")
         XCTAssertTrue(download.isEnabled, "Ready for another export")
     }
+
+    /// A chat's figure breakdown comes with its parts' pictures, cut here from this device's copy of the paper (owner,
+    /// TestFlight 92: "Does this mean we don't sync picture content on our servers? Do we sync it across devices?"); the ⓘ
+    /// says how, and nothing is said in a footer.
+    func testFigureBreakdownsComeWithTheirPictures() throws {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=figure_parts", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        current = app
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15))
+        app.show("chat")
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("What does Figure 1 show?")
+        app.buttons["chat.send"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.message.figurePart.2"].waitForExistence(timeout: 15), "The breakdown's parts")
+        if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+
+        app.openSettingsFromMenu()
+        let download = app.buttons["settings.downloadAssets"]
+        for _ in 0..<8 where !(download.exists && download.isHittable) { app.swipeUp() }
+        XCTAssertTrue(download.waitForExistence(timeout: 5))
+        let info = app.buttons["settings.downloadAssets.info"]
+        XCTAssertTrue(info.exists)
+        info.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "each device cuts them from its own copy of the paper")).firstMatch
+            .waitForExistence(timeout: 5), "The ⓘ answers whether pictures sync")
+        capture("Download your assets: the ⓘ on figure breakdowns")
+        app.tap(); app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+
+        download.tap()
+        #if targetEnvironment(macCatalyst)
+        let offered = app.sheets.firstMatch.waitForExistence(timeout: 30) || app.dialogs.firstMatch.waitForExistence(timeout: 5)
+        #else
+        let offered = app.otherElements["ActivityListView"].waitForExistence(timeout: 30) || app.buttons["Close"].waitForExistence(timeout: 5)
+        #endif
+        XCTAssertTrue(offered, "The zip is offered")
+        let paths = (download.value as? String ?? "").components(separatedBy: "\n")
+        XCTAssertTrue(paths.contains { $0.contains("/breakdowns/") && $0.hasSuffix(".md") }, "The breakdown: \(paths)")
+        XCTAssertEqual(paths.filter { $0.contains("/breakdowns/images/") && $0.hasSuffix(".png") }.count, 2, "Both parts' pictures: \(paths)")
+        #if targetEnvironment(macCatalyst)
+        app.typeKey(.escape, modifierFlags: [])
+        #else
+        if app.buttons["Close"].exists { app.buttons["Close"].tap() } else { app.swipeDown(velocity: .fast) }
+        #endif
+        XCTAssertTrue(download.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["settings.downloadAssets.skipped"].exists, "Nothing left out is said as a footer")
+        capture("Download your assets after a download with breakdowns")
+    }
 }

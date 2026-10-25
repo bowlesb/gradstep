@@ -78,7 +78,8 @@ struct PaperExplainerContext {
         }
         guard model.chatProfileTable != nil else { state = .failed("Cloud models haven’t loaded. Try again in a moment.", retryable: true); return }
         let profile = model.equationProfile
-        guard let request = try? ChatGenerationRequest.paperExplainer(operationID: UUID(), profile: profile, localContext: local, visualAnswers: model.visualAnswers) else {
+        guard let request = try? ChatGenerationRequest.paperExplainer(operationID: UUID(), profile: profile, localContext: local, visualAnswers: model.visualAnswers)
+            .linked(item: "paper") else {
             state = .failed("This paper couldn’t be sent.", retryable: false); return
         }
         explainer = nil; text = ""; notCharged = false; answeredModel = nil

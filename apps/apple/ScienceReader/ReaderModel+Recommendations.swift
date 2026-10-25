@@ -40,6 +40,8 @@ final class RecommendationRun: Identifiable {
     /// The reader has more than one catalog, so where the papers went is worth naming.
     let namesCatalog: Bool
     let body: RecommendRequestBody
+    /// The paper it was for (its library membership), remembered on this device for Your AI usage.
+    var seedMembership: String?
     var phase: Phase = .starting
     var rows: [Row] = []
     var undoing = false
@@ -130,8 +132,10 @@ extension ReaderModel {
         guard canRecommend(paper), let sourceID = paper.sourceID,
               let body = RecommendRequestBody.make(operationID: UUID(), count: count, scope: .paper,
                                                    seeds: [(sourceID: sourceID, keywords: LibraryTags.tags(for: paper))]) else { return }
-        start(RecommendationRun(subject: .paper(title: paper.title), count: count, catalogID: currentCatalog.id,
-                                catalogName: currentCatalog.name, namesCatalog: libraryCatalogs.catalogs.count > 1, body: body))
+        let run = RecommendationRun(subject: .paper(title: paper.title), count: count, catalogID: currentCatalog.id,
+                                    catalogName: currentCatalog.name, namesCatalog: libraryCatalogs.catalogs.count > 1, body: body)
+        run.seedMembership = paper.sourceMembership?.membershipID.wire
+        start(run)
     }
 
     func recommendForCatalog(count: Int) {
@@ -146,8 +150,10 @@ extension ReaderModel {
         guard let run = recommendation, !run.isRunning,
               let body = RecommendRequestBody.make(operationID: UUID(), count: run.count, scope: run.body.scope,
                                                    seeds: run.body.seeds.map { (sourceID: $0.sourceID, keywords: $0.keywords) }) else { return }
-        start(RecommendationRun(subject: run.subject, count: run.count, catalogID: run.catalogID, catalogName: run.catalogName,
-                                namesCatalog: run.namesCatalog, body: body))
+        let again = RecommendationRun(subject: run.subject, count: run.count, catalogID: run.catalogID, catalogName: run.catalogName,
+                                      namesCatalog: run.namesCatalog, body: body)
+        again.seedMembership = run.seedMembership
+        start(again)
     }
 
     /// Get credits from the sheet: it closes first, then the store opens.
@@ -163,6 +169,7 @@ extension ReaderModel {
         guard let service = recommendationService else { openSignIn(); return }
         // An earlier request keeps running on its own (its papers are still filed); the sheet shows the new one.
         recommendation = run; showRecommendations = true
+        rememberRecommendation(run)
         let scope = sessionID
         run.task = Task { [weak self] in await self?.consume(run, service: service, scope: scope, replays: 1) }
     }
@@ -182,6 +189,7 @@ extension ReaderModel {
                     run.rows.append(.init(paper: paper, state: state))
                     if paper.status == .added {
                         added = true
+                        rememberRecommendation(run)
                         #if DEBUG && FIXTURE_HOST
                         if RecommendFixture.isEnabled, let record = RecommendFixture.importRecord(for: paper) { insertFixtureImport(record) }
                         #endif

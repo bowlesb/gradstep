@@ -90,6 +90,28 @@ final class RecommendationJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["paper.\(attention)"].exists, "The paper it started from stays")
     }
 
+    /// The request's card sits directly under the sheet's title and stays where it is as the papers arrive (owner,
+    /// TestFlight 92: "Little box appears too far down").
+    func testTheCardSitsUnderTheTitleAndStaysPut() {
+        let app = launch()
+        recommend(3, in: app)
+        let bar = app.navigationBars["Recommended papers"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 5))
+        let subtitle = app.staticTexts["Like “Attention Is All You Need”"]
+        XCTAssertTrue(element("recommend.status", app).waitForExistence(timeout: 3), "Still running")
+        XCTAssertTrue(subtitle.exists)
+        let top = subtitle.frame.minY
+        save("recommend-card-running-\(device)")
+        // From the title's words (the bar's own frame reaches further down, under its scroll edge).
+        let title = bar.staticTexts["Recommended papers"].firstMatch
+        let gap = top - (title.exists ? title.frame.maxY : bar.frame.maxY)
+        XCTAssertLessThan(gap, 48, "The card's first line is right under the title (\(gap) pt)")
+        XCTAssertTrue(element("recommend.footer", app).waitForExistence(timeout: 8), "The papers arrived")
+        XCTAssertTrue(element("recommend.row.2004.05150", app).exists)
+        XCTAssertEqual(subtitle.frame.minY, top, accuracy: 1, "Nothing above the results moved")
+        save("recommend-card-done-\(device)")
+    }
+
     /// Closing the sheet early never stops the request: its papers still arrive in the Library.
     func testClosingTheSheetKeepsTheRequestRunning() {
         let app = launch(["-appearance", "dark"])

@@ -5,13 +5,20 @@ import UniformTypeIdentifiers
 
 /// Settings › Your assets › Download your assets (owner, build 82: "Need a download assets button"): one action at the
 /// bottom of the group. The zip is made on this device (AssetsExporter), then offered with the share sheet on iPhone and
-/// iPad (Save to Files, AirDrop…) and a save panel on the Mac. Downloaded papers aren't in it; the ⓘ says so.
+/// iPad (Save to Files, AirDrop…) and a save panel on the Mac. Downloaded papers aren't in it; the ⓘ says so, says how
+/// figure breakdowns' pictures are made (owner, TestFlight 92: "Does this mean we don't sync picture content on our
+/// servers? Do we sync it across devices?"), and what the last download left out (never a footer).
 struct AssetsExportRow: View {
     @Bindable var model: ReaderModel
     @State private var exporter = AssetsExporter()
     @State private var presenting = false
 
-    static let info = "A .zip of your chats, diagrams, snippets (with their images) and the explanations kept on this device, put together here. Downloaded papers aren’t included."
+    static let info = "A .zip of your chats, diagrams, figure breakdowns, snippets (with their images) and the explanations kept on this device, put together here. Downloaded papers aren’t included. "
+        + "A figure breakdown’s notes sync across your devices with its chat, encrypted, but its pictures are never stored or uploaded: each device cuts them from its own copy of the paper, so they’re included when the paper is downloaded on this device."
+    /// The ⓘ, with what the last download left out.
+    private var infoText: String {
+        exporter.skipped.isEmpty ? Self.info : Self.info + "\n\nLeft out of your last download: " + exporter.skipped.joined(separator: " ")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -22,7 +29,7 @@ struct AssetsExportRow: View {
                     #if DEBUG && FIXTURE_HOST
                     .accessibilityValue(exporter.files.joined(separator: "\n"))
                     #endif
-                InfoButton(text: Self.info, identifier: "settings.downloadAssets.info")
+                InfoButton(text: infoText, identifier: "settings.downloadAssets.info")
                 Spacer(minLength: 0)
             }
             if case .preparing(let done, let total) = exporter.state {
@@ -33,10 +40,6 @@ struct AssetsExportRow: View {
             }
             if case .failed(let message) = exporter.state {
                 Text(message).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("settings.downloadAssets.failure")
-            } else if !exporter.isPreparing, !exporter.skipped.isEmpty {
-                // What the last export left out, as its README lists it.
-                Text(exporter.skipped.joined(separator: " ")).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("settings.downloadAssets.skipped")
             }
         }
         .onChange(of: exporter.state) { _, state in if case .ready = state { presenting = true } }

@@ -62,6 +62,18 @@ public enum AIUsageOutcome: String, Decodable, Sendable {
         }
     }
     public var isProblem: Bool { self == .failed || self == .checking }
+    /// Whether the row's tokens are what the provider reported for a finished request. A request that didn't finish, wasn't
+    /// charged, or hasn't been settled carries what was set aside for it (its input estimated from its size, its whole
+    /// output allowance), not what was used (TestFlight 92: a failed question read "132k in · 10k out"); those aren't shown.
+    public var reportsTokens: Bool { !(self == .failed || self == .notCharged || self == .inProgress || self == .checking) }
+    /// Said where the parts' tokens would be, when they aren't shown.
+    public var unreportedTokens: String? {
+        switch self {
+        case .failed, .notCharged: "Its tokens aren’t shown: what was set aside for it isn’t what was used."
+        case .inProgress, .checking: "Its tokens are shown once it’s settled."
+        default: nil
+        }
+    }
 }
 
 public enum AIUsagePartName: String, Sendable {
@@ -213,17 +225,31 @@ public struct AIUsagePage: Decodable, Equatable, Sendable {
     }
 }
 
-/// What this device knew when it started an answer: the conversation kind and the paper's library identity, never its title.
+/// What this device knew when it started an answer: the conversation kind and the paper's library identity, never its title;
+/// and, for the row's link back (owner, TestFlight 92: "a link here to the original resource in context"), the conversation
+/// the answer went into, or the explainer's subject (the paper revision's bundle and the equation's or figure's id in it),
+/// or a recommendation's catalog and the library entries it added. Ids only; older entries decode without them.
 public struct AIUsageProvenance: Codable, Equatable, Sendable {
-    public enum Kind: String, Codable, Sendable { case paper, general, explain }
+    public enum Kind: String, Codable, Sendable { case paper, general, explain, recommendation }
     public let kind: Kind
-    /// The library membership (import) the local paper context named.
+    /// The library membership (import) the local paper context named; a recommendation's seed paper.
     public let membershipID: String?
     /// The paper's document, for a server-side paper.
     public let documentID: UUID?
+    /// The conversation the answer went into (chat, Explain in Chat, Study, Related papers, Why it matters, Add paper).
+    public var conversationID: UUID?
+    /// The chat action (`figure`, `equation`, `paper_explainer`, …) and the item it explains: the equation's or figure's id
+    /// in the paper's bundle, "paper" for the paper's AI Explainer.
+    public var action: String?
+    public var itemID: String?
+    /// Recommendations: the catalog the papers were filed in, and the library entries (memberships) added.
+    public var catalogID: UUID?
+    public var added: [String]?
 
-    public init(kind: Kind, membershipID: String? = nil, documentID: UUID? = nil) {
-        self.kind = kind; self.membershipID = membershipID; self.documentID = documentID
+    public init(kind: Kind, membershipID: String? = nil, documentID: UUID? = nil, conversationID: UUID? = nil, action: String? = nil,
+                itemID: String? = nil, catalogID: UUID? = nil, added: [String]? = nil) {
+        self.kind = kind; self.membershipID = membershipID; self.documentID = documentID; self.conversationID = conversationID
+        self.action = action; self.itemID = itemID; self.catalogID = catalogID; self.added = added
     }
 
     /// A question started from a passage (Explain in Chat and the other selection questions) is "explain"; the selection
@@ -233,6 +259,10 @@ public struct AIUsageProvenance: Codable, Equatable, Sendable {
         kind = !paper ? .general : (request.selection != nil && request.action == nil ? .explain : .paper)
         membershipID = request.localContext?.membershipID
         documentID = request.documentID
+        conversationID = request.usageConversationID
+        action = request.action?.rawValue
+        itemID = request.usageItemID
+        catalogID = nil; added = nil
     }
 }
 
@@ -275,10 +305,13 @@ public enum AIUsageFormat {
     /// The row's activity: chat is named for what this device knew when it started it.
     public static func activityLabel(_ activity: AIUsageActivity, provenance: AIUsageProvenance?) -> String {
         guard activity == .chat, let provenance else { return activity.name }
+        // The paper's AI Explainer is metered as chat (it is a chat action without a conversation).
+        if provenance.action == ChatAction.paperExplainer.rawValue { return "AI Explainer" }
         switch provenance.kind {
         case .explain: return "Explain in Chat"
         case .paper: return "Paper chat"
         case .general: return "General chat"
+        case .recommendation: return activity.name
         }
     }
 

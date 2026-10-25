@@ -198,6 +198,18 @@ const PART_LABELS: Record<UsagePartName, string> = {
 export function partLabel(part: UsagePartName): string { return PART_LABELS[part]; }
 
 /** A short word beside the credits when the row isn't an ordinary finished charge. */
+/** Whether a row's tokens are what the provider reported for a finished request (Swift `AIUsageOutcome.reportsTokens`). A
+ * request that didn't finish, wasn't charged or hasn't been settled carries what was set aside for it, not what was used. */
+export function reportsTokens(outcome: UsageOutcome): boolean {
+  return !(outcome === 'failed' || outcome === 'not_charged' || outcome === 'in_progress' || outcome === 'checking');
+}
+/** Said where the parts' tokens would be, when they aren't shown. */
+export function unreportedTokens(outcome: UsageOutcome): string | null {
+  if (outcome === 'failed' || outcome === 'not_charged') return 'Its tokens aren’t shown: what was set aside for it isn’t what was used.';
+  if (outcome === 'in_progress' || outcome === 'checking') return 'Its tokens are shown once it’s settled.';
+  return null;
+}
+
 export function outcomeLabel(outcome: UsageOutcome): string | null {
   switch (outcome) {
     case 'completed': return null;

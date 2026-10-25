@@ -5022,6 +5022,7 @@ final class ReaderModel {
                                                      transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
                                                      studyNotes: turn.studyNotes, visualAnswers: visualAnswers, figures: figures)
+                .linked(conversation: turn.conversationID)
             }
         } catch ChatTransportError.rejected(let code) {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: code, premium: ReaderModel.isPremium(choices.profile.model))
@@ -5165,7 +5166,8 @@ final class ReaderModel {
     private func checkedDiagram(_ drawn: (title: String, source: String), generation: ChatGeneration,
                                 transport: any ChatTransport) async -> (title: String, source: String) {
         guard case .invalid(let error) = await diagramCheck(drawn.source), !Task.isCancelled, ownsGeneration(generation),
-              let request = ChatGenerationRequest.diagramRepair(operationID: UUID(), title: drawn.title, source: drawn.source, error: error)
+              let request = ChatGenerationRequest.diagramRepair(operationID: UUID(), title: drawn.title, source: drawn.source, error: error)?
+                .linked(conversation: generation.turn.conversationID)
         else { return drawn }
         chatStreamProgress[generation.id] = ChatProgress(kind: .fixingDiagram)
         var fixed: String?
@@ -5782,6 +5784,13 @@ final class ReaderModel {
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("workflow-draft-fixture", isDirectory: true)
         if reset, FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+        // This device's usage records name the reset store's conversations: they go with it (AIUsageFixture lists them).
+        if reset {
+            for key in UserDefaults.standard.dictionaryRepresentation().keys
+            where key.hasPrefix("gradstep.usage-provenance.v1.") && key.hasSuffix(fixtureAccount.uuidString.lowercased()) {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
         let encoded = try JSONSerialization.data(withJSONObject: [
             "accountID": fixtureAccount.uuidString, "epoch": 1,
             "contentKeys": ["1": Data(repeating: 17, count: 32).base64EncodedString()],
