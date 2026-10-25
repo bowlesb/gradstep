@@ -8,7 +8,8 @@ import WebKit
 // figure/table page's Add to note, or the local PDF reader's) fixes the page, a drag draws a box in either direction,
 // four corners (44 pt targets) and the inside adjust it, and Use snippet opens the composer. The overlay takes every
 // touch while it is up, so the page can't scroll, select or open Contents underneath; nothing in the reader's own
-// gesture handling is replaced. Cancel (Escape) restores reading. Edges can also be set without dragging.
+// gesture handling is replaced. Cancel (Escape) restores reading. Use snippet sits alone in the bottom-right corner (owner,
+// TestFlight 91); the whole page and each edge are VoiceOver actions, and ⌘A takes the whole page.
 
 /// The host's top bar while drawing: Cancel and what to do (the page's own controls step aside; nothing moves).
 struct SnippetCaptureToolbar: ToolbarContent {
@@ -20,12 +21,9 @@ struct SnippetCaptureToolbar: ToolbarContent {
                 .accessibilityIdentifier("capture.cancel")
         }
         ToolbarItem(placement: .principal) {
-            VStack(spacing: 0) {
-                Text("Draw snippet").font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text("Drag around anything on the page").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            .dynamicTypeSize(...DynamicTypeSize.xLarge)
-            .accessibilityElement(children: .combine)
+            Text("Draw snippet").font(.subheadline.weight(.semibold)).lineLimit(1)
+                .dynamicTypeSize(...DynamicTypeSize.xLarge)
+                .accessibilityAddTraits(.isHeader)
         }
     }
 }
@@ -50,7 +48,6 @@ struct SnippetCaptureOverlay: View {
     @State private var size: CGSize = .zero
     @State private var working = false
     @State private var issue: String?
-    @State private var showsEdges = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let minimum: CGFloat = 24
     private static let handleReach: CGFloat = 22
@@ -59,11 +56,13 @@ struct SnippetCaptureOverlay: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
+            // Owner, TestFlight 91: "you just need the button, Use snippet… put it in the bottom right… you don't need the
+            // enclosure. None of this other stuff": the box with its corners, and one button in the corner. Cancel is the
+            // bar's; the whole page and each edge stay as VoiceOver actions and keyboard shortcuts.
+            ZStack(alignment: .bottomTrailing) {
                 surface(in: proxy.size)
-                panel(in: proxy.size)
-                    .padding(.horizontal, 12).padding(.bottom, 10)
-                    .frame(maxWidth: 560)
+                controls(in: proxy.size)
+                    .padding(.trailing, 16).padding(.bottom, 16).padding(.leading, 16)
             }
             .onAppear {
                 size = proxy.size
@@ -81,7 +80,7 @@ struct SnippetCaptureOverlay: View {
 
     // MARK: Drawing surface
 
-    private func surface(in size: CGSize) -> some View {
+    private func drawing(in size: CGSize) -> some View {
         let bounds = CGRect(origin: .zero, size: size)
         return ZStack(alignment: .topLeading) {
             // Dim outside the box (lightly before one is drawn, so the page stays readable).
@@ -113,7 +112,43 @@ struct SnippetCaptureOverlay: View {
         .accessibilityLabel("Snippet area")
         .accessibilityIdentifier("capture.overlay")
         .accessibilityValue(rect.map { "\(Int($0.width)) by \(Int($0.height)) points" } ?? "No box drawn")
-        .accessibilityHint("Drag to draw a box, or use Whole page and Adjust edges.")
+        .accessibilityHint("Drag to draw a box. Actions choose the whole page or move each edge.")
+    }
+
+    /// Drawing is never the only way to choose a region: the whole page, then each edge in steps (VoiceOver actions).
+    private func surface(in size: CGSize) -> some View {
+        drawing(in: size)
+        .accessibilityAction(named: wholeTitle) { selectWhole(in: size) }
+        .accessibilityAction(named: "Move top edge up") { nudge(.top, by: -1, in: size) }
+        .accessibilityAction(named: "Move top edge down") { nudge(.top, by: 1, in: size) }
+        .accessibilityAction(named: "Move bottom edge up") { nudge(.bottom, by: -1, in: size) }
+        .accessibilityAction(named: "Move bottom edge down") { nudge(.bottom, by: 1, in: size) }
+        .accessibilityAction(named: "Move left edge left") { nudge(.left, by: -1, in: size) }
+        .accessibilityAction(named: "Move left edge right") { nudge(.left, by: 1, in: size) }
+        .accessibilityAction(named: "Move right edge left") { nudge(.right, by: -1, in: size) }
+        .accessibilityAction(named: "Move right edge right") { nudge(.right, by: 1, in: size) }
+    }
+
+    private enum Edge { case top, bottom, left, right }
+
+    private func selectWhole(in size: CGSize) {
+        rect = CGRect(origin: .zero, size: size).insetBy(dx: 4, dy: 4); issue = nil
+    }
+
+    /// One step of an edge (a twentieth of the page, at least 16 pt), keeping the box at least its minimum size.
+    private func nudge(_ edge: Edge, by direction: CGFloat, in size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        var box = rect ?? CGRect(origin: .zero, size: size).insetBy(dx: size.width * 0.15, dy: size.height * 0.3)
+        let stepX = max(16, size.width / 20) * direction, stepY = max(16, size.height / 20) * direction
+        var minX = box.minX, minY = box.minY, maxX = box.maxX, maxY = box.maxY
+        switch edge {
+        case .top: minY = min(max(0, minY + stepY), maxY - Self.minimum)
+        case .bottom: maxY = max(min(size.height, maxY + stepY), minY + Self.minimum)
+        case .left: minX = min(max(0, minX + stepX), maxX - Self.minimum)
+        case .right: maxX = max(min(size.width, maxX + stepX), minX + Self.minimum)
+        }
+        box = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        rect = box; issue = nil
     }
 
     private func changed(_ value: DragGesture.Value, bounds: CGRect) {
@@ -162,67 +197,34 @@ struct SnippetCaptureOverlay: View {
 
     // MARK: Controls
 
-    private func panel(in size: CGSize) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(issue ?? rect.map { box in
-                    box.width < Self.minimum || box.height < Self.minimum ? "Too small · draw a larger box"
-                        : "\(Int(box.width)) × \(Int(box.height)) · Drag corners to adjust"
-                } ?? "Draw a box around what you want to keep.")
-                    .font(.footnote).foregroundStyle(issue == nil ? Color.secondary : Color.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+    /// Use snippet in the bottom-right corner, alone (owner, TestFlight 91). A problem (the page changed size, a capture
+    /// failed) shows beside it until the box is drawn again. ⌘A takes the whole page.
+    private func controls(in size: CGSize) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Spacer(minLength: 0)
+            if let issue {
+                Text(issue).font(.footnote).foregroundStyle(.primary).multilineTextAlignment(.trailing)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .chromeSurface(Capsule())
                     .accessibilityIdentifier("capture.status")
-                Spacer(minLength: 4)
-                Button(wholeTitle) { rect = CGRect(origin: .zero, size: size).insetBy(dx: 4, dy: 4); issue = nil }
-                    .font(.footnote.weight(.semibold)).accessibilityIdentifier("capture.whole")
             }
-            if showsEdges, rect != nil { edgeControls(in: size) }
-            HStack(spacing: 12) {
-                Button(showsEdges ? "Hide edges" : "Adjust edges") {
-                    if rect == nil { rect = CGRect(origin: .zero, size: size).insetBy(dx: size.width * 0.15, dy: size.height * 0.3) }
-                    showsEdges.toggle()
+            Button { use() } label: {
+                HStack(spacing: 6) {
+                    if working { ProgressView().controlSize(.small).tint(.white) }
+                    Text("Use snippet").font(.body.weight(.semibold))
                 }
-                .font(.subheadline).accessibilityIdentifier("capture.edges")
-                Spacer()
-                Button { use() } label: {
-                    HStack(spacing: 6) {
-                        if working { ProgressView().controlSize(.small) }
-                        Text("Use snippet").font(.body.weight(.semibold))
-                    }
-                    .padding(.horizontal, 18).frame(minHeight: 44)
-                }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                .disabled(!usable)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("capture.use")
+                .padding(.horizontal, 18).frame(minHeight: 44)
             }
+            .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+            .disabled(!usable)
+            .keyboardShortcut(.defaultAction)
+            .accessibilityHint(rect == nil ? "Draw a box around what you want to keep first." : "")
+            .accessibilityIdentifier("capture.use")
         }
-        .padding(14)
-        .chromeSurface(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    /// Each edge on its own control: drawing is never the only way to choose a region.
-    private func edgeControls(in size: CGSize) -> some View {
-        VStack(spacing: 4) {
-            edge("Left edge", value: Binding(get: { rect?.minX ?? 0 }, set: { x in
-                guard let box = rect else { return }; let value = min(x, box.maxX - Self.minimum); rect = CGRect(x: value, y: box.minY, width: box.maxX - value, height: box.height)
-            }), range: 0...max(1, size.width))
-            edge("Right edge", value: Binding(get: { rect?.maxX ?? 0 }, set: { x in
-                guard let box = rect else { return }; rect = CGRect(x: box.minX, y: box.minY, width: max(Self.minimum, x - box.minX), height: box.height)
-            }), range: 0...max(1, size.width))
-            edge("Top edge", value: Binding(get: { rect?.minY ?? 0 }, set: { y in
-                guard let box = rect else { return }; let value = min(y, box.maxY - Self.minimum); rect = CGRect(x: box.minX, y: value, width: box.width, height: box.maxY - value)
-            }), range: 0...max(1, size.height))
-            edge("Bottom edge", value: Binding(get: { rect?.maxY ?? 0 }, set: { y in
-                guard let box = rect else { return }; rect = CGRect(x: box.minX, y: box.minY, width: box.width, height: max(Self.minimum, y - box.minY))
-            }), range: 0...max(1, size.height))
-        }
-    }
-
-    private func edge(_ title: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>) -> some View {
-        HStack {
-            Text(title).font(.caption).foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
-            Slider(value: value, in: range, step: 2).accessibilityLabel(title)
+        .background {
+            Button(wholeTitle) { selectWhole(in: size) }.keyboardShortcut("a")
+                .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false)
         }
     }
 

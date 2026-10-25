@@ -129,6 +129,20 @@ suites pass: `FeedForYouTests` (iPad 11/11; iPhone 17 Pro all run, the ⓘ tests
 error under load), `IPadShapesJourneyTests` 18/18 (5 re-run on a quiet Simulator after load-average-500 timeouts),
 `MenusJourneyTests.testAnAppSheetUprightSpansTheWindow`, `FeedPersonalizationTests` and `PaperTableTests`. Screens before/after: `.artifacts/sessions/20261024-160529/fixes/`. Needs the owner's eye on a device: whether
 the instant change feels right.
+Snippets, owner feedback on 91 (recorded iPad session; native apps; spec and causes in
+[NOTES_AND_SNIPPETS.md](architecture/NOTES_AND_SNIPPETS.md#snippets-owner-feedback-on-testflight-91-2026-10-24-native-local-source-not-released)):
+the open collection's name is renamed in place (a UIKit field in its bar or Wide row; Return or leaving saves, Escape or
+an empty name restores; ⋯ › Rename collection focuses it). Search (`NoteSearch`) matches word beginnings, case and
+diacritics folded, over names, comments, quotations, paper titles, authors, arXiv IDs, sections, labels, the reading's
+text and LaTeX under a drawn region, and text Vision recognises in each image once on the device (sealed
+`SnippetTextStore`, never synced); placeholder "Names, comments, text, papers". Rows are two lines (name, "N snippets" or
+"No snippets yet"). Collapse all / Expand all are one step (the animated `LazyVStack` change was reproduced frame by
+frame). Drawing a snippet shows the box and Use snippet in the bottom-right corner only. Verified: Core `swift test`
+Notes suites (36 tests, including new `NoteSearchTests`, `NoteCollectionLineTests`); UI `SnippetsFeedbackTests` (6) on
+iPad Pro 13-inch upright and iPhone 17 Pro, rename and capture also sideways; `NotesJourneyTests` rename, collapse and
+cards journeys. Not verified: Escape with a hardware keyboard (the Simulator's on-screen keyboard drops a synthesized
+Escape; the empty-name path is tested instead), the Mac, the physical device. `NotesJourneyTests.testNotesInTheWideLayout`
+fails at Settings in the collection's ⋯ (the menu, unchanged here, opens without Settings in view sideways).
 
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
 
