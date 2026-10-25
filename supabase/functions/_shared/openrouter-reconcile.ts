@@ -15,13 +15,16 @@ export interface ReconcileDeps {
 }
 interface Claim { attempt_id: string; account_id: string; operation_id: string; generation_id: string; transport_model: string | null; feature: string | null }
 const PROVIDER = /^[a-zA-Z0-9 ./_-]{1,80}$/;
-/** The record's model is the one dispatched: the same slug, a longer release of it ("…-flash" → "…-flash-20261017"), or
- * the slug without the date it was dispatched under ("…-v4.1-flash-1017" read back as "…-v4.1-flash"; 2026-10-22's
- * DeepSeek attempt stayed `mismatch` for ten tries). Only a trailing date or release number may differ. */
+/** The record's model is the one dispatched: the same slug, a longer release of it ("…-flash" → "…-flash-20261017"), the
+ * slug without the date it was dispatched under ("…-v4.1-flash-1017" read back as "…-v4.1-flash"), or the same date
+ * written in full ("…-v4.1-flash-1017" read back as "…-v4.1-flash-20261017": OpenRouter's record of 2026-10-22's DeepSeek
+ * attempt, which stayed `mismatch` for eleven tries; looked up 2026-10-25). Only a trailing date or release number may
+ * differ, and a shortened date must be the end of the full one. */
 export function sameModel(recorded: string, expected: string): boolean {
-  // As before: the record may name a longer release of the dispatched slug. New: the record may drop a trailing date.
-  return recorded === expected || recorded.startsWith(`${expected}-`)
-    || (expected.startsWith(`${recorded}-`) && /^\d{3,8}$/.test(expected.slice(recorded.length + 1)));
+  if (recorded === expected || recorded.startsWith(`${expected}-`)) return true;
+  if (expected.startsWith(`${recorded}-`) && /^\d{3,8}$/.test(expected.slice(recorded.length + 1))) return true;
+  const dated = /^(.+)-(\d{3,8})$/, a = dated.exec(recorded), b = dated.exec(expected);
+  return !!a && !!b && a[1] === b[1] && (a[2].endsWith(b[2]) || b[2].endsWith(a[2]));
 }
 
 export async function reconcileOpenRouterAttempts(deps: ReconcileDeps, limits: { batch?: number; budgetMs?: number } = {}) {

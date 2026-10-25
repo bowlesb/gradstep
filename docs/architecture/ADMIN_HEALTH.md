@@ -33,6 +33,14 @@ after closing and never tried by the sweep) and `sweep` (the worker's last good 
 SQLSTATE or `list_failed`, the last duration). Attention names three failed listings in a row, no good listing for 15
 minutes, or an untried deletion: from 2026-10-12 every listing timed out and nothing on Health showed it.
 
+**Added 2026-10-25 (migration 0161, model health; local, not deployed).** `admin_health_extra.models` is
+`app_private.model_health(24)`: for each OpenRouter model over the last 24 hours, the calls it answered and failed (the
+reader leaving, balance refusals and our own lost calls counted apart, as `other`), failures by code, and the p50/p90 time
+to its first output (`first_data_ms`, recorded from this migration on) and p90 whole call. Attention names a model with at
+least 10 calls answering under 90 % of them, or with a p90 first output over 20 s (at least 10 timed calls). On staging
+on 2026-10-25 it would have said "Gemini 3.8 Flash answered 8 of 12 calls in the last 24 hours (67 %…)": nothing did. The
+workflow check `models.health` mirrors it ([CHAT.md](CHAT.md#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed)).
+
 **Added 2026-10-24 (migration 0152, [INTEREST_INDEX.md](INTEREST_INDEX.md)).** `admin_health_extra` carries
 `interest_index` (`app_private.interest_health()`): papers embedded, pending and failed (pool and catalog), the last
 run, the published map (version, kind, age, nodes per level, leaf sizes, kept share, cohesion), artifact sizes and

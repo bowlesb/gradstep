@@ -13,6 +13,28 @@ Provider SDK and search transport retries are disabled. A new explicit request, 
 continuation, needs a new grant and must fit the operation's remaining ceiling. The database records
 admission, final usage and reconciliation; application logs contain identifiers and counts only.
 
+## A fallback attempt, first output times and dated records (2026-10-25; local, not deployed)
+
+[Design and evidence](CHAT.md#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed). An answer whose chosen model (Gemini Flash) fails before any of its
+output arrived is asked once of its fallback (Claude Haiku 5.5, the same pinned Vertex US endpoint and terms). Accounting:
+
+- **A second attempt, no new rule.** The fallback is the operation's next ordinal attempt: admitted and dispatched in one
+  transaction with its own model, ceiling and pricing snapshot, finished with its exact bill. Admission's existing
+  operation bound decides whether it may be sent: only if its whole ceiling fits beside the first attempt's (a refused
+  first attempt counts zero; a silent one its whole unresolved ceiling). The answer's part of the hold is the larger of the
+  two models' ceilings (Haiku's passes Flash's only through its long-prompt tier on long papers); the quote and the
+  customer cap are unchanged; a fallback that does not fit is not sent and the reader gets the first failure.
+- **What the reader pays.** Only the attempt that answered (`readerPriceAttempts`: a refused attempt has no cost, a silent
+  one's estimate carries `readerMicrousd: 0`), at most the hold. The rest is Gradstep's and stays in the month's spend.
+- **Refusals that cost nothing.** OpenRouter's HTTP 503 ("no available provider meets your routing requirements") is now
+  exactly zero, as its 429 was: no provider ran. 5xx other than 503 keep their unknown liability.
+- **`first_data_ms`** (migration 0161) joins the provider units: milliseconds from sending to the model's first output,
+  recorded with the finished attempt by `admittedModelCalls`. Apply 0161 before deploying `chat` or `recommend`: the old
+  validator refuses the new unit, and an unrecorded finish turns a finished answer into our server's failure.
+- **Dated records.** OpenRouter's record of a DeepSeek attempt names `deepseek/deepseek-v4.1-flash-20261017` for the
+  dispatched `…-flash-1017`; `sameModel` (reconciler and the stopped-answer read) now accepts the same date written in
+  full. The 2026-10-22 attempt had stayed `mismatch` for 11 of its 12 tries with its 48,750 µ$ ceiling held.
+
 ## OpenRouter only (2026-10-21; design and local evidence, not deployed)
 
 Owner, 2026-10-21: "exclusively use open router for better breakdowns of user by cost". Design for migrations 0140

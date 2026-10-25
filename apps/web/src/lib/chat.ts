@@ -3,7 +3,7 @@
 // wording, and what an outcome keeps (complete, interrupted, or nothing). The request carries plaintext only to the
 // chat function; the answer comes back here and is sealed into encrypted history.
 import { BackendError, functionStream, rpc } from './backend';
-import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profiles';
+import { isStandard, modelName, STANDARD_PROFILE, type ProfileChoice } from './chat-profiles';
 import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
 import { studyNotes, type StudyNotes } from './study';
 import { parsePaperExplainer, parsePaperItem, type PaperExplainer, type PaperExplainerItem, type PaperExplainerKind } from './paper-explainer';
@@ -105,8 +105,10 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
 // ---------- Stream events ----------
 
 /** `looking_at_figure` is the browser's own: the figure a question names (or the model asked for) went with it. `waiting`
- * and `thinking` (servers from 2026-10-25): the model hasn't sent anything back yet, then it has started. */
-export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'looking_at_figure' | 'waiting' | 'thinking';
+ * and `thinking` (servers from 2026-10-25): the model hasn't sent anything back yet, then it has started. `switching`
+ * (servers from 2026-10-25, CHAT.md "A fallback when the chosen model fails before writing"): the chosen model failed
+ * before writing and the answer is asked of its fallback; `query` is that model's name ("Claude Haiku 5.5"). */
+export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'looking_at_figure' | 'waiting' | 'thinking' | 'switching';
 export interface Progress { kind: ProgressKind; query?: string }
 export type StreamEvent =
   | { type: 'delta'; text: string } | { type: 'diagram'; title: string; source: string } | { type: 'status'; progress: Progress }
@@ -163,6 +165,7 @@ export function progressText(p: Progress): string {
     case 'looking_at_figure': return p.query ? `Looking at ${p.query}…` : 'Looking at the figure…';
     case 'waiting': return 'Still waiting for the model…';
     case 'thinking': return 'Thinking…';
+    case 'switching': return p.query ? `Switching to ${p.query}…` : 'Switching to another model…';
   }
 }
 
@@ -239,8 +242,11 @@ export class SSEParser {
       case 'status': {
         // Informational: unknown kinds or malformed statuses are ignored, never fatal.
         const kind = v?.kind;
-        if (kind !== 'searching' && kind !== 'reading' && kind !== 'finding_paper' && kind !== 'adding_paper' && kind !== 'waiting' && kind !== 'thinking') return null;
-        const query = kind === 'searching' && typeof v?.query === 'string' ? v.query.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim().slice(0, 200) : '';
+        if (kind !== 'searching' && kind !== 'reading' && kind !== 'finding_paper' && kind !== 'adding_paper' && kind !== 'waiting' && kind !== 'thinking' && kind !== 'switching') return null;
+        // `switching` names the fallback by its client identity (a `done.model` label), shown by its name.
+        const fallback = kind === 'switching' ? streamLabel(v?.model) : undefined;
+        const query = kind === 'searching' && typeof v?.query === 'string' ? v.query.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim().slice(0, 200)
+          : fallback ? modelName(fallback) : '';
         return { type: 'status', progress: query ? { kind, query } : { kind } };
       }
       case 'title': {

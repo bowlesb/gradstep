@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { Budget, Health as HealthData } from './backend';
+import type { Budget, Health as HealthData, ModelHealth } from './backend';
 import { providerName } from './provider-hours';
 import { BarList, ChartFrame, clock, columnPath, COUNT_STEPS, dayLong, formatDay, humanize, Legend, linePath, MARGIN, niceTicks, percent, plural, runs,
   Stat, timeScale, Tooltip, useDayCursor, useWidth, XAxis, YGrid } from './charts';
@@ -224,6 +224,8 @@ function derive(data: HealthData, budget: Budget | null) {
       attention.push({ tone: 'warning', text: `${percent(errors / r.calls)} of ${r.calls.toLocaleString()} calls to ${providerName(r.provider)} failed or were throttled in the last hour.` });
     }
   }
+  // Migration 0161: a model answering under 90 % of its calls, or slow to start (p90 first output over 20 s), in 24 hours.
+  for (const item of data.models?.attention ?? []) attention.push({ tone: 'warning', text: modelAttention(item, data.models!) });
   // These groups name the logical provider, including historical direct calls. Current model calls bill through
   // OpenRouter; use the attempt's transport metadata rather than telling an operator to fund the model maker.
   const billing = data.provider_billing;
@@ -250,6 +252,19 @@ function derive(data: HealthData, budget: Budget | null) {
   const errorProviders = [...errorTotals].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([p]) => p);
   return { people: data.people.daily, forecast, perActive, perActiveMonth, cacheShare: cacheTotal ? cache.read_tokens / cacheTotal : null, providers, errorProviders, attention };
 }
+
+/** "Gemini 3.8 Flash answered 8 of 12 calls in the last 24 hours (67 %; …)": the model, what failed, what to do. */
+export function modelAttention(item: ModelHealth['attention'][number], health: ModelHealth): string {
+  const name = modelName(item.model), hours = health.window_hours;
+  if (item.kind === 'model_slow_start') return `${name} took ${(item.p90_first_data_ms / 1000).toFixed(1)} s to start writing on 1 call in 10 over the last ${hours} hours (p90 of ${item.timed.toLocaleString()} calls; threshold ${health.thresholds.p90_first_data_ms / 1000} s). Readers wait on "Still waiting for the model…"; answers with a fallback switch to it sooner.`;
+  const failed = Object.entries(item.failures).filter(([code]) => !['aborted', 'provider_billing', 'transport_unknown'].includes(code))
+    .sort((a, b) => b[1] - a[1]).map(([code, n]) => `${n} ${codeName(code)}`).join(', ');
+  return `${name} answered ${item.answered.toLocaleString()} of ${item.calls.toLocaleString()} calls in the last ${hours} hours (${percent(item.success_rate)}; threshold ${percent(health.thresholds.success_rate)})${failed ? `: ${failed}` : ''}. Its failed answers were not charged; see the attempts in Spending (CHAT.md "A fallback when the chosen model fails before writing").`;
+}
+const MODEL_NAMES: Record<string, string> = { 'gemini-3.8-flash': 'Gemini 3.8 Flash', 'anthropic/claude-haiku-5.5': 'Claude Haiku 5.5',
+  'anthropic/claude-sonnet-5.5': 'Claude Sonnet 5.5', 'anthropic/claude-opus-5.5': 'Claude Opus 5.5', 'deepseek/deepseek-v4.1-flash-1017': 'DeepSeek V4.1 Flash',
+  'deepseek/deepseek-v4-pro-0813': 'DeepSeek V4 Pro', 'google/gemini-3.8-flash-tts': 'Gemini 3.8 Flash TTS' };
+const modelName = (model: string) => MODEL_NAMES[model] ?? model;
 
 type InterestIndex = NonNullable<HealthData['interest_index']>;
 

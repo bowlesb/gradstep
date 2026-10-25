@@ -446,7 +446,11 @@ check('config.function-secrets', { title: 'Function secrets exist (names only)',
   const modes = ['on', 'hidden', 'off'];
   if (switched && modes.some(m => sha256(m) === switched) && switched !== sha256(deepseek))
     return fail(`CHAT_DEEPSEEK is ${modes.find(m => sha256(m) === switched)}, infra says ${deepseek}`);
-  return pass(`${required.length} required present, no direct-provider key; web search ${want}; chat DeepSeek (OpenRouter) ${deepseek}`);
+  // The answer's fallback model (CHAT.md "A fallback when the chosen model fails before writing"): absent reads as off.
+  const fallback = infra.chat_fallback ?? 'off', fallbackSet = secrets.find(s => s.name === 'CHAT_FALLBACK')?.value;
+  if ((fallbackSet ?? sha256('off')) !== sha256(fallback) && (!fallbackSet || [sha256('on'), sha256('off')].includes(fallbackSet)))
+    return fail(`CHAT_FALLBACK is ${fallbackSet === sha256('on') ? 'on' : 'off'}, infra says ${fallback}`);
+  return pass(`${required.length} required present, no direct-provider key; web search ${want}; chat DeepSeek (OpenRouter) ${deepseek}; answer fallback ${fallback}`);
 });
 
 check('config.pipeline-budget', { title: 'Pipeline enabled with budget headroom', suites: ALL, timeout: 60 }, async () => {
@@ -659,6 +663,24 @@ check('deletion.sweep', { title: 'Account deletion sweep lists pending deletions
   const summary = `listing ${ms} ms, ${due.length ? 'a deletion' : 'none'} due; ${h.unfinished} unfinished, ${h.retrying} retrying; worker ${s.last_ok_at ? `listed ${minutesSince(s.last_ok_at)} min ago in ${s.last_ms} ms` : 'has not reported a listing yet'}`;
   if (problems.length) return fail(`${summary}; ${problems.join('; ')}`);
   return notes.length || !s.last_ok_at ? warn(`${summary}${notes.length ? `; ${notes.join('; ')}` : ''}`) : pass(summary, { listing_ms: ms, unfinished: Number(h.unfinished) });
+});
+
+// Model health (migration 0161, CHAT.md "A fallback when the chosen model fails before writing"): free and read-only. Each
+// OpenRouter model over the last 24 hours. Fails when one with 10 or more calls answered under 90 % of them (2026-10-25:
+// Gemini Flash on its pinned Vertex endpoint answered 8 of 12 and nothing said so); warns when its p90 time to first output
+// is over 20 s. Counts, codes and times only.
+check('models.health', { title: 'Every model answers at least 90 % of its calls and starts within 20 s (p90), last 24 h', suites: ALL, timeout: 30 }, async () => {
+  let h;
+  try { h = await rpc('worker_model_health', { p_hours: 24 }, { service: true }); }
+  catch (e) { if (e.status === 404) return skip('server predates migration 0161'); throw e; }
+  const name = m => m.replace(/^(anthropic|deepseek|google)\//, '');
+  const line = m => `${name(m.model)} ${m.answered}/${m.calls}${m.p90_first_data_ms != null ? ` p90 start ${(m.p90_first_data_ms / 1000).toFixed(1)} s` : ''}`;
+  const summary = (h.models ?? []).map(line).join('; ') || 'no model calls in 24 h';
+  const low = (h.attention ?? []).filter(a => a.kind === 'model_success_rate'), slow = (h.attention ?? []).filter(a => a.kind === 'model_slow_start');
+  const failures = a => Object.entries(a.failures ?? {}).filter(([code]) => !['aborted', 'provider_billing', 'transport_unknown'].includes(code)).map(([code, n]) => `${n} ${code}`).join(', ');
+  if (low.length) return fail(`${low.map(a => `${name(a.model)} answered ${a.answered} of ${a.calls} (${Math.round(a.success_rate * 100)} %; ${failures(a)})`).join('; ')} — ${summary}`);
+  if (slow.length) return warn(`${slow.map(a => `${name(a.model)} p90 start ${(a.p90_first_data_ms / 1000).toFixed(1)} s over ${a.timed} calls`).join('; ')} — ${summary}`);
+  return pass(summary);
 });
 
 check('budget.health', {title:'Platform budget is enabled, under 80 %, without aged liability, with next month ready',suites:ALL,timeout:30},async()=>{

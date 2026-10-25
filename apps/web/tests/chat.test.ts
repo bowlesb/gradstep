@@ -236,3 +236,12 @@ it('the model\'s own progress before its first words: waiting with the seconds, 
   expect(waitingText({ kind: 'thinking' }, 20)).toBe('Thinking… 20 s');
   expect(waitingText({ kind: 'searching', query: 'dpo' }, 20)).toBe('Searching the web for “dpo”');
 });
+
+// Servers from 2026-10-25: the chosen model failed before writing and the answer goes to its fallback (labelled by `done.model`).
+it('switching to the fallback model says which model will answer', () => {
+  const events = new SSEParser().consume(new TextEncoder().encode('event: status\ndata: {"kind":"switching","model":"claude-haiku-5-5"}\n\n'
+    + 'event: status\ndata: {"kind":"switching","model":"<b>bad</b>"}\n\n'));
+  expect(events).toEqual([{ type: 'status', progress: { kind: 'switching', query: 'Claude Haiku 5.5' } }, { type: 'status', progress: { kind: 'switching' } }]);
+  expect(waitingText({ kind: 'switching', query: 'Claude Haiku 5.5' }, 26)).toBe('Switching to Claude Haiku 5.5…');
+  expect(waitingText({ kind: 'switching' }, 26)).toBe('Switching to another model…');
+});

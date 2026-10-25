@@ -330,6 +330,16 @@ function healthFixture(days: number, state: string | null): HealthData {
         provider: Math.round(sum(window, r => r.chats) * 0.015), limit: Math.round(sum(window, r => r.chats) * 0.01), connection: Math.round(sum(window, r => r.chats) * 0.005) },
       today: { uncharged: empty ? 0 : 31, absorbed_microusd: empty ? 0 : 380_000 },
       accounts_over_today: quiet || empty ? [] : [{ account_id: '5f0c2a91-7d3e-4b8a-9c11-2e6f8a4b7c90', uncharged: 24, absorbed_microusd: 290_000 }] },
+    // Migration 0161: the 2026-10-25 staging day (Flash on Vertex US answering 8 of 12, slow to start; Haiku all), unless quiet.
+    models: { window_hours: 24, thresholds: { min_calls: 10, success_rate: 0.9, p90_first_data_ms: 20_000 },
+      models: empty ? [] : [
+        { model: 'gemini-3.8-flash', calls: 12, answered: quiet ? 12 : 8, failed: quiet ? 0 : 4, other: 1, success_rate: quiet ? 1 : 0.6667, timed: quiet ? 12 : 8,
+          p50_first_data_ms: 6_000, p90_first_data_ms: quiet ? 12_000 : 36_000, p90_ms: 68_900, failures: quiet ? {} : { provider_error: 4, aborted: 1 } },
+        { model: 'anthropic/claude-haiku-5.5', calls: 37, answered: 37, failed: 0, other: 0, success_rate: 1, timed: 37, p50_first_data_ms: 1_300,
+          p90_first_data_ms: 2_100, p90_ms: 3_500, failures: {} }],
+      attention: quiet || empty ? [] : [
+        { kind: 'model_slow_start', model: 'gemini-3.8-flash', timed: 8, p90_first_data_ms: 36_000 },
+        { kind: 'model_success_rate', model: 'gemini-3.8-flash', calls: 12, answered: 8, success_rate: 0.6667, failures: { provider_error: 4, aborted: 1 } }] },
   };
 }
 

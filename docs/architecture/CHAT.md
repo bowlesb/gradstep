@@ -185,7 +185,7 @@ card, the same cards in Chat".
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
 - Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off; "cloud-ai-v3" adds figures, "cloud-ai-v4" DeepSeek, [below](#chat-redesign-from-build-57-feedback--2026-10-16)), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study mode](#study-mode--reworked-2026-10-22-server-on-staging-apps-and-browser-local)) | "paper_explainer" (paper mode with local context v2, exactly one turn, no selection or figures; [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study_state?: {turn, level, concepts, next} (≤ 4 KB), study?: {…} (an older build's map, ≤ 16 KB, ignored)} ` (`study_state` and `study` only with `action: "study"`, both optional since 2026-10-22; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
 - `GET` (2026-10-08) returns the versioned profile table, below.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study_state {state}` (2026-10-22; the 2026-10-14 `study {map}` is no longer sent), `paper_progress`, `paper_summary`, `paper_item`, `paper_explainer` (2026-10-22, [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)), `done {stop_reason, credits, usage, model?, profile, charged, reason?}` (`model`/`profile` since 2026-10-08; `charged`/`reason` since 2026-10-16, [below](#when-an-answer-stops-early--2026-10-16)), `error {code, credits?, charged?, reason?}` (`credits` since 2026-10-14: what the failed answer cost the reader; since 2026-10-16 every error after the hold carries `credits: 0, charged: false` and a `reason`, and an error without `charged` came before anything was held) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?, model?}` (2026-10-07, below; `waiting`/`thinking` and `switching {model}` since 2026-10-25, [fallback](#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed)), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study_state {state}` (2026-10-22; the 2026-10-14 `study {map}` is no longer sent), `paper_progress`, `paper_summary`, `paper_item`, `paper_explainer` (2026-10-22, [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)), `done {stop_reason, credits, usage, model?, profile, charged, reason?}` (`model`/`profile` since 2026-10-08; `charged`/`reason` since 2026-10-16, [below](#when-an-answer-stops-early--2026-10-16)), `error {code, credits?, charged?, reason?}` (`credits` since 2026-10-14: what the failed answer cost the reader; since 2026-10-16 every error after the hold carries `credits: 0, charged: false` and a `reason`, and an error without `charged` came before anything was held) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel; then the follow-up suggestions, from the finished answer) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
@@ -942,6 +942,154 @@ silent model is ended at 60 s with Try again; "Still waiting…" from 12 s. Veri
 generation OpenRouter never records stays an unresolved liability (its whole ceiling) after the reconciler's twelve
 tries; two such Flash attempts are open now ($0.155545 and the 10-24 one). (c) The route's own slowness (107 s smoke)
 is Google Vertex's or OpenRouter's; only a different endpoint would change it, which is a privacy decision (ZDR route).
+Follow-up the same day: [A fallback when the chosen model fails before writing](#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed).
+
+## A fallback when the chosen model fails before writing — 2026-10-25 (server and clients local; not deployed)
+
+Owner, TestFlight 92, 16:05 UTC: *"Speed and reliability seem to be not great for ai provider calls."* The screenshot: a
+figure's AI Explainer on Gemini Flash, "The AI service couldn't finish this answer. Try again. Not charged." Decision
+record: [DECISIONS.md](../DECISIONS.md#ai-answers-a-labelled-fallback-when-the-chosen-model-fails-before-writing-model-health-the-busy-retry-fixed-owner-report-on-testflight-92-2026-10-25-1605-utc-agent-decisions-reversible).
+Evidence: `.artifacts/provider-reliability-20261025/` (main checkout): every non-success's ledger row, function-log
+lines, OpenRouter generation lookups, OpenRouter's endpoint inventory, the probe logs and spend.
+
+### What failed (staging, 2026-10-18 to 25, read-only: `provider_attempts`, function logs, OpenRouter records)
+
+Every OpenRouter attempt that did not succeed in the week, with the cause the logs and OpenRouter give (no prompt text
+was read; OpenRouter's generation endpoint returns metadata only):
+
+| UTC | Model, feature | What happened | Cause |
+|---|---|---|---|
+| 10-18 20:19 | Sonnet 5.5, podcast script | HTTP 400 in 0.2 s, zero cost | a podcast request shape (not chat; not followed up here) |
+| 10-22 14:25 | DeepSeek V4.1 Flash, chat | the reader left after 9.1 s | the reader's; OpenRouter's record exists ($0.0024, `cancelled`) but our reconciler read it as a different model (`…-flash-20261017` against the dispatched `…-flash-1017`): 11 tries `mismatch`, its 48,750 µ$ ceiling still held. **Ours: fixed** (`sameModel`) |
+| 10-23 19:47 – 10-24 03:52 | Gemini Flash, figure ×6 | HTTP 401 in 0.2–0.7 s, zero cost | the staging chat key had expired (A13, fixed that day); no model can help, and none is asked |
+| 10-24 19:40 | Gemini Flash, chat | stream broke after 38.5 s; no OpenRouter record | Vertex US (the same minute: equation answers of 47–53 s, a 429 next) |
+| 10-24 19:41 | Gemini Flash, chat | HTTP 429 in 0.8 s, with a generation id but no record | Vertex US refusing (rate limit) |
+| 10-25 13:01 | Gemini Flash, chat | no data for 119.5 s until the reader left; no record | Vertex US silent (the previous section) |
+| **10-25 16:05:00 and :08** | **Gemini Flash, figure (the owner's report)** | **HTTP 429 in 1.9–2.0 s each**, with generation ids, no records; `chat_provider_rejected status 429` | Vertex US refusing; **our busy retry skipped both** (below) |
+
+- **Gemini on Vertex US only.** By model over the week (chat route): Gemini 3.8 Flash 65 of 76 (6 were our expired key,
+  1 the reader leaving: 65 of 69, 94 %; in the last 24 hours 8 of 12, 67 %, whole-call p50 30 s, p90 69 s); Claude Haiku
+  5.5 on the *same* pinned endpoint 37 of 37 (p50 1.3 s, p90 2.7 s); Sonnet 5.5 15 of 15 (p90 12 s); DeepSeek V4.1 Flash
+  34 of 35. OpenRouter's public endpoint inventory, read at 16:30 and 16:42 UTC, had `google/gemini-3.8-flash` on
+  `google-vertex/us` **degraded (status −2): up 60 % of the last 5 minutes, 77–83 % of 30 minutes, 80 % of the day**, while
+  Haiku's and Sonnet's `google-vertex/us` endpoints were at 100 %. `google-vertex/global` (ZDR) was at 88.5 % for the day
+  and `google-vertex/global/priority` (ZDR) at 99.9 %; the AI Studio endpoints (100 %) are not zero-retention.
+- **Not request-shape-specific.** The failures hit chat answers without images as well as figure explainers with one,
+  at low and medium effort; the same requests succeeded before and after (the owner's 13:01 question 18.7 s later; 9 of 10
+  probe walkthroughs). No 400/413/422 from Gemini in the week. Not OpenRouter-wide: other models on the same endpoint and
+  the same key were unaffected, and OpenRouter's own figures single out this endpoint.
+- **Ours.** (1) `retryOnceWhenBusy` retried a refusal only when it had no message id, but OpenRouter sends
+  `x-generation-id` even on a 429 it refuses, so no OpenRouter 429 was ever retried. (2) A 429's cause was logged as
+  `unknown`: OpenRouter's typed `error.metadata.error_type` was not read. (3) A 503 ("no available provider meets your
+  routing requirements") was held as an unknown liability though nothing ran. (4) The DeepSeek record mismatch above.
+  (5) Nothing on Health or in the workflow checks said a model was failing.
+
+### What changed (`chat-fallback.ts`, `chat.ts`, `openrouter-chat.ts`, `inference.ts`, `provider-spending.ts`, `openrouter-reconcile.ts`, migration 0161; apps' Core and browser)
+
+1. **Busy retry fixed.** A refusal before the stream (an HTTP status: 429, 503, 529) is retried once after its
+   Retry-After or 1–3 s (at most 5 s), whatever its id. OpenRouter's 503 is now exactly zero, as its 429 was.
+2. **Typed causes.** `rejectionReason` adds OpenRouter's own causes as closed categories: `rate_limited`, `overloaded`,
+   `provider_unavailable`, `timeout`; a mid-stream error event's cause is kept as `streamError` and logged as
+   `provider_error_type`. Never the provider's message (it can echo a prompt).
+3. **The fallback.** When the chosen model fails **before any of its output reached us** (no text, reasoning, tool call
+   or finish: `noOutput`), the answer is asked once of its fallback, as the same request (instructions, paper and its
+   cache breakpoint, turns, figure images, tools, output allowance; Gemini's `minimal` becomes Claude's `low`).
+   - **One pair: Gemini 3.8 Flash → Claude Haiku 5.5.** Both go to OpenRouter's pinned `google-vertex/us` endpoint with
+     `zdr: true`, `data_collection: deny`, `allow_fallbacks: false` and the response cache off, under the same consent
+     (v5 and later name Google through OpenRouter and Anthropic): the same processors, location and terms. Every other
+     pair changes a processor, a location or the answer's quality class (Sonnet → Haiku, DeepSeek → Google), and none of
+     those models failed this way: they have no fallback.
+   - **When:** refused (429, 503, 5xx), unavailable under the route's policy (404), silent past the deadline below, a
+     stream broken before its first output, a transport failure after dispatch. **Not** for our key or the account's
+     balance (401, 402), the request itself (400, 413, 422: our bug, which another model would hide), a refusal to answer
+     (403: moderation must not be routed around), a request our server never sent, the reader's Stop, or once anything
+     was written. Not when the owner's switches, free credits or a price card would treat the fallback differently from
+     the chosen model, and not for a diagram repair. Off unless `CHAT_FALLBACK=on` (infra `chat_fallback`).
+   - **No same-model retry first:** the busy retry is skipped for the chosen model while a fallback can answer (a Vertex
+     429 lasted at least 8 s for the owner; Haiku answers in about 3 s).
+   - **Shown:** `status {kind: "switching", model: "claude-haiku-5-5"}` ("Switching to Claude Haiku 5.5…" in the apps'
+     Core and the browser; older builds ignore it). `done.model` is the model that wrote the answer and `done.profile`
+     stays the reader's choice, so every client already labels it "Gemini Flash · Standard · by Claude Haiku 5.5" and the
+     figure, equation and paper explainers name "Claude Haiku 5.5". Your AI usage names the fallback (migration 0161).
+4. **Money and accounting.** The fallback is a second attempt in the same operation, admitted, dispatched and finished
+   like any (its own pricing snapshot and card). The database admits the fallback only if its whole ceiling still fits
+   the operation's hold after the first attempt's. **The answer's part of the hold is the larger of the two ceilings**
+   (Haiku's is far below Flash's on most papers, but passes it on long ones, where its byte-estimated prompt reaches Haiku's
+   100k-token tier: +7–16 % of that part for 90–200 KB of paper text, +10 % on DPO's 111 KB; below about 88 KB Haiku's is 80 % lower); the quote is unchanged. So after a refusal (exactly
+   zero) the fallback always fits; after a silent attempt (its whole ceiling still unresolved) it fits only with other
+   room, the search allowance held whenever search is offered. When it does not fit, nothing is sent and the reader
+   gets the first failure exactly as before (`chat_fallback` logs `not_sent`). **The reader pays only for the attempt that
+   answered**, never above the hold; a refused attempt costs zero; a silent one keeps its ceiling as Gradstep's
+   unresolved liability for the reconciler, never the reader's. Settlement, `chat_endings`, the month's spend, Health and
+   the reconciler see both attempts. The fallback's output allowance is the request's whole one (a silent attempt's
+   estimate is not output that was used).
+5. **Deadlines per feature.** While a fallback can answer, the chosen model may stay silent **25 s in the figure, equation
+   and paper explainers and 30 s in answers** (`FALLBACK_FIRST_DATA_MS`); then the fallback is asked, with the usual 60 s.
+   Without a fallback, 60 s as before (`FIRST_DATA_DEADLINE_MS`, previous section). Measured first output on the pinned
+   Flash route: explainers 1.5–12 s with slow successes at 18.9 and 24 s; answers at medium 4.3–17.3 s (25 s for a
+   figure question), slow successes at 33.8 and 36 s. Visible progress: answers say "Still waiting for the model…" from
+   12 s, then "Switching to Claude Haiku 5.5…"; the explainers keep their own progress bar ("Reading…").
+6. **Model health** (migration 0161): `first_data_ms` is recorded with each finished attempt; `model_health(24)` gives
+   each OpenRouter model's calls answered and failed (the reader leaving, balance refusals and our own losses counted
+   apart), failures by code and the p90 time to first output. Admin Health › Attention names a model with ≥ 10 calls under
+   90 %, or a p90 first output over 20 s (≥ 10 timed calls); the workflow check `models.health` fails on the first and
+   warns on the second (ADMIN_HEALTH.md, WORKFLOW_CHECKS.md).
+7. **Logs** (codes and numbers only): `chat_fallback {from, to, cause, status, result: answered|failed|not_sent}`;
+   `chat_answer` adds `fallback`, `served_model` and `provider_error_type`.
+
+### Measured: the probe (2026-10-25 16:20–16:36 UTC; staging and OpenRouter; public DPO paper, synthetic accounts)
+
+Through the deployed chat function (before this change), each run one disposable account, then deleted:
+
+| Request | Gemini 3.8 Flash (Vertex US) | Claude Haiku 5.5 (Vertex US) |
+|---|---|---|
+| Figure walkthroughs, DPO figures 1–4 (×10 each) | **9 of 10**; summary at 3.8–18.9 s (median 4.6), whole 8.0–24.7 s; one sent nothing and was ended at our 60 s limit (no OpenRouter record); $0.0079–0.0102 each (2–3 credits) | **10 of 10**; summary at 2.6–3.0 s, whole 6.6–8.0 s; $0.0014–0.0016 each (1 credit) |
+| Walkthrough shape | 2–3 parts, 2 boxes; 16–34 `[¶N]` citations | 2–3 parts, 1–2 boxes; 5–12 citations (fewer sources cited, same structure) |
+| Chat answers (the recorded 4-question check: equations, derivation, visual, Figure 1) | **4 of 4**; first words 3.0–26.9 s (medium: 9.1, 18.1, 26.9 s), whole 14.9–34.5 s; $0.011–0.016 | **4 of 4**; first words 5.2–11.4 s (Haiku at medium thinks first), whole 10.9–20.6 s; $0.0018–0.012 (the first writes its cache) |
+
+Directly, the server's own figure request (DPO Figure 2) to OpenRouter, five times per endpoint (`figure-speed.mjs
+--configs=gemini-low,gemini-low@google-vertex/global,gemini-low@google-vertex/global/priority,haiku-low`; all ZDR):
+
+| Endpoint | First output | Whole | Cost each |
+|---|---|---|---|
+| Flash, `google-vertex/us` (today's pin) | 1.9, 4.6, 10.3, 11.0, 28.5 s | 5.6–33.6 s | $0.0081–0.0104 |
+| Flash, `google-vertex/global` | 1.8, 2.0, 2.1, 3.3 s (11.2 s writing the cache) | 7.4–18.0 s | $0.0076–0.0101 |
+| Flash, `google-vertex/global/priority` | 1.6, 1.9, 2.7, 3.5, 5.4 s | 8.1–11.6 s | $0.0141–0.0172 |
+| Haiku, `google-vertex/us` | 1.2–1.8 s | 6.3–7.6 s | $0.0016 ($0.0119 writing the cache) |
+
+**Spend:** $0.183154 through staging (ledger, four accounts) + $0.184500 direct (`.artifacts/provider-reliability-20261025/route-probe-spend.json`)
+= **$0.367654**, plus the silent attempt's ceiling of $0.148227 held until the reconciler reads OpenRouter (no record,
+as for every silent attempt so far: expected $0) — **at most $0.515881 of the $1.00 allowed**. Five runs per endpoint is a
+small sample; OpenRouter's day-long uptime figures above are the larger one.
+
+### Before and after (modelled from the week; nothing is deployed yet)
+
+| Case | Before | After |
+|---|---|---|
+| The owner's 16:05 figure explainer (Vertex 429 after 2 s) | "The AI service couldn't finish this answer", twice | Haiku asked at once: summary about 5 s after asking, walkthrough about 9–10 s, 1 credit, labelled Claude Haiku 5.5 |
+| A silent Flash explainer (the probe's 10th) | error at 61 s (deployed 60 s limit; 119.5 s before it) | Haiku asked at 25 s: summary about 28 s, whole about 32 s |
+| A silent Flash answer | error at 60 s | Haiku asked at 30 s |
+| The week's Gemini failures (11) | 11 failed answers | 3 × 429 and the silent one answered by Haiku (the broken stream too, if it had sent nothing); the 6 × 401 (our expired key) still fail: the model's own calls 65 of 69 → 68–69 of 69 answered |
+| Health | nothing | Attention: "Gemini 3.8 Flash answered 8 of 12 calls in the last 24 hours (67 %…)"; `models.health` fails |
+| The 10-22 DeepSeek liability | `mismatch` ×11, 48,750 µ$ held | reconciled at OpenRouter's $0.0024 on the next try after the worker deploy (its 12th and last is due 10-26 04:27 UTC; after that, `scripts/pipeline-ops.py attempts` then `reconcile`) |
+
+**Cost of the fallback.** It replaces a failed Flash answer with a Haiku answer, which costs the same or less on a
+cached paper (walkthrough $0.0015 vs $0.008–0.010; chat $0.002–0.012 vs $0.011–0.016) and up to about $0.012 when it
+writes its own paper cache first. At the week's rate (4 fallback-eligible failures in 69 Flash calls, about 6 %) and this
+month's Flash volume (127 attempts, $1.04), that is under $0.10 a month on staging: the forecast is unchanged
+(OPERATIONS_AND_BILLING.md). The silent primary's ceiling stays held until reconciled (none of the four silent or refused
+Flash attempts this week has an OpenRouter record, so their actual cost appears to be zero).
+
+### Checks
+
+Backend: `tests/backend/chat-fallback.test.ts` (the real adapter, admission and orchestration against a fake OpenRouter:
+a 429 answered by Haiku on the same pinned route with both attempts' finishes, settlement, labels, logs and no leaked
+text; a silent model given up on at the deadline with its ceiling left unresolved and the reader charged only Haiku; no
+fallback after output, without room, for 400/401/402/403, with the switch off or for Claude; a figure walkthrough with its
+image; eligibility; OpenRouter's typed causes; per-request deadlines; `first_data_ms`), the busy-retry and 503 cases in
+`chat.test.ts` and `openrouter-chat.test.ts`, the dated DeepSeek record in `openrouter-reconcile.test.ts`. Database:
+`tests/database/model_health.sql` (`--model-health-only`). Browser `tests/chat.test.ts` and Core
+`ChatStreamTests.parserReadsTheSwitchToTheFallbackModel`. No paid check of the fallback itself (not deployed).
 
 ## Visual answers — 2026-10-15 (owner: "The chat needs a html tool… mermaid diagrams… an option for the users to disable")
 

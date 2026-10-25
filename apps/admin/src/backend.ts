@@ -224,6 +224,19 @@ export interface Health {
     artifacts: { map_bytes: number | null; terms_bytes: number | null; shards: number; shard_bytes: number };
     delivery: { requests_24h: number; accounts_24h: number };
     attention: { kind: string; papers?: number; kept_share?: number; published_at?: string; failures?: number; error?: string | null }[] };
+  /** Migration 0161: each OpenRouter model over the last 24 hours (calls the model answered or failed, others apart; p90 time
+   * to its first output where recorded) and the models under the thresholds (CHAT.md "A fallback when the chosen model fails
+   * before writing"). Absent on older servers. */
+  models?: ModelHealth;
+}
+
+export interface ModelHealth {
+  window_hours: number;
+  thresholds: { min_calls: number; success_rate: number; p90_first_data_ms: number };
+  models: { model: string; calls: number; answered: number; failed: number; other: number; success_rate: number | null; timed: number;
+    p50_first_data_ms: number | null; p90_first_data_ms: number | null; p90_ms: number | null; failures: Record<string, number> }[];
+  attention: ({ kind: 'model_success_rate'; model: string; calls: number; answered: number; success_rate: number; failures: Record<string, number> }
+    | { kind: 'model_slow_start'; model: string; timed: number; p90_first_data_ms: number })[];
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

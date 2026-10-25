@@ -2788,10 +2788,16 @@ test('busy (429) or overloaded (529) before the answer starts: one more try afte
   assert.deepEqual([overloaded.calls, overloaded.waits], [2, [2_000]], 'no Retry-After: 1–3 s');
   const twice = await run([refusedBefore({ httpStatus: 429, retryAfterMs: 500 })]);
   assert.deepEqual([twice.calls, twice.waits], [2, [500]], 'once only');
+  // 2026-10-25: OpenRouter names a generation (x-generation-id) even on a 429 it refuses; that refusal is still retried
+  // (TestFlight 92's two figure explainers were not, because the check was the absence of an id).
+  const named = await run([refusedBefore({ httpStatus: 429, messageID: 'gen-1792944301-q8c3', retryAfterMs: 500 }), completeOutcome()]);
+  assert.deepEqual([named.outcome.status, named.calls], ['complete', 2], 'a 429 that names its generation');
+  const noRoute = await run([refusedBefore({ httpStatus: 503, retryAfterMs: null }), completeOutcome()]);
+  assert.equal(noRoute.calls, 2, 'OpenRouter 503: no available provider for the route right now');
   for (const [label, first] of Object.entries({
     'a long Retry-After (a breaker cool-off)': refusedBefore({ httpStatus: 429, retryAfterMs: BUSY_RETRY_MAX_MS + 1 }),
     'a 500': refusedBefore({ httpStatus: 500 }),
-    'after the first token': refusedBefore({ httpStatus: 529, messageID: 'msg_x' }),
+    'after the first token (a stream that broke: no HTTP status)': refusedBefore({ httpStatus: null, messageID: 'msg_x', exact: false }),
     'a refusal of the request itself': refusedBefore({ httpStatus: 400, failure: 'provider_rejected' }),
   })) assert.equal((await run([first, completeOutcome()])).calls, 1, label);
   assert.equal((await run([refusedBefore({ httpStatus: 429, retryAfterMs: 100 }), completeOutcome()], true)).calls, 1, 'not after the reader left');
