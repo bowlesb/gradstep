@@ -1,6 +1,22 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-24 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Library topics on the device (interest index step 3, 2026-10-25; agent decisions, reversible)
+
+Under the approved proposal and owner decisions 1–4 ([proposal](proposals/INTEREST_INDEX.md)); design and evidence in
+[architecture/INTEREST_INDEX.md](architecture/INTEREST_INDEX.md#device-layer-step-3-built-2026-10-25-app-local-not-released).
+
+| Decision | Choice |
+|---|---|
+| Topic rule | Step 2's specificity-first rule, ported exactly (reproduces step 2's 14 topics on the owner's library), plus hysteresis: a shown topic keeps at 2 papers, leaves at 1. "Shown" is a synced register, so devices agree |
+| Weights | Age fade, archive × 0.5, own tags × 1.5, and device-only signals (owner decision 2): + 0.0625 per reading level (0–4), + 0.25 with snippets, + 0.25 with chats. Ages in whole UTC days |
+| Uploaded PDFs | Left out of topics for now (no public fingerprint; an on-device gte-small is ≈ 67–133 MB, just after the PDF models left the app for size). The ⓘ says how many |
+| Labels | Step 2's log-odds term layer on the device; "closeness" stands in with the centroid of the reader's papers using a phrase (no phrase embeddings on devices), plus the server's own per-paper terms (+1), multi-word phrases (+0.5), no single word in > 2 % of the pool, one phrase per topic; 1–3 terms title-cased, ≤ 44 characters; never a generic area |
+| Keywords | TF-IDF (pool IDF) over title, abstract and the full text the encrypted full-text index holds, KeyBERT-style re-ranked; first four, then two vocabulary names, wherever the Library shows a paper's keywords (unless the reader set tags) |
+| Chart | Under the filter chips of Library › All (so chips never move), collapsible (remembered), a thin ring like Credits by activity: up to eight largest topics by size from the chart palette, the rest and the papers outside topics as Other (its row opens them). Slice or row filters the list; touch and hold to rename, recolour or hide. A ring was kept (owner's ask); the legend lists every topic so nothing depends on the ring |
+| Sync | Existing encrypted events: `note` records with a fixed entity and `format: "gradstep-interest-v1"`, last writer wins per topic ID with an (epoch, device) tie-break, reading levels per (paper, device), maximum wins. No server change or migration; older clients and the browser ignore them. Largest record 44 KB encrypted for 1,000 papers and 200 topics |
+| Scope | Topics over the whole library (every catalog); the filter applies to the current catalog's list. Step 4 (For you in sections) is not built; the seam is the engine's model |
 
 ## For you ranks by similarity to the library (owner sessions 2026-10-24; owner accepted option (a) 2026-10-24)
 

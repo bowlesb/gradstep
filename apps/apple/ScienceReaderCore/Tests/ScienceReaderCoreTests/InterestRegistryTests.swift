@@ -113,6 +113,7 @@ import Testing
             largest = max(largest, envelope.ciphertext.count)
             #expect(InterestRegistryRecord.decode(try ReaderCrypto.open(envelope, keys: keys)) == record)
         }
+        print("interest-registry: \(records.count) records, largest encrypted \(largest) B")
         #expect(largest < 100_000, "largest encrypted record \(largest) B")
         let merged = InterestRegistry(records: records)
         #expect(merged.topics.count == 200 && merged.reading.count == 1_000 && merged.shownIDs(map: nil).count == 200)

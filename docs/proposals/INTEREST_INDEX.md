@@ -1,4 +1,4 @@
-# Interest index (approved 2026-10-24; step 1 done)
+# Interest index (approved 2026-10-24; steps 1–2 done; step 3 built in the app 2026-10-25, not released)
 
 Owner, 2026-10-24: "one of the most important new features needs to be about maintaining a better nuanced and
 personalized understanding of what the user has in their library … topics … unique to them … not things like Machine
@@ -88,6 +88,24 @@ evolve over time.
   from the public pool and shift as fields move (a phrase that becomes common stops being distinctive); recency weights
   decay older papers. On the device this runs on full text (the paper body is local), with document frequencies
   shipped from the server's public pool — no private text leaves the device.
-- **Open.** Topic names from c-TF-IDF and log-odds are still rough on 3–4-paper topics ("word, transformer");
+- **Open (step 2).** Topic names from c-TF-IDF and log-odds are still rough on 3–4-paper topics ("word, transformer");
   LLM naming of map nodes (November budget) fixes the node half, noun-phrase candidates the term half. Some broad
   "rest" topics are grab-bags; a coherence test (mean pairwise similarity of the topic's papers) should demote them.
+
+## Step 3 result (2026-10-25; app local, not released; [architecture](../architecture/INTEREST_INDEX.md#device-layer-step-3-built-2026-10-25-app-local-not-released))
+
+- **On the device**: the map and term statistics decoded; the library's public fingerprints from
+  `v1_interest_library_fingerprints`; per-node counts, mass and fingerprint sums as exact integer sums; step 2's rule
+  ported exactly (it reproduces step 2's 14 topics on the owner's library) with hysteresis (appear at 3, leave below 2)
+  carried by a synced register; weights with the device-only signals (reading depth, snippets, chats).
+- **Labels and keywords** from the step-2 term layer against the pool's statistics. Devices have no phrase embeddings,
+  so closeness stands in with the centroid of the reader's papers using a phrase, helped by the server's own per-paper
+  terms, a preference for multi-word phrases and no common single words. On the published map the owner's 62 papers
+  give 15 topics, e.g. "Parameter-Efficient Fine-Tuning, LoRA", "Evidence Recall, Context Compression", "Reasoning
+  Trace, Reader, Thinking", "Agent World", "LLM Agents, Industrial", "Video Generation, Editing, Videos", "Embodied
+  Agents", "Reward Function, Collaboration"; broad level-1 rests stay weak ("Graph, Learned") until November's naming.
+- **Library › All chart**: a collapsible ring and legend under the filter chips; slices filter; rename, recolour, hide.
+- **Sync**: names, hidden flags, colours, shown topics and reading levels as end-to-end encrypted `note` events through
+  the existing journal (no server change); last writer wins per topic ID with an (epoch, device) tie-break.
+- **Not in topics**: uploaded PDFs (no public fingerprint; no on-device gte-small yet). Step 4 (For you in sections)
+  is next.
