@@ -67,14 +67,18 @@ reaches the app only through `device-models.mjs` and a lock update, and any chan
 - *Updates*: a build with a new description is a new version; at launch the old version is removed (it can't be used with
   the new converter) and, for a reader who had downloaded before, the new one downloads by itself at the first network
   answer that is not cellular or Low Data Mode; otherwise the offer appears where it is used.
-- *Removing*: Settings › Experimental › On-device PDF model › Remove deletes every version and stops automatic updates.
+- *Removing*: turning Settings › Experimental › On-device PDF reader off deletes every version and stops automatic
+  updates (2026-10-24 owner session; before that a separate row's Remove did).
 
 **Interface** (owner: minimal screens, controls where used). "Read with the on-device model" without the models shows,
 in the bar where the reading's progress shows, "Download PDF reading model (about 365 MB)" with Cancel and, on cellular,
 "Wi-Fi is better for a download this size"; during the download its percentage, a progress bar and Cancel; a failure says
-why with Try Again. When the models are in, the reading starts by itself. Settings › Experimental has one row under the
-toggle: "On-device PDF model — Downloaded · 364.6 MB" with Remove, "Not downloaded · about 365 MB" with Download, or
-"Downloading · n %" with Cancel; the row is not shown on the Mac.
+why with Try Again. When the models are in, the reading starts by itself. Settings › Experimental has one row (owner,
+TestFlight 91 session; DECISIONS "One row for the on-device PDF reader"): "On-device PDF reader", off by default and
+shown on only when chosen and the models are here. Turning it on without them asks "Download the on-device PDF reader?"
+(about 365 MB; Download, Cancel); the row then shows "Downloading · n% of 365 MB" with a bar and Cancel, and the switch
+comes on when they are installed; a failure or Cancel leaves it off (a failure's message under the title). Turning it
+off removes them. On the Mac it is the switch alone.
 
 **Verified** (2026-10-24, this Mac, iPhone 17 Simulator on iOS 26.4): the journey `DeviceModelJourneyTests` taps "Read
 with the on-device model" on a build without the models, gets the offer, downloads the asset pack through the
@@ -213,7 +217,7 @@ Built and running on this Mac and in the iOS Simulator; not yet tried on an iPho
 - **iOS Simulator**: the stateful recogniser does not load ("Network translation error"); the route reads the paper
   without it (formulas as page images) and the banner says the formula model can't run on this device. A real
   fixture paper's first three pages take 12 s there.
-- **App**: Settings › Experimental "On-device PDF reader" (on while testing); "Read with the on-device model" in a
+- **App**: Settings › Experimental "On-device PDF reader" (off by default since 2026-10-24); "Read with the on-device model" in a
   paper's options when its PDF is on the device, and in an added PDF's own view; a progress bar with the stage,
   elapsed time and Stop; the reading opens in the same reader under a banner (pages, time, formulas typeset) whose
   menu offers "Report a problem with this reading" (the report carries counts and times, never the paper's text)
@@ -247,6 +251,31 @@ and revision as the library membership, and sends the reading's own numbered ind
 its manifest and PDF digests. Text only, the request the HTML reading sends; no PDF leaves the device and the server is
 unchanged (it authorizes the membership as before). A reading of another revision, and a PDF the reader added
 (`local:` id, no arXiv membership), still have no cloud explainer: the server's local context is arXiv-only.
+*Superseded by the next section.*
+
+### Explainers on every model reading — 2026-10-24 (after TestFlight 91)
+
+The two gaps above, closed. Neither was the converter's port revision: no client or server check compares a reading's
+port revision or build with the current converter, so readings from any port revision already qualified.
+
+- **Another arXiv revision.** The device reads the PDF it has (`localPDFRecord`: the library's revision, else any
+  revision kept), so a reading can be of v1 while the library holds v2. The refusal was the app's own
+  (`LocalPaperChatContext`, which required the reading's revision to equal the membership's), so no request was ever
+  sent. A `device-pdf` reading now needs only the same arXiv id; the request still names the membership as it is
+  (its revision is what `worker_local_chat_context` authorizes), so the server is unchanged for it. The arXiv HTML
+  reading stays exact (it is always fetched for the membership's revision).
+- **A PDF the reader added.** Its library entry is an end-to-end encrypted event, so the server has no membership to
+  authorize, and `worker_local_chat_context` refused every `local:` id. The chat request gains a second local-context
+  shape, `{"format": "reader-local-context-v2", "source": "local", "text": …}`, with no other key: no paper id, title,
+  or digest of the PDF or its reading (the server refuses any of them). The server reads no membership and gives the
+  paper block no title; the topic title and suggestions read it as "the reader's own PDF (its title is not shared)".
+  Metering, holds, the AI switches and the consent rules are the same code path as any paper. The app sends it for the
+  figure, equation and paper explainers and for a chat about that paper (Continue in Chat), only from the on-device
+  model's reading of that same PDF (`LocalPaperChatContext(ownPDF:)` checks the provenance's `local:` id).
+
+Older builds (91 and below) are unchanged: they never build either request, and the server's arXiv path is as before.
+A build with this change needs the server change deployed first (an older server refuses `source: "local"` as
+`invalid_request`).
 
 ## Development after the port kit — port revision 5, 2026-10-21
 

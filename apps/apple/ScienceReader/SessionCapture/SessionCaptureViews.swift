@@ -30,7 +30,13 @@ struct SessionCaptureOverlay: View {
 
     private var pill: some View {
         VStack(spacing: 0) {
-            Circle().fill(.red).frame(width: 8, height: 8).padding(.top, 9).padding(.bottom, 3).accessibilityHidden(true)
+            if capture.videoStopped {
+                // The screen video stopped (it couldn't restart after the background); the event log goes on.
+                Image(systemName: "video.slash.fill").font(.caption2).foregroundStyle(.orange).padding(.top, 8).padding(.bottom, 1)
+                    .accessibilityLabel("Screen video stopped").accessibilityIdentifier("session.videoStopped")
+            } else {
+                Circle().fill(.red).frame(width: 8, height: 8).padding(.top, 9).padding(.bottom, 3).accessibilityHidden(true)
+            }
             Button { capture.mark() } label: {
                 Image(systemName: "flag.fill").font(.callout).frame(width: 36, height: 38).contentShape(Rectangle())
             }

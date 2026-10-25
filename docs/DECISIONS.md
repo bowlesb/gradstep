@@ -24,6 +24,35 @@ Last updated: 2026-10-24 UTC. Requirements below come from the current user conv
   then". The privacy-notice draft in INTEREST_INDEX.md §5 gains one sentence for it. Serving to `all` still waits for
   the owner's approval of that notice wording.
 
+## Explainers on every on-device model reading (TestFlight 91 known gap; agent decisions 2026-10-24, reversible)
+
+- **Another arXiv revision's reading** is the paper's text for its explainers and chat; the request names the library
+  membership as it is (server unchanged). The arXiv HTML reading stays exact to the membership's revision.
+- **A PDF the reader added** gets cloud explainers and chat from its on-device reading. The request carries only the
+  numbered text (`source: "local"`): no paper id, title, or digest of the PDF or the reading, which the server refuses.
+  The server has no membership to check (the entry is end-to-end encrypted) and needs none: the text is held in request
+  memory under the reader's AI consent, as an arXiv paper's is, and metered by the same server-side holds. The paper's
+  own printed title can be in its text, as with any paper; the reader's library title for it is never sent.
+- Details: [DEVICE_PDF_ROUTE.md](architecture/DEVICE_PDF_ROUTE.md#explainers-on-every-model-reading--2026-10-24-after-testflight-91).
+## One row for the on-device PDF reader; Theme and underlines explained; session video after the background (owner session on TestFlight 91, 2026-10-24; agent decisions, reversible)
+
+Owner, iPad Settings: the reader's ⓘ was *"way too long… reads a paper PDF on this device with Gradstep's own models
+(takes longer, can be inaccurate). That's it"*; *"this is weird. You have it on, but [it's] saying we have to download it
+first… have it be off by default, and then if you turn it on… a pop-up saying download the PDF reader… I don't think you
+need to use 2 rows"*; of Theme *"What's the difference between Dark and Match device?"*; of Underline passages with chats
+*"there's no info there"*. The session's video also stopped at 0:16 while its sound ran 11 minutes.
+
+| Decision | Choice |
+|---|---|
+| On-device PDF reader | One row in Settings › Experimental: the switch, ⓘ "Reads a paper’s PDF on this device with Gradstep’s own models (takes longer, can be inaccurate)." The separate "On-device PDF model" row (status, Download, Remove) is gone. Supersedes that row in "The on-device PDF model is a separate download" below. |
+| Default, existing installs | Off by default. An explicit choice is kept. Nothing stored (the earlier default was on): on only where the model was downloaded on this device, since the download was offered only with the reader on; the Mac, whose model is inside the app, starts off. The switch shows on only when chosen *and* the model is on this device, so it is never "on but not downloaded". Rules: `DeviceModelReaderSetting` (ScienceReaderCore). |
+| Turning it on (iPhone, iPad) | Without the model: "Download the on-device PDF reader?" / "About 365 MB." with Download and Cancel (a Wi-Fi note on cellular). Download: the same row shows "Downloading · 37% of 365 MB" with a bar and Cancel (On-Demand Resources' request progress is cancellable); the switch comes on when the model is installed. A failure or Cancel leaves it off, a failure with its short message under the title. The Mac: the switch only. |
+| Turning it off | Cancels a download in progress or removes the downloaded model (365 MB; keeping it was the row's Remove). The Mac's copy stays. |
+| In the paper | Unchanged: "Read with the on-device model" (options, the failure screen) follows the stored choice, and the paper's download bar still offers the model when the choice is on and the model isn't here (after a model update, or an interrupted download). |
+| Theme | "Match device" is now **System**: the web app's Settings already says System, as Xcode's own Appearance setting does; iOS's "Automatic" names switching at sunset, a narrower thing. ⓘ "System follows this iPad’s Light or Dark setting and changes when it does, for example at sunset if it switches automatically." (iPhone, Mac by device). Same stored value. |
+| Underline passages with chats | Label kept. ⓘ "Passages you’ve started a chat from are underlined in the paper. Tap one to open its chat." Matches the code: an anchor is saved by a selection's Explain, a formula's chat, a figure's or equation's explanation chat and a snippet's chat; a tap opens it, several on one spot offer a choice. |
+| Session video after the background | ReplayKit's in-app recording keeps the microphone but its picture stops once the app has been in the background. On the return the recorder ends that file and starts the next one (`screen-2.mp4`, …), shows the sync band again and logs `video_segment` (start/end) and `video_gap` (from, to, resumed). If it can't restart, the recorder strip shows a crossed-out camera, Settings says why, and the rest is the event log. `tools/session-review` reads every part, lines each up by its own band (else its logged end), flags each gap, and flags a picture that ends before its sound (older sessions). Internal builds only, as before. Not verified on a device: ReplayKit doesn't record in the Simulator and phone testing is paused. |
+
 ## Library search over every paper's text: an encrypted on-device index (owner question 2026-10-24; agent decisions, reversible)
 
 Owner: *"is our search engine good enough, ie is it searching full text from all papers instantly?"* It wasn't: a
@@ -69,9 +98,22 @@ presentation](architecture/PERSONALIZED_FEED.md#client-presentation-grouped-by-w
 
 | Decision | Choice |
 |---|---|
-| Table | A **Why** column (symbol + "Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao", "Popular ▲ 48" / "Trending", "Category: cs.CL", "Explore"; full sentence for VoiceOver and as the Mac tooltip). On by default, shown only when a row has a reason; sortable by group (tags, like papers, authors, popular, category, explore) keeping the server's order within each. While shown, the title's second line drops the reason. |
+| Table | A **Why** column (symbol + "Your tag: RLHF", "Like: Muffin…", "Author: Tri Dao", "Popular ▲ 48" / "Trending", "Category: cs.CL", "Explore"; full sentence for VoiceOver and as the Mac tooltip). On by default, shown only when a row has a reason; sortable by group (tags, like papers, authors, popular, category, explore) keeping the server's order within each. While shown, the title's second line drops the reason. *Since TestFlight 91 (below): "New in Machine learning" and "Popular: 48 upvotes", with an ⓘ.* |
 | List | Sections in that order, one per tag, with name and count; the server's order within; rows drop what the header says and keep the anchor ("By Tri Dao"). One section only (category chips; a topic whose papers share a kind): no headers, as before. |
 | Agent choices (reversible) | Two or more one-paper tags share one "Your tags" section; no other merging. Hugging Face upvotes (`trending`) are "Popular ▲ n", several readers (`popular`) "Trending", both under "Popular this week". The column is 120 pt, first after the title. Grouping is in the app; no server change (For you already returns up to 50 papers). |
+
+## Feed reasons, the places menu and companions: owner feedback on TestFlight 91 (owner direction 2026-10-24; wording agent's, reversible)
+
+Owner, iPad sideways on TestFlight 91. Spec in DESIGN.md › Tall and Wide and [Personalized feed › Client
+presentation](architecture/PERSONALIZED_FEED.md#client-presentation-grouped-by-why-owner-2026-10-24).
+
+| Decision | Choice |
+|---|---|
+| Why labels | "What does that even mean category CSLG?… I can't make any sense of that CS AI." A category reason reads "New in Machine learning", the name the List already used; Hugging Face upvotes read "Popular: 232 upvotes". *Supersedes "Category: cs.CL" and "Popular ▲ n" in the Feed-grouped-by-why table above.* |
+| ⓘ | "If I click on why… maybe have like a little info icon that says what that even means… you press it and then it shows you a pop-up." An ⓘ after the Why header opens the usual small popover listing each label's meaning and the ▲; each List section header gets an ⓘ with its group's meaning. No footer. |
+| Upvotes | The ▲ column is headed Upvotes (was Popularity, "Popular 232… that confusing"); stored choices carry over. |
+| Places menu | "Why is there a larger space between snippets and search?" One list: Feed, Library, Paper, Chat, Snippets, Search, Settings, no section separator (no decision recorded a reason for it). |
+| Opening a helper | A figure opened from the paper beside the Library: "there was an animation that was kind of weird… maybe it might work just not to have an animation, just to go there"; "I like this UX here". Opening or closing a companion (AI Explainer, equation view, figure or table page) changes the slots at once, no slide or crossfade, including the list leaving and the paper moving left. The list toggle, Discuss and covering keep their slide. |
 
 ## Heading formulas as characters; bracketed addresses stay (fresh-paper sweep, 2026-10-24; agent decisions, reversible)
 

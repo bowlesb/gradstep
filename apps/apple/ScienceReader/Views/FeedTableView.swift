@@ -7,7 +7,7 @@ enum FeedSortKey: Hashable, CaseIterable {
     case suggested, why, published, popularity, title, topic, authors
     var label: String {
         switch self {
-        case .suggested: "Suggested"; case .why: "Why"; case .published: "Published"; case .popularity: "Popularity"; case .title: "Title"
+        case .suggested: "Suggested"; case .why: "Why"; case .published: "Published"; case .popularity: "Upvotes"; case .title: "Title"
         case .topic: "Topics"; case .authors: "Authors"
         }
     }
@@ -40,7 +40,9 @@ enum FeedTableColumn: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .why: "Why"; case .popularity: "Popularity"; case .topic: "Topics"; case .published: "Published"; case .authors: "Authors"; case .arxiv: "arXiv ID"
+        // Upvotes, not Popularity (owner, TestFlight 91, puzzled by "▲ 232"): the column says what it counts. Its stored
+        // name stays "popularity" so readers' column choices carry over.
+        case .why: "Why"; case .popularity: "Upvotes"; case .topic: "Topics"; case .published: "Published"; case .authors: "Authors"; case .arxiv: "arXiv ID"
         case .abstract: "Abstract"; case .add: ""
         }
     }
@@ -61,7 +63,8 @@ enum FeedTableColumn: String, CaseIterable, Identifiable, Sendable {
     var column: Column {
         switch self {
         // Two short lines ("Your tag: byte-level LMs"); beside the title on every iPhone in portrait.
-        case .why: Column(id: rawValue, title: title, priority: 1, width: 120, sortKey: .why, ascendingFirst: true)
+        // Its ⓘ says what the reasons and the ▲ mean (owner, TestFlight 91).
+        case .why: Column(id: rawValue, title: title, priority: 1, width: 120, sortKey: .why, ascendingFirst: true, info: FeedWhy.info)
         case .popularity: Column(id: rawValue, title: title, priority: 2, width: 84, sortKey: .popularity)
         case .topic: Column(id: rawValue, title: title, priority: 3, width: 170, sortKey: .topic, ascendingFirst: true)
         case .published: Column(id: rawValue, title: title, priority: 4, width: 88, sortKey: .published)
@@ -469,26 +472,33 @@ struct FeedWhyCell: View {
     }
 }
 
-/// A section header of the grouped For you List: the group's symbol, its name ("RLHF", "From authors you read") and how
-/// many papers it has.
+/// A section header of the grouped For you List: the group's symbol, its name ("RLHF", "From authors you read"), how
+/// many papers it has, and an ⓘ saying what the group means (owner, TestFlight 91: "maybe have like a little info icon
+/// that says what that even means").
 struct FeedSectionHeader: View {
     let section: FeedSection
     var body: some View {
         let count = section.results.count
         HStack(spacing: 6) {
-            Image(systemName: section.group.symbol).imageScale(.small).foregroundStyle(Color.accentColor)
-            Text(section.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
-            Text("\(count)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+            HStack(spacing: 6) {
+                Image(systemName: section.group.symbol).imageScale(.small).foregroundStyle(Color.accentColor)
+                Text(section.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                Text("\(count)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(section.title), \(count == 1 ? "1 paper" : "\(count) papers")")
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("feed.section.\(section.id)")
+            // Its 30 pt target overhangs the band rather than making it taller.
+            InfoButton(text: section.group.explanation, identifier: "feed.section.info.\(section.id)")
+                .padding(.vertical, -6).padding(.leading, -6)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
         // Pinned at the top while its papers scroll under it: an opaque band, edge to edge, so they don't show through.
         .background { Color(uiColor: .systemBackground).padding(.horizontal, -2 * DesignMetrics.margin).padding(.vertical, -2) }
         .textCase(nil)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(section.title), \(count == 1 ? "1 paper" : "\(count) papers")")
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityIdentifier("feed.section.\(section.id)")
+        .accessibilityElement(children: .contain)
     }
 }
 

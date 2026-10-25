@@ -47,7 +47,9 @@ Three additions to the same request/stream contract, built once on the server an
   (`apps/web/src/lib/paper-context.ts`) and ScienceReaderCore (`PaperChatContext`) produce the same text;
   `tests/fixtures/reader-arxiv/local-context-v2.txt` is the shared golden output both test against. `v1` (plain
   block text) is still accepted. The format is part of the request digest. Server-held (historical) papers are
-  not numbered and get no citation instructions.
+  not numbered and get no citation instructions. A PDF the reader added, read by the on-device model, is sent as
+  `{"format": "reader-local-context-v2", "source": "local", "text": …}` and nothing else (2026-10-24): no membership
+  to authorize, no id, title or digest, no title in the paper block ([DEVICE_PDF_ROUTE.md](DEVICE_PDF_ROUTE.md#explainers-on-every-model-reading--2026-10-24-after-testflight-91)).
 - **Grounded citations.** For a v2 context the system prompt asks the model to cite the exact block as `[¶N]` after
   the statement it supports. Clients render each marker as a small control (browser: `<span class="cite"
   data-cite="N">`, native: a `gradstep-cite://N` link in the selectable answer text). A tap resolves N against the

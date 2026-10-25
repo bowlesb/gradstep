@@ -99,6 +99,9 @@ enum DeviceModelEngine {
     static var available: Bool {
         guard #available(iOS 18.0, *) else { return false }
         guard compilerURL != nil else { return false }
+        #if DEBUG && FIXTURE_HOST
+        if DeviceModelAssets.downloadFixture != nil { return true }
+        #endif
         if modelsDirectory != nil { return true }
         #if targetEnvironment(macCatalyst)
         return false
@@ -245,6 +248,42 @@ extension ReaderModel {
         return Double(index) / Double(bundle.index.blocks.count - 1)
     }
     var deviceModelAvailable: Bool { deviceModelReader && DeviceModelEngine.available }
+
+    // MARK: Settings › Experimental › On-device PDF reader (one row; DeviceModelReaderSetting)
+
+    /// What the row shows now.
+    var deviceModelReaderRow: DeviceModelReaderRow {
+        DeviceModelReaderSetting.row(preference: deviceModelReader, files: deviceModelAssets.files)
+    }
+
+    /// The row's switch: on asks before a download when the models are not here; off cancels a download or removes the
+    /// downloaded models (a model reading in progress stops first).
+    func setDeviceModelReader(_ on: Bool) {
+        let (preference, command) = DeviceModelReaderSetting.toggled(to: on, files: deviceModelAssets.files)
+        if let preference { deviceModelReader = preference }
+        switch command {
+        case .none: break
+        case .askToDownload: deviceModelDownloadQuestion = true
+        case .cancelDownload:
+            dismissDeviceModelDownload()
+        case .removeDownloadedModels:
+            if deviceModelRun != nil { cancelDeviceModelReading() }
+            deviceModelDownloadPaperID = nil
+            deviceModelAssets.remove()
+        }
+    }
+
+    /// "Download the on-device PDF reader?" › Download: the models download (the row shows their progress) and the switch
+    /// comes on when they are installed; a failure or Cancel leaves it off.
+    func confirmDeviceModelDownload() {
+        deviceModelDownloadQuestion = false
+        deviceModelReader = true
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.deviceModelAssets.ensureDownloaded()
+            self.deviceModelReader = DeviceModelReaderSetting.preferenceAfterDownload(files: self.deviceModelAssets.files)
+        }
+    }
     /// Whether "Read with the on-device model" applies to this paper now.
     func canReadWithDeviceModel(_ paper: Paper) -> Bool {
         guard deviceModelAvailable, deviceModelRun == nil else { return false }

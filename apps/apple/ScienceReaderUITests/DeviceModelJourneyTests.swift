@@ -17,7 +17,7 @@ final class DeviceModelJourneyTests: XCTestCase {
     func testReadingAPaperWithTheOnDeviceModelAndGoingBack() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
-        app.launchArguments = ["--workflow-fixture", "--device-model-fixture", "-appearance", "light"]
+        app.launchArguments = ["--workflow-fixture", "--device-model-fixture", "-appearance", "light", "-reader.deviceModel", "YES"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
         app.buttons[sampleID].tap()
@@ -70,17 +70,20 @@ final class DeviceModelJourneyTests: XCTestCase {
         XCTAssertTrue(original.waitForExistence(timeout: 10))
         capture("Back to the original reading")
 
-        // Settings › Experimental: one row says the model is downloaded, and Remove takes it away (so the next run
-        // downloads again).
+        // Settings › Experimental: one row (TestFlight 91 session), on now that the model is here; turning it off removes
+        // the model (so the next run downloads again), and turning it on again asks before downloading.
         app.openSettingsFromMenu()
-        let status = app.staticTexts["settings.deviceModelStatus"]
-        for _ in 0..<6 where !(status.exists && status.isHittable) { app.swipeUp() }
-        XCTAssertTrue(status.waitForExistence(timeout: 5), "Settings has the model's row")
-        XCTAssertTrue(status.label.hasPrefix("Downloaded · "), status.label)
-        capture("Settings: the model is downloaded")
-        app.buttons["settings.deviceModelRemove"].tap()
-        XCTAssertTrue(app.buttons["settings.deviceModelDownload"].waitForExistence(timeout: 5), "Removed, it offers Download")
-        XCTAssertTrue(status.label.hasPrefix("Not downloaded · about "), status.label)
+        let reader = app.switches["settings.deviceModel"]
+        for _ in 0..<6 where !(reader.exists && reader.isHittable) { app.swipeUp() }
+        XCTAssertTrue(reader.waitForExistence(timeout: 5), "Settings has the reader's row")
+        XCTAssertEqual(reader.value as? String, "1", "On: chosen, and the model is on this device")
+        capture("Settings: the reader is on")
+        let control = reader.switches.firstMatch
+        (control.exists ? control : reader).tap()
+        XCTAssertEqual(reader.value as? String, "0")
+        (control.exists ? control : reader).tap()
+        XCTAssertTrue(app.alerts["Download the on-device PDF reader?"].waitForExistence(timeout: 5), "Removed, it asks to download again")
+        app.alerts.buttons["Cancel"].firstMatch.tap()
         capture("Settings: the model is removed")
     }
 }

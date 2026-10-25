@@ -140,6 +140,22 @@ enum SlotArrangement: String, CaseIterable {
     func reset() { for arrangement in SlotArrangement.allCases { set(nil, for: arrangement) }; covering = [] }
 }
 
+/// How the slots move when one arrives, leaves or covers the window.
+enum SlotMotion {
+    static var animation: Animation { .snappy(duration: 0.32 * slow) }
+
+    /// Fixture builds may slow it down to test what moves and what doesn't (`--slot-animation-slow=<factor>`).
+    private static var slow: Double {
+        #if DEBUG && FIXTURE_HOST
+        if let value = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--slot-animation-slow=") })
+            .flatMap({ Double($0.dropFirst("--slot-animation-slow=".count)) }) {
+            return min(60, max(1, value))
+        }
+        #endif
+        return 1
+    }
+}
+
 /// The Wide two-slot container (owner, 2026-10-22; docs/DESIGN.md › Tall and Wide). Each place owns one arrangement
 /// (owner, 2026-10-23): the left slot is the place itself (its list), the right slot what was picked from it; the paper's
 /// helpers sit on its right (Paper | companion). It owns the slots' widths, the draggable divider between them and the
@@ -164,6 +180,9 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
     /// What the list has picked (a paper, a conversation, a collection, a feed article): when it changes, a list covering
     /// the window gives the picked thing its slot again.
     var selection: AnyHashable? = nil
+    /// Whether the other slot slides in and out. The paper's companions (a figure, table or equation page, the AI
+    /// Explainers) don't: they appear in their final place at once (`ExplainerCompanion`).
+    var slides = true
     @ViewBuilder var main: Main
     @ViewBuilder var otherView: Other
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -249,8 +268,8 @@ struct TwoSlotLayout<Main: View, Other: View>: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.32), value: side)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.32), value: covering)
+        .animation(reduceMotion || !slides ? nil : SlotMotion.animation, value: side)
+        .animation(reduceMotion ? nil : SlotMotion.animation, value: covering)
         .onChange(of: selection) { SlotFractions.shared.uncover(arrangement) }
     }
 
@@ -436,33 +455,31 @@ struct WideBarLayout: Layout {
 /// ... menu"; it replaced the places capsule in the Wide row). One 44 pt glass circle in the window's top-left corner
 /// (owner correction, 2026-10-23: "I thought I asked for an icon in the top left… I meant the top left"), the same spot in
 /// every view, a list covering the window included, showing the current place's own symbol in accent, so it also says where you are. Its
-/// rows: Feed, Library, Paper, Chat, Snippets (the current one checked; Paper needs a paper), then Search. ⌘1…⌘5 choose
+/// rows, one list: Feed, Library, Paper, Chat, Snippets (the current one checked; Paper needs a paper), Search, Settings. ⌘1…⌘5 choose
 /// the places with a hardware keyboard. Each row keeps its `tab.*` identifier.
 struct PlacesMenuButton: View {
     @Bindable var model: ReaderModel
 
     var body: some View {
         let current = model.widePlace
+        // One list, no section separator (owner, TestFlight 91: "why is there a larger space between snippets and search?
+        // That seems a little bit confusing").
         Menu {
-            Section {
-                ForEach(ReaderTab.phoneTabs) { place in
-                    Toggle(isOn: Binding(get: { model.widePlace == place }, set: { _ in model.showPlace(place) })) {
-                        Label { Text(place.rawValue) } icon: { menuIcon(place.icon) }
-                    }
-                    .disabled(place == .paper && model.selectedPaper == nil)
-                    .accessibilityIdentifier("tab.\(String(describing: place))")
+            ForEach(ReaderTab.phoneTabs) { place in
+                Toggle(isOn: Binding(get: { model.widePlace == place }, set: { _ in model.showPlace(place) })) {
+                    Label { Text(place.rawValue) } icon: { menuIcon(place.icon) }
                 }
+                .disabled(place == .paper && model.selectedPaper == nil)
+                .accessibilityIdentifier("tab.\(String(describing: place))")
             }
-            Section {
-                // Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"): the Library place
-                // with its field focused.
-                MenuRow("Search", systemImage: "magnifyingglass") { model.searchFromPlaces() }.accessibilityIdentifier("tab.search")
-                // Settings under Search, and in no ⋯ menu in this shape (owner, 2026-10-24; SettingsMenuSection).
-                Button { model.openSettings(afterMenu: true) } label: {
-                    Label { Text("Settings") } icon: { menuIcon(GradstepSymbol.settings) }
-                }
-                .accessibilityIdentifier("menu.settings")
+            // Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"): the Library place with its
+            // field focused.
+            MenuRow("Search", systemImage: "magnifyingglass") { model.searchFromPlaces() }.accessibilityIdentifier("tab.search")
+            // Settings under Search, and in no ⋯ menu in this shape (owner, 2026-10-24; SettingsMenuSection).
+            Button { model.openSettings(afterMenu: true) } label: {
+                Label { Text("Settings") } icon: { menuIcon(GradstepSymbol.settings) }
             }
+            .accessibilityIdentifier("menu.settings")
         } label: {
             Image(current.icon)
                 .symbolRenderingMode(.palette)
@@ -645,6 +662,11 @@ struct ExplainPane<Content: View>: View {
 
 /// Wide: the explainer in the companion slot beside the paper (ExplainPane); closing it (✕, or dragging the divider past
 /// its minimum) runs `onDismiss`, as a sheet's does. `opened` runs as it appears, so the paper becomes the Paper place.
+///
+/// Nothing slides (owner, TestFlight 91, a figure opened from the paper beside the Library: "there was an animation that
+/// was kind of weird… maybe it might work just not to have an animation, just to go there"; "I like this UX here"). The
+/// list leaving, the paper moving to the left and the page arriving on its right happen at once, and so does closing, as
+/// with Reduce Motion, which already moved nothing.
 private struct ExplainerCompanion<Page: View>: ViewModifier {
     let shown: Bool
     let close: () -> Void
@@ -654,7 +676,7 @@ private struct ExplainerCompanion<Page: View>: ViewModifier {
     @State private var width: CGFloat = 0
 
     func body(content: Content) -> some View {
-        TwoSlotLayout(width: width, other: shown ? .right : .none, arrangement: .companion, collapse: close) {
+        TwoSlotLayout(width: width, other: shown ? .right : .none, arrangement: .companion, collapse: close, slides: false) {
             content
         } otherView: {
             ExplainPane { page() }
@@ -662,8 +684,15 @@ private struct ExplainerCompanion<Page: View>: ViewModifier {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onChange(of: shown) { was, now in
             if was && !now { onDismiss?() }
-            if now && !was { opened?() }
+            // The paper becoming the Paper place (the list or chat beside it giving way) without the slots' slide either.
+            if now && !was { withTransaction(Self.instant) { opened?() } }
         }
+    }
+
+    private static var instant: Transaction {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        return transaction
     }
 }
 
