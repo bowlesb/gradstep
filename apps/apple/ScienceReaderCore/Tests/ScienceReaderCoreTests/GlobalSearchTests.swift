@@ -285,6 +285,7 @@ import Testing
         #expect(SearchText.chat("It costs $5 and $10.") == "It costs $5 and $10.")
         #expect(SearchText.math(#"\frac{\partial L}{\partial \theta}"#) == "∂ L ∂ θ")
         #expect(SearchText.math(#"\begin{equation}\label{eq:attention} x^{\mathsf{T}} y_{\mathrm{t}} \end{equation}"#) == "x^T y_t")
+        #expect(SearchText.math(#"\operatorname{softmax}\!\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}}\right)V"#) == "softmax ( QK^T √d_k )V")
     }
 
     @Test func diagramsGiveTheirLabels() throws {

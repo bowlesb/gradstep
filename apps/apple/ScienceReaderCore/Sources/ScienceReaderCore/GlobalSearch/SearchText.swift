@@ -201,8 +201,8 @@ public enum SearchText {
             index += 1
         }
         // `^{⊤}` and `^⊤` read as a transpose mark; a script's dropped command leaves no gap.
-        return out.replacingOccurrences(of: "^⊤", with: "⊤").replacingOccurrences(of: "^ ", with: "^").replacingOccurrences(of: "_ ", with: "_")
-            .split(whereSeparator: { $0 == " " }).joined(separator: " ")
+        return out.split(whereSeparator: { $0 == " " }).joined(separator: " ")
+            .replacingOccurrences(of: "^⊤", with: "⊤").replacingOccurrences(of: "^ ", with: "^").replacingOccurrences(of: "_ ", with: "_")
     }
 
     // MARK: Diagrams
