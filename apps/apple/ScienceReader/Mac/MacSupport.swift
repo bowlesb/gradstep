@@ -18,6 +18,9 @@ enum Platform {
     /// iPad or Mac: the layouts that put panes side by side and center scrolling columns. The Mac
     /// uses the same wide workspace as the browser (Library/Feed, Reader and Chat panes), while
     /// reusing the iPad's SwiftUI surfaces and shared model for behavioral parity.
+    /// The iPad (not the Mac, whose idiom can also be pad): its six places and no Settings in ⋯ menus (owner, 2026-10-24).
+    @MainActor static var isPad: Bool { !isMac && UIDevice.current.userInterfaceIdiom == .pad }
+
     @MainActor static var isLargeScreen: Bool {
         let idiom = UIDevice.current.userInterfaceIdiom
         return idiom == .pad || idiom == .mac
@@ -76,8 +79,8 @@ extension ReaderModel {
     /// iPad Wide's Discuss is showing (the paper on the left, its chat on the right).
     var discussShown: Bool { !compactLayout && !Platform.isMac && wideDiscuss }
 
-    /// The places menu's Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"): the Library
-    /// place with its field focused; results in its list, the one picked on the right.
+    /// The Mac's Search Library (Edit menu, ⌘F): the Library place with its field focused; results in its list, the one
+    /// picked on the right. (The iPad has no Search place: the Library's own field, owner 2026-10-24.)
     func searchFromPlaces() {
         if widePlace != .library { showPlace(.library) }
         MacCommandRequests.shared.librarySearch = UUID()
@@ -136,6 +139,9 @@ extension ReaderModel {
     /// its own. Each place keeps its selection (the Library's open paper, the Feed's picked article). Leaves Settings when
     /// it is showing.
     func showPlace(_ place: ReaderTab) {
+        // Settings is a place on iPad (owner, 2026-10-24): it opens over the current one, as before.
+        if place == .settings { openSettings(); return }
+        if place == .chat { chatsListPaperID = nil; chatsListFilter = .all }
         if !compactLayout {
             if place == .chat {
                 if Platform.isMac || !canUsePaperChat { generalChat = true } else { chatBesideList = true }

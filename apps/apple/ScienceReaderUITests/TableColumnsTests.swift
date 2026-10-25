@@ -130,14 +130,21 @@ final class TableColumnsTests: XCTestCase {
         attach(app, "Feed with larger text")
         app.buttons["feed.textSize.smaller"].tap(); app.buttons["feed.textSize.smaller"].tap()
         waitFor("And back") { abs(row.frame.height - before) < 2 }
+        // Papers already in the library are never in the Feed (owner, 2026-10-24: "Just do it by default… you already have
+        // something in your library, don't need to show it again in the feed"), an import already requested included;
+        // there is no option for it.
         let inLibrary = app.descendants(matching: .any)["feed.table.2001.08361"].firstMatch
-        XCTAssertTrue(inLibrary.exists, "Already added papers are shown initially")
-        options.tap(); app.buttons["feed.hideLibrary"].firstMatch.tap()
-        XCTAssertTrue(inLibrary.waitForNonExistence(timeout: 5), "Hide-in-library also hides an import already requested")
+        XCTAssertFalse(inLibrary.exists, "A paper being added to the library is not in the Feed")
         XCTAssertTrue(row.exists, "Papers not added remain")
-        options.tap(); app.buttons["feed.hideLibrary"].firstMatch.tap()
-        XCTAssertTrue(inLibrary.waitForExistence(timeout: 5), "The filter reverses without refetching")
-        restoreColumns(app, options: options, menuItem: "feed.columns", prefix: "feed.columns")
+        options.tap()
+        XCTAssertTrue(app.buttons["feed.columns"].firstMatch.waitForExistence(timeout: 5), "The Feed's ⋯ is open")
+        XCTAssertFalse(app.descendants(matching: .any)["feed.hideLibrary"].firstMatch.exists, "No hide-in-library option")
+        app.buttons["feed.columns"].firstMatch.tap()
+        let restore = app.buttons["feed.columns.restore"]
+        XCTAssertTrue(app.navigationBars["Columns"].waitForExistence(timeout: 5))
+        for _ in 0..<3 where !(restore.exists && restore.isHittable) { app.collectionViews.firstMatch.swipeUp() }
+        restore.tap()
+        app.buttons["feed.columns.done"].tap()
     }
 
     /// Choices are kept on the device: put the defaults back for other tests.

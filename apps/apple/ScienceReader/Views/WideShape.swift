@@ -436,8 +436,10 @@ struct WideBarLayout: Layout {
 /// ... menu"; it replaced the places capsule in the Wide row). One 44 pt glass circle in the window's top-left corner
 /// (owner correction, 2026-10-23: "I thought I asked for an icon in the top left… I meant the top left"), the same spot in
 /// every view, a list covering the window included, showing the current place's own symbol in accent, so it also says where you are. Its
-/// rows: Feed, Library, Paper, Chat, Snippets (the current one checked; Paper needs a paper), then Search. ⌘1…⌘5 choose
-/// the places with a hardware keyboard. Each row keeps its `tab.*` identifier.
+/// rows: Feed, Library, Paper, Chat, Snippets (the current one checked; Paper needs a paper) and Settings, which opens over
+/// the place (owner, 2026-10-24: "put Settings here beside Snippets"); no Search ("if I want a search, I could just go and
+/// search the library"). ⌘1…⌘5 choose the places and ⌘, opens Settings with a hardware keyboard. Each row keeps its
+/// `tab.*` identifier.
 struct PlacesMenuButton: View {
     @Bindable var model: ReaderModel
 
@@ -452,16 +454,11 @@ struct PlacesMenuButton: View {
                     .disabled(place == .paper && model.selectedPaper == nil)
                     .accessibilityIdentifier("tab.\(String(describing: place))")
                 }
-            }
-            Section {
-                // Search (owner, 2026-10-22: "search lives at the top of the left panel, like Mail"): the Library place
-                // with its field focused.
-                MenuRow("Search", systemImage: "magnifyingglass") { model.searchFromPlaces() }.accessibilityIdentifier("tab.search")
-                // Settings under Search, and in no ⋯ menu in this shape (owner, 2026-10-24; SettingsMenuSection).
+                // Settings beside Snippets, and in no ⋯ menu (owner, 2026-10-24; SettingsMenuSection): over the place.
                 Button { model.openSettings(afterMenu: true) } label: {
-                    Label { Text("Settings") } icon: { menuIcon(GradstepSymbol.settings) }
+                    Label { Text(ReaderTab.settings.rawValue) } icon: { menuIcon(ReaderTab.settings.icon) }
                 }
-                .accessibilityIdentifier("menu.settings")
+                .accessibilityIdentifier("tab.settings")
             }
         } label: {
             Image(current.icon)
@@ -478,12 +475,16 @@ struct PlacesMenuButton: View {
         .background { shortcuts }
     }
 
-    /// ⌘1…⌘5: the places in the menu's order (the Mac's View menu binds the same keys there; this button is iPad only).
+    /// ⌘1…⌘5: the places in the menu's order, and ⌘, Settings (the Mac's menus bind the same keys there; this button is
+    /// iPad only).
     private var shortcuts: some View {
-        ForEach(Array(ReaderTab.phoneTabs.enumerated()), id: \.offset) { index, place in
-            Button(place.rawValue) { model.showPlace(place) }
-                .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
-                .disabled(place == .paper && model.selectedPaper == nil)
+        Group {
+            ForEach(Array(ReaderTab.phoneTabs.enumerated()), id: \.offset) { index, place in
+                Button(place.rawValue) { model.showPlace(place) }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
+                    .disabled(place == .paper && model.selectedPaper == nil)
+            }
+            Button(ReaderTab.settings.rawValue) { model.openSettings() }.keyboardShortcut(",")
         }
         .opacity(0).frame(width: 0, height: 0).allowsHitTesting(false).accessibilityHidden(true)
     }

@@ -185,6 +185,14 @@ final class VisualScenarioTests: XCTestCase {
             "library-options": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.tapMenu(app, "Library options")
             },
+            // The iPad's places (navigation round after TestFlight 91): the places menu sideways (its rows), and the Feed's ⋯.
+            "places-menu": Scenario(arguments: ["--workflow-fixture"]) { app in
+                if app.wideShape { app.placesMenu.tap(); sleep(1) }
+            },
+            "feed-options": Scenario(arguments: ["--workflow-fixture", "--feed-fixture"]) { app in
+                self.go(app, "feed"); sleep(1)
+                self.tapMenu(app, "Feed options")
+            },
             "library-add": Scenario(arguments: ["--workflow-fixture", "--visual-show-import"]) { app in
                 XCTAssertTrue(app.navigationBars["Add a paper"].waitForExistence(timeout: 5)); sleep(1)
             },

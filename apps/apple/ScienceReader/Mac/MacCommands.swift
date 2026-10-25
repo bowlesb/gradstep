@@ -146,7 +146,6 @@ struct GradstepCommands: Commands {
                         ForEach(FeedSortKey.offered(personal: model.currentFeedSelection.isPersonal), id: \.self) { Text($0.label).tag($0) }
                     }
                 }
-                Toggle("Hide Papers in Your Library", isOn: $model.feedHidesLibrary)
             }
             Section {
                 Button("Larger Paper Text") { model.paperFontSize = min(26, model.paperFontSize + 1) }

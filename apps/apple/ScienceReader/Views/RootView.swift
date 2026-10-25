@@ -137,24 +137,29 @@ struct RootView: View {
 
     /// The tab bar: one glass capsule floating over the screen (2026-10-07).
     private var tabBar: some View {
-        HStack(spacing: 0) {
-            // Feed · Library · Paper · Chat · Notes (owner, 2026-10-20): Settings is the last section of every ⋯ menu.
-            ForEach(ReaderTab.phoneTabs) { tab in
+        let places = ReaderTab.places
+        return HStack(spacing: 0) {
+            // Feed · Library · Paper · Chat · Notes (owner, 2026-10-20): on iPhone Settings is the last section of every ⋯
+            // menu; on iPad it is the sixth, beside Snippets (owner, 2026-10-24), and opens over the screen as before.
+            ForEach(places) { tab in
+                let selected = tab == .settings ? model.settingsPresented : model.tab == tab
                 Button {
+                    if tab == .settings { model.openSettings(); return }
                     // A second tap on Notes goes back to its list, as a system tab bar does.
                     if tab == .notes && model.tab == .notes { model.notes.openNoteID = nil }
                     model.tab = tab
-                } label: { TabBarItem(tab: tab, selected: model.tab == tab) }
+                } label: { TabBarItem(tab: tab, selected: selected) }
                 .buttonStyle(.plain)
                 .disabled(tab == .paper && model.selectedPaper == nil)
                 .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
                 .accessibilityIdentifier("tab.\(String(describing: tab))")
-                .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
+                .accessibilityAddTraits(selected ? .isSelected : [])
                 .accessibilityShowsLargeContentViewer { Label(tab.rawValue, image: tab.icon) }
             }
         }
         .padding(4)
-        .frame(maxWidth: ChromeMetrics.tabBarMaxWidth)
+        // Six items keep each one's width (104 pt) rather than squeezing into five's capsule.
+        .frame(maxWidth: ChromeMetrics.tabBarMaxWidth * CGFloat(places.count) / CGFloat(ReaderTab.phoneTabs.count))
         .chromeSurface(Capsule(), interactive: true)
     }
 
@@ -639,7 +644,7 @@ struct LibraryView: View {
                 }
             }
             Section {
-                MenuRow("All chats", systemImage: GradstepSymbol.chats) { model.showAllChats = true }
+                MenuRow("All chats", systemImage: GradstepSymbol.chats) { model.openAllChats(paper: nil) }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
                 MenuRow("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
                     .disabled(!model.isSignedIn || model.libraryRefreshing)
@@ -954,13 +959,11 @@ struct FeedView: View {
                     if model.feedResults.isEmpty {
                         ContentUnavailableView("No new papers", image: GradstepSymbol.feed, description: Text("Check back later or pick another topic."))
                     } else if model.shownFeedResults.isEmpty {
-                        // Every paper here is already in the library and the reader hides those.
+                        // Every paper here is already in the library, which the Feed never shows again (owner, 2026-10-24).
                         ContentUnavailableView {
                             Label("All in your library", image: GradstepSymbol.feed)
                         } description: {
                             Text("Every new paper in this topic is already in your library.")
-                        } actions: {
-                            Button("Show them") { model.feedHidesLibrary = false }.accessibilityIdentifier("feed.showLibrary")
                         }
                     } else if tableShown {
                         if let stale = model.feedStaleNote {
@@ -1123,8 +1126,6 @@ struct FeedView: View {
                 }
             }
             Section {
-                Toggle(isOn: $model.feedHidesLibrary) { Label("Hide papers in your library", systemImage: "checkmark.circle") }
-                    .accessibilityIdentifier("feed.hideLibrary")
                 MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
             }
             Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
@@ -1749,7 +1750,7 @@ struct SettingsView: View {
                 // Design audit F11: rows that open something look alike (title + chevron); actions are tinted.
                 // Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough".
                 Section("Your assets") {
-                    openRow("Chats") { model.showAllChats = true }.accessibilityIdentifier("settings.chats")
+                    openRow("Chats") { model.openAllChats(paper: nil) }.accessibilityIdentifier("settings.chats")
                     openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams")
                     // Owner, 2026-10-21: "Needs to be a Notes section in your assets". Opens Notes (closing Settings).
                     Button {

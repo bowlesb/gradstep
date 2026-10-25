@@ -2259,3 +2259,34 @@ Chat and › Tall and Wide (*Chat*):
   paper", Settings › Your assets › Chats, the chat's ⋯) shows the chat list in the side panel, filtered to This paper
   where the route comes from a paper; no centred All chats sheet in Wide. Tall keeps the sheet. Built in the
   navigation round after TestFlight 91.
+
+## iPad places: Settings beside Snippets, no Search place, Feed hides library papers (owner session 2026-10-24, TestFlight 91)
+
+From the owner's recorded iPad session (upright, Tall; findings G5, G6, G17). Spec in DESIGN.md › Tall and Wide:
+
+- **Settings is the iPad's sixth place (G5).** "on the iPad we could actually have six along the bottom. It's only on the
+  iPhone where we're more constrained, so we should put Settings here beside Snippets on the right, and remove it from
+  here… I think that's just a confusing place for it to go"; of the Feed's ⋯: "this setting, settings here… we're going
+  to move that so we don't see it there anymore". On iPad the places are Feed · Library · Paper · Chat · Snippets ·
+  Settings: the upright bar's sixth item, and sideways the places menu's sixth row (in its one section, after Snippets).
+  Settings is in no ⋯ menu on iPad, in either shape. It opens as before (the sheet over the current screen; Done
+  returns). The iPhone keeps five tabs with Settings as every ⋯'s last section; the Mac keeps Settings… (⌘,) and its
+  menus. *Supersedes* "Settings under Search" in the places menu (2026-10-24) and, on iPad, "Settings is the last row of
+  every ⋯".
+- **No Search place on iPad (G6).** "I'm not sure that it makes sense to have Search be its own thing here, because it
+  isn't in the iPhone… if I want a search, I could just go and search the library." The places menu has no Search row;
+  searching is the Library's own field with its Library / ML paper search switch, as on iPhone. Routes that searched
+  already land there with the query (an author's "Find papers by", Find similar papers, a tag's ML paper search, a
+  chat's paper link). The Mac keeps its Edit menu's Search Library (⌘F / ⌥⌘F) and Search ML Papers (⇧⌘F). *Supersedes*
+  "Search in the places menu is the Library with its field focused".
+- **The Feed always leaves out papers in your library (G17).** "you actually should, but you don't need the setting here
+  for this. Just do it by default… you already have something in your library, don't need to show it again in the
+  feed." The Feed's ⋯ (and the Mac's View menu) lose "Hide papers in your library"; the stored choice
+  (`feed.hidesLibrary`) is removed from the device on launch. For you already excluded them on the server
+  (`app_private.feed_excluded`, every present import; migrations 0154/0155); the device's filter covers the topic chips
+  and papers added since the Feed loaded, an import still syncing included.
+- Agent choices (reversible): a paper added from the Feed's own row (or its abstract pane) stays in the Feed, with its
+  progress and Read, until the Feed loads again, so the row doesn't vanish under the reader's finger (the Feed's Add
+  keeps every row's frame); with every paper of a topic already in the library the Feed says so, without the old "Show
+  them" button. On iPad a hardware keyboard's ⌘, opens Settings sideways (as on the Mac); ⌘1…⌘5 still choose the five
+  places. Upright the bar's six items share the capsule, which widens to 624 pt (104 pt an item, as five had).

@@ -86,7 +86,8 @@ extension XCUIApplication {
     }
 
     func show(_ place: String) {
-        // Settings is the last section of every ⋯ menu (owner, 2026-10-20), in both shapes and on the Mac.
+        // Settings: the iPad's sixth place (its bar upright, its places menu sideways; owner, 2026-10-24); the last section
+        // of every ⋯ menu on iPhone and the Mac (owner, 2026-10-20).
         if place == "settings" {
             openSettingsFromMenu()
             return
@@ -148,13 +149,15 @@ extension XCUIApplication {
             ?? buttons.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
     }
 
-    /// Settings from the current screen's ⋯ menu (its last section), over that screen.
+    /// Settings over the current screen: on iPad its place (the bar's last item upright, the places menu's last row
+    /// sideways; in no ⋯ menu, owner 2026-10-24), elsewhere the ⋯ menu's last section.
     func openSettingsFromMenu(file: StaticString = #filePath, line: UInt = #line) {
-        // iPad Wide: Settings is in the places menu under Search, in no ⋯ menu (owner, 2026-10-24).
+        let tab = buttons["tab.settings"]
+        if tab.exists && tab.isHittable { tab.tap(); return }
         let places = buttons["places.menu"]
         if places.exists && places.isHittable {
             places.tap()
-            let settings = buttons["menu.settings"]
+            let settings = descendants(matching: .any)["tab.settings"].firstMatch
             XCTAssertTrue(settings.waitForExistence(timeout: 5), "Settings is in the places menu", file: file, line: line)
             settings.tap()
             return

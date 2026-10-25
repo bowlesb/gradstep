@@ -8,6 +8,10 @@ enum ReaderTab: String, CaseIterable, Identifiable {
     case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Snippets", settings = "Settings"
     /// The phone's floating tab bar (owner, 2026-10-20): Notes replaces Settings, which every top-right menu now opens.
     static let phoneTabs: [ReaderTab] = [.feed, .library, .paper, .chat, .notes]
+    /// The places on screen: on iPad Settings is the sixth, beside Snippets (owner, 2026-10-24: "on the iPad we could
+    /// actually have six along the bottom… put Settings here beside Snippets on the right"), in the bar upright and the
+    /// places menu sideways, and in no ⋯ menu. The iPhone keeps five (Settings in every ⋯); the Mac its toolbar and menus.
+    @MainActor static var places: [ReaderTab] { Platform.isPad ? phoneTabs + [.settings] : phoneTabs }
     var id: Self { self }
     var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
 }
@@ -642,15 +646,16 @@ final class ReaderModel {
                                         regularDefault: FeedTableColumn.regularDefault, introduced: FeedTableColumn.introduced, from: .standard) {
         didSet { feedColumns.save(to: .standard) }
     }
-    /// The Feed leaves out papers already in the library (its "…" menu; kept on the device).
-    var feedHidesLibrary = UserDefaults.standard.bool(forKey: "feed.hidesLibrary") {
-        didSet { UserDefaults.standard.set(feedHidesLibrary, forKey: "feed.hidesLibrary") }
-    }
-    /// The Feed's papers as shown: without those in the library when the reader chose so.
+    /// Papers added from the Feed itself since it loaded: they stay in it, with their progress and Read, until it loads
+    /// again (a row never vanishes under the reader's finger; the Feed's Add keeps every row's frame).
+    private(set) var feedAddedHere: Set<String> = []
+    /// The Feed's papers as shown: never those already in the library (owner, 2026-10-24: "Just do it by default… you
+    /// already have something in your library, don't need to show it again in the feed"), an import still syncing
+    /// included. For you leaves them out on the server too (`app_private.feed_excluded`); this covers the topic chips and
+    /// papers added since the Feed loaded.
     var shownFeedResults: [DiscoveryResult] {
-        guard feedHidesLibrary else { return feedResults }
         let library = librarySourceIDs
-        return feedResults.filter { !library.contains($0.sourceID) }
+        return feedResults.filter { !library.contains($0.sourceID) || feedAddedHere.contains($0.sourceID) }
     }
     /// All chats' columns, per kind of device (build 16 #3).
     var chatColumns = ColumnChoice.load(key: "chats.columns", compactDefault: ChatTableLayout.compactDefault,
@@ -1035,7 +1040,25 @@ final class ReaderModel {
     private(set) var allChatsPaperID: UUID?
     /// All chats opens on All (owner, build 57); `thisPaper` (a paper's own "Chats about this paper") opens on its chats.
     private(set) var allChatsStartsOnPaper = false
-    func openAllChats(paper: UUID?, thisPaper: Bool = false) { allChatsPaperID = paper; allChatsStartsOnPaper = thisPaper && paper != nil; showAllChats = true }
+    /// All chats from any route: the sheet in Tall and on the Mac; on iPad Wide the list in the Chat place's left slot beside
+    /// the conversation, never a centred sheet (owner, 2026-10-24: "remove the middle pop up window and make [them] go on
+    /// top of their side panel for consistency"), on This paper when the route comes from a paper (`paper`), whose chat is
+    /// then the conversation beside it.
+    func openAllChats(paper: UUID?, thisPaper: Bool = false) {
+        if !compactLayout && !Platform.isMac {
+            settingsPresented = false
+            exitReadingMode()
+            if let paper, chatPaperID == paper { generalChat = false }
+            showPlace(.chat)
+            chatsListPaperID = paper; chatsListFilter = paper == nil ? .all : .thisPaper
+            return
+        }
+        allChatsPaperID = paper; allChatsStartsOnPaper = thisPaper && paper != nil; showAllChats = true
+    }
+    /// iPad Wide's Chat place list: the paper whose "This paper" chip it offers and its quick filter, set by each route to
+    /// All chats (`openAllChats`); Chat from the places menu shows All.
+    var chatsListPaperID: UUID?
+    var chatsListFilter = ChatHistoryFilter.all
     /// A paper's saved conversations, most recently used first (the chat title menu's "Chats about this paper").
     func conversations(about paperID: UUID) -> [ConversationSummary] {
         ChatHistoryQuery.rows(conversationSummaries, paperTitles: [:], filter: .thisPaper, paperID: paperID, search: "", sort: .default)
@@ -2641,7 +2664,7 @@ final class ReaderModel {
 
     private func showFeed(_ response: DiscoveryResponse, for selection: FeedSelection) {
         feedPersonal.note(response.feed, for: selection)
-        feedResults = response.results; feedShown = selection; feedState = .loaded
+        feedResults = response.results; feedShown = selection; feedState = .loaded; feedAddedHere = []
         feedLoadedAt = Date(); feedStaleNote = nil
     }
 
@@ -2657,6 +2680,8 @@ final class ReaderModel {
     enum LibraryAddError: Error, Equatable { case alreadyInLibrary }
 
     func addDiscovered(_ result: DiscoveryResult) async throws {
+        // Added from the Feed (its row or its abstract): it stays there until the Feed loads again.
+        if tab == .feed, feedResults.contains(where: { $0.sourceID == result.sourceID }) { feedAddedHere.insert(result.sourceID) }
         try await importPaper(result.sourceID, stayInSearch: true)
     }
 
@@ -5704,7 +5729,6 @@ extension ReaderModel {
                                    regularDefault: FeedTableColumn.regularDefault)
         chatColumns = ColumnChoice(key: "chats.columns", compactDefault: ChatTableLayout.compactDefault,
                                    regularDefault: ChatTableLayout.regularDefault)
-        feedHidesLibrary = false
         feedTextStep = 0
         if let named = argument("--feed-columns=") {
             let chosen = Set(named.split(separator: ",").compactMap { FeedTableColumn(rawValue: String($0)) })

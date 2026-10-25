@@ -286,8 +286,9 @@ final class IPadShapesJourneyTests: XCTestCase {
 
     // MARK: - The places menu
 
-    /// The places menu: its five places and Search, the current one checked and named by the button; choosing one goes
-    /// there, and the button stays in the same corner in every place.
+    /// The places menu: the five places and Settings beside Snippets (owner, 2026-10-24: "put Settings here beside Snippets";
+    /// no Search: "if I want a search, I could just go and search the library"), the current one checked and named by the
+    /// button; choosing one goes there, and the button stays in the same corner in every place.
     func testThePlacesMenuSwitchesPlacesAndShowsTheCurrentOne() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
         let app = launch(extra: ["--nothing-open"])
@@ -298,13 +299,25 @@ final class IPadShapesJourneyTests: XCTestCase {
         assertPlacesInTheCorner(app)
         assertNothingUnderThePlaces(app)
         app.placesMenu.tap()
-        for id in ["feed", "library", "paper", "chat", "notes", "search"] {
+        let ids = ["feed", "library", "paper", "chat", "notes", "settings"]
+        for id in ids {
             XCTAssertTrue(element("tab.\(id)", app).waitForExistence(timeout: 3), "The menu has \(id)")
         }
+        for (above, below) in zip(ids, ids.dropFirst()) {
+            XCTAssertLessThan(element("tab.\(above)", app).frame.minY, element("tab.\(below)", app).frame.minY, "\(above) above \(below)")
+        }
         XCTAssertFalse(element("tab.paper", app).isEnabled, "Paper needs a paper")
-        XCTAssertTrue(app.buttons["menu.settings"].exists, "Settings is in the places menu")
-        XCTAssertGreaterThan(app.buttons["menu.settings"].frame.minY, element("tab.search", app).frame.minY, "Settings under Search")
+        XCTAssertFalse(element("tab.search", app).exists, "No Search place: the Library's field searches")
+        XCTAssertFalse(app.buttons["Search"].exists, "No Search row")
+        XCTAssertFalse(app.buttons["menu.settings"].exists, "Settings is a place row, not a section of its own")
         save("\(device)-places-menu")
+        // Settings opens over the place, as before; Done returns.
+        element("tab.settings", app).tap()
+        let settingsBar = app.navigationBars["Settings"]
+        XCTAssertTrue(settingsBar.waitForExistence(timeout: 8), "Settings")
+        settingsBar.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(settingsBar.waitForNonExistence(timeout: 5))
+        wait("Still the Library") { app.currentPlace == "Library" }
         element("tab.feed", app).tap()
         wait("Feed") { app.currentPlace == "Feed" }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
@@ -322,9 +335,11 @@ final class IPadShapesJourneyTests: XCTestCase {
         app.show("notes")
         wait("Snippets") { app.currentPlace == "Snippets" }
         XCTAssertEqual(app.placesMenu.frame, corner, "The same spot"); assertNothingUnderThePlaces(app)
-        // Search: the Library with its field focused.
-        _ = app.placeItem("search"); element("tab.search", app).tap()
-        wait("Search is the Library's field") { app.currentPlace == "Library" && app.segmentedControls["library.searchScope"].exists }
+        // Search: the Library's own field.
+        choose("library", app)
+        wait("Library") { app.currentPlace == "Library" }
+        element("library.search", app).tap()
+        wait("Searching the Library") { app.segmentedControls["library.searchScope"].exists }
         // The hardware keyboard first, in the focused field: on the Simulator the first key event of a launch never runs a
         // keyboard shortcut (⌘1 failed on 3 of 3 fresh launches with nothing typed before it, while typed letters arrive),
         // which made this check flaky. A letter that reaches the field proves later keys are delivered (⌘1 then passed 4 of 4).
@@ -614,13 +629,15 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertLessThanOrEqual(lowest, control.frame.minY + 1, "The last line (\(lowest)) ends above the text size (\(control.frame.minY))")
     }
 
-    /// Search (places menu): the Library with its field focused; a result opens on the right and the list stays.
+    /// Search (the Library's field): a result opens on the right and the list stays.
     func testSearchKeepsTheListAfterOpeningAResult() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
         let app = launch()
         _ = try wideSample(app)
         let web = app.webViews.firstMatch
-        _ = app.placeItem("search"); element("tab.search", app).tap()
+        app.buttons["paper.listToggle"].tap()
+        wait("The Library beside the paper") { app.currentPlace == "Library" }
+        element("library.search", app).tap()
         let scope = app.segmentedControls["library.searchScope"]
         XCTAssertTrue(scope.waitForExistence(timeout: 5), "The Library | ML paper search switch under the field")
         XCTAssertEqual(app.currentPlace, "Library")
@@ -833,6 +850,141 @@ final class IPadShapesJourneyTests: XCTestCase {
         row(27).tap()
         wait("The picked row is selected") { row(27).isSelected }
         XCTAssertEqual(app.currentPlace, "Chat", "Still the Chat place")
+    }
+
+    // MARK: - Navigation after TestFlight 91 (owner session 2026-10-24)
+
+    /// G5: upright, the iPad's bar has six places, Settings beside Snippets on the right ("on the iPad we could actually have
+    /// six along the bottom"), and no ⋯ menu has Settings ("we're going to move that so we don't see it there anymore").
+    /// Settings opens over the screen as before and Done returns. G17: the Feed's ⋯ has no "Hide papers in your library".
+    /// Upright, All chats is still the sheet (no list beside the chat in Tall).
+    func testUprightTheBarHasSixPlacesWithSettingsBesideSnippets() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tall on iPad")
+        let app = launch(extra: ["--chat-history-fixture"])
+        let ids = ["feed", "library", "paper", "chat", "notes", "settings"]
+        let items = ids.map { app.buttons["tab.\($0)"] }
+        for (id, item) in zip(ids, items) { XCTAssertTrue(item.waitForExistence(timeout: 5), "The bar has \(id)") }
+        for (left, right) in zip(items, items.dropFirst()) {
+            XCTAssertEqual(left.frame.midY, right.frame.midY, accuracy: 1, "One row")
+            XCTAssertLessThan(left.frame.maxX, right.frame.minX + 1, "\(left.label) before \(right.label)")
+        }
+        XCTAssertGreaterThan(items[5].frame.midY, app.frame.height * 0.85, "At the bottom")
+        XCTAssertFalse(app.placesMenu.exists, "Upright: no places menu")
+        save("\(device)-tall-bar-six")
+        // Settings opens over the Library; Done returns there.
+        items[5].tap()
+        let bar = app.navigationBars["Settings"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 8), "Settings")
+        save("\(device)-tall-settings")
+        bar.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 5))
+        wait("Back on the Library") { app.buttons["tab.library"].isSelected && app.buttons[self.sampleID].isHittable }
+        // No Settings in the Library's ⋯; its All chats is still the sheet upright.
+        app.buttons["Library options"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Report this screen"].firstMatch.waitForExistence(timeout: 3), "The ⋯ menu is open")
+        XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in the Library's ⋯")
+        save("\(device)-tall-library-menu")
+        app.buttons["All chats"].firstMatch.tap()
+        let listOptions = app.buttons["chat.history.options"]
+        XCTAssertTrue(listOptions.waitForExistence(timeout: 5), "All chats upright")
+        listOptions.tap()
+        XCTAssertTrue(app.buttons["chat.history.close"].waitForExistence(timeout: 3), "…the sheet, with its Close")
+        app.buttons["chat.history.close"].tap()
+        XCTAssertTrue(listOptions.waitForNonExistence(timeout: 5))
+        // The Feed's ⋯: neither Settings nor the hide-library option.
+        app.buttons["tab.feed"].tap()
+        let options = app.buttons["Feed options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 10)); options.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Report this screen"].firstMatch.waitForExistence(timeout: 3), "The ⋯ menu is open")
+        XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in the Feed's ⋯")
+        XCTAssertFalse(app.descendants(matching: .any)["feed.hideLibrary"].firstMatch.exists, "Hiding library papers is not an option")
+        save("\(device)-tall-feed-menu")
+    }
+
+    /// G6: no Search place on iPad ("if I want a search, I could just go and search the library"): sideways, the Library's
+    /// own field searches the library and, with its switch, ML papers, as on iPhone.
+    func testTheLibrarysFieldSearchesMLPapersSideways() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        let app = XCUIApplication()
+        app.launchArguments = ["--library-v5-fixture", "-appearance", "light"]
+        app.launch()
+        turnWide(app)
+        wait("Library") { app.currentPlace == "Library" }
+        app.placesMenu.tap()
+        XCTAssertTrue(element("tab.library", app).waitForExistence(timeout: 3))
+        XCTAssertFalse(element("tab.search", app).exists, "No Search place")
+        element("tab.library", app).tap()
+        let field = element("library.search", app)
+        XCTAssertTrue(field.waitForExistence(timeout: 15)); field.tap()
+        let scope = app.segmentedControls["library.searchScope"]
+        XCTAssertTrue(scope.waitForExistence(timeout: 5), "The Library | ML paper search switch under the field")
+        scope.buttons["ML paper search"].tap()
+        field.typeText("sparse experts\n")
+        XCTAssertTrue(element("discover.result.2610.01234", app).waitForExistence(timeout: 15), "ML papers from the Library's field")
+        XCTAssertEqual(app.currentPlace, "Library", "Still the Library place")
+        save("\(device)-library-ml-search")
+    }
+
+    /// Owner, 2026-10-24: "remove the middle pop up window and make [them] go on top of their side panel for consistency".
+    /// Sideways, every route to All chats shows the list in the Chat place's left slot beside the conversation — on This
+    /// paper when the route comes from a paper — never a centred sheet: the Library's ⋯, a paper's "Chats about this paper",
+    /// Discuss's clock, the chat's ⋯ beside the paper, and Settings › Your assets › Chats.
+    func testEveryRouteToAllChatsShowsTheListBesideTheChat() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
+        let app = launch(extra: ["--chat-history-fixture"])
+        turnWide(app)
+        let table = element("chat.history.table", app)
+        func assertBeside(_ route: String, thisPaper: Bool, line: UInt = #line) {
+            wait("\(route): the Chat place", line: line) { app.currentPlace == "Chat" }
+            XCTAssertTrue(table.waitForExistence(timeout: 5), "\(route): the list", line: line)
+            XCTAssertTrue(composer(app).waitForExistence(timeout: 5), "\(route): the conversation", line: line)
+            XCTAssertLessThan(table.frame.maxX, composer(app).frame.minX + 1, "\(route): the list on the left", line: line)
+            XCTAssertLessThan(table.frame.minX, app.frame.minX + 2, "\(route): in the left slot, not a centred sheet", line: line)
+            let chip = app.buttons["chat.history.filter.\(thisPaper ? "thisPaper" : "all")"]
+            XCTAssertTrue(chip.waitForExistence(timeout: 5), "\(route): the chip", line: line)
+            wait("\(route): \(thisPaper ? "This paper" : "All") chosen", line: line) { chip.isSelected }
+        }
+        func discuss() {
+            app.show("library")
+            wait("Library") { app.currentPlace == "Library" }
+            app.buttons["Paper options"].tap()
+            app.buttons["Ask about this paper"].tap()
+            wait("Discuss") { app.currentPlace == "Paper" && self.composer(app).exists }
+        }
+        // The Library's ⋯.
+        if app.currentPlace != "Library" { app.show("library") }
+        app.buttons["Library options"].tap()
+        app.buttons["All chats"].firstMatch.tap()
+        assertBeside("The Library's ⋯", thisPaper: false)
+        save("\(device)-all-chats-from-library")
+        // A paper's ⋯ › Chats about this paper.
+        _ = openSampleBesideLibrary(app)
+        app.buttons["Paper options"].tap()
+        let paperChats = app.buttons["paper.chats"]
+        XCTAssertTrue(paperChats.waitForExistence(timeout: 5), "The sample has chats"); paperChats.tap()
+        assertBeside("Chats about this paper", thisPaper: true)
+        save("\(device)-all-chats-from-paper")
+        // Discuss's clock.
+        discuss()
+        let clock = app.buttons["chat.history"]
+        XCTAssertTrue(clock.waitForExistence(timeout: 5)); clock.tap()
+        assertBeside("Discuss's clock", thisPaper: true)
+        save("\(device)-all-chats-from-discuss")
+        // The chat's ⋯ beside the paper.
+        discuss()
+        app.buttons["Chat options"].tap()
+        let all = app.buttons["All chats"].firstMatch
+        XCTAssertTrue(all.waitForExistence(timeout: 3)); all.tap()
+        assertBeside("The chat's ⋯", thisPaper: true)
+        // Settings › Your assets › Chats: Settings closes; the list on All.
+        app.openSettingsFromMenu()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 8))
+        let chatsRow = app.descendants(matching: .any)["settings.chats"]
+        for _ in 0..<6 where !(chatsRow.exists && chatsRow.isHittable) { app.swipeUp() }
+        chatsRow.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForNonExistence(timeout: 5), "Settings closes")
+        assertBeside("Settings › Chats", thisPaper: false)
+        save("\(device)-all-chats-from-settings")
     }
 
     // MARK: - Feed | abstract

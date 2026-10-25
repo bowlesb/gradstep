@@ -66,7 +66,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     **Tall** (iPhone in either orientation, iPad upright 834/1032, Split View halves, narrow windows). One constant,
     `LayoutShape.of(size:)`, unit-tested with those sizes. The Mac stays Wide until its own step.
   - *Tall* is the iPhone app exactly: the places capsule at the bottom, one screen at a time, the iPhone's bars and
-    budget. Nothing in Tall changed.
+    budget. On iPad the capsule has a sixth item, **Settings** beside Snippets (owner, 2026-10-24: "on the iPad we could
+    actually have six along the bottom"), opening Settings over the screen as before; it widens to keep each item's
+    104 pt. The iPad's ⋯ menus have no Settings in either shape; the iPhone keeps five places and Settings in every ⋯.
   - *The philosophy (Wide, owner 2026-10-23)*: each place owns one two-slot arrangement. The **left slot is the place
     itself** (its list); the **right slot is what was picked from it**. Positions never jump: the list sits on the left
     from the start, at the divider's position, whether or not anything is picked. The divider is draggable wherever two
@@ -76,13 +78,14 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     the window's **top-left corner, the same spot in every view** (owner correction, 2026-10-23: "I meant the top left";
     a list covering the window included), showing the current place's own symbol in accent, so it also says where you
     are ("Places, Library" to VoiceOver, `places.menu`). Its menu: Feed, Library, Paper (needs a paper), Chat, Snippets
-    with the current one checked, then Search; the rows keep their `tab.*` identifiers. ⌘1…⌘5 choose the places with a
-    hardware keyboard. The leftmost slot's row or floating controls start `placesLeadingReserve` (52 pt) in from the edge,
+    with the current one checked, then Settings (owner, 2026-10-24: "beside Snippets"; it opens over the place); no
+    Search row (the Library's field searches, as on iPhone). The rows keep their `tab.*` identifiers (`tab.settings`).
+    ⌘1…⌘5 choose the places and ⌘, opens Settings with a hardware keyboard. The leftmost slot's row or floating controls start `placesLeadingReserve` (52 pt) in from the edge,
     after the button: the Library's search field, the Feed's chips, All chats' search, Collections' search, Contents'
     tabs, Listen's chips, and the paper's list toggle and ☰ when the paper is leftmost. Each slot keeps its own ⋯ at its
     own top-right for its own content (the left list's ⋯ ends the left row; the rightmost ⋯ at the window's edge), and a
-    companion's ✕ sits left of its ⋯. Settings is the last row of every ⋯ (a sheet on iPad in both shapes). No brand row,
-    no gear, no segmented switch. Reading mode has no places button.
+    companion's ✕ sits left of its ⋯. Settings is the places menu's last row and in no ⋯ (a sheet on iPad in both
+    shapes). No brand row, no gear, no segmented switch. Reading mode has no places button.
   - *Rows only where a slot needs one* (`WideBar`, 52 pt: 44 pt controls with 4 pt above and below, the page's background
     and a hairline under it; side-by-side rows share one centre line with the places button): the Library list (search
     field … ⋯; while searching, Cancel and the Library / ML paper search switch under it), the Feed list (topic chips …
@@ -124,8 +127,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Library* = Library list | paper. The list shows the table with the columns that fit the slot (more as the divider
     moves right; rows at accessibility sizes); the right slot shows the open paper (usually the last one read) or "No
     paper open · Choose a paper to read it here". Picking a paper opens it on the right and the place is still Library
-    (its row highlighted). **Search** in the places menu is the Library with its field focused; results in the list, the
-    one picked on the right.
+    (its row highlighted). **Search** is the Library's own field (no Search place on iPad, owner 2026-10-24: "if I want a
+    search, I could just go and search the library"), with the Library / ML paper search switch under the row while
+    searching; results in the list, the one picked on the right. Routes that search (an author's "Find papers by", Find
+    similar papers, a tag's ML paper search) land there with the query.
   - *Paper* = the paper as the left primary item. Its floating **list toggle** (`sidebar.left`, "Hide library" / "Hide
     feed") promotes the paper beside a list: the list slides away and the same paper, at the same place, takes the width
     (Read, its column centred). In Paper the same button ("Show library" / "Show feed") returns it beside the list it
@@ -152,6 +157,11 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     Conversation, Paper; kept for the run), as the Library list's ⋯ has; the rows have no Columns. Beside the list the
     chat's ⋯ and title menu have no All chats: no sheet repeats the list (owner, same day: "we're never gonna have this
     middle thing show up"). A paper's chat opened from the paper (Ask, Continue in Chat, a selection) is Discuss.
+    **Every route to All chats is this list** (owner, 2026-10-24: "remove the middle pop up window and make [them] go on
+    top of their side panel"): the Library's ⋯, a paper's "Chats about this paper", Discuss's clock, the chat's ⋯ and
+    title menu beside the paper, and Settings › Your assets › Chats show the Chat place, the list on This paper when the
+    route comes from a paper (whose chat is then the conversation beside it) and on All otherwise; Chat from the places
+    menu shows All. Never a centred All chats sheet in Wide; Tall and the Mac keep the sheet.
   - *Turning or resizing* (rotation, Stage Manager, fold/unfold) keeps the place, the selection, the open paper and its
     place, the open companion and any draft. Tall's Chat about a paper becomes Discuss; Discuss turned upright is the
     Chat tab with Back to the paper; the Library or Feed with a paper beside them upright are those tabs (the paper is the

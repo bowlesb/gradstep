@@ -229,14 +229,13 @@ final class MenusJourneyTests: XCTestCase {
         bar.buttons["Done"].firstMatch.tap()
         XCTAssertTrue(bar.waitForNonExistence(timeout: 5))
 
-        // Sideways: Settings is the places menu's last row, under Search (owner, 2026-10-24), and opens as a page-sized
+        // Sideways: Settings is the places menu's last row, after Snippets (owner, 2026-10-24), and opens as a page-sized
         // sheet (an app-level sheet in Wide), never the small form sheet.
         turnWide(app)
         app.placesMenu.tap()
-        let search = app.buttons["tab.search"].exists ? app.buttons["tab.search"] : app.buttons["Search"]
-        let settings = app.buttons["menu.settings"]
+        let settings = app.buttons["tab.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5), "Settings in the places menu")
-        if search.exists { XCTAssertGreaterThan(settings.frame.minY, search.frame.minY, "Settings under Search") }
+        XCTAssertGreaterThan(settings.frame.minY, app.buttons["tab.notes"].frame.minY, "Settings after Snippets")
         sleep(1)
         save("ipad-wide-places-menu-settings")
         settings.tap()

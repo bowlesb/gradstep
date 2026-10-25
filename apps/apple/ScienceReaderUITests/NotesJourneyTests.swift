@@ -291,12 +291,14 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["tab.notes"].isSelected || app.navigationBars["Snippets"].waitForExistence(timeout: 5), "Snippets is shown")
     }
 
-    /// Settings is the last section of every top-right menu and returns to where it was opened.
+    /// Settings is the last section of every top-right menu and returns to where it was opened. On iPad (upright here) it is
+    /// the bar's sixth place instead, beside Snippets, and in no ⋯ menu (owner, 2026-10-24); it returns all the same.
     func testSettingsFromEveryMenuReturnsToItsOrigin() throws {
         let app = launch()
         try requirePhoneLayout(app)
+        let pad = UIDevice.current.userInterfaceIdiom == .pad
         XCTAssertTrue(app.buttons["tab.notes"].exists, "Notes is the fifth tab")
-        XCTAssertFalse(app.buttons["tab.settings"].exists, "Settings is no longer a tab")
+        XCTAssertEqual(app.buttons["tab.settings"].exists, pad, pad ? "Settings is the iPad's sixth place" : "Settings is no longer a tab")
         func roundTrip(_ place: String, back: @escaping () -> Bool) {
             app.openSettingsFromMenu()
             XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "Settings from \(place)")
@@ -328,11 +330,15 @@ final class NotesJourneyTests: XCTestCase {
         app.alerts.buttons["Create"].tap()
         XCTAssertTrue(app.navigationBars["Reading for Friday"].waitForExistence(timeout: 10))
         roundTrip("a note") { app.navigationBars["Reading for Friday"].exists }
-        // Report this screen stays just above Settings.
+        // Report this screen stays just above Settings (iPhone); on iPad the ⋯ has no Settings.
         app.buttons["note.options"].tap()
         XCTAssertTrue(menuItem(app, "Report this screen").waitForExistence(timeout: 5))
-        let report = menuItem(app, "Report this screen").frame, settings = app.buttons["menu.settings"].frame
-        XCTAssertLessThan(report.minY, settings.minY, "Settings is the last section")
+        if pad {
+            XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in an iPad ⋯ menu")
+        } else {
+            let report = menuItem(app, "Report this screen").frame, settings = app.buttons["menu.settings"].frame
+            XCTAssertLessThan(report.minY, settings.minY, "Settings is the last section")
+        }
         capture("Note menu with Settings last")
     }
 
@@ -399,15 +405,15 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["notes.row.Project: alignment"].exists, "The list stays beside the note")
         capture("Wide: note with its snippet")
-        // Settings from the note's menu, and back to Notes.
-        // Mac menus are pop-up buttons with menu items; iOS menus are buttons.
-        app.descendants(matching: .any)["note.options"].firstMatch.tap()
+        // Settings from the note's menu on the Mac (Mac menus are pop-up buttons with menu items); on iPad from the places
+        // menu (owner, 2026-10-24: in no ⋯ menu). Then back to Notes.
         #if targetEnvironment(macCatalyst)
+        app.descendants(matching: .any)["note.options"].firstMatch.tap()
         let settings = app.menuItems["Settings"].firstMatch
-        #else
-        let settings = app.buttons["menu.settings"]
-        #endif
         XCTAssertTrue(settings.waitForExistence(timeout: 5)); settings.tap()
+        #else
+        app.openSettingsFromMenu()
+        #endif
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         app.navigationBars["Settings"].buttons["Done"].tap()
         XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10), "Done returns to the note")

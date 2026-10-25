@@ -79,10 +79,10 @@ struct ChatHistoryView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .subheadline) private var scale: CGFloat = 1
     @State private var search = ""
-    @State private var filter: ChatHistoryFilter
+    @State private var localFilter: ChatHistoryFilter
     /// Opened from a paper (its paper or chat screen): "This paper" is offered after All. Kept for the sheet's life, so
     /// the table doesn't change while it closes.
-    @State private var paperID: UUID?
+    @State private var localPaperID: UUID?
     /// The sheet's order (a fresh one each time it opens); the Chat place's list keeps its own on the model.
     @State private var localSort = ChatHistorySort.default
     @State private var deleting: ChatHistoryRow?
@@ -95,6 +95,14 @@ struct ChatHistoryView: View {
     /// the one top row).
     private let embedded: Bool
 
+    /// The quick filter and the paper whose "This paper" is offered: the sheet's own; the Chat place's list (iPad Wide)
+    /// takes them from the route that showed it (ReaderModel.openAllChats).
+    private var filter: ChatHistoryFilter {
+        get { embedded ? model.chatsListFilter : localFilter }
+        nonmutating set { if embedded { model.chatsListFilter = newValue } else { localFilter = newValue } }
+    }
+    private var paperID: UUID? { embedded ? model.chatsListPaperID : localPaperID }
+
     /// The order shown: the Chat place's list (iPad Wide) keeps it while the reader goes elsewhere and back.
     private var sort: ChatHistorySort {
         get { embedded ? model.chatsListSort : localSort }
@@ -104,9 +112,9 @@ struct ChatHistoryView: View {
     init(model: ReaderModel, paperID: UUID? = nil, startsOnPaper: Bool = false, embedded: Bool = false) {
         self.model = model
         self.embedded = embedded
-        _paperID = State(initialValue: paperID)
+        _localPaperID = State(initialValue: paperID)
         // Owner, build 57: "put All to the left and make that the default"; a paper's own "Chats about this paper" opens on those.
-        _filter = State(initialValue: startsOnPaper && paperID != nil ? .thisPaper : .all)
+        _localFilter = State(initialValue: startsOnPaper && paperID != nil ? .thisPaper : .all)
     }
 
     var body: some View {
