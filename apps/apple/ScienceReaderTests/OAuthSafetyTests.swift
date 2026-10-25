@@ -44,13 +44,19 @@ private final class OAuthServer: @unchecked Sendable {
 
 @MainActor
 final class OAuthSafetyTests: XCTestCase {
-    private func fixture(_ server: OAuthServer) throws -> (BackendClient, String, String) {
+    private func fixture(_ server: OAuthServer, diagnostics: SignInDiagnostics? = nil) throws -> (BackendClient, String, String) {
         let environment = "oauth-safety-\(UUID().wire)", host = environment + ".invalid"
         StubProtocol.install(host: host) { server.handle($0) }
         let network = URLSessionConfiguration.ephemeral; network.protocolClasses = [StubProtocol.self]
         let client = try BackendClient(configuration: .init(url: URL(string: "https://\(host)")!, anonKey: "fixture", environment: environment),
-                                       network: URLSession(configuration: network))
+                                       network: URLSession(configuration: network),
+                                       signInDiagnostics: diagnostics ?? SignInDiagnostics(defaults: Self.scratchDefaults(), build: "test"))
         return (client, environment, host)
+    }
+    private static func scratchDefaults() -> UserDefaults {
+        let name = "oauth-safety-diagnostics-\(UUID().wire)"
+        let defaults = UserDefaults(suiteName: name)!; defaults.removePersistentDomain(forName: name)
+        return defaults
     }
     private func clean(_ environment: String, _ host: String) {
         StubProtocol.remove(host: host); try? KeychainVault.delete(environment + ".auth-session")
@@ -125,6 +131,65 @@ final class OAuthSafetyTests: XCTestCase {
         do { _ = try await client.finishGoogleSignIn(id: request.id, callbackURL: callback(request)); XCTFail("Completed replay must fail") }
         catch is CancellationError { }
         XCTAssertEqual(server.requests().count, 1)
+    }
+
+    /// TestFlight 92: the owner's Google sign-in reached Supabase's callback (code issued) and the app refused the return
+    /// it got, so no exchange followed. WebKit keeps an earlier page's fragment on Supabase's fragment-less 302, which
+    /// the browser reader ignores and the app refused. The same return now exchanges, bound to this attempt's verifier.
+    func testAReturnWithTheBrowsersFragmentIsExchanged() async throws {
+        let server = OAuthServer(), (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        for fragment in ["#", "#_=_"] {
+            let request = try await client.beginGoogleSignIn()
+            let returned = URL(string: request.callbackURL.absoluteString + "?code=0f0e0d0c-0b0a-4908-8706-050403020100" + fragment)!
+            let user = try await client.finishGoogleSignIn(id: request.id, callbackURL: returned)
+            XCTAssertEqual(user.id, server.account, fragment)
+            XCTAssertEqual(server.requests().last?["auth_code"], "0f0e0d0c-0b0a-4908-8706-050403020100", fragment)
+        }
+        XCTAssertEqual(server.requests().count, 2)
+    }
+
+    /// A refused return never reaches Auth, so the device keeps its shape (names and lengths, never a value) for the
+    /// next report, and the reference shown under the error.
+    func testARefusedReturnIsRecordedWithoutItsValues() async throws {
+        let diagnostics = SignInDiagnostics(defaults: Self.scratchDefaults(), build: "92")
+        let server = OAuthServer(), (client, environment, host) = try fixture(server, diagnostics: diagnostics)
+        defer { clean(environment, host) }
+        let request = try await client.beginGoogleSignIn()
+        diagnostics.noteReturnRoute("app-url")
+        let returned = URL(string: request.callbackURL.absoluteString + "?code=secret-code-value#access_token=secret-token")!
+        do { _ = try await client.finishGoogleSignIn(id: request.id, callbackURL: returned); XCTFail("A token fragment must be refused") }
+        catch OAuthFlowError.invalidCallback { }
+        XCTAssertTrue(server.requests().isEmpty)
+        let failure = try XCTUnwrap(diagnostics.recent().last)
+        XCTAssertEqual(failure.reference, "google-callback-refused")
+        XCTAssertEqual(failure.build, "92")
+        XCTAssertEqual(failure.detail, "destination=ok query=code fragment=access_token code=17ch length=\(returned.absoluteString.utf8.count) route=app-url")
+        let summary = try XCTUnwrap(diagnostics.supportSummary())
+        XCTAssertTrue(summary.hasPrefix("Sign-in problems on this device\n"))
+        for secret in ["secret-code-value", "secret-token"] { XCTAssertFalse(summary.contains(secret)) }
+        XCTAssertEqual(AuthenticationCoordinator.Issue.googleUnverified.reference(in: diagnostics), failure)
+        XCTAssertNil(AuthenticationCoordinator.Issue.invalidResponse.reference(in: diagnostics), "not an exchange failure")
+        XCTAssertNil(AuthenticationCoordinator.Issue.googleUnverified.reference(in: diagnostics, now: Date().addingTimeInterval(180)))
+    }
+
+    func testSignInDiagnosticsKeepEightRecentFixedWords() throws {
+        let defaults = Self.scratchDefaults(), start = Date()
+        let diagnostics = SignInDiagnostics(defaults: defaults, build: "92")
+        diagnostics.record(method: "google", stage: "presentation", reason: "closed", at: start.addingTimeInterval(-15 * 86_400))
+        for index in 0..<9 {
+            diagnostics.record(method: "Google", stage: "exchange", reason: "Some <server> text \(index)!", at: start.addingTimeInterval(Double(index)))
+        }
+        let kept = diagnostics.recent(now: start.addingTimeInterval(10))
+        XCTAssertEqual(kept.count, 8)
+        XCTAssertEqual(kept.last?.reference, "google-exchange-someservertext8")
+        XCTAssertFalse(kept.contains { $0.reason == "closed" }, "older than 14 days")
+        // Another instance on the same defaults reads the same entries (they outlive the app process).
+        XCTAssertEqual(SignInDiagnostics(defaults: defaults).recent(now: start.addingTimeInterval(10)), kept)
+        XCTAssertNil(diagnostics.latest(now: start.addingTimeInterval(10)) { $0.method == "apple" })
+        XCTAssertEqual(SignInDiagnostics.reason(OAuthFlowError.invalidCallback), "refused")
+        XCTAssertEqual(SignInDiagnostics.reason(AuthenticationError.rateLimited(retryAfterSeconds: 3)), "rate-limited")
+        XCTAssertEqual(SignInDiagnostics.reason(URLError(.timedOut)), "other")
     }
 
     func testWrongDestinationAndProviderCannotExchangeCredentials() async throws {

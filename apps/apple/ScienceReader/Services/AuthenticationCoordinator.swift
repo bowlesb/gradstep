@@ -18,7 +18,7 @@ final class AuthenticationCoordinator {
     enum Method: Equatable { case apple, google, email }
     enum Issue: Equatable {
         case configuration, noAccount, presentation, invalidEmail, invalidCode, rateLimited
-        case connection, invalidResponse, credentialStorage, rejected, googleUnfinished
+        case connection, invalidResponse, credentialStorage, rejected, googleUnfinished, googleUnverified
 
         var message: String {
             switch self {
@@ -29,12 +29,24 @@ final class AuthenticationCoordinator {
             case .invalidCode: "That code wasn’t accepted. Check it or request a new one."
             case .rateLimited: "Too many attempts. Please wait before trying again."
             case .connection: "Couldn’t finish sign-in. Check your connection and try again."
-            case .invalidResponse: "Couldn’t verify the sign-in response. Please try again."
+            case .invalidResponse: "Couldn’t verify the sign-in response, so you’re still signed out. Try again, or choose another method."
             case .credentialStorage: "Couldn’t update sign-in on this device. Please try again."
             case .rejected: "Sign-in wasn’t completed. Try again or choose another method."
             // The Google page closed without a usable answer reaching Gradstep (closed by hand, or the return
             // didn't arrive). Never leave the person on the choices with no word: they may have finished there.
             case .googleUnfinished: "Google sign-in didn’t finish, so you’re still signed out. Try again, or choose another method."
+            // Google's answer reached Gradstep but wasn't one this sign-in can accept (TestFlight 92). Say what to do.
+            case .googleUnverified: "Gradstep couldn’t verify Google’s answer, so you’re still signed out. Try Google again, or continue with Apple or email."
+            }
+        }
+
+        /// The diagnostics entry recorded for this failure, shown under the message so a screenshot of it says which
+        /// check failed (`SignInDiagnostics`). Ordinary outcomes (a closed page, a wrong code) carry none.
+        func reference(in diagnostics: SignInDiagnostics, now: Date = Date()) -> SignInDiagnostics.Failure? {
+            switch self {
+            case .googleUnverified: diagnostics.latest(now: now) { $0.method == "google" && $0.reason != "closed" }
+            case .invalidResponse: diagnostics.latest(now: now) { $0.stage == "exchange" }
+            default: nil
             }
         }
     }
@@ -397,7 +409,11 @@ final class AuthenticationCoordinator {
     private static func unownedFailureIssue(_ error: any Error, method: Method) -> Issue? {
         if (error as? AuthenticationPresentationError) == .cancelled { return method == .google ? .googleUnfinished : nil }
         if error is CancellationError { return .rejected }
-        return issue(error)
+        let general = issue(error)
+        // Google's own return was refused or missing: name Google and the other ways in.
+        if method == .google, general == .invalidResponse,
+           error is OAuthFlowError || error is AuthenticationPresentationError { return .googleUnverified }
+        return general
     }
 
     private func owns(_ current: Attempt) -> Bool {

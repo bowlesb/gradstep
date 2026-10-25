@@ -23,6 +23,7 @@ struct ReportComposer: View {
     @State private var pendingDraft: SupportDraft?
     @State private var purchaseDiagnostics: String?
     @State private var modelDiagnostics: String?
+    @State private var signInDiagnostics: String?
     @State private var capturedDiagnostics = false
     @State private var error: String?
 
@@ -52,6 +53,11 @@ struct ReportComposer: View {
                         Text(diagnostics).font(.caption).textSelection(.enabled)
                     }
                 }
+                if let diagnostics = signInDiagnostics {
+                    Section("Sign-in problems shared with support") {
+                        Text(diagnostics).font(.caption).textSelection(.enabled)
+                    }
+                }
                 Section {
                     Toggle(attachment == nil ? "Share note with support" : "Share note and screenshot with support", isOn: $consent).accessibilityIdentifier("report.consent")
                     Button { Task { await send() } } label: { HStack { Text("Send report"); Spacer(); if busy { ProgressView() } } }
@@ -60,13 +66,16 @@ struct ReportComposer: View {
                     if model.support == nil { Text("Sign in before sending. You can still preview and edit your screenshot.").font(.footnote).foregroundStyle(.secondary) }
                     if let error { Text(error).foregroundStyle(.red) }
                 } footer: {
-                    Text("Support receives your note, any attached screenshot, app/OS version, screen name, and any purchase or on-device reading status shown above. No full chat history, keys, or logs. Offline reports stay encrypted here until sent.")
+                    Text("Support receives your note, any attached screenshot, app/OS version, screen name, and any purchase, on-device reading or sign-in status shown above. No full chat history, keys, or logs. Offline reports stay encrypted here until sent.")
                 }
             }.navigationTitle("Report an issue").navigationBarTitleDisplayMode(.inline)
                 .disabled(busy)
                 .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.disabled(busy).macBarButton() } }
                 .onAppear {
-                    if !capturedDiagnostics { purchaseDiagnostics = model.purchaseSupportDiagnostics; modelDiagnostics = model.deviceModelDiagnostics; capturedDiagnostics = true }
+                    if !capturedDiagnostics {
+                        purchaseDiagnostics = model.purchaseSupportDiagnostics; modelDiagnostics = model.deviceModelDiagnostics
+                        signInDiagnostics = SignInDiagnostics.shared.supportSummary(); capturedDiagnostics = true
+                    }
                     if screenshot == nil, let captured = model.reportScreenshot { prepare(captured) }
                 }
                 .onChange(of: photo) { _, item in
@@ -96,7 +105,7 @@ struct ReportComposer: View {
     private func send() async {
         guard let service = model.support else { return }
         busy = true; defer { busy = false }
-        let purchaseStatus = (modelDiagnostics.map { "\n\n" + $0 } ?? "") + (purchaseDiagnostics.map { "\n\n" + $0 } ?? "")
+        let purchaseStatus = [modelDiagnostics, purchaseDiagnostics, signInDiagnostics].compactMap { $0.map { "\n\n" + $0 } }.joined()
         let text = String(note.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.prefix(10000 - purchaseStatus.unicodeScalars.count)) + purchaseStatus
         let heading = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let draft = pendingDraft ?? SupportDraft(id: reportID, accountID: service.accountID, reportID: reportID, action: .report, text: text,

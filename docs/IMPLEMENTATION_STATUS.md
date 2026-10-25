@@ -1,5 +1,28 @@
 # Implementation status
 
+## After TestFlight 92 — 2026-10-25
+
+**Native Google sign-in accepts its own return** (owner report, build 92). Details and evidence are in
+[native authentication](architecture/NATIVE_AUTHENTICATION.md#native-google-refused-its-own-return-testflight-92-report-2026-10-25).
+- Supabase issued the code and the phone never exchanged it. A `#` that WebKit carried over from Google's pages
+  (fragment inheritance across redirects) made the validator refuse the return. A fragment naming no OAuth parameter
+  is now ignored; Auth's own fragments keep the old rule.
+- A refused Google return now says what to try. Each sign-in failure is recorded on the device without values
+  (`SignInDiagnostics`). A refused return or failed exchange shows its reference under the message, and in-app reports
+  share the recent records.
+- The owner was signed out by Account › Sign out on the phone (13:13:30 UTC `POST /logout?scope=local` from
+  `ScienceReader/92`), not by an expiry or another device.
+- Verified:
+  - Core `swift test`: 99 XCTest (3 skipped) and 483 Swift Testing pass. The new fragment regression fails on the
+    old rule.
+  - The app's auth tests on Mac Catalyst pass 61/61: OAuthSafety 8, AuthenticationCoordinator 18,
+    AuthenticationBackend 28, AuthenticationModel 7. They ran through a local scheme without the UI-test target,
+    because `ScienceReaderUITests` doesn't compile for Catalyst (`XCUIElement.pinch`).
+  - A local WKWebView probe of the fragment carry-over.
+- Not verified:
+  - a real Google sign-in on a device with this change (the physical iPhone is paused);
+  - the reference line's look (no Simulator UI run).
+
 ## TestFlight 92 — 2026-10-25 UTC (iOS and Mac uploaded)
 
 Uploaded at 09:50 UTC (iOS) and 09:59 UTC (Mac), from main at 1b3b4c1f. Everything in "In TestFlight 92" below

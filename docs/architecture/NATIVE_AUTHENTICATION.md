@@ -191,6 +191,52 @@ Fix (branch `fix/google-signin-silent`):
 
 Still unverified: a real Google sign-in on a device with a build that includes this change.
 
+## Native Google refused its own return (TestFlight 92 report, 2026-10-25)
+
+Owner report (iPhone, iOS 26.7.1, build 92, 13:14 UTC): "Got to this point after signing in with passkey with Google",
+over the Sign in sheet showing "Couldn't verify the sign-in response. Please try again."
+
+Hosted evidence, read-only (gateway and Auth logs, `auth.flow_state`):
+- 13:13:30.957 `POST /auth/v1/logout?scope=local` from `ScienceReader/92`. The only caller is `ReaderModel.signOut()`
+  (Account › Sign out, or the Private library sheet's Sign out); the owner had been in Settings a minute earlier. So the
+  owner signed out on the phone. No refresh failure, token rotation, remote revocation or other device was involved.
+- 13:13:35.9 Google `GET /authorize` from the phone's authentication browser (`redirect_to=sciencereader://auth/callback`,
+  S256). 13:13:41.9 `GET /callback` returned 302 and Auth logged a login for the owner. The 302's body is 94 bytes:
+  exactly `sciencereader://auth/callback?code=<uuid>`, with no fragment. The `flow_state` row has its code issued at
+  13:13:42.137 and was never consumed.
+- No `POST /token?grant_type=pkce` follows. The app showed `.invalidResponse` without any request, so the return was
+  refused on the device: `OAuthPKCEAttempt.authorizationCode(from:)` threw `invalidCallback`, or the session returned no
+  URL. 13:14:18 a second Google page opened and was closed; 13:14:25 Apple (`id_token`) signed in. The same pattern
+  (callback issued, no exchange, Apple seconds later) appears with build 88 on 10-24 at 03:22.
+
+Cause (mechanism verified, the Google page itself not observed): WebKit keeps the fragment of an earlier URL in a
+redirect chain when a redirect's Location has none (Fetch's fragment inheritance). A `#` or `#…` on any of Google's
+sign-in pages therefore reaches `sciencereader://auth/callback?code=<uuid>#…`, even though Supabase sent none. A local
+WKWebView probe on this Mac (page → `/x#` → 302 → 302 to `sciencereader://…?code=<uuid>`) delivers
+`…?code=<uuid>#`; a JS navigation or an HTTP redirect does the same. The validator accepted a fragment only on a return
+with no query. Any fragment beside the code, even an empty one, was `invalidCallback` → "Couldn't verify". The browser
+reader reads its code from the query and the error from either part, so it ignores such a fragment. That is why browser
+Google sign-ins exchanged their codes while no native one ever did.
+
+Fix:
+- A fragment naming no OAuth parameter (empty, `#_=_`, `#x`, …) is the browser's and is ignored. A fragment naming any
+  OAuth parameter (code, error fields or implicit-flow credentials, any case, percent-decoded) keeps the old rule:
+  errors only, and never beside a query. Every earlier refusal still holds, and the code still needs this attempt's
+  verifier.
+- The refused-return message names what to try: "Gradstep couldn't verify Google's answer, so you're still signed out.
+  Try Google again, or continue with Apple or email." The general one says the person is still signed out, too.
+- `SignInDiagnostics` records each sign-in failure on the device (never in an account's store, as the person is signed
+  out). A record holds the method, stage and reason. For a refused return it also holds its shape: whether the
+  destination matched, which OAuth parameter names arrived in the query and fragment, the code's shape, a snake_case
+  `error_code`, its length, and whether the authentication session or the app's URL handler delivered it. It never holds
+  a value. At most eight records are kept, each for 14 days, and each is also written to the unified log and the session
+  timeline. A refused Google return or a failed exchange shows its reference under the message, so a TestFlight
+  screenshot can be diagnosed. An in-app report shows and shares the recent records ("Sign-in problems shared with
+  support").
+
+No Supabase, Google Cloud or redirect setting needs a change: Auth issued a correct code to the allowed callback.
+Still unverified: a real Google sign-in (passkey or password) on a device with this change.
+
 ## Current foundation and gaps
 
 [BackendClient](../../apps/apple/ScienceReader/Services/BackendClient.swift) already owns authentication generations, Keychain sessions, Google PKCE and Apple nonces. [OAuthFlow](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OAuthFlow.swift) validates the callback destination, bounds its code and rejects token fragments. Existing [OAuth safety tests](../../apps/apple/ScienceReaderTests/OAuthSafetyTests.swift) cover deterministic exchanges, duplicate callbacks, cancellation before UI delivery and late results after sign-out. These are local protocol tests, not Apple/Google sign-in evidence.
