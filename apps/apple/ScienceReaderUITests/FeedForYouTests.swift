@@ -147,7 +147,9 @@ final class FeedForYouTests: XCTestCase {
         let added = element(app, "discover.result.2610.07767")
         XCTAssertTrue(second.exists && added.exists)
         XCTAssertLessThan(tag.frame.minY, first.frame.minY)
-        XCTAssertLessThan(first.frame.minY, second.frame.minY)
+        // Reading order: above, or beside on the same row (an upright iPad lays cards two per row).
+        XCTAssertTrue(first.frame.minY < second.frame.minY || (first.frame.minY == second.frame.minY && first.frame.minX < second.frame.minX),
+                      "\(first.frame) before \(second.frame)")
         XCTAssertLessThan(second.frame.minY, like.frame.minY)
         XCTAssertLessThan(like.frame.minY, added.frame.minY)
         // VoiceOver keeps the whole sentence; the visible line drops what the header says.
