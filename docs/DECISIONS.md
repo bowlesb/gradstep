@@ -1,6 +1,8 @@
 # Product and architecture decisions
 
 Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
+[JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
 ## Account-deletion sweep: listing fixed and watched (2026-10-25; agent decisions, reversible)
 

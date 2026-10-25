@@ -1,4 +1,7 @@
-# Global search and a "More" place (proposal, 2026-10-25; design only, nothing built)
+# Global search and a "More" place (proposal, 2026-10-25; open questions answered by judgment, building)
+
+Owner, 2026-10-25: "Just make a good judgment and keep a log." All four open questions take the recommended answer
+([JUDGMENT_LOG.md](../JUDGMENT_LOG.md) 13–16).
 
 Owner, 2026-10-25: *"One more feature - one of our UX issues is we have 6 icons but only room for 5. Lets change to the
 way Slack does it. slack has three at the bottom, a [fourth] icon with the words More, and then if you click you get a
