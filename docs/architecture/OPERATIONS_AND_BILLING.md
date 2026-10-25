@@ -37,6 +37,17 @@ page. The reply carries no prompt, answer, title, paper, document, provider requ
 dollar amount. `tests/backend/ai-usage.test.ts` fails when a new chat action, provider route or operation kind has no
 reader-facing name, or when the clients' names drift from the server's.
 
+**Only provider-reported tokens (migration 0160, 2026-10-25; local, not applied).** An attempt's `actual_units` count
+toward a row, its parts and the window's totals only when they are the provider's own (`app_private.usage_reported`):
+`succeeded`, `rejected` before processing (exactly zero) or `reconciled` from the provider's record, and not marked
+`estimated`. Some attempts never get a provider count. `admitted` means still running. `unknown` covers a lost or
+stalled stream with no generation record, and chat stores its hold estimate there (every input byte as a token, the
+whole output allowance) without the `estimated` mark. Units marked `estimated` are Gradstep's own estimate. None of
+these attempts adds tokens, searches or audio. Their row and part get `estimated: true` (meaning "some call has no
+provider count") and `unreported_calls` (how many); the totals get `unreported_operations`. Every existing key keeps
+its type, so TestFlight 92 and the browser decode the reply unchanged. Credits, holds and outcomes are unchanged.
+`tests/database/ai_usage_reported_tokens.sql`.
+
 **Paper titles stay on the device.** The server does not record whether a chat was about a paper or which one. When a
 device sends a cloud request it remembers, on that device only, the operation id, the conversation kind (paper,
 general, or a question started from a passage) and the paper's library identity (membership or document id) — never a
