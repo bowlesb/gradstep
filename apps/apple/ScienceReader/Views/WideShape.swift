@@ -18,14 +18,25 @@ enum WindowShape {
     static func isWide(window size: CGSize) -> Bool {
         Platform.isMac || LayoutShape.of(size: size) == .wide
     }
+
+    /// The same rule from a geometry reader filling the root (its size plus its safe area is the whole window), for
+    /// overlays that sit above Tall's bar (the podcast's ready notice, the new-device banner).
+    static func isWide(proxy: GeometryProxy) -> Bool {
+        let insets = proxy.safeAreaInsets
+        return isWide(window: CGSize(width: proxy.size.width + insets.leading + insets.trailing,
+                                     height: proxy.size.height + insets.top + insets.bottom))
+    }
 }
 
 enum WideMetrics {
     /// A Wide row, where a slot has one: 44 pt controls with 4 pt above and below. Floating controls share its centre line.
     static let barHeight: CGFloat = 52
-    /// The room the places button (the window's top-left corner, `PlacesMenuButton`) takes at the start of the leftmost
-    /// slot's row or floating controls: its 44 pt circle and 8 pt after it.
-    static let placesReserve: CGFloat = 52
+    /// Between the places button and the 🔍 beside it.
+    static let placesGap: CGFloat = 8
+    /// The room the places button and 🔍 (the window's top-left corner, `PlacesMenuButton` and `SearchCircle`) take at the
+    /// start of the leftmost slot's row or floating controls: two 44 pt circles, 8 pt between them and 8 pt after them
+    /// (52 before 🔍 joined, 2026-10-25; GLOBAL_SEARCH_AND_MORE.md A.3).
+    static let placesReserve: CGFloat = 2 * DesignMetrics.headerControl + 2 * placesGap
 }
 
 private struct WideBarKey: EnvironmentKey { static let defaultValue = false }
@@ -456,14 +467,15 @@ struct WideBarLayout: Layout {
 /// (owner correction, 2026-10-23: "I thought I asked for an icon in the top left… I meant the top left"), the same spot in
 /// every view, a list covering the window included, showing the current place's own symbol in accent, so it also says where you are. Its
 /// rows, one list: Feed, Library, Paper, Chat, Snippets (the current one checked; Paper needs a paper) and Settings, which
-/// opens over the place (owner, 2026-10-24: "put Settings here beside Snippets"); no Search ("if I want a search, I could
-/// just go and search the library"). ⌘1…⌘5 choose the places and ⌘, opens Settings with a hardware keyboard. Each row keeps
-/// its `tab.*` identifier.
+/// opens over the place (owner, 2026-10-24: "put Settings here beside Snippets"). Search is the 🔍 circle beside it (owner,
+/// 2026-10-25, superseding "no Search place on iPad"); while it is the place the button shows ≡ and no row is checked.
+/// ⌘1…⌘5, ⌘, and ⌘K are the root's (`PlaceShortcuts`). Each row keeps its `tab.*` identifier.
 struct PlacesMenuButton: View {
     @Bindable var model: ReaderModel
 
     var body: some View {
         let current = model.widePlace
+        let inPlace = current != .search && current != .more
         // One list, no section separator (owner, TestFlight 91: "why is there a larger space between snippets and search?
         // That seems a little bit confusing").
         Menu {
@@ -474,16 +486,18 @@ struct PlacesMenuButton: View {
                 .disabled(place == .paper && model.selectedPaper == nil)
                 .accessibilityIdentifier("tab.\(String(describing: place))")
             }
-            // Settings beside Snippets, and in no ⋯ menu (owner, 2026-10-24; SettingsMenuSection): over the place. No Search:
-            // the Library's own field searches, as on iPhone.
+            // Settings beside Snippets, and in no ⋯ menu (owner, 2026-10-24; SettingsMenuSection): over the place.
             Button { model.openSettings(afterMenu: true) } label: {
                 Label { Text(ReaderTab.settings.rawValue) } icon: { menuIcon(ReaderTab.settings.icon) }
             }
             .accessibilityIdentifier("tab.settings")
         } label: {
-            Image(current.icon)
+            Group {
+                // Search has no row here: the button shows the menu's own ≡ (the proposal's "(≡)(🔍)") beside the lit 🔍.
+                if inPlace { current.image } else { Image(systemName: "line.3.horizontal") }
+            }
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(Color.accentColor, Color.gradstepAmber)
+                .foregroundStyle(inPlace ? Color.accentColor : Color.primary, Color.gradstepAmber)
                 .font(.system(size: 19, weight: .medium))
                 .frame(width: DesignMetrics.headerControl, height: DesignMetrics.headerControl).modifier(GlassCircle())
                 .contentShape(Circle())
@@ -491,13 +505,17 @@ struct PlacesMenuButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Places, \(current.rawValue)")
         .accessibilityIdentifier("places.menu")
-        .accessibilityShowsLargeContentViewer { Label(current.rawValue, image: current.icon) }
-        .background { shortcuts }
+        .accessibilityShowsLargeContentViewer { Label { Text(current.rawValue) } icon: { current.image } }
     }
+}
 
-    /// ⌘1…⌘5: the places in the menu's order, and ⌘, Settings (the Mac's menus bind the same keys there; this button is
-    /// iPad only).
-    private var shortcuts: some View {
+/// ⌘1…⌘5 choose the five places (numbers name places, not positions: ⌘1 Feed … ⌘5 Snippets), ⌘, opens Settings and ⌘K
+/// Search, with a hardware keyboard on iPhone and iPad in both shapes (GLOBAL_SEARCH_AND_MORE.md A.6: they were the places
+/// menu's, so they worked only sideways). Hidden buttons on the root; the Mac's menus bind the same keys there. Reading
+/// mode (the paper alone, no places) keeps them off, as before.
+struct PlaceShortcuts: View {
+    @Bindable var model: ReaderModel
+    var body: some View {
         Group {
             ForEach(Array(ReaderTab.phoneTabs.enumerated()), id: \.offset) { index, place in
                 Button(place.rawValue) { model.showPlace(place) }
@@ -505,7 +523,9 @@ struct PlacesMenuButton: View {
                     .disabled(place == .paper && model.selectedPaper == nil)
             }
             Button(ReaderTab.settings.rawValue) { model.openSettings() }.keyboardShortcut(",")
+            Button(ReaderTab.search.rawValue) { model.showSearchPlace() }.keyboardShortcut("k")
         }
+        .disabled(model.readingMode)
         .opacity(0).frame(width: 0, height: 0).allowsHitTesting(false).accessibilityHidden(true)
     }
 }

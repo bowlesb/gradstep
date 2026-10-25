@@ -1,18 +1,18 @@
 import SwiftUI
 
-// Settings everywhere (owner, 2026-10-20; docs/architecture/NOTES_AND_SNIPPETS.md "Navigation"): Notes takes Settings'
-// place in the phone's tab bar, and every top-right ⋯ menu ends with a Settings section that opens the existing
-// Settings over the current screen; Done returns to exactly where the reader was. Report this screen stays just above
-// it, in the same order everywhere.
+// Settings over the current screen (owner, 2026-10-20; docs/architecture/NOTES_AND_SNIPPETS.md "Navigation"): it opens
+// the existing Settings over the screen; Done returns to exactly where the reader was. On iPhone it is More's third row
+// (owner, 2026-10-25; JUDGMENT_LOG 15), on iPad a place (the full bar's sixth, the places menu's last row, More in a
+// narrow window); only the Mac's ⋯ menus still end with it, under Report this screen.
 
-/// The last section of every screen's ⋯ menu on iPhone and the Mac. Not on iPad, where Settings is a place beside Snippets
-/// (the bar upright, the places menu sideways; owner, 2026-10-24: "we're going to move that so we don't see it there").
+/// The last section of every screen's ⋯ menu on the Mac. Not on iPhone or iPad, where Settings is under More or a place
+/// (owner, 2026-10-24, of the iPad's ⋯: "we're going to move that so we don't see it there"; 2026-10-25 for the iPhone).
 struct SettingsMenuSection: View {
     let model: ReaderModel
     /// Run before Settings opens (a screen that must first let go of the keyboard).
     var before: () -> Void = {}
     var body: some View {
-        if !Platform.isPad {
+        if Platform.isMac {
             Section {
                 Button { before(); model.openSettings(afterMenu: true) } label: {
                     Label { Text("Settings") } icon: { menuIcon(GradstepSymbol.settings) }

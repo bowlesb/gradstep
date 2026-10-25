@@ -216,7 +216,8 @@ struct DeviceApprovalBanner: ViewModifier {
             .overlay(alignment: .bottom) {
                 if !visible.isEmpty {
                     GeometryReader { proxy in
-                        let tabs = !(proxy.size.width >= 850 || Platform.isMac)
+                        // The tab bar is Tall's (the shared shape rule, not a width of its own).
+                        let tabs = !WindowShape.isWide(proxy: proxy)
                         banner.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                             .padding(.bottom, tabs ? ChromeMetrics.tabBarReserve(safeBottom: proxy.safeAreaInsets.bottom) : 12)
                     }

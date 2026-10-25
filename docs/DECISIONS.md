@@ -4,6 +4,30 @@ Last updated: 2026-10-25 UTC. Requirements below come from the current user conv
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## The bar: Library · Paper · Chat · More, with 🔍 (owner request 2026-10-25; judgment calls; apps built, not yet in a build)
+
+Owner: *"we have 6 icons but only room for 5. Lets change to the way Slack does it. slack has three at the bottom, a
+[fourth] icon with the words More, and then if you click you get a screen with the other three options. For the fifth,
+it's a search icon."* Then: *"Just make a good judgment and keep a log."* Design:
+[GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md) A; calls: [JUDGMENT_LOG.md](JUDGMENT_LOG.md) 13–16 and
+18–23; as built: [DESIGN.md › Tall and Wide › The bar, More and 🔍](DESIGN.md). The search screen itself is built
+separately (part B); until it lands, 🔍 opens a placeholder.
+
+| Surface | Choice |
+|---|---|
+| iPhone, and Tall windows too narrow for six | **Library · Paper · Chat · More** in the capsule; **🔍** its own glass circle beside it. More lists **Feed, Snippets, Settings**; Feed and Snippets open as places with More highlighted, More again returns to its list; Settings opens over the list. No badges. |
+| iPad upright (≥ 730 pt wide and 600 tall) | All six places (Feed · Library · Paper · Chat · Snippets · Settings) **and 🔍**; no More |
+| iPad sideways (Wide) | The places menu keeps all six rows (no More); **a 🔍 circle beside it** in the top-left corner; the leftmost slot's row starts 104 pt in (was 52) |
+| Mac | The five-place toolbar unchanged, **a search field** at its trailing edge, **⌘K** (Edit › Search Everything…); ⌘F, ⌥⌘F, ⇧⌘F and ⌘1–⌘5 keep their meanings; Settings stays ⌘, and the last section of every ⋯ |
+| Settings | Under More on iPhone (and narrow iPad windows), a place on iPad; **in no ⋯ menu on iPhone or iPad** |
+| Keys (iPhone and iPad) | ⌘1…⌘5, ⌘, and ⌘K work in both shapes (they were the Wide places menu's, so upright they did nothing) |
+| Routes | **None changed.** Every "go to X" lands where it did; only which bar item is highlighted is derived differently (unit test per route group) |
+
+*Supersedes:* "No Search place on iPad (G6)" (2026-10-24, [below](#ipad-places-settings-beside-snippets-no-search-place-feed-hides-library-papers-owner-session-2026-10-24-testflight-91)):
+🔍 is a destination on every surface; the Library's own field and its Library / ML switch stay. Also "the iPhone keeps
+five tabs with Settings as every ⋯'s last section" (2026-10-20 and 2026-10-24) and the places menu's "no Search". The
+browser (paused) is unchanged; parity notes are in DESIGN.md.
+
 ## Account-deletion sweep: listing fixed and watched (2026-10-25; agent decisions, reversible)
 
 From 2026-10-12 14:01 UTC (first on 2026-10-09 14:03) every listing of the worker's deletion sweep timed out at the
@@ -2527,7 +2551,9 @@ From the owner's recorded iPad session (upright, Tall; findings G5, G6, G17). Sp
   searching is the Library's own field with its Library / ML paper search switch, as on iPhone. Routes that searched
   already land there with the query (an author's "Find papers by", Find similar papers, a tag's ML paper search, a
   chat's paper link). The Mac keeps its Edit menu's Search Library (⌘F / ⌥⌘F) and Search ML Papers (⇧⌘F). *Supersedes*
-  "Search in the places menu is the Library with its field focused".
+  "Search in the places menu is the Library with its field focused". *Superseded 2026-10-25 by global search: 🔍 is a
+  place on every surface, beside the places menu sideways ([The bar](#the-bar-library--paper--chat--more-with--owner-request-2026-10-25-judgment-calls-apps-built-not-yet-in-a-build));
+  the Library's field stays.*
 - **The Feed always leaves out papers in your library (G17).** "you actually should, but you don't need the setting here
   for this. Just do it by default… you already have something in your library, don't need to show it again in the
   feed." The Feed's ⋯ (and the Mac's View menu) lose "Hide papers in your library"; the stored choice

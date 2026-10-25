@@ -20,6 +20,25 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 17. **A paper being added keeps its row height even with the Progress column hidden:** the spinner and one-word status
     sit in the title's reserved second line, so an adding paper's title shows on one line until it's ready. *Why:* the
     owner's no-jumping-rows rule (builds 58–59). *Undo:* the status line goes back under the title.
+18. **The six-place bar is chosen by the window's size alone: at least 730 pt wide and 600 pt tall** (`TallBar` in
+    ScienceReaderCore). Every iPad upright gets six; Split View, Slide Over and a phone sideways (up to 956 pt wide, but
+    at most 440 tall) get Library · Paper · Chat · More. *Why:* the shape rule already reads only the window (owner,
+    2026-10-22), and a phone sideways must keep its bar (proposal A.6). *Undo:* change `TallBar.of(window:)`.
+19. **A window that grows to six places, or turns sideways, while the More list shows goes to the Library.** Feed and
+    Snippets opened from More stay where they are. *Why:* the list exists only beside More; the Library is the app's first
+    place. *Undo:* `tallBarChanged` in `ReaderModel+Places.swift`.
+20. **Sideways, while Search is the place, the places button shows ≡ and no row is checked** (VoiceOver: "Places,
+    Search"); 🔍 is lit. *Why:* the proposal's drawing "(≡)(🔍)"; a place's symbol would claim a place you aren't in.
+    *Undo:* `PlacesMenuButton`'s label.
+21. **The Mac's search field is a 220 pt field at the toolbar's right, "Search everything" (the Library's own field
+    says "Search"); a click or ⌘K opens Search, and its words stay when you leave** (as Mail's). Catalyst has no
+    `NSSearchToolbarItem`, so it is a `UISearchTextField` in the toolbar. *Undo:* drop `gradstep.search` from the
+    toolbar's items.
+22. **🔍 from the Paper place starts with that paper in scope** ("In this paper", proposal B.5), from the bar, sideways,
+    ⌘K and the Mac's field alike. *Undo:* `searchScopePaperID` returns nil.
+23. **⌘1…⌘5, ⌘, and ⌘K also work on an iPhone with a hardware keyboard**, as on iPad (they are on the root now), and
+    stay off in reading mode as before. A bar word that doesn't fit at the largest text sizes shrinks to 80 % rather than
+    being cut. *Undo:* gate `PlaceShortcuts` with `Platform.isPad`; remove `minimumScaleFactor` in `TabBarItem`.
 
 Earlier today (agent or lead calls, already in DECISIONS.md; listed here so they can be overruled in one place):
 

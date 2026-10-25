@@ -40,6 +40,18 @@ enum Platform {
         #endif
     }
 
+    /// UI tests on iPad: `--narrow-window=<pt>` lays the app out in a column that wide, centred, as a Split View or Slide
+    /// Over window would be (XCUITest can't make one), so the bar's width rule (`TallBar`) can be exercised. Nil otherwise.
+    static var fixtureNarrowWidth: CGFloat? {
+        #if DEBUG && FIXTURE_HOST
+        guard let value = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--narrow-window=") })
+            .flatMap({ Double($0.dropFirst("--narrow-window=".count)) }), value >= 320 else { return nil }
+        return CGFloat(value)
+        #else
+        return nil
+        #endif
+    }
+
     /// Visual checks on the Mac: `--window-size=WxH` opens the window at that size and never remembers it.
     static var fixtureWindowSize: CGSize? {
         #if DEBUG && FIXTURE_HOST
@@ -179,6 +191,9 @@ extension ReaderModel {
     static let shared = MacCommandRequests()
     /// Focus the Library's search field (⌘F), or its arXiv search (⌥⌘F).
     var librarySearch: UUID?
+    /// What is typed in the Mac toolbar's search field (MacToolbarController; GLOBAL_SEARCH_AND_MORE.md A.3): the Search
+    /// place's words on the Mac, whose results show in the window as on iPad.
+    var globalSearchQuery = ""
     /// Edit › Find in Paper: the open paper's view shows its find bar (with its own checks: a readable paper, the
     /// selection cleared).
     var findInPaper: UUID?
@@ -598,8 +613,9 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
 }
 
 /// Configures the Mac window once it exists: size limits, a first-launch size, and a unified toolbar holding the five
-/// places (Feed · Library · Paper · Chat · Snippets), which on iPad are the places capsule. Settings is the last row of
-/// every ⋯ and ⌘, (docs/DESIGN.md › Tall and Wide).
+/// places (Feed · Library · Paper · Chat · Snippets; the iPad's places menu) and, at its trailing edge, the search field
+/// (owner, 2026-10-25; GLOBAL_SEARCH_AND_MORE.md A.3). Settings is the last row of every ⋯ and ⌘, (docs/DESIGN.md › Tall
+/// and Wide).
 struct MacWindowConfiguration: UIViewRepresentable {
     let model: ReaderModel
     let place: ReaderTab
@@ -643,15 +659,24 @@ final class WindowHookView: UIView {
     static let minimumSize = CGSize(width: 720, height: 520)
     static let defaultSize = CGSize(width: 1280, height: 820)
     private static let modesID = NSToolbarItem.Identifier("gradstep.modes")
+    static let searchID = NSToolbarItem.Identifier("gradstep.search")
     private static let sizeKey = "mac.window.size"
+    /// Edit › Search Everything… (⌘K) asks the field for the keyboard (MacCommands).
+    static let focusSearch = Notification.Name("gradstep.mac.focusSearch")
 
     private let model: ReaderModel
     private weak var scene: UIWindowScene?
     /// Sizes are remembered only after the launch size is applied (the system's first size isn't the reader's).
     private var restoringSize = true
     private var modes: NSToolbarItemGroup?
+    /// The toolbar's search field (Catalyst has no NSSearchToolbarItem; a UISearchTextField draws as the Mac's).
+    private(set) var searchField: UISearchTextField?
 
-    init(model: ReaderModel) { self.model = model }
+    init(model: ReaderModel) {
+        self.model = model
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(focusSearchRequested), name: Self.focusSearch, object: nil)
+    }
 
     func attach(to window: UIWindow) {
         guard let scene = window.windowScene, scene !== self.scene else { return }
@@ -702,13 +727,15 @@ final class WindowHookView: UIView {
     private static let places = ReaderTab.phoneTabs
 
     func update(place: ReaderTab, settingsShown: Bool) {
+        // Leaving Search lets go of its field (the words stay for the next visit, as Mail's).
+        if place != .search, let searchField, searchField.isFirstResponder { searchField.resignFirstResponder() }
         guard modes != nil else { return }
-        // Settings is outside the five workspace panes. Catalyst keeps reporting the last selected
+        // Settings and Search are outside the five workspace panes. Catalyst keeps reporting the last selected
         // index for a native select-one group, so use select-any and clear every segment explicitly.
         if settingsShown {
             setModeSelection(nil)
         } else {
-            setModeSelection(Self.places.firstIndex(of: place) ?? 1)
+            setModeSelection(Self.places.firstIndex(of: place))
         }
     }
 
@@ -722,7 +749,7 @@ final class WindowHookView: UIView {
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.modesID, .flexibleSpace]
+        [.flexibleSpace, Self.modesID, .flexibleSpace, Self.searchID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -740,8 +767,24 @@ final class WindowHookView: UIView {
             group.label = "Places"
             group.toolTip = "Choose a place (⌘1–⌘5)"
             modes = group
-            setModeSelection(Self.places.firstIndex(of: model.widePlace) ?? 1)
+            setModeSelection(model.tab == .settings ? nil : Self.places.firstIndex(of: model.widePlace))
             return group
+        case Self.searchID:
+            let field = UISearchTextField()
+            // Not just "Search": the Library's own field below says that.
+            field.placeholder = "Search everything"
+            field.accessibilityLabel = "Search everything"
+            field.accessibilityIdentifier = "mac.search"
+            field.text = MacCommandRequests.shared.globalSearchQuery
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.widthAnchor.constraint(equalToConstant: 220).isActive = true
+            field.addTarget(self, action: #selector(searchBegan(_:)), for: .editingDidBegin)
+            field.addTarget(self, action: #selector(searchChanged(_:)), for: .editingChanged)
+            searchField = field
+            let item = NSUIViewToolbarItem(itemIdentifier: identifier, uiView: field)
+            item.label = "Search"
+            item.toolTip = "Search everything (⌘K)"
+            return item
         default: return nil
         }
     }
@@ -751,6 +794,24 @@ final class WindowHookView: UIView {
         let index = sender.selectedIndex
         setModeSelection(index)
         model.showPlace(Self.places[index])
+    }
+
+    /// A click in the field (or ⌘K) goes to the Search place; the place change hands the keyboard back to the window
+    /// (RootView resigns it on every change of place), so the field takes it again once Search shows.
+    @objc private func searchBegan(_ field: UISearchTextField) {
+        guard model.tab != .search else { return }
+        if model.tab == .settings { model.closeSettings() }
+        model.showSearchPlace()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak field] in _ = field?.becomeFirstResponder() }
+    }
+
+    @objc private func searchChanged(_ field: UISearchTextField) {
+        MacCommandRequests.shared.globalSearchQuery = field.text ?? ""
+    }
+
+    @objc private func focusSearchRequested() {
+        guard let searchField else { return }
+        if model.tab != .search { searchBegan(searchField) } else { searchField.becomeFirstResponder() }
     }
 }
 #endif

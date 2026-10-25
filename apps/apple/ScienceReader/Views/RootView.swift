@@ -9,12 +9,14 @@ struct RootView: View {
     @State private var softwareKeyboardShown = false
     var body: some View {
         GeometryReader { geometry in
-            // Tall and Wide (docs/DESIGN.md): wider than tall and at least 1000 pt across is Wide (an iPad sideways, the
-            // Mac); everything else is Tall, the iPhone app. Measured on the whole window, keyboard included.
+            // Tall and Wide (docs/DESIGN.md): wider than tall, at least 900 pt across and 600 tall is Wide (an iPad sideways,
+            // the Mac); everything else is Tall, the iPhone app. Measured on the whole window, keyboard included.
             let insets = geometry.safeAreaInsets
             let window = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
                                 height: geometry.size.height + insets.top + insets.bottom)
             let wide = WindowShape.isWide(window: window)
+            // Tall's bar: every place where six fit (an iPad upright), else Library · Paper · Chat · More (TallBar).
+            let bar = TallBar.of(window: window)
             Group {
             if wide {
                 wideLayout(width: geometry.size.width).environment(\.figureViewerWindowSize, geometry.size)
@@ -36,7 +38,7 @@ struct RootView: View {
                         if !softwareKeyboardShown && model.notes.capturing == nil {
                             VStack(spacing: 6) {
                                 if miniPlayer { PodcastMiniPlayer(model: model) }
-                                tabBar
+                                tabBar(bar)
                             }
                                 .padding(.horizontal, DesignMetrics.margin)
                                 .padding(.bottom, ChromeMetrics.tabBarBottom(safeBottom: safeBottom))
@@ -46,9 +48,16 @@ struct RootView: View {
                     }
             }
             }
-            .onAppear { model.compactLayout = !wide }
+            .onAppear { model.compactLayout = !wide; model.tallBarChanged(to: wide ? nil : bar) }
             .onChange(of: wide) { _, now in shapeChanged(toWide: now) }
+            .onChange(of: wide ? nil : bar) { _, now in model.tallBarChanged(to: now) }
         }
+        // UI tests only: a column as narrow as a Split View window (`--narrow-window=`); nil everywhere else.
+        .frame(maxWidth: Platform.fixtureNarrowWidth ?? .infinity)
+        .frame(maxWidth: .infinity)
+        // ⌘1…⌘5, ⌘, and ⌘K with a hardware keyboard on iPhone and iPad, in both shapes (they lived in the Wide places
+        // menu, so upright they did nothing). The Mac's menus bind the same keys.
+        .background { if !Platform.isMac { PlaceShortcuts(model: model) } }
         // Visual checks pin the appearance (`--appearance=`); nil follows the system.
         .preferredColorScheme(Platform.fixtureAppearance)
         #if DEBUG && FIXTURE_HOST
@@ -135,34 +144,53 @@ struct RootView: View {
         }
     }
 
-    /// The tab bar: one glass capsule floating over the screen (2026-10-07).
-    private var tabBar: some View {
-        let places = ReaderTab.places
-        return HStack(spacing: 0) {
-            // Feed · Library · Paper · Chat · Notes (owner, 2026-10-20): on iPhone Settings is the last section of every ⋯
-            // menu; on iPad it is the sixth, beside Snippets (owner, 2026-10-24), and opens over the screen as before.
-            ForEach(places) { tab in
-                // While Settings is over the screen (iPad), it is the selected place.
-                let settingsShown = places.contains(.settings) && model.settingsPresented
-                let selected = tab == .settings ? settingsShown : model.tab == tab && !settingsShown
-                Button {
-                    if tab == .settings { model.openSettings(); return }
-                    // A second tap on Notes goes back to its list, as a system tab bar does.
-                    if tab == .notes && model.tab == .notes { model.notes.openNoteID = nil }
-                    model.tab = tab
-                } label: { TabBarItem(tab: tab, selected: selected) }
-                .buttonStyle(.plain)
-                .disabled(tab == .paper && model.selectedPaper == nil)
-                .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
-                .accessibilityIdentifier("tab.\(String(describing: tab))")
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityShowsLargeContentViewer { Label(tab.rawValue, image: tab.icon) }
+    /// The tab bar: one glass capsule floating over the screen (2026-10-07), and 🔍 in its own circle beside it (owner,
+    /// 2026-10-25: Slack's "three at the bottom, a [fourth] icon with the words More… For the fifth, it's a search icon").
+    /// iPhone and narrow windows: Library · Paper · Chat · More; an iPad upright: all six places (JUDGMENT_LOG 13–14). Which
+    /// item is selected is derived from the place (`ReaderTab.barSelection`); no route changed for it.
+    private func tabBar(_ bar: TallBar) -> some View {
+        let items = ReaderTab.bar(bar)
+        let selection = ReaderTab.barSelection(tab: model.tab, settingsShown: model.settingsPresented, bar: items)
+        return HStack(spacing: ChromeMetrics.searchGap) {
+            HStack(spacing: 0) {
+                ForEach(items) { tab in
+                    let selected = selection == tab
+                    Button { barItemTapped(tab) } label: { TabBarItem(tab: tab, selected: selected) }
+                    .buttonStyle(.plain)
+                    .disabled(tab == .paper && model.selectedPaper == nil)
+                    .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
+                    .accessibilityIdentifier("tab.\(String(describing: tab))")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    // "More, Feed": the place under More that is showing.
+                    .accessibilityValue(tab == .more && selected ? moreValue : "")
+                    .accessibilityShowsLargeContentViewer { Label { Text(tab.rawValue) } icon: { tab.image } }
+                }
             }
+            .padding(4)
+            // Each item keeps the 104 pt five had at most, so six widen the capsule rather than squeeze.
+            .frame(maxWidth: ChromeMetrics.tabBarMaxWidth(items: items.count))
+            .chromeSurface(Capsule(), interactive: true)
+            SearchCircle(diameter: ChromeMetrics.tabBarHeight, selected: selection == .search) { model.showSearchPlace() }
         }
-        .padding(4)
-        // Six items keep each one's width (104 pt) rather than squeezing into five's capsule.
-        .frame(maxWidth: ChromeMetrics.tabBarMaxWidth * CGFloat(places.count) / CGFloat(ReaderTab.phoneTabs.count))
-        .chromeSurface(Capsule(), interactive: true)
+    }
+
+    /// A bar item: its place. More always opens its list (owner: "if you click you get a screen with the other three
+    /// options"), so a second tap from Feed or Snippets returns to it; Settings (the full bar's sixth) opens over the screen;
+    /// a second tap on Snippets goes back to its list, as a system tab bar does.
+    private func barItemTapped(_ tab: ReaderTab) {
+        switch tab {
+        case .settings: model.openSettings()
+        case .notes:
+            if model.tab == .notes { model.notes.openNoteID = nil }
+            model.tab = tab
+        default: model.tab = tab
+        }
+    }
+
+    /// VoiceOver's value for More while it is selected: the place under it ("Feed"), none on its own list.
+    private var moreValue: String {
+        if model.settingsPresented { return ReaderTab.settings.rawValue }
+        return ReaderTab.morePlaces.contains(model.tab) ? model.tab.rawValue : ""
     }
 
     /// A system dismissal counts as declining that captured question only.
@@ -183,6 +211,8 @@ struct RootView: View {
         case .paper: PaperView(model: model)
         case .chat: ChatView(model: model)
         case .notes: NotesView(model: model)
+        case .more: MoreView(model: model)
+        case .search: GlobalSearchView(model: model)
         // Only after a wide window narrows with Settings showing; Done returns to where it was opened from.
         case .settings: SettingsView(model: model, dismissSettings: { model.closeSettings() })
             #if OFFLINE_RESOURCE_MEASUREMENTS
@@ -281,6 +311,10 @@ struct RootView: View {
                     }
                 // Notes as list + detail; it never replaces the reader's chat pane.
                 case .notes, .settings: NotesView(model: model, wide: true, width: width)
+                // Search is a place in every shape (owner, 2026-10-25); its view arranges its own slots.
+                case .search: GlobalSearchView(model: model)
+                // The More list belongs to the compact bar; a window turning Wide leaves it (`tallBarChanged`).
+                case .more: MoreView(model: model)
                 }
             }
             // The podcast player docks along the bottom, below every pane (none of their controls go under it).
@@ -297,8 +331,13 @@ struct RootView: View {
         .environment(\.placesLeadingReserve, placesShown ? WideMetrics.placesReserve : 0)
         .overlay(alignment: .topLeading) {
             if placesShown {
-                PlacesMenuButton(model: model)
-                    .padding(.top, (WideMetrics.barHeight - DesignMetrics.headerControl) / 2).padding(.leading, 12)
+                // 🔍 beside the places button (owner, 2026-10-25; GLOBAL_SEARCH_AND_MORE.md A.3): the menu already holds
+                // all six places, so Wide needs no More.
+                HStack(spacing: WideMetrics.placesGap) {
+                    PlacesMenuButton(model: model)
+                    SearchCircle(diameter: DesignMetrics.headerControl, selected: model.tab == .search) { model.showSearchPlace() }
+                }
+                .padding(.top, (WideMetrics.barHeight - DesignMetrics.headerControl) / 2).padding(.leading, 12)
             }
         }
         // A narrow window (an iPad split) has no reading mode: it ends rather than hide everything.

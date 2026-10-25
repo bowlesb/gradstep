@@ -8,9 +8,9 @@ final class NotesJourneyTests: XCTestCase {
 
     override func setUpWithError() throws { continueAfterFailure = false }
 
-    /// The phone journeys use the five-item tab bar; the wide layout has its own journey below.
+    /// The phone journeys use Tall's bar; the wide layout has its own journey below.
     private func requirePhoneLayout(_ app: XCUIApplication) throws {
-        try XCTSkipUnless(app.buttons["tab.notes"].exists, "Phone-width layout (the wide layout's journey is testNotesInTheWideLayout)")
+        try XCTSkipUnless(app.tallBar.exists, "Phone-width layout (the wide layout's journey is testNotesInTheWideLayout)")
     }
 
     /// `reset: false` keeps the fixture's encrypted store from the previous launch (a relaunch).
@@ -81,7 +81,7 @@ final class NotesJourneyTests: XCTestCase {
         let overlay = app.descendants(matching: .any)["capture.overlay"]
         XCTAssertTrue(overlay.waitForExistence(timeout: 5), "Capture mode covers the page")
         XCTAssertTrue(app.buttons["capture.cancel"].exists, "Cancel replaces the bar's controls")
-        XCTAssertFalse(app.buttons["tab.notes"].isHittable && app.buttons["tab.notes"].exists, "The tab bar steps aside while drawing")
+        XCTAssertFalse(app.tallBar.exists && app.tallBar.isHittable, "The tab bar steps aside while drawing")
         capture("Draw snippet: ready")
         let area = app.descendants(matching: .any)["Snippet area"].exists ? app.descendants(matching: .any)["Snippet area"] : overlay
         area.coordinate(withNormalizedOffset: from).press(forDuration: 0.05, thenDragTo: area.coordinate(withNormalizedOffset: to))
@@ -292,14 +292,15 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["tab.notes"].isSelected || app.navigationBars["Snippets"].waitForExistence(timeout: 5), "Snippets is shown")
     }
 
-    /// Settings is the last section of every top-right menu and returns to where it was opened. On iPad (upright here) it is
-    /// the bar's sixth place instead, beside Snippets, and in no ⋯ menu (owner, 2026-10-24); it returns all the same.
+    /// Settings returns to where it was opened, and no ⋯ menu has it. On an iPad upright it is the bar's sixth place,
+    /// beside Snippets (owner, 2026-10-24), opening over any place; on iPhone it is More's third row (owner, 2026-10-25;
+    /// JUDGMENT_LOG 15), opening over the More list, and Done returns there.
     func testSettingsFromEveryMenuReturnsToItsOrigin() throws {
         let app = launch()
         try requirePhoneLayout(app)
-        let pad = UIDevice.current.userInterfaceIdiom == .pad
-        XCTAssertTrue(app.buttons["tab.notes"].exists, "Notes is the fifth tab")
-        XCTAssertEqual(app.buttons["tab.settings"].exists, pad, pad ? "Settings is the iPad's sixth place" : "Settings is no longer a tab")
+        let fullBar = app.buttons["tab.settings"].exists
+        XCTAssertEqual(app.moreItem.exists, !fullBar, fullBar ? "Every place in the bar" : "Feed, Snippets and Settings under More")
+        XCTAssertEqual(app.buttons["tab.notes"].exists, fullBar, "Snippets is the bar's fifth on a full iPad, else under More")
         func roundTrip(_ place: String, back: @escaping () -> Bool) {
             app.openSettingsFromMenu()
             XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "Settings from \(place)")
@@ -307,40 +308,58 @@ final class NotesJourneyTests: XCTestCase {
             app.navigationBars["Settings"].buttons["Done"].tap()
             waitFor("Back on \(place)", back)
         }
+        /// Report this screen ends each ⋯ now (no Settings section after it).
+        func assertNoSettings(in options: XCUIElement, _ place: String) {
+            XCTAssertTrue(options.waitForExistence(timeout: 10), "\(place) has a ⋯")
+            options.tap()
+            XCTAssertTrue(menuItem(app, "Report this screen").waitForExistence(timeout: 5), "\(place)'s ⋯ is open")
+            XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in \(place)'s ⋯")
+            // A tap on the menu's own dimmed backdrop closes it without choosing.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
+            waitFor("\(place)'s ⋯ closed") { !self.menuItem(app, "Report this screen").exists }
+        }
+        if fullBar {
+            roundTrip("Library") { app.buttons[self.sampleID].isHittable }
+        } else {
+            // Over the More list, which stays selected under it.
+            roundTrip("More") { app.descendants(matching: .any)["more.list"].exists && app.moreItem.isSelected }
+        }
         // Library.
-        roundTrip("Library") { app.buttons[self.sampleID].isHittable }
+        app.show("library")
+        assertNoSettings(in: app.buttons["Library options"], "Library")
         // Feed.
-        app.buttons["tab.feed"].tap()
+        app.show("feed")
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 10))
-        roundTrip("Feed") { app.buttons["Feed options"].isHittable && app.buttons["tab.feed"].isSelected }
+        if fullBar { roundTrip("Feed") { app.buttons["Feed options"].isHittable && app.buttons["tab.feed"].isSelected } }
+        assertNoSettings(in: app.buttons["Feed options"], "Feed")
         // Paper (reading position kept).
-        app.buttons["tab.library"].tap()
+        app.show("library")
         let web = openSample(app)
-        roundTrip("Paper") { web.staticTexts["An interactive reading sample · 2026"].exists && app.buttons["Paper options"].isHittable }
+        if fullBar {
+            roundTrip("Paper") { web.staticTexts["An interactive reading sample · 2026"].exists && app.buttons["Paper options"].isHittable }
+        }
+        assertNoSettings(in: app.buttons["Paper options"], "Paper")
         // Chat.
         app.buttons["tab.chat"].tap()
         XCTAssertTrue(app.buttons["Chat options"].waitForExistence(timeout: 10))
-        roundTrip("Chat") { app.buttons["Chat options"].isHittable }
+        if fullBar { roundTrip("Chat") { app.buttons["Chat options"].isHittable } }
+        assertNoSettings(in: app.buttons["Chat options"], "Chat")
         // Notes list, then a note.
-        app.buttons["tab.notes"].tap()
+        app.show("notes")
         XCTAssertTrue(app.buttons["Snippets options"].waitForExistence(timeout: 10))
-        roundTrip("Notes") { app.buttons["Snippets options"].isHittable }
+        if fullBar { roundTrip("Notes") { app.buttons["Snippets options"].isHittable } }
+        assertNoSettings(in: app.buttons["Snippets options"], "Snippets")
         app.buttons["notes.new"].tap()
         let name = app.alerts.textFields.firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5)); name.typeText("Reading for Friday")
         app.alerts.buttons["Create"].tap()
         XCTAssertTrue(app.navigationBars["Reading for Friday"].waitForExistence(timeout: 10))
-        roundTrip("a note") { app.navigationBars["Reading for Friday"].exists }
-        // Report this screen stays just above Settings (iPhone); on iPad the ⋯ has no Settings.
+        if fullBar { roundTrip("a note") { app.navigationBars["Reading for Friday"].exists } }
+        // Report this screen ends the note's ⋯ too.
         app.buttons["note.options"].tap()
         XCTAssertTrue(menuItem(app, "Report this screen").waitForExistence(timeout: 5))
-        if pad {
-            XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in an iPad ⋯ menu")
-        } else {
-            let report = menuItem(app, "Report this screen").frame, settings = app.buttons["menu.settings"].frame
-            XCTAssertLessThan(report.minY, settings.minY, "Settings is the last section")
-        }
-        capture("Note menu with Settings last")
+        XCTAssertFalse(app.buttons["menu.settings"].exists, "No Settings in a ⋯ menu on iPhone or iPad")
+        capture("Note menu ends with Report this screen")
     }
 
     /// Wide (iPad sideways, the Mac): Snippets is a place in the capsule, with the list and the open collection side by
@@ -427,7 +446,7 @@ final class NotesJourneyTests: XCTestCase {
         for appearance in ["light", "dark"] {
             let app = launch(appearance: appearance)
             let wide = app.wideShape
-            if wide { app.show("notes") } else { app.buttons["tab.notes"].tap() }
+            app.show("notes")
             for title in ["Preference learning", "Reading group: alignment", "Open questions"] {
                 app.buttons["notes.new"].firstMatch.tap()
                 let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch
@@ -485,8 +504,12 @@ final class NotesJourneyTests: XCTestCase {
             app.buttons["notes.saved.open"].tap()
             XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10))
             capture("Note stream \(appearance)")
-            app.buttons["tab.notes"].tap()
-            app.buttons["tab.notes"].tap()
+            // Back to the list: a second tap on Snippets in a full bar; under More (iPhone) the collection's own Back.
+            if app.buttons["tab.notes"].exists {
+                app.buttons["tab.notes"].tap()
+            } else {
+                app.navigationBars.buttons.firstMatch.tap()
+            }
             XCTAssertTrue(app.buttons["Snippets options"].waitForExistence(timeout: 10))
             capture("Notes list \(appearance)")
             app.terminate()
@@ -552,7 +575,7 @@ final class NotesJourneyTests: XCTestCase {
         // Remembered on this device: a relaunch with the same store shows it collapsed.
         app.terminate()
         app = launch(appearance: "light", reset: false)
-        app.buttons["tab.notes"].tap()
+        app.show("notes")
         let row = app.buttons["notes.row.Collapse test"]
         XCTAssertTrue(row.waitForExistence(timeout: 10)); row.tap()
         XCTAssertTrue(app.descendants(matching: .any)["entry.collapsed.1"].waitForExistence(timeout: 10), "Still collapsed after a relaunch")

@@ -24,7 +24,8 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   paper…** is the first row of that "…", and there is no + beside the field. Other screens keep the rule above.
 - **Floating chrome** (2026-10-07, after Gemini; shared code in `Views/Chrome.swift`): bars float over content, which
   runs to the screen's edges behind them and fades out softly.
-  - *Tab bar*: one glass capsule, 58 pt tall, 16 pt from the sides (at most 520 pt wide on iPad), sitting in the home
+  - *Tab bar*: one glass capsule, 58 pt tall, 16 pt from the sides (each item at most 104 pt wide), with 🔍 in its own
+    58 pt glass circle 8 pt after it (2026-10-25; *The bar, More and 🔍* under Tall and Wide), sitting in the home
     indicator's area, 14 pt above the screen's edge on a phone with a home indicator (owner, build 78: "the icons at the
     very bottom could be lowered a bit"; it was 20 pt). Each screen keeps room for it inside its NavigationStack (`tabBarSpace()`), so the last row
     scrolls clear of it with an 8 pt gap. It hides while a software keyboard is up; over the reader's docked find bar
@@ -66,9 +67,46 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     **Tall** (iPhone in either orientation, iPad upright 834/1032, Split View halves, narrow windows). One constant,
     `LayoutShape.of(size:)`, unit-tested with those sizes. The Mac stays Wide until its own step.
   - *Tall* is the iPhone app exactly: the places capsule at the bottom, one screen at a time, the iPhone's bars and
-    budget. On iPad the capsule has a sixth item, **Settings** beside Snippets (owner, 2026-10-24: "on the iPad we could
-    actually have six along the bottom"), opening Settings over the screen as before; it widens to keep each item's
-    104 pt. The iPad's ⋯ menus have no Settings in either shape; the iPhone keeps five places and Settings in every ⋯.
+    budget. The bar is Library · Paper · Chat · More with 🔍 beside it, or all six places on a full-width iPad upright
+    (*The bar, More and 🔍* below). No ⋯ menu on iPhone or iPad has Settings, in either shape; only the Mac's do.
+  - *The bar, More and 🔍* (owner, 2026-10-25: "we have 6 icons but only room for 5. Lets change to the way Slack does
+    it… three at the bottom, a [fourth] icon with the words More… For the fifth, it's a search icon"; calls in
+    [JUDGMENT_LOG.md](JUDGMENT_LOG.md) 13–16; design in [GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md)
+    A). **As built (2026-10-25, apps; not yet in a build):**
+    - *Which bar* (`TallBar.of(window:)` in ScienceReaderCore, unit-tested with phone, iPad, Split View and Slide Over
+      sizes): a Tall window at least 730 pt wide and 600 pt tall shows all six places (Feed · Library · Paper · Chat ·
+      Snippets · Settings; every iPad upright, iPad mini's 744 included); every other Tall window (a phone in either
+      orientation, Split View and Slide Over, a narrow Stage Manager window) shows **Library · Paper · Chat · More**. The
+      window's size alone decides, as for the shape: a phone sideways is wide enough but under 600 pt tall.
+    - *🔍* is its own 58 pt glass circle 8 pt after the capsule (`SearchCircle`, `tab.search`, VoiceOver "Search"),
+      beside either bar, as iOS 26 draws a search tab. It opens the **Search place** (`ReaderTab.search`, content
+      `GlobalSearchView`), scoped to the open paper when Paper is the place. Selected (accent on the light accent fill)
+      while Search shows. The capsule's items keep at most 104 pt each (four: about 72 pt on a 402 pt iPhone).
+    - *More* (`gradstep.more`: three dots, the last the amber point, drawn by `tools/icons`; the word "More" under it
+      tells it from ⋯) opens the **More list** (`MoreView`, `more.list`): one inset-grouped list titled "More" in the
+      system title bar, rows Feed, Snippets, Settings (the place's glyph in accent, its one word, a chevron; 52 pt,
+      growing with the text size), no descriptions, no badges. Rows keep `tab.feed`, `tab.notes`, `tab.settings`.
+    - *Opening a row:* Feed and Snippets become the place exactly as from the old bar (`model.tab = .feed`), keeping
+      their state (the Feed's results and topic, the open collection); they are not pushed under More and have no Back.
+      **More stays highlighted** and VoiceOver reads "More, Feed". **More always opens its list**, from any place, so a
+      second tap from Feed or Snippets returns to it. Settings opens over the More list as today's sheet; Done returns
+      to the list (More highlighted under it).
+    - *The highlight is derived, never routed* (`ReaderTab.barSelection`): a bar place is its own item; Feed, Snippets
+      and the More list are More; Search is 🔍; Settings over any screen is More (or Settings in the full bar). Every
+      existing "go to X" (a paper's `select`, Continue in Chat, citations, a snippet's source, explainers, deep links,
+      Mac menu commands, Open a collection, Browse episodes) sets the same place as before; unit tests cover each route
+      group (`PlacesNavigationTests`).
+    - *A window that changes bar:* the More list belongs to the compact bar; growing to six places or turning Wide
+      while it shows goes to the Library (`tallBarChanged`). Feed and Snippets opened from More stay.
+    - *Keys:* ⌘1…⌘5 (⌘1 Feed … ⌘5 Snippets: numbers name places, not positions), ⌘, (Settings) and ⌘K (Search) are
+      hidden buttons on the root on iPhone and iPad, so they work in both shapes (they lived in the Wide places menu and
+      did nothing upright); reading mode keeps them off. The Mac's menus bind the same keys.
+    - *Accessibility:* bar labels capped at xxxLarge (they shrink to 80 % rather than cut), the Large Content Viewer on
+      every item and on 🔍; More's value names the place under it; the More list's rows grow freely.
+    - *Banners above the bar* (the podcast's ready notice, a new device waiting) decide "is there a bar" with the shared
+      shape rule (`WindowShape.isWide(proxy:)`), not a width of their own (they used `width >= 850`).
+    - *Browser (paused):* not changed. Parity when it resumes: phone widths get the same four items and 🔍; the
+      desktop's search field becomes global search (A.3).
   - *The philosophy (Wide, owner 2026-10-23)*: each place owns one two-slot arrangement. The **left slot is the place
     itself** (its list); the **right slot is what was picked from it**. Positions never jump: the list sits on the left
     from the start, at the divider's position, whether or not anything is picked. The divider is draggable wherever two
@@ -79,11 +117,13 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     a list covering the window included), showing the current place's own symbol in accent, so it also says where you
     are ("Places, Library" to VoiceOver, `places.menu`). Its menu, one list with no separator (owner, TestFlight 91: "why
     is there a larger space between snippets and search?"): Feed, Library, Paper (needs a paper), Chat, Snippets with the
-    current one checked, then Settings (owner, 2026-10-24: "beside Snippets"; it opens over the place); no Search row (the
-    Library's field searches, as on iPhone). The rows keep their `tab.*` identifiers (`tab.settings`). ⌘1…⌘5 choose the
-    places and ⌘, opens Settings with a hardware keyboard. The leftmost slot's row or floating controls start
-    `placesLeadingReserve` (52 pt) in from the edge,
-    after the button: the Library's search field, the Feed's chips, All chats' search, Collections' search, Contents'
+    current one checked, then Settings (owner, 2026-10-24: "beside Snippets"; it opens over the place). It holds every
+    place, so Wide needs no More. **🔍 is a 44 pt glass circle 8 pt right of it** (owner, 2026-10-25; it supersedes "no
+    Search row"), the same spot in every view; while Search is the place the button shows ≡ ("Places, Search") and no row
+    is checked. The rows keep their `tab.*` identifiers (`tab.settings`). ⌘1…⌘5, ⌘, and ⌘K work with a hardware keyboard
+    in both shapes (the root's). The leftmost slot's row or floating controls start `placesLeadingReserve` (104 pt: the
+    two circles and 8 pt after each; 52 before 🔍) in from the edge,
+    after them: the Library's search field, the Feed's chips, All chats' search, Collections' search, Contents'
     tabs, Listen's chips, and the paper's list toggle and ☰ when the paper is leftmost. Each slot keeps its own ⋯ at its
     own top-right for its own content (the left list's ⋯ ends the left row; the rightmost ⋯ at the window's edge), and a
     companion's ✕ sits left of its ⋯. Settings is the places menu's last row and in no ⋯ (a sheet on iPad in both
@@ -129,10 +169,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Library* = Library list | paper. The list shows the table with the columns that fit the slot (more as the divider
     moves right; rows at accessibility sizes); the right slot shows the open paper (usually the last one read) or "No
     paper open · Choose a paper to read it here". Picking a paper opens it on the right and the place is still Library
-    (its row highlighted). **Search** is the Library's own field (no Search place on iPad, owner 2026-10-24: "if I want a
-    search, I could just go and search the library"), with the Library / ML paper search switch under the row while
-    searching; results in the list, the one picked on the right. Routes that search (an author's "Find papers by", Find
-    similar papers, a tag's ML paper search) land there with the query.
+    (its row highlighted). The Library's own field searches the Library (owner 2026-10-24: "if I want a search, I could
+    just go and search the library"), with the Library / ML paper search switch under the row while searching; results
+    in the list, the one picked on the right. It stays now that global search is a place (🔍, 2026-10-25). Routes that
+    search (an author's "Find papers by", Find similar papers, a tag's ML paper search) land there with the query.
   - *Paper* = the paper as the left primary item. Its floating **list toggle** (`sidebar.left`, "Hide library" / "Hide
     feed") promotes the paper beside a list: the list slides away and the same paper, at the same place, takes the width
     (Read, its column centred). In Paper the same button ("Show library" / "Show feed") returns it beside the list it

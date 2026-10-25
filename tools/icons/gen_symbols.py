@@ -139,6 +139,7 @@ SYMBOLS = {  # asset name → glyph (GradstepSymbol in Views/Chrome.swift)
     "gradstep.feed": "feed", "gradstep.library": "library_amber_spine", "gradstep.paper": "paper",
     "gradstep.chat": "chat", "gradstep.settings": "gear", "gradstep.chat.new": "chat_new",
     "gradstep.chats": "chats", "gradstep.contents": "contents", "gradstep.mark": "nabla", "gradstep.notes": "notes",
+    "gradstep.more": "more",
 }
 
 if __name__ == "__main__":

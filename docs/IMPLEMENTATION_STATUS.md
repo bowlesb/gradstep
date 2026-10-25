@@ -1,5 +1,24 @@
 # Implementation status
 
+## After TestFlight 93 — 2026-10-25: the bar with More and 🔍 (apps, branch; not in a build)
+
+The navigation half of global search's phase 1 ([GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md) A;
+[DECISIONS.md](DECISIONS.md#the-bar-library--paper--chat--more-with--owner-request-2026-10-25-judgment-calls-apps-built-not-yet-in-a-build);
+as built in DESIGN.md › Tall and Wide › The bar, More and 🔍; calls in JUDGMENT_LOG 13–16 and 18–23).
+- **iPhone (and Tall windows under 730 pt wide or 600 tall):** Library · Paper · Chat · More, 🔍 in its own circle
+  beside the capsule; More lists Feed, Snippets, Settings (`MoreView`); More stays highlighted for Feed and Snippets and
+  returns to its list when tapped again; Settings opens over the list. Settings is in no iPhone or iPad ⋯ menu.
+- **iPad upright:** six places and 🔍. **Sideways:** 🔍 beside the places menu (leading reserve 104 pt). ⌘1…⌘5, ⌘, and ⌘K
+  now work upright too (root shortcuts).
+- **Mac:** a "Search everything" field at the toolbar's trailing edge; Edit › Search Everything… ⌘K; places and other
+  shortcuts unchanged.
+- **Search place:** `ReaderTab.search` shows `GlobalSearchView(model:)`. Until the search branch merges, that is a
+  placeholder (`Views/GlobalSearchPlaceholder.swift`, with a stand-in `openGlobalSearch(scopePaper:)`); the merge deletes
+  that file. Every 🔍 entry point goes through `ReaderModel.showSearchPlace()`.
+- No route changed: the highlight is derived (`ReaderTab.barSelection`). The podcast toast and the new-device banner
+  now use the shared shape rule; stale comments fixed; `gradstep.more` drawn with `tools/icons`.
+- Browser (paused): unchanged.
+
 ## Account-deletion sweep listing — 2026-10-25 UTC (local; nothing deployed)
 
 - **Found (staging, read-only):** the worker's `worker_account_deletions_pending` call has failed every minute since

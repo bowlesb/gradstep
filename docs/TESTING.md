@@ -1,5 +1,22 @@
 # Fast and slow tests
 
+## The bar with More and 🔍 (navigation half of global search) — October 25
+
+Fast: Core `swift test --filter "LayoutShapeTests|TallBarTests"` (which bar a window gets: phones in both orientations,
+every iPad upright, Split View, Slide Over, Stage Manager; the 730/600 boundaries). App-hosted, iPhone Simulator:
+`-only-testing:ScienceReaderTests/PlacesNavigationTests` (the bars' items; the derived highlight for every place, every
+More-opened place and Settings over a screen, in both bars; More's rows; the More list giving way when a window grows
+or turns; one test per route group of the proposal's A.5 table — Paper, Chat, Library, Snippets and Feed, Settings,
+Search with its paper scope; each place's state across bar switches). Slow, opt-in: `ScienceReaderUITests/PlacesBarJourneyTests`
+on one iPhone Simulator (the four items and 🔍, More's list and each row, More highlighted and More again, Settings over
+the list, 🔍 as a place, a phone sideways, the largest accessibility text) and one iPad Simulator (a narrow window with
+the fixture-only `--narrow-window=600`, upright ⌘1/⌘5/⌘K/⌘2/⌘, keys, 🔍 sideways), with `TEST_RUNNER_GS_SCREENSHOT_DIR`
+for screenshots. After a change to the bar, More or the places menu, rerun those and the navigation suites whose helpers
+go through More on iPhone (`ReaderMenuSupport.placeItem`, `show`, `openSettingsFromMenu`): `MenusJourneyTests`,
+`IPadShapesJourneyTests`, `TableColumnsTests`, `FeedForYouTests`, `SnippetsFeedbackTests`, `PaperToolsTests`,
+`SettingsTests`, `NotesJourneyTests/testSettingsFromEveryMenuReturnsToItsOrigin`. The Mac's toolbar field and ⌘K are
+checked by building Mac Catalyst (no Catalyst UI-test target).
+
 ## Aligned equations and accents (reader revision 26, device port 14) — October 25
 
 Fast (in `npm test`): `tests/backend/arxiv-equations.test.ts` (LaTeXML align with two column pairs, separately numbered

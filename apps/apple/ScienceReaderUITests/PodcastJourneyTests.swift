@@ -116,8 +116,8 @@ final class PodcastJourneyTests: XCTestCase {
         let mini = element(app, "podcast.miniPlayer")
         XCTAssertTrue(mini.waitForExistence(timeout: 5), "Dismissing the sheet keeps playing in the mini-player")
         XCTAssertEqual(app.buttons["podcast.miniPlayer.toggle"].label, "Pause")
-        if app.buttons["tab.feed"].exists {
-            XCTAssertLessThanOrEqual(mini.frame.maxY, app.buttons["tab.feed"].frame.minY + 1, "The mini-player sits above the tab bar")
+        if app.tallBar.exists {
+            XCTAssertLessThanOrEqual(mini.frame.maxY, app.tallBar.frame.minY + 1, "The mini-player sits above the tab bar")
         } else {
             // The wide layout docks it along the bottom, below every pane (RootView.wideLayout).
             XCTAssertGreaterThan(mini.frame.minY, app.windows.firstMatch.frame.maxY - 140, "The mini-player is docked along the bottom")
@@ -631,7 +631,7 @@ final class PodcastJourneyTests: XCTestCase {
         let app = launch()
         // The theme is a saved preference: leave it as other suites expect.
         addTeardownBlock { @MainActor in
-            if !app.buttons["tab.notes"].exists { return }
+            if !app.tallBar.exists { return }
             app.show("settings")
             let match = app.settingsTheme().buttons["System"]
             if match.waitForExistence(timeout: 5) { match.tap() }

@@ -6,14 +6,33 @@ import SwiftUI
 
 enum ReaderTab: String, CaseIterable, Identifiable {
     case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Snippets", settings = "Settings"
-    /// The phone's floating tab bar (owner, 2026-10-20): Notes replaces Settings, which every top-right menu now opens.
+    /// The More list (the compact bar's fourth item) and Search (🔍, every shape; owner, 2026-10-25: "a fourth icon with
+    /// the words More… For the fifth, it's a search icon"). Neither is one of the Mac's five places.
+    case more = "More", search = "Search"
+    /// The five places of the Mac's toolbar and View menu, and ⌘1…⌘5 everywhere (numbers name places, not positions).
     static let phoneTabs: [ReaderTab] = [.feed, .library, .paper, .chat, .notes]
-    /// The places on screen: on iPad Settings is the sixth, beside Snippets (owner, 2026-10-24: "on the iPad we could
-    /// actually have six along the bottom… put Settings here beside Snippets on the right"), in the bar upright and the
-    /// places menu sideways, and in no ⋯ menu. The iPhone keeps five (Settings in every ⋯); the Mac its toolbar and menus.
-    @MainActor static var places: [ReaderTab] { Platform.isPad ? phoneTabs + [.settings] : phoneTabs }
+    /// The Tall bar (docs/DESIGN.md › Tall and Wide › The bar; JUDGMENT_LOG 13–14): Library · Paper · Chat · More on iPhone
+    /// and in Tall windows too narrow for six (`TallBar`), every place on a full-width iPad upright (owner, 2026-10-24:
+    /// "on the iPad we could actually have six along the bottom"). 🔍 is its own circle beside either.
+    static let compactBar: [ReaderTab] = [.library, .paper, .chat, .more]
+    static let fullBar: [ReaderTab] = [.feed, .library, .paper, .chat, .notes, .settings]
+    static func bar(_ bar: TallBar) -> [ReaderTab] { bar == .full ? fullBar : compactBar }
+    /// More's rows (owner, 2026-10-25: "a screen with the other three options"). Feed and Snippets open as places with More
+    /// highlighted; Settings opens over the More list as before.
+    static let morePlaces: [ReaderTab] = [.feed, .notes, .settings]
+
+    /// The bar item drawn as selected, derived from the place (no route changes for this; GLOBAL_SEARCH_AND_MORE.md A.5):
+    /// a bar place is its own item; a More place, or the More list, is More; Search is 🔍; Settings over the screen is
+    /// Settings where the bar has it, else More. nil when nothing in this bar stands for the place.
+    static func barSelection(tab: ReaderTab, settingsShown: Bool, bar: [ReaderTab]) -> ReaderTab? {
+        if settingsShown { return bar.contains(.settings) ? .settings : (bar.contains(.more) ? .more : nil) }
+        if tab == .search || bar.contains(tab) { return tab }
+        if tab == .more || morePlaces.contains(tab) { return bar.contains(.more) ? .more : nil }
+        return nil
+    }
+
     var id: Self { self }
-    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
+    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape"; case .more: "ellipsis"; case .search: "magnifyingglass" } }
 }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
 /// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says. Only `offered` is in
@@ -1207,11 +1226,11 @@ final class ReaderModel {
     let podcasts = PodcastCenter()
     /// Notes and snippets (Services/NotesCenter.swift, ReaderModel+Notes.swift; docs/architecture/NOTES_AND_SNIPPETS.md).
     let notes = NotesCenter()
-    /// Settings shown over the current screen on a phone-width layout: the last section of every top-right menu opens
-    /// it, and closing it returns to the same place (NOTES_AND_SNIPPETS.md "Navigation"). The wide layouts keep their
-    /// own Settings destination (`tab == .settings`, the header gear, the Mac toolbar and ⌘,).
+    /// Settings shown over the current screen on iPhone and iPad (More's third row, the iPad's sixth place, ⌘,), and
+    /// closing it returns to the same place (NOTES_AND_SNIPPETS.md "Navigation"). The Mac keeps its own Settings
+    /// destination (`tab == .settings`: ⌘, and the last section of every ⋯).
     var settingsPresented = false
-    /// RootView: whether the phone-width layout (the five-item tab bar) is showing.
+    /// RootView: whether the Tall shape (the iPhone app, with its bar at the bottom) is showing.
     @ObservationIgnored var compactLayout = true
     /// Tests and UI fixtures: the note-assets transport; nil uses the app's network client.
     @ObservationIgnored var notesTransportOverride: (any NoteAssetTransport)?

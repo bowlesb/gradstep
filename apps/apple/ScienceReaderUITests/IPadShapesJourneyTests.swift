@@ -150,21 +150,28 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertLessThan(frame.minY, app.frame.minY + 40, "The places menu at the top", file: file, line: line)
     }
 
-    /// No control of the leftmost slot's row sits under the places menu (one snapshot).
+    /// The places button and the 🔍 beside it (owner, 2026-10-25): the corner the leftmost slot's row starts after.
+    private func placesCorner(_ app: XCUIApplication) -> CGRect {
+        let search = app.buttons["tab.search"]
+        return search.exists ? app.placesMenu.frame.union(search.frame) : app.placesMenu.frame
+    }
+
+    /// No control of the leftmost slot's row sits under the places menu or 🔍 (one snapshot).
     private func assertNothingUnderThePlaces(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let places = app.placesMenu.frame
+        let places = app.placesMenu.frame, search = app.buttons["tab.search"].frame, corner = placesCorner(app)
         guard let snapshot = try? app.snapshot() else { return XCTFail("A snapshot", file: file, line: line) }
         var under: [String] = []
         func visit(_ node: XCUIElementSnapshot) {
             // (The places menu's own button reports its frame without its identifier.)
-            if [.button, .textField, .searchField, .segmentedControl].contains(node.elementType), node.identifier != "places.menu",
-               node.frame != places, node.frame.width > 0, node.frame.intersects(places.insetBy(dx: 2, dy: 2)) {
+            if [.button, .textField, .searchField, .segmentedControl].contains(node.elementType),
+               !["places.menu", "tab.search"].contains(node.identifier), node.frame != places, node.frame != search,
+               node.frame.width > 0, node.frame.intersects(corner.insetBy(dx: 2, dy: 2)) {
                 under.append("\(node.identifier.isEmpty ? node.label : node.identifier) \(node.elementType.rawValue) \(node.frame)")
             }
             node.children.forEach(visit)
         }
         visit(snapshot)
-        XCTAssertTrue(under.isEmpty, "Under the places menu: \(under)", file: file, line: line)
+        XCTAssertTrue(under.isEmpty, "Under the places menu or 🔍: \(under)", file: file, line: line)
     }
 
     /// A slot's ⋯ at that slot's top-right: here the window's right edge.
@@ -172,9 +179,9 @@ final class IPadShapesJourneyTests: XCTestCase {
         XCTAssertEqual(control.frame.maxX, app.frame.maxX - 12, accuracy: 2, "\(control.label) at the right edge", file: file, line: line)
     }
 
-    /// The leftmost slot's first control starts after the places menu.
+    /// The leftmost slot's first control starts after the places menu and the 🔍 beside it.
     private func assertAfterThePlaces(_ control: XCUIElement, _ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertGreaterThanOrEqual(control.frame.minX, app.placesMenu.frame.maxX + 4, "\(control.label) after the places menu",
+        XCTAssertGreaterThanOrEqual(control.frame.minX, placesCorner(app).maxX + 4, "\(control.label) after the places menu and 🔍",
                                     file: file, line: line)
     }
 
@@ -288,17 +295,22 @@ final class IPadShapesJourneyTests: XCTestCase {
 
     // MARK: - The places menu
 
-    /// The places menu: the five places and Settings beside Snippets (owner, 2026-10-24: "put Settings here beside Snippets";
-    /// no Search: "if I want a search, I could just go and search the library"), the current one checked and named by the
-    /// button; choosing one goes there, and the button stays in the same corner in every place.
+    /// The places menu: the five places and Settings beside Snippets (owner, 2026-10-24: "put Settings here beside Snippets"),
+    /// the current one checked and named by the button; choosing one goes there, and the button stays in the same corner in
+    /// every place. Search is the 🔍 circle beside it (owner, 2026-10-25), not a row; the menu needs no More.
     func testThePlacesMenuSwitchesPlacesAndShowsTheCurrentOne() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
         let app = launch(extra: ["--nothing-open"])
         turnWide(app)
         XCTAssertEqual(app.currentPlace, "Library")
         XCTAssertFalse(app.buttons["tab.library"].exists, "No capsule: the places are in the menu")
+        XCTAssertFalse(app.moreItem.exists, "No More sideways")
         let corner = app.placesMenu.frame
         assertPlacesInTheCorner(app)
+        let search = app.buttons["tab.search"]
+        XCTAssertTrue(search.exists, "🔍 beside the places button")
+        XCTAssertEqual(search.frame.midY, corner.midY, accuracy: 1, "On the places button's centre line")
+        XCTAssertEqual(search.frame.minX, corner.maxX + 8, accuracy: 2, "8 pt to its right")
         assertNothingUnderThePlaces(app)
         app.placesMenu.tap()
         let ids = ["feed", "library", "paper", "chat", "notes", "settings"]
@@ -309,8 +321,7 @@ final class IPadShapesJourneyTests: XCTestCase {
             XCTAssertLessThan(element("tab.\(above)", app).frame.minY, element("tab.\(below)", app).frame.minY, "\(above) above \(below)")
         }
         XCTAssertFalse(element("tab.paper", app).isEnabled, "Paper needs a paper")
-        XCTAssertFalse(element("tab.search", app).exists, "No Search place: the Library's field searches")
-        XCTAssertFalse(app.buttons["Search"].exists, "No Search row")
+        XCTAssertFalse(app.menuItems["Search"].exists, "No Search row: it is the 🔍 beside the menu")
         XCTAssertFalse(app.buttons["menu.settings"].exists, "Settings is a place row, not a section of its own")
         save("\(device)-places-menu")
         // Settings opens over the place, as before; Done returns.
@@ -896,6 +907,12 @@ final class IPadShapesJourneyTests: XCTestCase {
         }
         XCTAssertGreaterThan(items[5].frame.midY, app.frame.height * 0.85, "At the bottom")
         XCTAssertFalse(app.placesMenu.exists, "Upright: no places menu")
+        // 🔍 in its own circle after Settings (owner, 2026-10-25; JUDGMENT_LOG 14): six fit, so no More.
+        let search = app.buttons["tab.search"]
+        XCTAssertTrue(search.exists, "🔍 beside the bar")
+        XCTAssertEqual(search.frame.midY, items[5].frame.midY, accuracy: 2, "On the bar's row")
+        XCTAssertGreaterThan(search.frame.minX, items[5].frame.maxX, "After Settings")
+        XCTAssertFalse(app.moreItem.exists, "Every place fits: no More")
         save("\(device)-tall-bar-six")
         // Settings opens over the Library; Done returns there.
         items[5].tap()
@@ -927,8 +944,9 @@ final class IPadShapesJourneyTests: XCTestCase {
         save("\(device)-tall-feed-menu")
     }
 
-    /// G6: no Search place on iPad ("if I want a search, I could just go and search the library"): sideways, the Library's
-    /// own field searches the library and, with its switch, ML papers, as on iPhone.
+    /// G6 (owner, 2026-10-24): sideways, the Library's own field searches the library and, with its switch, ML papers, as on
+    /// iPhone. Global search's 🔍 beside the places button (owner, 2026-10-25) supersedes "no Search place"; the Library's
+    /// field stays (GLOBAL_SEARCH_AND_MORE.md B.6).
     func testTheLibrarysFieldSearchesMLPapersSideways() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide on iPad")
         let app = XCUIApplication()
@@ -936,9 +954,9 @@ final class IPadShapesJourneyTests: XCTestCase {
         app.launch()
         turnWide(app)
         wait("Library") { app.currentPlace == "Library" }
+        XCTAssertTrue(app.buttons["tab.search"].exists, "🔍 beside the places button")
         app.placesMenu.tap()
         XCTAssertTrue(element("tab.library", app).waitForExistence(timeout: 3))
-        XCTAssertFalse(element("tab.search", app).exists, "No Search place")
         element("tab.library", app).tap()
         let field = element("library.search", app)
         XCTAssertTrue(field.waitForExistence(timeout: 15)); field.tap()
@@ -1308,10 +1326,10 @@ final class IPadShapesJourneyTests: XCTestCase {
         app.buttons["tab.library"].tap(); sleep(1)
         save("\(prefix)-browse-library")
         menu("Library options", app, save: "\(prefix)-library-menu")
-        app.buttons["tab.feed"].tap(); sleep(2)
+        app.show("feed"); sleep(2)
         save("\(prefix)-feed")
         menu("Feed options", app, save: "\(prefix)-feed-menu")
-        app.buttons["tab.notes"].tap(); sleep(2)
+        app.show("notes"); sleep(2)
         save("\(prefix)-snippets")
         menu("Snippets options", app, save: "\(prefix)-snippets-menu")
     }

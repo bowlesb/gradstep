@@ -380,7 +380,7 @@ final class LibraryLayoutTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]
         app.launch()
-        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") }
+        if app.tallBar.waitForExistence(timeout: 15) { app.show("feed") }
         else { app.show("feed") }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
         app.buttons["Feed options"].tap()
