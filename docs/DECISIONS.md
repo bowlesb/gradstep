@@ -464,6 +464,8 @@ for entire PDFs is too ambitious" and the Mathpix research
   to eight in ten (venue: a quarter to six in ten) while scored typeset precision falls 0.010–0.039, most of which proved to
   be the scorer's on inspection. The earlier rule that a lower gate is the owner's choice is respected in that the gate is
   unchanged; turning `verifyGlyphs` off (one name in `DeviceModelReading.rules`) restores the previous behaviour.
+  **Owner, 2026-10-25: keep it on** ("2 … sure", answering "keep typesetting equations whose every character matches the
+  PDF? It typesets far more equations, at a small cost in accuracy").
   `displayLines` is built and off (more displays found, slightly lower typeset precision on every corpus).
 - 2026-10-24 (tables; agent decisions, reversible, [review](reviews/DEVICE_PDF_TABLES_20261024.md)): `tableColumns`,
   `cellLines` and `tableCaptionBelow` are on in the app (each won on all three corpora's cell, row or table-word measures;
