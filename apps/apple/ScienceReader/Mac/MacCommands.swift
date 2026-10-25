@@ -78,6 +78,8 @@ struct GradstepCommands: Commands {
                     Button("Search Library") { search(arXiv: false) }.keyboardShortcut("f")
                 }
                 Button("Search ML Papers") { search(arXiv: true) }.keyboardShortcut("f", modifiers: [.command, .shift])
+                // Global search (docs/architecture/GLOBAL_SEARCH.md): papers, chats, explanations, snippets, Settings.
+                Button("Search Everything…") { model.openGlobalSearch() }.keyboardShortcut("k")
             }
         }
 

@@ -149,7 +149,7 @@ public enum EverythingBench {
     /// The profile's items, the same on every run.
     public static func corpus(_ profile: Profile) -> [SearchItem] {
         var random = SplitMix(seed: 0x6C0BA1)
-        var words = Words(random: &random)
+        let words = Words(random: &random)
         var items: [SearchItem] = []
         items.reserveCapacity(profile.items)
         let now = Date(timeIntervalSince1970: 1_793_000_000)

@@ -49,6 +49,9 @@ struct RootView: View {
             .onAppear { model.compactLayout = !wide }
             .onChange(of: wide) { _, now in shapeChanged(toWide: now) }
         }
+        // Global search over the window until the bar's 🔍 place shows it. MERGE: the navigation branch's `.search` place
+        // renders `GlobalSearchView` and this overlay goes (with `globalSearch.shown`).
+        .overlay { if model.globalSearch.shown { GlobalSearchView(model: model).environment(\.wideReader, !model.compactLayout) } }
         // Visual checks pin the appearance (`--appearance=`); nil follows the system.
         .preferredColorScheme(Platform.fixtureAppearance)
         #if DEBUG && FIXTURE_HOST
@@ -1737,6 +1740,9 @@ struct SettingsView: View {
     @State private var showDeleteAccount = false
     @State private var width: CGFloat = 0
     @AppStorage(ScreenshotReportPrompt.enabledKey) private var screenshotPrompt = true
+    /// A search result's row, tinted for a moment (GLOBAL_SEARCH.md "Settings"), and a page it opens.
+    @State private var highlighted: String?
+    @State private var searchPage: GlobalSearchSettings.Page?
     /// A count in Your assets: "None" when empty, as Downloaded papers.
     static func count(_ value: Int) -> String { value > 0 ? value.formatted() : "None" }
     static let passageMarksInfo = "Passages you’ve started a chat from are underlined in the paper. Tap one to open its chat."
@@ -1747,6 +1753,7 @@ struct SettingsView: View {
     }
     var body: some View {
         NavigationStack {
+            ScrollViewReader { rows in
             Form {
                 // Owner feedback, build 14 #8: one Account row (who, how, synced?) opening the Account page, which
                 // holds sync, Sign out and Delete account (`SettingsPages.swift`).
@@ -1760,7 +1767,7 @@ struct SettingsView: View {
                             let sync = SyncSummary.from(status: model.syncStatus, issue: model.syncIssue, pending: model.publishedPendingCount)
                             AccountRow(name: AccountFormat.name(email: model.email, providers: model.signInProviders), detail: sync.short)
                         }
-                        .accessibilityIdentifier("account.row")
+                        .accessibilityIdentifier("account.row").settingsRow("account.row", highlighted: highlighted)
                         if let issue = model.accountPreparationIssue {
                             Text(issue).font(.footnote).foregroundStyle(.secondary)
                                 .accessibilityIdentifier("account.preparationIssue")
@@ -1770,7 +1777,7 @@ struct SettingsView: View {
                     }
                     else {
                         Button { model.openSignIn() } label: { Label("Sign in or create an account", systemImage: "person.crop.circle") }
-                            .accessibilityIdentifier("account.signIn")
+                            .accessibilityIdentifier("account.signIn").settingsRow("account.signIn", highlighted: highlighted)
                     }
                 } footer: {
                     if !model.isSignedIn {
@@ -1785,7 +1792,7 @@ struct SettingsView: View {
                                 LabelWithInfo(title: "Available", info: "Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.",
                                               identifier: "settings.credits.info")
                             }
-                            .accessibilityIdentifier("settings.credits.available")
+                            .accessibilityIdentifier("settings.credits.available").settingsRow("settings.credits.available", highlighted: highlighted)
                             if balance.reserved > 0 {
                                 LabeledContent("Held for answers in progress", value: balance.reserved.formatted())
                             }
@@ -1800,15 +1807,16 @@ struct SettingsView: View {
                             LabeledContent { Text(model.storeSummary?.planName ?? "Free").accessibilityIdentifier("settings.plan") } label: {
                                 LabelWithInfo(title: "Plan", info: FreeAIText.planInfo, identifier: "settings.plan.info")
                             }
+                            .settingsRow("settings.plan", highlighted: highlighted)
                         }
                         if let free = model.creditBalance?.free {
                             LabeledContent("Free AI this month") { Text(FreeAIText.settingsValue(free)).accessibilityIdentifier("settings.freeAI") }
                         }
                         // Owner, 2026-10-22: where credits go — each request with its tokens and cost (AIUsageView.swift).
                         NavigationLink { AIUsageView(model: model) } label: { Text("Your AI usage") }
-                            .accessibilityIdentifier("settings.aiUsage")
+                            .accessibilityIdentifier("settings.aiUsage").settingsRow("settings.aiUsage", highlighted: highlighted)
                         Button("Get credits") { model.showStore = true }
-                            .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
+                            .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits").settingsRow("settings.getCredits", highlighted: highlighted)
                     } header: { Text("AI credits") }
                 }
                 if model.chatTransport != nil {
@@ -1817,7 +1825,7 @@ struct SettingsView: View {
                             NavigationLink { AIScenarioDefaults(model: model, scenario: scenario) } label: {
                                 LabeledContent(scenario.title, value: model.localDefault(for: scenario).map { "\(model.localAI.name($0)) (local)" }
                                     ?? (model.chatProfileTable?.label(model.profileDefault(for: scenario).model) ?? model.profileDefault(for: scenario).model.label))
-                            }.accessibilityIdentifier("settings.aiScenario.\(scenario.rawValue)")
+                            }.accessibilityIdentifier("settings.aiScenario.\(scenario.rawValue)").settingsRow("settings.aiScenario.\(scenario.rawValue)", highlighted: highlighted)
                         }
                         // Owner, 2026-10-21: "Podcasts is missing from defaults in model settings" — who writes new episodes.
                         if model.podcasts.writerSettingAvailable {
@@ -1838,12 +1846,12 @@ struct SettingsView: View {
                         #if targetEnvironment(macCatalyst)
                         NavigationLink { LocalAISettingsView(model: model) } label: {
                             LabeledContent("Local models", value: model.localAIDefaultModelID.map { model.localAI.name($0) } ?? "Downloads and device testing")
-                        }.accessibilityIdentifier("settings.localModels")
+                        }.accessibilityIdentifier("settings.localModels").settingsRow("settings.localModels", highlighted: highlighted)
                         #endif
                         Toggle(isOn: $model.visualAnswers) {
                             LabelWithInfo(title: "Visual answers", info: "Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
                         }
-                        .accessibilityIdentifier("settings.visualAnswers")
+                        .accessibilityIdentifier("settings.visualAnswers").settingsRow("settings.visualAnswers", highlighted: highlighted)
                     } header: {
                         HStack(spacing: 4) {
                             Text("AI options")
@@ -1859,7 +1867,7 @@ struct SettingsView: View {
                     Toggle(isOn: $model.autoDownloadNewPapers) {
                         LabelWithInfo(title: "Download new papers", info: "A paper added from the Feed or by its arXiv id downloads and prepares on this device right away, so it opens at once. Off, a paper downloads when you open it or tap its cloud symbol.")
                     }
-                    .accessibilityIdentifier("settings.autoDownload")
+                    .accessibilityIdentifier("settings.autoDownload").settingsRow("settings.autoDownload", highlighted: highlighted)
                 } header: { Text("Library") }
                 // The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md): only in builds that carry it.
                 if DeviceModelEngine.available {
@@ -1871,19 +1879,19 @@ struct SettingsView: View {
                 }
                 // Text sizes live where you read and chat (A− / A+ on the paper, the chat's ⋯ menu; owner, build 57).
                 Section("Reading") {
-                    ThemePicker(selection: $model.appearance)
+                    ThemePicker(selection: $model.appearance).settingsRow("settings.theme", highlighted: highlighted)
                     // Owner, TestFlight 91 session: "there's no info there". What the code does (PaperPassages.swift):
                     // a chat started from a passage underlines it; a tap opens that chat.
                     Toggle(isOn: $model.showsPassageMarks) {
                         LabelWithInfo(title: "Underline passages with chats", info: Self.passageMarksInfo, identifier: "settings.passageMarks.info")
                     }
-                    .accessibilityIdentifier("settings.passageMarks")
+                    .accessibilityIdentifier("settings.passageMarks").settingsRow("settings.passageMarks", highlighted: highlighted)
                 }
                 // Design audit F11: rows that open something look alike (title + chevron); actions are tinted.
                 // Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough".
                 Section("Your assets") {
-                    openRow("Chats") { model.openAllChats(paper: nil) }.accessibilityIdentifier("settings.chats")
-                    openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams")
+                    openRow("Chats") { model.openAllChats(paper: nil) }.accessibilityIdentifier("settings.chats").settingsRow("settings.chats", highlighted: highlighted)
+                    openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams").settingsRow("settings.diagrams", highlighted: highlighted)
                     // Owner, 2026-10-21: "Needs to be a Notes section in your assets". Opens Notes (closing Settings).
                     Button {
                         model.closeSettings(); model.notes.openNoteID = nil; model.tab = .notes
@@ -1894,34 +1902,34 @@ struct SettingsView: View {
                             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
                         }.foregroundStyle(Color.primary).contentShape(Rectangle())
                     }
-                    .accessibilityIdentifier("settings.notes")
+                    .accessibilityIdentifier("settings.notes").settingsRow("settings.notes", highlighted: highlighted)
                     // Owner, build 62: "Equation Explanations, and Figure Explanations in the list of your assets".
                     NavigationLink { KeptExplanationsView(model: model, kind: .equations) } label: {
                         LabeledContent("Equation explanations", value: Self.count(model.keptEquationExplanations.count))
-                    }.accessibilityIdentifier("settings.equationExplanations")
+                    }.accessibilityIdentifier("settings.equationExplanations").settingsRow("settings.equationExplanations", highlighted: highlighted)
                     NavigationLink { KeptExplanationsView(model: model, kind: .figures) } label: {
                         LabeledContent("Figure explanations", value: Self.count(model.keptFigureExplanations.count))
-                    }.accessibilityIdentifier("settings.figureExplanations")
+                    }.accessibilityIdentifier("settings.figureExplanations").settingsRow("settings.figureExplanations", highlighted: highlighted)
                     // The paper's AI Explainer (2026-10-22, LEARNING_GUIDE.md): "Saved per paper like other explanations".
                     NavigationLink { KeptExplanationsView(model: model, kind: .papers) } label: {
                         LabeledContent("Paper explanations", value: Self.count(model.keptPaperExplanations.count))
-                    }.accessibilityIdentifier("settings.paperExplanations")
+                    }.accessibilityIdentifier("settings.paperExplanations").settingsRow("settings.paperExplanations", highlighted: highlighted)
                     // Owner, build 59: "a downloaded papers section… that will allow you to delete them".
                     NavigationLink { DownloadedPapersView(model: model) } label: {
                         let bytes = model.downloadedPapers.reduce(0) { $0 + $1.totalBytes }
                         LabeledContent("Downloaded papers", value: bytes > 0 ? DownloadedPapersView.size(bytes) : "None")
-                    }.accessibilityIdentifier("settings.downloads")
+                    }.accessibilityIdentifier("settings.downloads").settingsRow("settings.downloads", highlighted: highlighted)
                     // Owner, build 82: "Need a download assets button". The reader's own content as a .zip made here.
                     if model.isSignedIn { AssetsExportRow(model: model) }
                 }
                 // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.
                 Section {
-                    Button("Report a problem") { model.beginReport() }.accessibilityIdentifier("settings.report")
+                    Button("Report a problem") { model.beginReport() }.accessibilityIdentifier("settings.report").settingsRow("settings.report", highlighted: highlighted)
                     openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
                     #if !targetEnvironment(macCatalyst)
-                    Toggle("Offer to report after a screenshot", isOn: $screenshotPrompt).accessibilityIdentifier("settings.screenshotPrompt")
+                    Toggle("Offer to report after a screenshot", isOn: $screenshotPrompt).accessibilityIdentifier("settings.screenshotPrompt").settingsRow("settings.screenshotPrompt", highlighted: highlighted)
                     #endif
-                    NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
+                    NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about").settingsRow("settings.about", highlighted: highlighted)
                 }
                 // Owner, build 57: "Testing and Admin should go in a special section for Admins with Grey background".
                 if showsAdmin {
@@ -1944,6 +1952,25 @@ struct SettingsView: View {
                 }
             }
             .readableScrollColumn(width: width)
+            // Opened from a search result: that row, scrolled to and tinted, or its page.
+            .task(id: model.settingsFocus?.token) {
+                guard let focus = model.settingsFocus else { return }
+                model.settingsFocus = nil
+                if let page = GlobalSearchSettings.row(focus.row)?.page { searchPage = page; return }
+                try? await Task.sleep(for: .milliseconds(350))
+                withAnimation { rows.scrollTo(focus.row, anchor: .center) }
+                highlighted = focus.row
+                try? await Task.sleep(for: .milliseconds(1_200))
+                withAnimation(.easeOut(duration: 0.6)) { highlighted = nil }
+            }
+            .navigationDestination(isPresented: Binding(get: { searchPage != nil }, set: { if !$0 { searchPage = nil } })) {
+                switch searchPage {
+                case .account: AccountView(model: model) { showDeleteAccount = true }
+                case .aiUsage: AIUsageView(model: model)
+                case .about, nil: AboutView(version: Self.version)
+                }
+            }
+            }
             .tabBarSpace(color: .chromeGroupedBackground)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
@@ -1978,6 +2005,13 @@ struct SettingsView: View {
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
             }.contentShape(Rectangle())
         }.tint(.primary)
+    }
+}
+
+extension View {
+    /// A Settings row global search can show: its scroll target, tinted while `highlighted` names it.
+    func settingsRow(_ id: String, highlighted: String?) -> some View {
+        self.id(id).listRowBackground(highlighted == id ? Color.accentColor.opacity(0.18) : nil)
     }
 }
 
