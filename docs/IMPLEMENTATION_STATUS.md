@@ -1,6 +1,32 @@
 # Implementation status
 
-## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
+## TestFlight 92 — 2026-10-25 UTC (iOS and Mac uploaded)
+
+Uploaded at 09:50 UTC (iOS) and 09:59 UTC (Mac), from main at 1b3b4c1f. Everything in "In TestFlight 92" below
+(formerly "After TestFlight 91") ships in it. Server parts were already live on staging before the upload:
+migrations 0154 and 0155, `discover`, `chat`, and pipeline worker 00056.
+
+- **Release gate:**
+  - `npm test` passes; import acceptance 15/15 on the uploaded source; `swift test` 483 Swift Testing + 97 XCTest.
+  - Fresh-paper reader sweep: 30 new papers, 0 fail, 6 warnings (reader revision 25).
+- **Pre-release UI run** (iPad Pro 13-inch (M5), then iPhone 17 Pro, one Simulator at a time):
+  - First pass: iPad 87 passed / 6 failed, iPhone 58 / 3.
+  - Every failure was investigated. Two real bugs were fixed before the upload:
+    - tapping a Library topics slice did nothing (Charts' angle selection answers drags only);
+    - the topics chart crashed when SwiftUI resolved its dynamic colours off the main thread.
+  - Five test assumptions were brought up to date: the iPad portrait Feed grid, alert fields without identifiers,
+    phone lists that load only on-screen rows, the Contents marker on a taller iPad, and iPad keyboard dismissal.
+  - After the fixes, every re-run test passes except two older ones:
+    - `PaperToolsTests.testDoubleTapOpensContentsDeepInThePaperAfterAnEquationMenuAndAFling`: it fails the same way on
+      TestFlight 91's code (51b95c8f), at its tap that dismisses the selection.
+    - `PaperToolsTests.testKeyboardFrameLeftWithNothingThereKeepsTheReaderInPlace` on iPad: the composer's dismiss
+      button has been iPhone-only since build 69.
+- **Not verified:**
+  - nothing on a device: the on-device model download on iPadOS 18.7.8, the session recorder's video segments
+    (ReplayKit doesn't run in the Simulator), the topics chart on real data, related papers on staging shards;
+  - the Mac app (it compiles and was uploaded; no Mac UI run).
+
+## In TestFlight 92 (formerly "After TestFlight 91" — 2026-10-24)
 
 iPad places (owner session 2026-10-24, G5/G6/G17 and the All chats decision;
 [decision](DECISIONS.md#ipad-places-settings-beside-snippets-no-search-place-feed-hides-library-papers-owner-session-2026-10-24-testflight-91)):
