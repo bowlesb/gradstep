@@ -247,6 +247,31 @@ and revision as the library membership, and sends the reading's own numbered ind
 its manifest and PDF digests. Text only, the request the HTML reading sends; no PDF leaves the device and the server is
 unchanged (it authorizes the membership as before). A reading of another revision, and a PDF the reader added
 (`local:` id, no arXiv membership), still have no cloud explainer: the server's local context is arXiv-only.
+*Superseded by the next section.*
+
+### Explainers on every model reading — 2026-10-24 (after TestFlight 91)
+
+The two gaps above, closed. Neither was the converter's port revision: no client or server check compares a reading's
+port revision or build with the current converter, so readings from any port revision already qualified.
+
+- **Another arXiv revision.** The device reads the PDF it has (`localPDFRecord`: the library's revision, else any
+  revision kept), so a reading can be of v1 while the library holds v2. The refusal was the app's own
+  (`LocalPaperChatContext`, which required the reading's revision to equal the membership's), so no request was ever
+  sent. A `device-pdf` reading now needs only the same arXiv id; the request still names the membership as it is
+  (its revision is what `worker_local_chat_context` authorizes), so the server is unchanged for it. The arXiv HTML
+  reading stays exact (it is always fetched for the membership's revision).
+- **A PDF the reader added.** Its library entry is an end-to-end encrypted event, so the server has no membership to
+  authorize, and `worker_local_chat_context` refused every `local:` id. The chat request gains a second local-context
+  shape, `{"format": "reader-local-context-v2", "source": "local", "text": …}`, with no other key: no paper id, title,
+  or digest of the PDF or its reading (the server refuses any of them). The server reads no membership and gives the
+  paper block no title; the topic title and suggestions read it as "the reader's own PDF (its title is not shared)".
+  Metering, holds, the AI switches and the consent rules are the same code path as any paper. The app sends it for the
+  figure, equation and paper explainers and for a chat about that paper (Continue in Chat), only from the on-device
+  model's reading of that same PDF (`LocalPaperChatContext(ownPDF:)` checks the provenance's `local:` id).
+
+Older builds (91 and below) are unchanged: they never build either request, and the server's arXiv path is as before.
+A build with this change needs the server change deployed first (an older server refuses `source: "local"` as
+`invalid_request`).
 
 ## Development after the port kit — port revision 5, 2026-10-21
 

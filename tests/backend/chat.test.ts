@@ -21,7 +21,7 @@ import { STUDY_STATE_LIMITS, studyState, StudyStateFilter, studyStateFromText } 
 import { boundedText, PAPER_EXPLAINER_INSTRUCTIONS, paperExplainer, paperExplainerMaxTokens, PaperExplainerStream, paperExplainerText, type PaperExplainerStreamItem } from '../../supabase/functions/_shared/chat-paper-explainer.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
-  canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
+  canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, OWN_PAPER_TITLE, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
 } from '../../supabase/functions/_shared/chat.ts';
 import { freeModel, switchRefusal, withCheapDefaults } from '../../supabase/functions/_shared/ai-switches.ts';
@@ -3174,4 +3174,66 @@ test('cheaper defaults: every published default moves to Gemini Flash while the 
   assert.ok(cheap.profiles.some(p => p.id === 'gemini-medium-standard') && cheap.profiles.some(p => p.id === 'gemini-auto-standard'), 'every default is a published profile');
   const noGemini = publishedProfiles({ deepseek: false, gemini: false });
   assert.equal(withCheapDefaults(noGemini), noGemini, 'without Gemini the table is unchanged');
+});
+
+// A PDF the reader added, read by the on-device model (DEVICE_PDF_ROUTE.md "Explainers on every model reading"): its
+// library entry is end-to-end encrypted, so the request names nothing about it (no id, title or digest), only the numbered
+// text the reader sends with the question; there is no membership to authorize, and metering is unchanged.
+const ownPaper = { format: 'reader-local-context-v2', source: 'local', text: Array.from({ length: 14 }, (_, i) => `[¶${i + 1}] Own block ${i + 1}.`).join('\n') };
+test('own-PDF context: numbered text only, for chat and every explainer; nothing that names the PDF is accepted', () => {
+  const parsed = validateChatRequest(paperBody({ document_id: null, local_context: ownPaper }));
+  assert.deepEqual(parsed.localContext, ownPaper); assert.equal(parsed.documentID, null);
+  assert.equal(validateChatRequest(figureBody({ local_context: ownPaper })).action, 'figure');
+  assert.equal(validateChatRequest(figureBody({ local_context: ownPaper, action: 'figure_simpler' })).action, 'figure_simpler');
+  assert.equal(validateChatRequest(equationBody({ local_context: ownPaper })).action, 'equation');
+  assert.equal(validateChatRequest(explainerBody({ local_context: ownPaper })).action, 'paper_explainer');
+  assert.notEqual(canonicalRequest(parsed), canonicalRequest(validateChatRequest(paperBody({ document_id: null, local_context: { ...ownPaper, text: 'changed' } }))));
+  for (const [label, context] of Object.entries({
+    'unnumbered (v1)': { ...ownPaper, format: 'reader-local-context-v1' }, 'unknown format': { ...ownPaper, format: 'reader-local-context-v3' },
+    'a membership id': { ...ownPaper, membership_id: documentID }, 'a local source id': { ...ownPaper, source_id: `local:${documentID}` },
+    'a revision': { ...ownPaper, revision: 1 }, 'the PDF digest': { ...ownPaper, source_sha256: 'b'.repeat(64) },
+    'the reading digest': { ...ownPaper, manifest_sha256: 'a'.repeat(64) }, 'a title': { ...ownPaper, title: 'My private draft' },
+    'no text': { ...ownPaper, text: '  ' }, 'control characters': { ...ownPaper, text: '[¶1] a\u0001b' },
+    'too long': { ...ownPaper, text: 'x'.repeat(2 * 1024 * 1024 + 1) }, 'another source': { ...ownPaper, source: 'upload' },
+  })) assert.throws(() => validateChatRequest(paperBody({ document_id: null, local_context: context })), { code: 'invalid_request' }, label);
+  assert.throws(() => validateChatRequest(paperBody({ local_context: ownPaper })), { code: 'invalid_request' }, 'with a server document');
+  assert.throws(() => validateChatRequest(generalBody({ local_context: ownPaper })), { code: 'invalid_request' }, 'in a general chat');
+});
+test('own-PDF figure walkthrough: no membership read, no server paper, no title; held, settled and recorded as any explainer', async () => {
+  const sent: Params[] = [];
+  const h = harness({ generate: sending(sent), script: { worker_local_chat_context: () => { throw Error('an own PDF has no membership to read'); } } });
+  h.deps.loadPaper = async () => { throw Error('must not fetch a server paper'); };
+  await runChat(h.deps, figureBody({ local_context: ownPaper }), h.emit, new AbortController().signal);
+  assert.equal(h.generations(), 1);
+  assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_reserve_chat', 'worker_settle_chat', 'worker_record_provider_usage']);
+  const paperBlock = (sent[0].system as { text: string }[])[1].text;
+  assert.ok(paperBlock.startsWith('<paper>\n[¶1] Own block 1.'), 'the paper block carries no title');
+  assert.ok(!JSON.stringify([...h.calls, ...h.logs, ...h.answers]).includes('Own block'), 'the text is never recorded');
+  // The same cached paper as a chat about it: the walkthrough and the chat share one prefix.
+  const chat: Params[] = [];
+  const asked = harness({ generate: sending(chat) });
+  await runChat(asked.deps, paperBody({ document_id: null, local_context: ownPaper, consent_version: CONSENT, capabilities: FIGURE_DEVICE }), asked.emit, new AbortController().signal);
+  assert.deepEqual((chat[0].system as unknown[]).slice(0, 2), (sent[0].system as unknown[]).slice(0, 2));
+});
+test('own-PDF equation and paper explainers run without a membership; an arXiv paper still needs its membership', async () => {
+  for (const body of [equationBody({ local_context: ownPaper }), explainerBody({ local_context: ownPaper })]) {
+    const h = harness({ generate: sending([]) });
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+    assert.equal(h.generations(), 1, String(body.action)); assert.ok(!names(h.calls).includes('worker_local_chat_context'));
+  }
+  const arxiv = harness({ script: { worker_local_chat_context: () => { throw new RpcFailure('document_unavailable'); } } });
+  await runChat(arxiv.deps, figureBody(), arxiv.emit, new AbortController().signal);
+  assert.equal(arxiv.generations(), 0); assert.ok(!names(arxiv.calls).includes('worker_reserve_chat'));
+});
+test('own-PDF chat: suggestions read it as a paper conversation without a title, never its text', async () => {
+  const sent: Params[] = [];
+  const h = harness({ generate: async (params, stream) => {
+    sent.push(params);
+    if (params.model === HAIKU) return followUpOutcome(['What does block 3 assume?', 'How is it evaluated?']);
+    stream.onText('The answer.'); return completeOutcome();
+  } });
+  await runChat(h.deps, paperBody({ document_id: null, local_context: ownPaper, follow_ups: true }), h.emit, new AbortController().signal);
+  const input = JSON.stringify(sent.find(params => params.model === HAIKU)!.messages);
+  assert.ok(input.includes(`<paper_title>${OWN_PAPER_TITLE}</paper_title>`), input.slice(0, 200));
+  assert.ok(!input.includes('Own block'));
 });

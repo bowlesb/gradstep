@@ -4156,7 +4156,7 @@ final class ReaderModel {
             .flatMap { EquationMarkup.element(in: $0, equationID: equation.id) }
         let number = markup.flatMap(EquationMarkup.number(in:))
         let paragraph = bundle.index.blocks.firstIndex { $0.id == equation.blockID }.map { $0 + 1 }
-        let localContext = paper.sourceMembership.flatMap { try? LocalPaperChatContext(reference: $0, bundle: bundle) }
+        let localContext = paperLocalContext(paper, bundle: bundle)
         return EquationViewContext(paperID: paper.id, bundle: bundle, equationID: equation.id, blockID: equation.blockID, markup: markup,
                                    number: number, label: EquationMarkup.label(number: number), latex: equation.latex, paragraph: paragraph,
                                    localContext: localContext)
@@ -4351,15 +4351,19 @@ final class ReaderModel {
         let number = GalleryFigure.label(caption).number
         return FigureViewContext(paperID: paper.id, bundle: bundle, figureID: figureID,
                                  label: number ?? (paths.isEmpty ? "Table" : "Figure"), caption: caption, paragraph: paragraph,
-                                 assetPaths: paths, localContext: figureLocalContext(paper, bundle: bundle),
+                                 assetPaths: paths, localContext: paperLocalContext(paper, bundle: bundle),
                                  pdfPage: paths.count == 1 ? figurePDFPage(bundle: bundle, figureID: figureID) : nil)
     }
 
-    /// Readings whose verified text is the paper's for its chat and explainers: the arXiv HTML reading and the on-device
-    /// model's reading of the same arXiv revision's PDF (LocalPaperChatContext checks the revision; text only, no PDF).
+    /// Readings whose verified text is the paper's for its chat and explainers: the arXiv HTML reading of that revision and
+    /// the on-device model's reading of the paper's PDF, any revision (LocalPaperChatContext checks; text only, no PDF).
     static let paperTextKinds: Set<String> = ["arxiv-html", "device-pdf"]
 
-    private func figureLocalContext(_ paper: Paper, bundle: VerifiedReaderBundle) -> LocalPaperChatContext? {
+    /// The paper's text for its explainers (figure, equation, paper) and chat, from its reading on this device: an arXiv
+    /// paper's names its membership; a PDF the reader added, read by the on-device model, sends only its text
+    /// (`LocalPaperChatContext(ownPDF:)`). Nil when the reading is not the paper's text.
+    private func paperLocalContext(_ paper: Paper, bundle: VerifiedReaderBundle) -> LocalPaperChatContext? {
+        if paper.isLocalPDF { return try? LocalPaperChatContext(ownPDF: paper.id, bundle: bundle) }
         if let membership = paper.sourceMembership { return try? LocalPaperChatContext(reference: membership, bundle: bundle) }
         guard let source = paper.legacyArxivSource, Self.paperTextKinds.contains(bundle.manifest.source.kind),
               let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }),
@@ -4448,15 +4452,16 @@ final class ReaderModel {
 
     // MARK: The paper's AI Explainer (2026-10-22; docs/proposals/LEARNING_GUIDE.md "Paper AI Explainer")
 
-    /// The paper as its explainer needs it: its bundle and the numbered paper the request carries (nil when it isn't an
-    /// arXiv paper on this device).
+    /// The paper as its explainer needs it: its bundle and the numbered paper the request carries (nil when its reading
+    /// here isn't the paper's text: `paperLocalContext`).
     func paperExplainerContext(paperID: UUID) -> PaperExplainerContext? {
         guard let paper = papers.first(where: { $0.id == paperID }) ?? (selectedPaper?.id == paperID ? selectedPaper : nil),
               let bundle = paper.readerBundle else { return nil }
-        return PaperExplainerContext(paperID: paper.id, title: paper.title, bundle: bundle, localContext: figureLocalContext(paper, bundle: bundle))
+        return PaperExplainerContext(paperID: paper.id, title: paper.title, bundle: bundle, localContext: paperLocalContext(paper, bundle: bundle))
     }
-    /// Whether Paper › … offers AI Explainer: an arXiv paper numbered on this device.
-    func canExplainPaper(_ paper: Paper) -> Bool { paper.readerBundle.map { figureLocalContext(paper, bundle: $0) != nil } ?? false }
+    /// Whether Paper › … offers AI Explainer: a paper numbered on this device (an arXiv paper's reading, or the on-device
+    /// model's reading of a PDF the reader added).
+    func canExplainPaper(_ paper: Paper) -> Bool { paper.readerBundle.map { paperLocalContext(paper, bundle: $0) != nil } ?? false }
 
     /// A kept explainer: the exact one (paper revision and model), else the newest kept for that paper revision.
     func paperExplainerAnswer(_ key: PaperExplainerKey) -> PaperExplainerAnswer? {
@@ -4813,7 +4818,8 @@ final class ReaderModel {
             } else if let legacy = legacyChatContext(for: turn) {
                 // An arXiv paper from before the HTML-first reader: the server no longer keeps its text (2026-10-16,
                 // DATA_HANDLING_AND_COSTS.md "Server paper copies: retired"), so the question carries the text this
-                // device prepared, naming the library item; the chat stays bound to the document id.
+                // device prepared, naming the library item; the chat stays bound to the document id. A PDF the reader
+                // added carries the model reading's text alone.
                 localContext = legacy.context
                 if turn.action != .ingest, turn.action != .diagramFix, let question = transcript.last?.text {
                     figures = ChatFigureFinder.images(question: question, selection: turn.selection, bundle: legacy.bundle)
@@ -4858,12 +4864,17 @@ final class ReaderModel {
         chatGenerations[turn.composerID] = generation
     }
 
-    /// A legacy arXiv library item's text as prepared on this device, for a chat about its document (nil when the paper
-    /// isn't one, or isn't prepared here: then the document id goes, and the server says it has no text).
+    /// A legacy arXiv library item's text as prepared on this device, for a chat about its document, or the on-device
+    /// model's reading of a PDF the reader added (its text only; Continue in Chat from its explainers). Nil when the paper
+    /// isn't one, or isn't prepared here: then the document id goes, and the server says it has no text.
     private func legacyChatContext(for turn: ChatAnswerTurn) -> (context: LocalPaperChatContext, bundle: VerifiedReaderBundle)? {
         guard turn.paperReference == nil, let documentID = turn.documentID,
-              let paper = papers.first(where: { $0.id == documentID }) ?? (selectedPaper?.id == documentID ? selectedPaper : nil),
-              let source = paper.legacyArxivSource, let bundle = paper.readerBundle, Self.paperTextKinds.contains(bundle.manifest.source.kind),
+              let paper = papers.first(where: { $0.id == documentID }) ?? (selectedPaper?.id == documentID ? selectedPaper : nil) else { return nil }
+        if paper.isLocalPDF {
+            guard let bundle = paper.readerBundle, let context = try? LocalPaperChatContext(ownPDF: paper.id, bundle: bundle) else { return nil }
+            return (context, bundle)
+        }
+        guard let source = paper.legacyArxivSource, let bundle = paper.readerBundle, Self.paperTextKinds.contains(bundle.manifest.source.kind),
               let item = completeLibrary?.items.first(where: { $0.documentID == documentID && $0.visible }),
               let reference = try? SourcePaperReference(membershipID: item.id, sourceID: source.sourceID, revision: source.revision),
               let context = try? LocalPaperChatContext(reference: reference, bundle: bundle) else { return nil }

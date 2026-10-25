@@ -2,6 +2,32 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
+AI Explainers on every on-device model reading (TestFlight 91 known gap; branch `worktree-agent-a8df15119d43dcfc0`;
+[decision](DECISIONS.md#explainers-on-every-on-device-model-reading-testflight-91-known-gap-agent-decisions-2026-10-24-reversible),
+DEVICE_PDF_ROUTE.md "Explainers on every model reading"). Neither gap was the converter's port revision: nothing on the
+device or the server compares a reading's port revision or build with the current converter. **Another arXiv
+revision:** the device reads the PDF it has (the library's revision, else any kept), and the app itself refused a
+reading whose revision differed from the membership's (`LocalPaperChatContext.swift`, the `devicePDFArxivSource ==
+source` guard), so no request was sent; a model reading now needs only the same arXiv id and the request names the
+membership as it is, which the server already authorizes (no server change for this case). **A PDF the reader added:**
+the server refused every request (`chat.ts` `localPaperContext` accepted only `source: "arxiv"`, and
+`worker_local_chat_context` has no row for an encrypted `local:` entry), and the app never built one. New request
+shape `{"format":"reader-local-context-v2","source":"local","text":…}` with no id, title or digest (the server
+refuses them); no membership read, no title in the paper block, side requests read "the reader's own PDF (its title is
+not shared)"; holds, settlement, switches and consent unchanged. The app sends it for the figure, equation and paper
+explainers and for that paper's chat (Continue in Chat), only from the model reading of that same PDF; the equation
+view now uses the same context helper as the figure and paper explainers (so a legacy library item's reading gets
+equation explainers too); AI usage names an own-PDF row from the device. Builds 91 and below are unchanged (they never
+send either request). Verified: four new backend tests in `tests/backend/chat.test.ts` (own-PDF validation, figure
+walkthrough without a membership read, equation and paper explainers, suggestions' title); the first three were run
+before the server change and failed (`invalid_request`, no generation), all four pass (chat.test.ts 145/145); `npm
+test` passes (backend 789, edge type check, browser units); two new Core tests in `DeviceReaderTests` (another
+revision's reading; own-PDF reading sends only `format`, `source`, `text`) pass, the first failing with the old guard;
+`swift test` 453 + 66 XCTest pass (one opt-in skipped); the iOS app's Swift sources compile and link for the generic
+iOS Simulator (the bundle step stops only at the gitignored on-device model pack, not present in this worktree).
+**Server not deployed:** deploy `chat` to staging before a build with the app change ships (an older server answers
+`invalid_request` to `source: "local"`). No migration. Not run in the Simulator or on a device.
+
 For you by similarity to the library: new additive migration `202610240155_feed_library_similarity.sql` (**applied to staging 2026-10-25 00:08 UTC after encrypted backup 20261025T000815Z**) and ranking `feed-heuristic-v3` in `_shared/feed-rank.ts` (**`discover` deployed to staging**; the owner's live candidates rank 28 like / 11 popular on Hugging Face / 5 author / 3 explore / 3 category; workflow checks 18 pass, 1 fail = budget.health at 83 % of the $40 platform month, unrelated). With 0154 the
 owner's library counted, but their tags are broad areas, so 28 of 50 picks were "By <author>" (mostly namesakes) and 22
 "New in …". When the interest index serves the reader, candidates now carry cosine similarity to the nearest library

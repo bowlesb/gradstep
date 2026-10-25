@@ -52,14 +52,59 @@ import Testing
         #expect(context.sourceSHA256 == reading.manifest.source.sha256)
         #expect(context.text == PaperChatContext.text(reading.index))
         #expect(context.sourceID == "2601.01234" && context.revision == 2)
-        // Another revision, another paper, or a PDF the reader added (no arXiv paper): not this membership's text.
-        let otherRevision = try SourcePaperReference(membershipID: ref.membershipID, sourceID: ref.sourceID, revision: 1)
-        #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: otherRevision, bundle: reading) }
+        // Another paper, or a PDF the reader added (no arXiv paper): not this membership's text.
         let otherPaper = try Self.devicePDFBundle(index: html.index, paper: (sourceID: "2601.04321", revision: 2))
         #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: ref, bundle: otherPaper) }
         let added = try Self.devicePDFBundle(index: html.index, paper: nil)
         #expect(added.devicePDFArxivSource == nil)
         #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: ref, bundle: added) }
+    }
+
+    /// The device reads the paper's PDF it has, which may be another arXiv revision than the library's (a v1 kept while the
+    /// library moved to v2): its explainers and chat still have the reading's text, and the request names the membership
+    /// as it is, so the server authorizes it unchanged (TestFlight 91 known gap). An HTML reading stays exact.
+    @Test func anOnDeviceModelReadingOfAnotherRevisionIsThePapersContext() throws {
+        let html = try fixture()
+        let reading = try Self.devicePDFBundle(index: html.index, paper: (sourceID: "2601.01234", revision: 1))
+        let membership = try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2)
+        let context = try LocalPaperChatContext(reference: membership, bundle: reading)
+        #expect(context.source == "arxiv" && !context.isOwnPDF)
+        #expect(context.sourceID == "2601.01234" && context.revision == 2 && context.membershipID == membership.membershipID.wire)
+        #expect(context.text == PaperChatContext.text(reading.index) && context.manifestSHA256 == reading.manifestSHA256)
+        let wire = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(context)) as? [String: Any])
+        #expect(Set(wire.keys) == ["format", "membership_id", "source", "source_id", "revision", "manifest_sha256", "source_sha256", "text"])
+        #expect(wire["revision"] as? Int == 2)
+        // The HTML reading of v2 is not v1's.
+        let older = try SourcePaperReference(membershipID: membership.membershipID, sourceID: "2601.01234", revision: 1)
+        #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: older, bundle: html) }
+    }
+
+    /// A PDF the reader added, read by the on-device model: its explainers and chat send the reading's numbered text and
+    /// nothing that names the paper (no id, title, or digest of the PDF or the reading); the server has no membership to
+    /// authorize (TestFlight 91 known gap).
+    @Test func anOnDeviceModelReadingOfTheReadersOwnPDFSendsOnlyItsText() throws {
+        let html = try fixture()
+        let paperID = UUID()
+        let reading = try Self.devicePDFBundle(index: html.index, paper: (sourceID: LocalPDFMembership.sourceID(paperID), revision: 1))
+        let context = try LocalPaperChatContext(ownPDF: paperID, bundle: reading)
+        #expect(context.isOwnPDF && context.membershipID == paperID.wire)
+        #expect(context.text == PaperChatContext.text(reading.index))
+        let data = try JSONEncoder().encode(context)
+        let wire = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(wire.keys) == ["format", "source", "text"])
+        #expect(wire["format"] as? String == "reader-local-context-v2" && wire["source"] as? String == "local")
+        let sent = String(decoding: data, as: UTF8.self)
+        for secret in [paperID.wire, reading.manifestSHA256, reading.manifest.source.sha256] { #expect(!sent.contains(secret)) }
+        // Another of the reader's PDFs, an arXiv paper's reading, or an HTML reading: not this paper's text.
+        #expect(throws: (any Error).self) { try LocalPaperChatContext(ownPDF: UUID(), bundle: reading) }
+        let arxiv = try Self.devicePDFBundle(index: html.index, paper: (sourceID: "2601.01234", revision: 2))
+        #expect(throws: (any Error).self) { try LocalPaperChatContext(ownPDF: paperID, bundle: arxiv) }
+        #expect(throws: (any Error).self) { try LocalPaperChatContext(ownPDF: paperID, bundle: html) }
+        // The paper explainer's request carries it as the paper (mode `paper`, no document).
+        let request = try ChatGenerationRequest.paperExplainer(operationID: UUID(), profile: .standard, localContext: context, visualAnswers: true)
+        let body = try #require(try JSONSerialization.jsonObject(with: request.encoded()) as? [String: Any])
+        #expect(body["mode"] as? String == "paper" && body["document_id"] == nil)
+        #expect((body["local_context"] as? [String: Any]).map { Set($0.keys) } == ["format", "source", "text"])
     }
 
     /// A minimal verified reading in the on-device model's format (`gradstep-device-pdf-mathml-v1`), with `index` as its
