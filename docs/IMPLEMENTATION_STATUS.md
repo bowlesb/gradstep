@@ -31,8 +31,10 @@ Owner session on 91 (iPad sideways, recording 20261024-160529), three findings:
 Verified: `swift test` (FeedWhyTests 9/9 with new label and ⓘ tests); new UI tests `IPadShapesJourneyTests.
 testThePlacesMenuIsOneList`, `testAFigureOpensBesideThePaperAtOnce` (slot animation slowed ×12 with
 `--slot-animation-slow`, frames final at the first look), `FeedForYouTests.testTheWhyColumnExplainsItself*`,
-`testTheListHeadersExplainThemselves*` failed on the old code and pass (iPad Pro 13-inch (M5) Simulator); suites in the
-report. Screens before/after: `.artifacts/sessions/20261024-160529/fixes/`. Needs the owner's eye on a device: whether
+`testTheListHeadersExplainThemselves*` failed on the old code and pass (iPad Pro 13-inch (M5) Simulator). Affected
+suites pass: `FeedForYouTests` (iPad 11/11; iPhone 17 Pro all run, the ⓘ tests re-run once after an accessibility-server
+error under load), `IPadShapesJourneyTests` 18/18 (5 re-run on a quiet Simulator after load-average-500 timeouts),
+`MenusJourneyTests.testAnAppSheetUprightSpansTheWindow`, `FeedPersonalizationTests` and `PaperTableTests`. Screens before/after: `.artifacts/sessions/20261024-160529/fixes/`. Needs the owner's eye on a device: whether
 the instant change feels right.
 
 ## TestFlight 91 — 2026-10-24 UTC (iOS and Mac uploaded)
