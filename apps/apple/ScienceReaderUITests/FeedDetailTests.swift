@@ -75,7 +75,8 @@ final class FeedDetailTests: XCTestCase {
         let related = element(app, "feed.related.2610.06120"), topic = element(app, "feed.related.2610.03543")
         for _ in 0 ..< 4 where !(related.exists && related.isHittable) { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(related.waitForExistence(timeout: 5), "related papers")
-        XCTAssertTrue(related.label.contains("Same authors: Ana Costa") || app.staticTexts["Same authors: Ana Costa"].exists, related.label)
+        let reasons = related.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Same authors: Ana Costa"))
+        XCTAssertGreaterThan(reasons.count, 0, related.debugDescription)
         XCTAssertTrue(topic.exists, "shares Tokenization")
         XCTAssertGreaterThan(topic.frame.minY, related.frame.minY, "best first")
         XCTAssertFalse(element(app, "feed.related.2610.04476").exists, "only generic topics shared: not related")

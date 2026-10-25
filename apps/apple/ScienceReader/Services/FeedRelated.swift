@@ -88,8 +88,11 @@ struct BackendInterestTransport: InterestIndexTransport {
                                                     authorPapers: { authorCounts[$0] ?? 0 }, generic: generic)
                     let stats = await client.lastStats
                     FeedRelatedLog.record(source: "index", pool: pool.count, nearestMS: nearestMS, shown: ranked.count, stats: stats)
-                    return RelatedFeedOutcome(papers: ranked.compactMap { item in byID[item.sourceID].map { RelatedFeedPaper(result: $0, reason: item.reason) } },
-                                              source: .index)
+                    // Nothing showable (no titles for the nearest, arXiv off or paused): the Feed results below instead.
+                    if !ranked.isEmpty {
+                        return RelatedFeedOutcome(papers: ranked.compactMap { item in byID[item.sourceID].map { RelatedFeedPaper(result: $0, reason: item.reason) } },
+                                                  source: .index)
+                    }
                 }
             } catch InterestIndexError.notServed {
                 notServedUntil = Date().addingTimeInterval(3_600)
