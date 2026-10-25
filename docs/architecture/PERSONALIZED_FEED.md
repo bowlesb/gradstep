@@ -7,8 +7,8 @@ library, from the interest index's public gte-small fingerprints, wherever the i
 shared with a library paper (mostly namesakes: "Yu Wang", "Lei Zhang", "Di Wu") and 22 by "New in …". See
 [Similarity to the library](#similarity-to-the-library-ranking-v3-migration-0155).
 
-Update, 2026-10-24 UTC: **migration `202610240154_feed_profile_v4_library.sql` (written and tested locally, not applied
-to staging)** makes For you read the HTML-first library. Before it, the profile read library papers only from the legacy
+Update, 2026-10-24 UTC: **migration `202610240154_feed_profile_v4_library.sql` (applied to staging
+2026-10-24 23:37 UTC; 0155 and ranking v3 followed at 00:08 UTC on 2026-10-25)** makes For you read the HTML-first library. Before it, the profile read library papers only from the legacy
 `library_items` plus imports in flight, so a reader whose papers are all HTML-first imports (`phase='source_only'`, no
 library item) was ranked as a cold start: on staging the owner's 71 papers gave an empty profile and every reason was
 "popular" or "category". The sources are in [Interest signals](#interest-signals); `worker_feed_candidates_v2` is

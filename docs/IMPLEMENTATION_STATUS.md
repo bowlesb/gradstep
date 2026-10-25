@@ -2,8 +2,7 @@
 
 ## After TestFlight 91 — 2026-10-24 (main; not yet in a build)
 
-For you by similarity to the library: new additive migration `202610240155_feed_library_similarity.sql` (**not applied
-to staging**) and ranking `feed-heuristic-v3` in `_shared/feed-rank.ts` (**`discover` not deployed**). With 0154 the
+For you by similarity to the library: new additive migration `202610240155_feed_library_similarity.sql` (**applied to staging 2026-10-25 00:08 UTC after encrypted backup 20261025T000815Z**) and ranking `feed-heuristic-v3` in `_shared/feed-rank.ts` (**`discover` deployed to staging**; the owner's live candidates rank 28 like / 11 popular on Hugging Face / 5 author / 3 explore / 3 category; workflow checks 18 pass, 1 fail = budget.health at 83 % of the $40 platform month, unrelated). With 0154 the
 owner's library counted, but their tags are broad areas, so 28 of 50 picks were "By <author>" (mostly namesakes) and 22
 "New in …". When the interest index serves the reader, candidates now carry cosine similarity to the nearest library
 paper and its title, a bounded "similar" tier (via the map's mid-level nodes) brings in 224 of the 231 window papers at
@@ -19,7 +18,7 @@ For you treated readers on the current library as a cold start: `app_private.fee
 legacy `library_items` (last row added 2026-10-07) and imports in flight, while every arXiv paper added since the
 HTML-first redesign is a settled import (`source_only`, no item). On staging the owner's 71 papers gave 0 profile rows,
 so every reason was "popular" or "category"; "Added by several readers this week" also counted legacy items only. New
-additive migration `202610240154_feed_profile_v4_library.sql` (**not applied to staging**): settled present imports
+additive migration `202610240154_feed_profile_v4_library.sql` (**applied to staging 2026-10-24 23:37 UTC after encrypted backup 20261024T233723Z**; the owner's profile went from 0 to 70 papers): settled present imports
 (`source_only`, also `failed`/`membership_conflict`) are library papers (catalog record via `metadata_id`, else the
 device's record; the Library's tags and archive state; own tags = customized `source_tags` less category tags; a paper
 with an item and an import counts once); readers count present imports too (new index on `import_requests(source_id,

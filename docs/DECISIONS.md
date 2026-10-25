@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-24 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## For you ranks by similarity to the library (owner sessions 2026-10-24; staff only, owner decision pending before everyone)
+
+- **Why:** For you read only the legacy library table, so readers on the current library were cold starts (fixed by
+  migration 0154). Even with the profile, tags and author names gave weak reasons (namesake authors, broad areas).
+- **What:** for staff (interest_policy serving), `worker_feed_candidates_v2` (0155) adds each candidate's nearest
+  library paper and cosine similarity from the interest index's public-metadata fingerprints. The comparison is per
+  request and nothing is stored. Ranking v3 gives "Like “<your paper>”" at ≥ 0.90 and ranks popular-and-similar first.
+  Author reasons need credible evidence.
+- **Open:**
+  - This departs from INTEREST_INDEX.md's invariant that the server never computes a reader's interest state. Here
+    the server computes per-request similarity between public papers in the reader's library and the pool, the same
+    data it already ranks with (owner acceptance 2026-10-08 of server-side Feed ranking from library membership).
+  - Before serving goes to `all`, the owner decides:
+    - **(a)** accept this as an exception and cover it in the privacy notice; or
+    - **(b)** move similarity to the device (step 3), where the device re-ranks the server's list.
+  - Staff-only meanwhile.
+
 ## Library search over every paper's text: an encrypted on-device index (owner question 2026-10-24; agent decisions, reversible)
 
 Owner: *"is our search engine good enough, ie is it searching full text from all papers instantly?"* It wasn't: a
