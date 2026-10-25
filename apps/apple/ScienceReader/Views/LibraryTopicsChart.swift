@@ -325,11 +325,13 @@ struct LibraryTopicsChart: View {
 
     /// The chart palette's eight slots (Credits by activity uses the first four), each with its own dark step; validated
     /// with the dataviz checker for adjacent segments on white and black (docs/DESIGN.md). nil: Other's neutral.
-    static func color(_ slot: Int?) -> Color {
+    /// nonisolated, with a @Sendable provider: SwiftUI resolves the colour off the main thread while it draws the ring,
+    /// and a provider inheriting the view's main-actor isolation trapped there (TestFlight 92 pre-release run).
+    nonisolated static func color(_ slot: Int?) -> Color {
         let pairs: [(light: UInt32, dark: UInt32)] = [(0x2A78D6, 0x3987E5), (0xEB6834, 0xD95926), (0x1BAF7A, 0x199E70), (0xEDA100, 0xC98500),
                                                        (0xE87BA4, 0xD55181), (0x008300, 0x008300), (0x6250D6, 0x9085E9), (0xE34948, 0xE66767)]
         let pair = slot.map { pairs[max(0, min($0, pairs.count - 1))] } ?? (0x8C8A85, 0x6B6A66)
-        return Color(uiColor: UIColor { traits in
+        return Color(uiColor: UIColor { @Sendable traits in
             let hex = traits.userInterfaceStyle == .dark ? pair.dark : pair.light
             return UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
         })

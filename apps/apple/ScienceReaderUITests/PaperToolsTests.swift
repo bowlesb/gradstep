@@ -146,7 +146,7 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(wait { composer.frame.maxY <= keyboard.frame.minY + 2 }, "Composer stays above keyboard")
         // The composer's own dismiss button is iPhone-only (build 69); an iPad uses the keyboard's hide key.
         if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
-        else { let hide = app.keyboards.buttons["Hide keyboard"].firstMatch; hide.exists ? hide.tap() : app.typeText(XCUIKeyboardKey.escape.rawValue) }
+        else { app.keyboards.buttons["Hide keyboard"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
         XCTAssertTrue(wait { app.keyboards.count == 0 && abs(tab.frame.minY - home.minY) < 3 })
     }
 

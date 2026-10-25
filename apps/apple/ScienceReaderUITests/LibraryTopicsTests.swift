@@ -77,8 +77,7 @@ final class LibraryTopicsTests: XCTestCase {
         element("library.topics.other", in: app).tap()
         XCTAssertTrue(element("library.topics.outside", in: app).waitForExistence(timeout: 5), "Outside topics")
         element("library.topics.outside", in: app).tap()
-        XCTAssertTrue(app.buttons["paper.\(paper(29))"].waitForExistence(timeout: 5) || app.buttons["paper.\(paper(37))"].exists,
-                      "Papers outside every topic")
+        XCTAssertTrue(element("library.topics.clear", in: app).waitForExistence(timeout: 5), "Filtered to the papers outside every topic")
         XCTAssertFalse(app.buttons["paper.\(paper(0))"].exists)
         attach("Library outside topics")
     }
