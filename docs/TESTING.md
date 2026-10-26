@@ -1,5 +1,27 @@
 # Fast and slow tests
 
+## Device-PDF paragraph continuity — October 26, port 18
+
+`npm test` includes the twelve cases in `tests/backend/device-pdf-continuity.test.ts`: adjacent page joins and
+separate PDF places, supported/unsupported hyphens, closing punctuation, prose/typography guards, short labels,
+intervening structure/pages, floats, duplicate detections and inline-equation ownership. The frozen six-paper
+publisher corpus and sixty source-boundary labels are in `tests/fixtures/device-pdf/continuity-corpus.json`.
+
+Slow, explicit: `publisher_reference.py` and `publisher_quality.py` under `scripts/device-pdf-models/` extract
+local JATS references and propose boundaries; `compare_continuity.py` scores the fixed baseline boundaries and
+requires conservation of every paragraph, other block, formula gate and source region. It uses `reader.json`,
+whose IDs match provenance, rather than the diagnostic trace's `index.json`. Pass the checked-in
+`tests/fixtures/device-pdf/continuity-corpus.json` as its final argument for acceptance: it verifies PDF hashes,
+baseline block IDs and source places and fails on a missing baseline/candidate. Omit that argument for the
+existing-corpus conservation-only comparisons; do not regenerate the primary denominator from candidate alignment.
+`device-route-continuity-references.mjs` and `audit_continuity.py` identify exact source-paragraph support; review
+the remaining joins against actual PDF regions. Do not infer correctness from an improved one-block match alone.
+Run recorded replays with zero tag/crop misses, then actual native conversion with the 25 app rules, a real value
+for `--rules`, and semicolon-separated authors. The [audit](reviews/DEVICE_PDF_READING_QUALITY_20261026.md) records
+99-PDF results and the no-JIT Mac checks; it does not claim physical-device performance or new UI coverage.
+The Core Swift test `ShowInPDFTests.testJoinedParagraphSearchesBothRecordedPagesForTheSelectedPassage` checks that
+text selected from either half of a joined paragraph resolves to the right source page; both pages are searched.
+
 ## Reader-position PDF preview — October 25
 
 `npm test` includes the nine tests of the app-bundled lexical matcher. `tests/reader/pdf-position-bridge.mjs`

@@ -4,6 +4,21 @@ Last updated: 2026-10-26 UTC. Requirements below come from the current user conv
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Scientific-PDF reading continuity (owner-directed audit, 2026-10-26; locally verified, not released)
+
+Investigate non-equation reading failures, quantify them and independently improve one concrete product problem.
+Freeze source-boundary labels before scoring the candidate; require at least 50% fewer measured mid-sentence
+page breaks, no incorrect reviewed joins, and preservation of content and PDF places. Prefer a converter repair
+when the cause is assembly state rather than model quality. No interaction change or new model promotion.
+
+**Verified:** port 18 preserves open paragraphs across adjacent pages with prose, typography, punctuation and
+supported-word guards. Six biology PDFs improve **60 → 26** measured mid-sentence breaks (56.7%). The 99-PDF audit
+finds 484 correct new continuations, zero missing replay answers and no content/source-region loss or duplication.
+All 60,864 equation records are unchanged. Twelve targeted tests, the fast gate, no-JIT JavaScriptCore replay
+and a fresh 29-page Core ML conversion pass. Automatic re-alignment lowers one math diagnostic despite identical
+equation output; the [review](reviews/DEVICE_PDF_READING_QUALITY_20261026.md) explains this and records remaining
+header, caption, table and character failures. These are regression results, not untouched held-out generalization.
+
 ## Complete device-PDF inline spans (owner continuation, 2026-10-26; locally verified, not released)
 
 Evaluate the existing context-aware v5a tagger and repair the prototype's dropped long-line tails before model

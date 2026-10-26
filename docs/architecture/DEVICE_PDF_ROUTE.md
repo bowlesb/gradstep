@@ -470,4 +470,21 @@ No model weights, host contract, source geometry or equation identities change.
 The [quality review](../reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md) records the real missing-integral failures,
 product gaps and 93-PDF replay: 333 extra crops, zero new typeset promotions, 98.90–99.64% retention in each corpus,
 zero missing model answers and unchanged text/regions. `npm test` and JavaScriptCore replay with JIT disabled pass.
-The original crops can still be partial; fixing inline span coverage is the next model-quality task.
+The original crops can still be partial. Port 17 subsequently improves inline span coverage with context-aware
+v5a and complete windows; see [the span review](../reviews/DEVICE_PDF_SPAN_COVERAGE_20261026.md).
+
+## Paragraph continuity — port revision 18, 2026-10-26 (locally verified, not released)
+
+The pending paragraph and its previous class now survive an adjacent page boundary. Cross-page joins require
+unfinished prose on both sides, compatible boundary font sizes, and continuation punctuation; a broken word
+requires independent evidence in this PDF. Short labels, pure equation numbers, empty/intervening pages and
+structure changes abstain. Duplicate layout boxes cannot repeat the newly joined fragment or its equations.
+Same-page behavior is retained. Each joined paragraph owns its original separate PDF places.
+
+The [scientific-PDF reading audit](../reviews/DEVICE_PDF_READING_QUALITY_20261026.md) records the five product
+subproblems, frozen publisher sources and conservative acceptance gates. Six biology papers improve 60 → 26
+measured mid-sentence breaks. All 99 PDFs / 2,699 pages preserve their content and source regions; 484 reviewed
+continuations are restored. Every equation's content, confidence/rendering decision and region is unchanged.
+Twelve targeted tests, the fast gate, no-JIT JavaScriptCore and an actual 29-page Core ML conversion pass.
+No model weights, acquisition route, UI interactions or release configuration change. Header/caption/table and
+character-extraction failures remain separate work, and fresh held-out journals are needed before model promotion.

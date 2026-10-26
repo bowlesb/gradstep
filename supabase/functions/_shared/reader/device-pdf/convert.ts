@@ -104,7 +104,9 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   if (input.accents) for (const page of pages) composeAccents(page.glyphs);
   if (input.wordGaps) useWordGaps(typicalGap(pages));
   // compounds: the paper's own words decide whether a hyphen at a line's end is the word's or TeX's.
-  useCompounds(input.compounds ? hyphenatedPairs(pages.flatMap(page => linesOf(page.glyphs.filter(visible)).map(l => lineText(l, [])[0]))) : null);
+  const documentLines = pages.flatMap(page => linesOf(page.glyphs.filter(visible)).map(l => lineText(l, [])[0]));
+  useCompounds(input.compounds ? hyphenatedPairs(documentLines) : null);
+  const documentWords = new Set(documentLines.flatMap(t => t.toLowerCase().match(/\p{L}+(?:-\p{L}+)*/gu) ?? []));
   const known = furniture(pages.map(page => ({ glyphs: page.glyphs, height: page.height })));
   // Pages the host read by text recognition (its text layer missing or unreadable; DevicePDFOCR.swift).
   const recognisedPages = pages.filter(page => page.glyphs.length && page.glyphs.every(g => g.font === OCR_FONT)).length;
@@ -136,7 +138,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   let title = '', inReferences = false, refs: string[] = [];
   /** References read without a heading (bibliography): they end at the first region that is not an entry. */
   let headless = false;
-  let para: { marked: Marked; text: string; formulas: Formula[]; role: '' | 'abstract' }[] = [];
+  let para: { marked: Marked; text: string; formulas: Formula[]; role: '' | 'abstract'; endSize: number; endLine: string; crossPage?: boolean }[] = [];
   let nGlyphs = 0, nUnowned = 0, recognitionFailures = 0;
   // Places (Show in PDF): the region being read, and those of the paragraph, entries and notes still open.
   const places = new Map<LogicalBlock, Place[]>(), referencePlaces = new Map<LogicalBlock, Place[][]>();
@@ -157,9 +159,26 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     for (const x of para) for (const f of x.formulas) commit(f, bid, 'body');
     para = []; paraPlaces = [];
   };
-  const continues = (text: string, cls: string, prevCls: string): boolean => {
+  const continues = (text: string, cls: string, prevCls: string, startSize: number, startLine: string): boolean => {
     if (!para.length || cls !== 'paragraph' || prevCls !== 'paragraph') return false;
-    const last = para[para.length - 1].text.trimEnd();
+    const previous = para[para.length - 1];
+    let last = previous.text.trimEnd();
+    if (here && paraPlaces[paraPlaces.length - 1]?.[0] !== here[0]) {
+      // A small footer/caption is not the body paragraph continued on the next page. Compare the
+      // boundary lines, not a region's median: a DOI line can be appended to an otherwise body-sized region.
+      if (!(startSize > 0 && previous.endSize > 0) || Math.max(startSize, previous.endSize) > 1.1 * Math.min(startSize, previous.endSize)) return false;
+      const proseWords = (t: string) => t.match(/\p{L}{2,}/gu)?.length ?? 0;
+      if (proseWords(last) < 3 || proseWords(text) < 3 || !proseWords(previous.endLine) || !proseWords(startLine)) return false;
+      // A missing/misordered region can put "two-" next to "with" or "requir-" next to "aging".
+      // Join a broken word only with independent evidence elsewhere in this PDF; unique words stay split.
+      if (last.endsWith('-')) {
+        const left = /(\p{L}+)-$/u.exec(last)?.[1].toLowerCase(), right = /^(\p{L}+)/u.exec(text)?.[1].toLowerCase();
+        if (!left || !right || !(documentWords.has(left + right) || (input.compounds && documentWords.has(`${left}-${right}`)))) return false;
+      }
+      // A closing citation, quoted term or gene name can end a page mid-sentence. A full stop before
+      // its closing punctuation still ends the sentence. Keep the existing same-page rule unchanged.
+      last = last.replace(/[”’"')\]]+$/u, '');
+    }
     return !!last && !'.!?:;”’)]'.includes([...last].pop()!) && /^[a-zα-ω(￼]/.test(text);
   };
   const flushRefs = () => {
@@ -196,6 +215,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const firstOfSignature = new Map<string, Formula>();
   const copies: [Formula, Formula][] = [];
 
+  let prevCls = '';
   const recognisePending = () => {
     const readable: { f: Formula; rect: [number, number, number, number] }[] = [];
     for (const f of pendingRecognition) {
@@ -228,6 +248,9 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
 
   for (let p = 0; p < nPages; p++) {
     cancelled();
+    // A page break does not end an unfinished paragraph. Keep its class over the boundary, but never
+    // bridge an intervening page without paragraph text (a scan, blank page or full-page float).
+    if (paraPlaces[paraPlaces.length - 1]?.[0] !== p - 1) prevCls = '';
     const page = pages[p];
     const heads = new Set(marginGlyphLines(page.glyphs, page.height).filter(([text]) => known.has(text)).flatMap(([, ln]) => ln));
     // The venue's notice on the first page (proceedings line, copyright, open-access watermark) is not the paper's text.
@@ -300,7 +323,6 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     }
     const spansFor = (line: Glyph[]) => line.length < 2 ? [] : spanCache.get(line) ?? [];
 
-    let prevCls = '';
     const notes: { marked: Marked; text: string; formulas: Formula[]; place: Place }[] = [];
     if (p === 0 && !title) {
       const first = ordered.find(r => r.cls === 'title');
@@ -364,7 +386,18 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       const text = joinLines(texts);
       if (!text || (cls !== 'title' && cls !== 'heading' && (text.match(/[\p{L}\p{N}]/gu) ?? []).length < 2 && !text.includes(PLACEHOLDER))) continue;
       const inner = cls !== 'listing' ? joinLines(parts) : parts.join('\n');
-      if (continues(text, cls, prevCls)) { para.push({ marked: inner, text, formulas: tagFormulas, role: '' }); paraPlaces.push(here); continue; }
+      const regionLines = linesFor(r), startSize = median(regionLines[0]?.filter(visible).map(g => g.size) ?? []);
+      const endSize = median(regionLines[regionLines.length - 1]?.filter(visible).map(g => g.size) ?? []);
+      const endLine = texts[texts.length - 1] ?? '';
+      // Duplicate layout boxes may visit the same physical text twice. A continuation must take part
+      // in duplicate suppression too, including when its last line is still an unfinished sentence.
+      if (cls === 'paragraph' && para[para.length - 1]?.crossPage && para[para.length - 1].text === text && here.every((v, i) => v === paraPlaces[paraPlaces.length - 1]?.[i])) continue;
+      if (continues(text, cls, prevCls, startSize, texts[0] ?? '')) {
+        const crossPage = paraPlaces[paraPlaces.length - 1]?.[0] !== here[0];
+        para.push({ marked: inner, text, formulas: tagFormulas, role: '', endSize, endLine, crossPage }); paraPlaces.push(here);
+        if (crossPage) lastText = canonicalText(text);
+        continue;
+      }
       flushPara();
       if (title && cls !== 'title' && canonicalText(text) === canonicalText(title)) continue;
       // The library's title read as a heading when the layout found no title: the reader's h1 is that title already.
@@ -407,7 +440,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         if (cls === 'abstract' && !(trace.headings.length && abstractHeading(trace.headings[trace.headings.length - 1].title))) {
           blocks.push({ kind: 'heading', level: 2, marked: 'Abstract', text: 'Abstract' }); addTrace('heading', 'Abstract', 2);
         }
-        para.push({ marked: inner, text, formulas: tagFormulas, role: cls === 'abstract' ? 'abstract' : '' }); paraPlaces.push(here);
+        para.push({ marked: inner, text, formulas: tagFormulas, role: cls === 'abstract' ? 'abstract' : '', endSize, endLine }); paraPlaces.push(here);
         if (cls !== 'paragraph') flushPara();
       }
       prevCls = cls;

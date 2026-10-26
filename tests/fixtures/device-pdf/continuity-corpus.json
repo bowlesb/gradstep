@@ -1,0 +1,1674 @@
+{
+ "format": "device-pdf-continuity-corpus-v1",
+ "baseline_commit": "9a95a97a",
+ "baseline_port": 17,
+ "local_only": true,
+ "papers": [
+  {
+   "key": "elife-106496",
+   "split": "development",
+   "title": "AFD thermosensory neurons mediate tactile-dependent locomotion modulation in C. elegans",
+   "page_url": "https://elifesciences.org/articles/106496",
+   "pdf_url": "https://cdn.elifesciences.org/articles/106496/elife-106496-v1.pdf",
+   "xml_url": "https://cdn.elifesciences.org/articles/106496/elife-106496-v1.xml",
+   "paper.pdf_sha256": "9367345e04fff3c1b2999c089a671601150d240059159aaab65ec05387dff36a",
+   "source.xml_sha256": "fdffac654cec73b02ee4c8415e2d5033e3555e2a7cf78419a3a2d3ca78a4a6b4",
+   "display_equations": 0,
+   "pages": 29
+  },
+  {
+   "key": "elife-88793",
+   "split": "development",
+   "title": "Autotrophic growth of Escherichia coli is achieved by a small number of genetic changes",
+   "page_url": "https://elifesciences.org/articles/88793",
+   "pdf_url": "https://cdn.elifesciences.org/articles/88793/elife-88793-v1.pdf",
+   "xml_url": "https://cdn.elifesciences.org/articles/88793/elife-88793-v1.xml",
+   "paper.pdf_sha256": "fa8c1ad510f1b3f4fdbea1b073ffbe2870fdec01b4ea561870381c3f6933823a",
+   "source.xml_sha256": "c5bbc919dc60b98bce2c81f8bca7ad73dc8887d5fb37fa69cb821a758d299766",
+   "display_equations": 1,
+   "pages": 22
+  },
+  {
+   "key": "elife-89828",
+   "split": "holdout",
+   "title": "Dynamics of macrophage polarization support Salmonella persistence in a whole living organism",
+   "page_url": "https://elifesciences.org/articles/89828",
+   "pdf_url": "https://cdn.elifesciences.org/articles/89828/elife-89828-v2.pdf",
+   "xml_url": "https://cdn.elifesciences.org/articles/89828/elife-89828-v2.xml",
+   "paper.pdf_sha256": "ddc19215e951286ef332d12fb095f46e63e077e4e35b348f578f241f7d6cf3ac",
+   "source.xml_sha256": "f71082a2c47c22e64041c909f321c66d39846b0d0e5aeb6bcbc2ad4c24ca96ed",
+   "display_equations": 0,
+   "pages": 33
+  },
+  {
+   "key": "elife-93855",
+   "split": "holdout",
+   "title": "Polysaccharide breakdown products drive degradation-dispersal cycles of foraging bacteria through changes in metabolism and motility",
+   "page_url": "https://elifesciences.org/articles/93855",
+   "pdf_url": "https://cdn.elifesciences.org/articles/93855/elife-93855-v2.pdf",
+   "xml_url": "https://cdn.elifesciences.org/articles/93855/elife-93855-v2.xml",
+   "paper.pdf_sha256": "d648a866917bb845e10eb6bbcba5c23667321483411061e405450af4cff29372",
+   "source.xml_sha256": "c641a4e53b1bd729c4ff99ce74651f1f1718ca0a1a4df7603307a7d6e741ee6a",
+   "display_equations": 0,
+   "pages": 25
+  },
+  {
+   "key": "plos-3002467",
+   "split": "development",
+   "title": "Super-resolution mapping in rod photoreceptors identifies rhodopsin trafficking through the inner segment plasma membrane as an essential subcellular pathway",
+   "page_url": "https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.3002467",
+   "pdf_url": "https://journals.plos.org/plosbiology/article/file?id=10.1371/journal.pbio.3002467&type=printable",
+   "xml_url": "https://journals.plos.org/plosbiology/article/file?id=10.1371/journal.pbio.3002467&type=manuscript",
+   "paper.pdf_sha256": "97b374b222b01e126c3ac49ed43bf4295ffb7794d823c46f4bea3be05f56ebb4",
+   "source.xml_sha256": "29b50ad40d221a03303fc2743dcd551e2641f1b4d98289286bbc329ebdd4327c",
+   "display_equations": 0,
+   "pages": 36
+  },
+  {
+   "key": "plos-3003934",
+   "split": "holdout",
+   "title": "Cyclic tri-adenylate controls a CARF-TM effector in type II Panoptes anti-phage systems",
+   "page_url": "https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.3003934",
+   "pdf_url": "https://journals.plos.org/plosbiology/article/file?id=10.1371/journal.pbio.3003934&type=printable",
+   "xml_url": "https://journals.plos.org/plosbiology/article/file?id=10.1371/journal.pbio.3003934&type=manuscript",
+   "paper.pdf_sha256": "12e81d56608b04011c18ffe9bd3abbcedf6d97773e1dedb4504264fb27142fad",
+   "source.xml_sha256": "8faceb0fa4418702910637ff16c3a3d224de0501af444c460b2dc7876bb85732",
+   "display_equations": 0,
+   "pages": 22
+  }
+ ],
+ "boundary_rule": "Body JATS paragraph, both fragments >=12 normalized words and >=90% in-order alignment; reference gap <=3 words; previous fragment lacks terminal sentence punctuation. Coordinates are PDF points, top-left, pages from zero.",
+ "boundaries": [
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-5",
+   "left_block": "b-2852a1500fb3-22",
+   "right_block": "b-2852a1500fb3-23",
+   "left_places": [
+    [
+     1,
+     168.5,
+     687.9,
+     575,
+     721.3
+    ]
+   ],
+   "right_places": [
+    [
+     2,
+     168.5,
+     480.7,
+     575,
+     573.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-6",
+   "left_block": "b-2852a1500fb3-26",
+   "right_block": "b-2852a1500fb3-27",
+   "left_places": [
+    [
+     2,
+     168.5,
+     640.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     3,
+     168.5,
+     54.1,
+     575,
+     75.1
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-12",
+   "left_block": "b-2852a1500fb3-35",
+   "right_block": "b-2852a1500fb3-36",
+   "left_places": [
+    [
+     3,
+     168.5,
+     700.6,
+     575,
+     721.9
+    ]
+   ],
+   "right_places": [
+    [
+     4,
+     168.5,
+     635.3,
+     575,
+     721.6
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-18",
+   "left_block": "b-2852a1500fb3-44",
+   "right_block": "b-2852a1500fb3-46",
+   "left_places": [
+    [
+     5,
+     168.5,
+     700.6,
+     575,
+     721.9
+    ]
+   ],
+   "right_places": [
+    [
+     6,
+     168.5,
+     640.7,
+     575,
+     722
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-18",
+   "left_block": "b-2852a1500fb3-46",
+   "right_block": "b-2852a1500fb3-47",
+   "left_places": [
+    [
+     6,
+     168.5,
+     640.7,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     7,
+     168.5,
+     54.1,
+     575,
+     99.2
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-29",
+   "left_block": "b-2852a1500fb3-65",
+   "right_block": "b-2852a1500fb3-66",
+   "left_places": [
+    [
+     10,
+     168.5,
+     640.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     11,
+     168.5,
+     543.7,
+     575,
+     600.9
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-30",
+   "left_block": "b-2852a1500fb3-68",
+   "right_block": "b-2852a1500fb3-69",
+   "left_places": [
+    [
+     11,
+     168.5,
+     628.7,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     12,
+     168.5,
+     54.1,
+     575,
+     160.5
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-39",
+   "left_block": "b-2852a1500fb3-86",
+   "right_block": "b-2852a1500fb3-87",
+   "left_places": [
+    [
+     13,
+     168.5,
+     652.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     14,
+     168.5,
+     54.1,
+     575,
+     75.3
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-106496",
+   "jats_paragraph": "p-45",
+   "left_block": "b-2852a1500fb3-98",
+   "right_block": "b-2852a1500fb3-99",
+   "left_places": [
+    [
+     14,
+     168.5,
+     700.7,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     15,
+     168.5,
+     54.1,
+     575,
+     87.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-0",
+   "left_block": "b-2ce6475e9ea6-23",
+   "right_block": "b-2ce6475e9ea6-28",
+   "left_places": [
+    [
+     0,
+     168.5,
+     664.7,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     1,
+     168.5,
+     54.1,
+     575,
+     184.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-12",
+   "left_block": "b-2ce6475e9ea6-52",
+   "right_block": "b-2ce6475e9ea6-57",
+   "left_places": [
+    [
+     3,
+     168.5,
+     687.7,
+     575,
+     721.3
+    ]
+   ],
+   "right_places": [
+    [
+     4,
+     168.5,
+     54.1,
+     575,
+     123
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-22",
+   "left_block": "b-2ce6475e9ea6-79",
+   "right_block": "b-2ce6475e9ea6-88",
+   "left_places": [
+    [
+     6,
+     168.5,
+     688.7,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     8,
+     168.5,
+     186.9,
+     575,
+     232.2
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-28",
+   "left_block": "b-2ce6475e9ea6-95",
+   "right_block": "b-2ce6475e9ea6-99",
+   "left_places": [
+    [
+     8,
+     168.5,
+     664.8,
+     575.1,
+     721.8
+    ]
+   ],
+   "right_places": [
+    [
+     9,
+     168.5,
+     544.7,
+     575,
+     565.8
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-36",
+   "left_block": "b-2ce6475e9ea6-112",
+   "right_block": "b-2ce6475e9ea6-117",
+   "left_places": [
+    [
+     10,
+     168.5,
+     688.6,
+     575,
+     721.8
+    ]
+   ],
+   "right_places": [
+    [
+     11,
+     168.5,
+     555.9,
+     575,
+     601.1
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-48",
+   "left_block": "b-2ce6475e9ea6-140",
+   "right_block": "b-2ce6475e9ea6-145",
+   "left_places": [
+    [
+     13,
+     168.5,
+     568.7,
+     575,
+     721.9
+    ]
+   ],
+   "right_places": [
+    [
+     14,
+     168.5,
+     54.1,
+     575,
+     111
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-53",
+   "left_block": "b-2ce6475e9ea6-154",
+   "right_block": "b-2ce6475e9ea6-159",
+   "left_places": [
+    [
+     14,
+     168.5,
+     628.7,
+     575.1,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     15,
+     168.5,
+     54.1,
+     575,
+     219.1
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-88793",
+   "jats_paragraph": "p-63",
+   "left_block": "b-2ce6475e9ea6-181",
+   "right_block": "b-2ce6475e9ea6-186",
+   "left_places": [
+    [
+     16,
+     168.5,
+     700.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     17,
+     168.5,
+     54.1,
+     575,
+     161.1
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-9",
+   "left_block": "b-8646c75a4e53-33",
+   "right_block": "b-8646c75a4e53-37",
+   "left_places": [
+    [
+     2,
+     168.5,
+     520.8,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     4,
+     168.5,
+     241.7,
+     575,
+     323
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-13",
+   "left_block": "b-8646c75a4e53-46",
+   "right_block": "b-8646c75a4e53-53",
+   "left_places": [
+    [
+     5,
+     168.5,
+     628.7,
+     575,
+     721.9
+    ]
+   ],
+   "right_places": [
+    [
+     7,
+     168.5,
+     250.1,
+     575,
+     295.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-14",
+   "left_block": "b-8646c75a4e53-56",
+   "right_block": "b-8646c75a4e53-57",
+   "left_places": [
+    [
+     7,
+     375.4,
+     298.1,
+     575,
+     451.1
+    ]
+   ],
+   "right_places": [
+    [
+     8,
+     375.8,
+     54.1,
+     575,
+     99.3
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-18",
+   "left_block": "b-8646c75a4e53-65",
+   "right_block": "b-8646c75a4e53-67",
+   "left_places": [
+    [
+     8,
+     375.8,
+     657,
+     575,
+     714
+    ]
+   ],
+   "right_places": [
+    [
+     10,
+     168.5,
+     207.4,
+     575,
+     277.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-26",
+   "left_block": "b-8646c75a4e53-94",
+   "right_block": "b-8646c75a4e53-98",
+   "left_places": [
+    [
+     14,
+     375.7,
+     685.1,
+     575,
+     694.1
+    ],
+    [
+     14,
+     375.7,
+     697,
+     575,
+     706
+    ],
+    [
+     14,
+     375.7,
+     709,
+     575,
+     718.3
+    ]
+   ],
+   "right_places": [
+    [
+     16,
+     168.5,
+     316.2,
+     575,
+     338.3
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-28",
+   "left_block": "b-8646c75a4e53-102",
+   "right_block": "b-8646c75a4e53-103",
+   "left_places": [
+    [
+     16,
+     168.5,
+     613.5,
+     575,
+     721.6
+    ]
+   ],
+   "right_places": [
+    [
+     17,
+     168.5,
+     553.7,
+     575,
+     574.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-30",
+   "left_block": "b-8646c75a4e53-107",
+   "right_block": "b-8646c75a4e53-111",
+   "left_places": [
+    [
+     17,
+     168.5,
+     652.7,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     19,
+     168.5,
+     207,
+     575,
+     420
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-30",
+   "left_block": "b-8646c75a4e53-111",
+   "right_block": "b-8646c75a4e53-114",
+   "left_places": [
+    [
+     19,
+     168.5,
+     207,
+     575,
+     420
+    ]
+   ],
+   "right_places": [
+    [
+     20,
+     168.5,
+     54.1,
+     575.1,
+     231.3
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-36",
+   "left_block": "b-8646c75a4e53-122",
+   "right_block": "b-8646c75a4e53-124",
+   "left_places": [
+    [
+     21,
+     168.5,
+     626.8,
+     575,
+     721.3
+    ]
+   ],
+   "right_places": [
+    [
+     22,
+     168.5,
+     54.1,
+     575,
+     279.2
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-46",
+   "left_block": "b-8646c75a4e53-148",
+   "right_block": "b-8646c75a4e53-149",
+   "left_places": [
+    [
+     24,
+     168.5,
+     676.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     25,
+     168.5,
+     54.1,
+     575,
+     75.1
+    ],
+    [
+     25,
+     168.5,
+     78,
+     277.3,
+     87
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-89828",
+   "jats_paragraph": "p-50",
+   "left_block": "b-8646c75a4e53-161",
+   "right_block": "b-8646c75a4e53-162",
+   "left_places": [
+    [
+     26,
+     168.5,
+     364.8,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     27,
+     168.5,
+     54.1,
+     575,
+     123.3
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-2",
+   "left_block": "b-1788f7dd99fc-31",
+   "right_block": "b-1788f7dd99fc-32",
+   "left_places": [
+    [
+     1,
+     168.5,
+     664.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     2,
+     168.5,
+     54.1,
+     575,
+     196
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-4",
+   "left_block": "b-1788f7dd99fc-36",
+   "right_block": "b-1788f7dd99fc-39",
+   "left_places": [
+    [
+     2,
+     168.5,
+     386.8,
+     575,
+     721.9
+    ]
+   ],
+   "right_places": [
+    [
+     4,
+     168.5,
+     553.7,
+     575,
+     622.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-5",
+   "left_block": "b-1788f7dd99fc-41",
+   "right_block": "b-1788f7dd99fc-42",
+   "left_places": [
+    [
+     4,
+     168.5,
+     664.7,
+     575,
+     722
+    ]
+   ],
+   "right_places": [
+    [
+     5,
+     168.5,
+     54.1,
+     575.1,
+     207
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-9",
+   "left_block": "b-1788f7dd99fc-48",
+   "right_block": "b-1788f7dd99fc-54",
+   "left_places": [
+    [
+     5,
+     168.5,
+     676.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     7,
+     168.5,
+     628.7,
+     575,
+     721.9
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-9",
+   "left_block": "b-1788f7dd99fc-54",
+   "right_block": "b-1788f7dd99fc-55",
+   "left_places": [
+    [
+     7,
+     168.5,
+     628.7,
+     575,
+     721.9
+    ]
+   ],
+   "right_places": [
+    [
+     8,
+     168.5,
+     54.1,
+     575,
+     99.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-12",
+   "left_block": "b-1788f7dd99fc-60",
+   "right_block": "b-1788f7dd99fc-61",
+   "left_places": [
+    [
+     8,
+     168.5,
+     628.4,
+     575,
+     721.8
+    ]
+   ],
+   "right_places": [
+    [
+     9,
+     168.5,
+     664.7,
+     575,
+     721.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-15",
+   "left_block": "b-1788f7dd99fc-66",
+   "right_block": "b-1788f7dd99fc-67",
+   "left_places": [
+    [
+     10,
+     168.5,
+     581,
+     575.1,
+     722.2
+    ]
+   ],
+   "right_places": [
+    [
+     11,
+     168.5,
+     568.7,
+     575,
+     589.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-16",
+   "left_block": "b-1788f7dd99fc-68",
+   "right_block": "b-1788f7dd99fc-69",
+   "left_places": [
+    [
+     11,
+     168.5,
+     592.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     12,
+     168.5,
+     54.1,
+     575,
+     270.2
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-18",
+   "left_block": "b-1788f7dd99fc-71",
+   "right_block": "b-1788f7dd99fc-72",
+   "left_places": [
+    [
+     12,
+     168.5,
+     456.2,
+     575,
+     721.1
+    ]
+   ],
+   "right_places": [
+    [
+     13,
+     168.5,
+     54.1,
+     575,
+     75.3
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-21",
+   "left_block": "b-1788f7dd99fc-78",
+   "right_block": "b-1788f7dd99fc-79",
+   "left_places": [
+    [
+     13,
+     168.5,
+     676.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     14,
+     168.5,
+     54.1,
+     575,
+     135
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-27",
+   "left_block": "b-1788f7dd99fc-90",
+   "right_block": "b-1788f7dd99fc-92",
+   "left_places": [
+    [
+     14,
+     168.5,
+     700.7,
+     575,
+     721.9
+    ]
+   ],
+   "right_places": [
+    [
+     15,
+     168.5,
+     54.1,
+     575.1,
+     315.6
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-30",
+   "left_block": "b-1788f7dd99fc-98",
+   "right_block": "b-1788f7dd99fc-99",
+   "left_places": [
+    [
+     15,
+     168.5,
+     676.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     16,
+     168.5,
+     54.1,
+     575,
+     111
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "elife-93855",
+   "jats_paragraph": "p-35",
+   "left_block": "b-1788f7dd99fc-106",
+   "right_block": "b-1788f7dd99fc-107",
+   "left_places": [
+    [
+     16,
+     168.5,
+     676.7,
+     575,
+     721.7
+    ]
+   ],
+   "right_places": [
+    [
+     17,
+     168.5,
+     54.1,
+     575,
+     150
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-0",
+   "left_block": "b-d41a5fda758e-9",
+   "right_block": "b-d41a5fda758e-12",
+   "left_places": [
+    [
+     0,
+     200,
+     648.8,
+     571.9,
+     710.8
+    ],
+    [
+     0,
+     173.5,
+     652.4,
+     183.9,
+     660.4
+    ]
+   ],
+   "right_places": [
+    [
+     1,
+     200,
+     76.4,
+     573.5,
+     190.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-3",
+   "left_block": "b-d41a5fda758e-19",
+   "right_block": "b-d41a5fda758e-20",
+   "left_places": [
+    [
+     1,
+     200,
+     583.4,
+     575.6,
+     710.4
+    ]
+   ],
+   "right_places": [
+    [
+     2,
+     200,
+     76.4,
+     567.3,
+     112.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-6",
+   "left_block": "b-d41a5fda758e-26",
+   "right_block": "b-d41a5fda758e-27",
+   "left_places": [
+    [
+     2,
+     200,
+     622.8,
+     573.5,
+     710.8
+    ]
+   ],
+   "right_places": [
+    [
+     3,
+     73.2,
+     570.2,
+     224.2,
+     578.2
+    ],
+    [
+     3,
+     200,
+     593,
+     570.4,
+     642
+    ],
+    [
+     3,
+     200,
+     645,
+     574.1,
+     706.9
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-6",
+   "left_block": "b-d41a5fda758e-27",
+   "right_block": "b-d41a5fda758e-28",
+   "left_places": [
+    [
+     3,
+     73.2,
+     570.2,
+     224.2,
+     578.2
+    ],
+    [
+     3,
+     200,
+     593,
+     570.4,
+     642
+    ],
+    [
+     3,
+     200,
+     645,
+     574.1,
+     706.9
+    ]
+   ],
+   "right_places": [
+    [
+     4,
+     200,
+     76.4,
+     575.8,
+     112.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-11",
+   "left_block": "b-d41a5fda758e-36",
+   "right_block": "b-d41a5fda758e-37",
+   "left_places": [
+    [
+     5,
+     200,
+     680.6,
+     566,
+     703.6
+    ]
+   ],
+   "right_places": [
+    [
+     6,
+     200,
+     76.4,
+     571.1,
+     112.4
+    ],
+    [
+     6,
+     200,
+     115.4,
+     570.9,
+     164.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-19",
+   "left_block": "b-d41a5fda758e-54",
+   "right_block": "b-d41a5fda758e-57",
+   "left_places": [
+    [
+     9,
+     200,
+     510.5,
+     575.9,
+     702.5
+    ]
+   ],
+   "right_places": [
+    [
+     11,
+     200,
+     275.8,
+     574.2,
+     298.8
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-22",
+   "left_block": "b-d41a5fda758e-61",
+   "right_block": "b-d41a5fda758e-62",
+   "left_places": [
+    [
+     11,
+     200,
+     470.8,
+     575.3,
+     702.7
+    ]
+   ],
+   "right_places": [
+    [
+     12,
+     200,
+     76.4,
+     575.6,
+     138.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-26",
+   "left_block": "b-d41a5fda758e-67",
+   "right_block": "b-d41a5fda758e-70",
+   "left_places": [
+    [
+     12,
+     200,
+     635.4,
+     573.9,
+     710.4
+    ]
+   ],
+   "right_places": [
+    [
+     14,
+     75.6,
+     101.7,
+     226.6,
+     109.7
+    ],
+    [
+     14,
+     200,
+     123.8,
+     575.9,
+     172.8
+    ],
+    [
+     14,
+     200,
+     175.8,
+     574.7,
+     224.8
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-27",
+   "left_block": "b-d41a5fda758e-74",
+   "right_block": "b-d41a5fda758e-75",
+   "left_places": [
+    [
+     14,
+     200,
+     275,
+     568.9,
+     350.1
+    ],
+    [
+     14,
+     90.3,
+     710.5,
+     241.3,
+     718.5
+    ]
+   ],
+   "right_places": [
+    [
+     15,
+     200,
+     478.2,
+     552.8,
+     501.2
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-29",
+   "left_block": "b-d41a5fda758e-79",
+   "right_block": "b-d41a5fda758e-80",
+   "left_places": [
+    [
+     15,
+     200,
+     687.8,
+     567.7,
+     710.8
+    ]
+   ],
+   "right_places": [
+    [
+     16,
+     200,
+     76.4,
+     575.9,
+     216.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-34",
+   "left_block": "b-d41a5fda758e-93",
+   "right_block": "b-d41a5fda758e-94",
+   "left_places": [
+    [
+     18,
+     200,
+     570.8,
+     573.4,
+     710.8
+    ]
+   ],
+   "right_places": [
+    [
+     19,
+     200,
+     76.4,
+     575.3,
+     138.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-54",
+   "left_block": "b-d41a5fda758e-128",
+   "right_block": "b-d41a5fda758e-129",
+   "left_places": [
+    [
+     24,
+     200,
+     648.8,
+     573,
+     710.8
+    ]
+   ],
+   "right_places": [
+    [
+     25,
+     200,
+     76.4,
+     576,
+     138.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3002467",
+   "jats_paragraph": "p-58",
+   "left_block": "b-d41a5fda758e-135",
+   "right_block": "b-d41a5fda758e-136",
+   "left_places": [
+    [
+     25,
+     200,
+     583.8,
+     568.9,
+     658.8
+    ],
+    [
+     25,
+     200,
+     661.8,
+     575.4,
+     710.8
+    ]
+   ],
+   "right_places": [
+    [
+     26,
+     200,
+     76.4,
+     575.9,
+     138.4
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3003934",
+   "jats_paragraph": "p-0",
+   "left_block": "b-87c9b2028f57-9",
+   "right_block": "b-87c9b2028f57-10",
+   "left_places": [
+    [
+     0,
+     198,
+     635.4,
+     576,
+     715.4
+    ]
+   ],
+   "right_places": [
+    [
+     1,
+     198,
+     96.7,
+     570.4,
+     260.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3003934",
+   "jats_paragraph": "p-12",
+   "left_block": "b-87c9b2028f57-40",
+   "right_block": "b-87c9b2028f57-41",
+   "left_places": [
+    [
+     6,
+     36,
+     688.7,
+     568,
+     715.1
+    ]
+   ],
+   "right_places": [
+    [
+     7,
+     36,
+     96.7,
+     575,
+     204.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3003934",
+   "jats_paragraph": "p-25",
+   "left_block": "b-87c9b2028f57-62",
+   "right_block": "b-87c9b2028f57-63",
+   "left_places": [
+    [
+     11,
+     36,
+     674.7,
+     572.1,
+     715.1
+    ]
+   ],
+   "right_places": [
+    [
+     12,
+     36,
+     96.7,
+     573.2,
+     190.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3003934",
+   "jats_paragraph": "p-40",
+   "left_block": "b-87c9b2028f57-85",
+   "right_block": "b-87c9b2028f57-86",
+   "left_places": [
+    [
+     14,
+     36,
+     661.7,
+     574.4,
+     713.7
+    ]
+   ],
+   "right_places": [
+    [
+     15,
+     36,
+     96.7,
+     570.2,
+     120.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3003934",
+   "jats_paragraph": "p-47",
+   "left_block": "b-87c9b2028f57-97",
+   "right_block": "b-87c9b2028f57-98",
+   "left_places": [
+    [
+     15,
+     36,
+     632.7,
+     572.5,
+     712.7
+    ]
+   ],
+   "right_places": [
+    [
+     16,
+     36,
+     96.7,
+     575.4,
+     134.7
+    ]
+   ],
+   "same_paragraph": true
+  },
+  {
+   "paper": "plos-3003934",
+   "jats_paragraph": "p-52",
+   "left_block": "b-87c9b2028f57-106",
+   "right_block": "b-87c9b2028f57-107",
+   "left_places": [
+    [
+     16,
+     36,
+     674.7,
+     574.7,
+     712.7
+    ]
+   ],
+   "right_places": [
+    [
+     17,
+     36,
+     96.7,
+     573.9,
+     162.7
+    ]
+   ],
+   "same_paragraph": true
+  }
+ ]
+}

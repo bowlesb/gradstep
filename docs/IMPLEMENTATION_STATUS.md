@@ -1,5 +1,19 @@
 # Implementation status
 
+## Scientific-PDF paragraph continuity — 2026-10-26 (port 18 verified locally; not released)
+
+The on-device converter retains unfinished paragraphs across adjacent pages while rejecting uncertain prose,
+font transitions, short labels, unsupported hyphen completions and duplicate layout boxes. Six biology PDFs improve
+**60 → 26** measured mid-sentence page breaks (56.7%). All **99 PDFs / 2,699 pages** replay without missing model
+answers; 484 reviewed continuations preserve all text, tables, figures, source places and 60,864 equation records.
+Whole-block matching improves on the existing arXiv and publisher comparisons. The automatic test-set math
+realignment metric falls 0.5 points despite identical math output; the independent identity/content/gate audit passes.
+
+Twelve focused tests, `npm test`, Apple JavaScriptCore with JIT disabled and a fresh 29-page Core ML conversion
+pass. Model weights, HTML-first routing and reader controls are unchanged. No upload, deployment or physical-phone
+work. Remaining prominent gaps are repeated journal headers, caption attachment, tables and text extraction.
+[Frozen corpus, measurements, exact checks and limits](reviews/DEVICE_PDF_READING_QUALITY_20261026.md).
+
 ## Complete device-PDF inline spans — 2026-10-26 (port 17 verified locally; not released)
 
 The context-aware v5a tagger is integrated with a development-selected 0.7 threshold, twelve input features and
