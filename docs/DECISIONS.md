@@ -1,8 +1,37 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-25 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-26 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
+
+## Visible reading position to a local PDF (owner requests and desktop handoff, 2026-10-25; Simulator-verified, not released)
+
+The owner asked for a full-screen original PDF at the reader's current area, then specified **one simultaneous
+two-finger tap**, not a double tap, with zoom and an immediately fading outline like the AI figure/equation
+explainer, and a visible **X** back to the same reading position. Correct page and approximate area are sufficient.
+This supersedes the large sheet, Done button and persistent yellow highlight of the first native integration.
+
+- Two fingers capture the passage beneath their midpoint; the toolbar captures selected text or the live viewport.
+  The reader's existing one-finger double tap still opens Contents. A moving pinch remains a pinch.
+- Full screen uses a 350 ms zoom to the approximate area, the figure explainer's violet outline fading over one second,
+  and X/top-row swipe dismissal. Capture and dismissal never clear selection or move the reader. Reduce Motion lands
+  directly and removes the outline after one second. The root host survives tablet rotation and reading mode.
+- The app-bundled lexical matcher runs in a background JavaScriptCore actor with PDFKit text and original UTF-16
+  ranges. Ambiguous/insufficient text abstains, leaving a browsable PDF. No permanent annotation or text highlight.
+  Index/query state stays in memory for the document scope and PDF digest; background/scope changes retire it.
+- Device-converted readings locate their original by provenance digest, including Files imports. HTML readings use
+  their exact arXiv revision in encrypted local storage, with an explicit device download if absent. Existing
+  provenance-based selection/equation menu actions remain intact. No server processing, model service or migration.
+- Eighteen distinct checks are verified per iPhone/iPad Simulator, including native two-touch input, touch-specific
+  pages, fade, X/swipe return, pan/pinch, reading mode, rotation, large text and encrypted offline reopening.
+  The [native report](reviews/PDF_PEEK_NATIVE_20261025.md) records the full matrix and final corrected-assertion rerun.
+  The unchanged desktop matcher retains its recorded corpus evidence; physical-device work remains paused.
+- Squashed into `main` as one standalone commit on 2026-10-26 at the owner’s request; not released.
+  The completed feature worktree and branch are retired after preserving the audit evidence.
+  The desktop handoff was `192.168.1.32:/home/ben/science-reader/.artifacts/pdf-peek-mac-handoff-20261025/`, based on
+  `78f33b6`. No new fixed commitment, paid usage or reservation; incremental service forecast $0/month.
+
+Details: [READER_PDF_PEEK.md](architecture/READER_PDF_PEEK.md).
 
 ## Floats before the first section read where the Introduction cites them; keywords under the abstract (owner report on TestFlight 92, 2026-10-25 17:11 UTC; agent decision, reversible)
 

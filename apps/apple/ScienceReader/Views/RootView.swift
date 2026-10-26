@@ -55,6 +55,9 @@ struct RootView: View {
         // UI tests only: a column as narrow as a Split View window (`--narrow-window=`); nil everywhere else.
         .frame(maxWidth: Platform.fixtureNarrowWidth ?? .infinity)
         .frame(maxWidth: .infinity)
+        // This host survives the Tall/Wide container replacement during iPad rotation.
+        .pdfPeekPresentation(model: model)
+        .onChange(of: model.readerDocumentScope) { _, _ in model.clearPDFPeek() }
         // ⌘1…⌘5, ⌘, and ⌘K with a hardware keyboard on iPhone and iPad, in both shapes (they lived in the Wide places
         // menu, so upright they did nothing). The Mac's menus bind the same keys.
         .background { if !Platform.isMac { PlaceShortcuts(model: model) } }
@@ -72,6 +75,7 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in softwareKeyboardShown = false }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in softwareKeyboardShown = false }
         .onChange(of: model.tab) { _, _ in
+            model.clearPDFPeek()
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             softwareKeyboardShown = false
         }
@@ -129,6 +133,7 @@ struct RootView: View {
         // Scheduled sync (ReaderModel.updateSyncSchedule) follows the scene; the first sync on return is below.
         .onChange(of: scenePhase, initial: true) { _, phase in model.sceneActive = phase == .active }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .background { model.clearPDFPeek() }
             Task {
                 model.flushReadingActivity()
                 await model.flushDrafts()

@@ -11,7 +11,7 @@ const dir='.artifacts/test-tiers';mkdirSync(dir,{recursive:true});
 const TIERS=['fast','ops','database','slow','corpus','native'];
 // What each tier tests. `package` covers the root package.json and package-lock.json.
 const SCOPES={
- fast:/^(apps\/web\/|apps\/admin\/|supabase\/functions\/|supabase\/migrations\/|services\/|scripts\/|tests\/(backend|operations|corpus|fixtures|local-ai|model-bakeoff)\/|infra\/|package)/,
+ fast:/^(apps\/web\/|apps\/admin\/|apps\/apple\/ScienceReader\/Resources\/pdf-position-matcher\.js$|supabase\/functions\/|supabase\/migrations\/|services\/|scripts\/|tests\/(backend|operations|corpus|fixtures|local-ai|model-bakeoff|reader)\/|infra\/|package)/,
  ops:/^(scripts\/|tests\/operations\/|tests\/database\/bootstrap\.sql|supabase\/|services\/|infra\/|package)/,
  database:/^(supabase\/migrations\/|tests\/database\/|scripts\/(test-database|pg_tools)\.py|package)/,
  slow:/^(apps\/web\/|supabase\/functions\/_shared\/|tests\/|scripts\/(test-tiers|fetch-reader-corpus|build-arxiv-compiler|arxiv-compiler)|package)/,
@@ -40,6 +40,7 @@ const nodeOperations=readdirSync('tests/operations').filter(p=>p.endsWith('.test
 // [name, command, args, cwd, kind]: `kind` names the runner whose report must show tests ran and none were skipped.
 const commands={
  fast:[['compiler freshness',process.execPath,['scripts/build-arxiv-compiler.mjs','--check'],root],
+  ['PDF position matcher',process.execPath,['--test','tests/reader/pdf-position-matcher.test.mjs'],root,'node'],
   ['device PDF compiler freshness',process.execPath,['scripts/build-device-pdf-compiler.mjs','--check'],root],
   ['backend',process.execPath,['--test',...readdirSync('tests/backend').filter(p=>p.endsWith('.test.ts')).map(p=>'tests/backend/'+p)],root,'node'],
   ['operations',process.execPath,['--test',...nodeOperations],root,'node'],

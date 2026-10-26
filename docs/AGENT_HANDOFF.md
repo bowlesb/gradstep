@@ -1,6 +1,36 @@
 # Agent handoff
 
-**Current checkpoint, 2026-10-17 ~04:36 UTC (Oct 16 PDT):** The owner's new build-64 screenshot shows VLA-Δ
+**Current checkpoint, 2026-10-26: PDF preview merged as a standalone commit.** At the owner's request the two
+feature commits from `codex/pdf-peek-fullscreen-20261025` are squashed into one commit on `main`, including these
+status updates. Application/test code is unchanged from the audited work; routine `npm test` is the merge check.
+The completed worktree and branch are retired, with compact evidence preserved in `.artifacts/pdf-peek-complete/`
+and reachable through `.artifacts/pdf-peek-evidence`. The main desktop handoff remains in `.artifacts/pdf-peek-handoff/`.
+No deployment or TestFlight release occurred. Other tasks' worktrees and branches are outside this cleanup.
+
+Next owner request: inspect the on-device PDF **conversion** model and its product gaps, choose a concrete,
+measurable quality improvement, and implement/evaluate it in a fresh worktree. The route is documented in
+`docs/architecture/DEVICE_PDF_ROUTE.md`; the current model assets, converter and recorded weakness reports are local.
+
+The owner's latest request is implemented: one simultaneous two-finger single tap opens a full-screen PDF at the
+passage under the fingers, zooming for 350 ms with the figure explainer's violet outline immediately fading over
+one second. X or a top-row swipe returns to the unchanged reader. Native PDF pan/pinch remains; the existing
+one-finger double tap still opens Contents. The toolbar uses selection/viewport, which can differ from the last
+finger tap. Existing converter-provenance selection/equation menu actions remain unchanged.
+
+**All 18 distinct native checks are verified per iPhone/iPad Simulator.** The phone full matrix passed 18/18;
+the tablet passed 17/18 before a test expectation was corrected (its toolbar correctly addressed page 3 rather
+than the earlier finger tap's page 2). That affected journey then passed on both devices, including header swipe.
+No application code changed for that rerun. `npm test` passes all ten steps; browser snapshot checks pass at
+390/1024 px. [Exact runs, screenshots and limits](reviews/PDF_PEEK_NATIVE_20261025.md).
+
+The matcher remains on-device lexical retrieval, with encrypted originals and exact-version device acquisition.
+Its broad desktop corpus has automatic labels, not human gold. Physical iPhone work remains paused; no NAS, paid
+service, GPU training or deployment occurred. The HTML-first cutover is already verified. The discarded old
+multi-destination Xcode job was terminated and confirmed gone. Native runners have exited; no corpus/download
+job is intended to remain running. Use the sequential Simulator runner in TESTING, not multiple destinations in
+one Xcode invocation. Mac Catalyst and physical-device interaction remain unverified here.
+
+**Earlier checkpoint, 2026-10-17 ~04:36 UTC (Oct 16 PDT):** The owner's new build-64 screenshot shows VLA-Δ
 2610.21306v1 with **Code: invalid**. **Cause now reproduced:** Swift 6.3 `-O` loses `index` when returning
 `(index, try await acquire(...))` from a task inside `do/catch`; successful downloads all overwrite slot zero.
 The final guard finds empty slots. Debug passes. Standalone no-network reproduction confirms it. The native

@@ -183,6 +183,9 @@ struct PaperView: View {
     /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
     @State private var findRequestID: UUID?
     @State private var find = PaperFindController()
+    @State private var pdfPositionRequestID: UUID?
+    @State private var pdfPositionPoint: CGPoint?
+    @Environment(\.scenePhase) private var scenePhase
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     /// One step of a Contents entry's indent.
     @ScaledMetric(relativeTo: .body) private var contentsIndent = 18.0
@@ -244,7 +247,7 @@ struct PaperView: View {
                                      }, onFailure: {
                                          if model.readerDocumentScope == readerScope {
                                              readerFailed = true; selection = nil; model.headings = []; citationBack = false; reference = nil
-                                             figureReference = nil
+                                             figureReference = nil; pdfPositionRequestID = nil
                                          }
                                      }, onReady: {
                                          #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
@@ -359,7 +362,8 @@ struct PaperView: View {
                     .overlay(alignment: .top) {
                         if readingActive {
                             ReadingTopBar(model: model, title: paper.title, forced: citationBack, contents: { openContents() },
-                                          figures: bundle.index.figures.isEmpty || readerFailed || loadingPaper ? nil : { showFigures = true })
+                                          figures: bundle.index.figures.isEmpty || readerFailed || loadingPaper ? nil : { showFigures = true },
+                                          showInPDF: canFind && pdfPositionRequestID == nil ? { pdfPositionPoint = nil; pdfPositionRequestID = UUID() } : nil)
                         }
                     }
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
@@ -467,6 +471,7 @@ struct PaperView: View {
                 }
                 // Screen options (docs/DESIGN.md): "…" is the rightmost item; view choices first,
                 // then this screen's actions, then "Report this screen".
+                ToolbarItem(placement: .topBarTrailing) { pdfPeekButton }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu { paperMenuContent } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
@@ -596,11 +601,16 @@ struct PaperView: View {
             if taken && wideBar { closeCompanions() }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
+            pdfPositionRequestID = nil
             selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; showInPDF = nil
             citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
             if model.notes.capturing == .paper { model.notes.capturing = nil }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { pdfPositionRequestID = nil }
+        }
+        .onDisappear { pdfPositionRequestID = nil }
         // Settings › Your assets › an explanation: its equation or figure once its paper shows (ReaderModel.openExplanation),
         // after the reset above; the kept answer shows there without a new request.
         .task(id: "\(model.pendingExplanation?.paperID.uuidString ?? "")/\(model.pendingExplanation?.itemID ?? "")/\(model.readerDocumentScope?.manifestSHA256 ?? "")") {
@@ -850,6 +860,17 @@ struct PaperView: View {
     private func readerHooks(_ view: PaperWebView, scope: ReaderDocumentScope) -> PaperWebView {
         var hooked = view
         hooked.findController = find
+        hooked.pdfPositionRequestID = pdfPositionRequestID
+        hooked.pdfPositionPoint = pdfPositionPoint
+        hooked.onTwoFingerPDFTap = { point in
+            guard model.readerDocumentScope == scope, pdfPositionRequestID == nil, model.pdfPeek == nil else { return }
+            pdfPositionPoint = point; pdfPositionRequestID = UUID()
+        }
+        hooked.onPDFPosition = { snapshot in
+            guard model.readerDocumentScope == scope, pdfPositionRequestID != nil, let paper = model.selectedPaper else { return }
+            pdfPositionRequestID = nil; pdfPositionPoint = nil
+            presentPDFPeek { model.pdfPeek = PDFPeekPresentation(paper: paper, scope: scope, snapshot: snapshot) }
+        }
         // Wide has no tab bar under the page: room at the end so the floating text size never covers the last lines, and
         // the page on the app's own background (the chat beside it, the bars), in either slot.
         hooked.bottomInset = wideBar ? 72 : 0
@@ -1061,6 +1082,7 @@ struct PaperView: View {
             Button { closeCompanions(); model.toggleContentsPanel() } label: { HeaderButtonLabel(image: GradstepSymbol.contents) }
                 .buttonStyle(.plain).accessibilityLabel("Table of contents").accessibilityIdentifier("paper.contents")
             Spacer(minLength: 0)
+            pdfPeekButton.buttonStyle(.plain)
             Menu { paperMenuContent } label: { HeaderButtonLabel(systemImage: "ellipsis") }
                 .buttonStyle(.plain).accessibilityLabel("Paper options")
         }
@@ -1070,6 +1092,16 @@ struct PaperView: View {
         // Reading mode's ⇧⌘R with a hardware keyboard (the system bar's button carried it).
         .background { Button("Reading mode") { model.enterReadingMode() }.modifier(ReadingModeShortcut()).disabled(!model.canEnterReadingMode)
             .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false) }
+    }
+
+    private var pdfPeekButton: some View {
+        Button { pdfPositionPoint = nil; pdfPositionRequestID = UUID() } label: {
+            if wideRow { HeaderButtonLabel(systemImage: "doc.viewfinder") }
+            else { Image(systemName: "doc.viewfinder") }
+        }
+        .accessibilityLabel("Show in PDF").accessibilityHint("Also available with a two-finger tap on the paper.").accessibilityIdentifier("paper.showInPDF")
+        .help("Show this passage in the PDF")
+        .disabled(!canFind || pdfPositionRequestID != nil)
     }
 
     /// The list toggle (owner, 2026-10-23: "'Paper' can also be a left primary item"): beside the Library's or the Feed's
@@ -1188,6 +1220,11 @@ struct PaperWebView: UIViewRepresentable {
     /// Go to passage, applied once the reader is ready; reports whether the passage was found.
     var passage: PaperPassageRequest? = nil
     var onPassage: (UUID, Bool) -> Void = { _, _ in }
+    var pdfPositionRequestID: UUID? = nil
+    /// Normalized viewport point from a simultaneous two-finger tap; nil uses selection/visible text.
+    var pdfPositionPoint: CGPoint? = nil
+    var onTwoFingerPDFTap: ((CGPoint) -> Void)? = nil
+    var onPDFPosition: (PDFReadingSnapshot?) -> Void = { _ in }
     /// J, K and Esc typed in the paper ("next", "previous", "escape"): sections and reading mode.
     var onKey: (String) -> Void = { _ in }
     /// Notes: Add to note on the selected text (what was selected, its quote), and Draw snippet from the context menu.
@@ -1272,6 +1309,7 @@ struct PaperWebView: UIViewRepresentable {
         let web = ReaderWebView(frame: .zero, configuration: configuration)
         if figureID == nil {
             ReaderWebView.paper = web
+            context.coordinator.pdfPeekTap.attach(to: web)
             // The edit menu's actions (selected text, a tapped equation); a figure's view has none.
             let coordinator = context.coordinator
             web.menuAction = { [weak coordinator, weak web] action in
@@ -1309,6 +1347,7 @@ struct PaperWebView: UIViewRepresentable {
 
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.pdfPeekTap.action = figureID == nil ? onTwoFingerPDFTap : nil
         context.coordinator.figurePinch.action = figureID == nil ? nil : context.environment.figurePageZoomOut
         (web as? ReaderWebView)?.hasSelection = hasSelection
         if figureID == nil, let reader = web as? ReaderWebView {
@@ -1330,6 +1369,7 @@ struct PaperWebView: UIViewRepresentable {
         guard context.coordinator.ready else { return }
         context.coordinator.clearSelectionIfNeeded(in: web)
         context.coordinator.showFindIfNeeded(in: web)
+        context.coordinator.capturePDFPositionIfNeeded(in: web)
         context.coordinator.returnFromCitationIfNeeded(in: web)
         context.coordinator.applyPaperLine(in: web)
         context.coordinator.applyPaperTags(in: web)
@@ -1365,6 +1405,7 @@ struct PaperWebView: UIViewRepresentable {
         (web as? ReaderWebView)?.findStepped = nil
         web.endEditing(true)
         coordinator.active = false
+        coordinator.pdfPeekTap.action = nil
         web.configuration.userContentController.removeScriptMessageHandler(forName: "reader", contentWorld: .defaultClient)
         web.stopLoading()
     }
@@ -1387,6 +1428,7 @@ struct PaperWebView: UIViewRepresentable {
         private var lastCitationReturnID: UUID?
         var lastCitationDismissID: UUID?
         private var lastFindRequestID: UUID?
+        private var lastPDFPositionRequestID: UUID?
         /// After a citation jump the saved place stays where reading left off.
         private var citationActive = false
         var appliedPaperLine: String?
@@ -1394,6 +1436,7 @@ struct PaperWebView: UIViewRepresentable {
         var appliedPaperTagSource = ""
         var passages = PaperPassageState()
         let figurePinch = FigurePagePinch()
+        let pdfPeekTap = PDFPeekTwoFingerTap()
         init(_ parent: PaperWebView) {
             self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID; lastCitationDismissID = parent.citationDismissID
             lastFindRequestID = parent.findRequestID
@@ -1589,6 +1632,21 @@ struct PaperWebView: UIViewRepresentable {
             lastSelectionClearID = id
             (web as? ReaderWebView)?.dismissEquationMenu()
             web.callAsyncJavaScript("window.__scienceReaderClearSelection();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
+        }
+
+        func capturePDFPositionIfNeeded(in web: WKWebView) {
+            guard active, ready, parent.figureID == nil, let bundle = parent.bundle,
+                  let id = parent.pdfPositionRequestID, id != lastPDFPositionRequestID else { return }
+            lastPDFPositionRequestID = id
+            let load = loadingID
+            var arguments: [String: Any] = ["point": NSNull()]
+            if let point = parent.pdfPositionPoint { arguments["point"] = ["x": point.x, "y": point.y] }
+            web.callAsyncJavaScript("return window.__scienceReaderPDFPosition?.(point);", arguments: arguments, in: nil, in: .defaultClient) { [weak self] result in
+                guard let self, self.active, self.ready, self.loadingID == load, self.parent.pdfPositionRequestID == id else { return }
+                if case .success(let value) = result, let message = value as? [String: Any] {
+                    self.parent.onPDFPosition(PDFReadingSnapshot(message: message, bundle: bundle))
+                } else { self.parent.onPDFPosition(nil) }
+            }
         }
 
         func showFindIfNeeded(in web: WKWebView) {

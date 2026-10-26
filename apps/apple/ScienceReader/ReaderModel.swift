@@ -1254,6 +1254,9 @@ final class ReaderModel {
     private var keys: DeviceKeys?
     private(set) var device: LocalDevice?
     private(set) var localPersistence = ReaderLocalPersistence()
+    // Above the Tall/Wide reader containers so a PDF preview and its zoom survive iPad rotation.
+    var pdfPeek: PDFPeekPresentation?
+    @ObservationIgnored var pdfPeekWorker = PDFPositionWorker()
     private var draftQueue: ReaderDraftQueue?
     private var pendingDraftCheckpoints: [UUID: ChatWorkspace.Checkpoint] = [:]
     private var draftsRestored = false
@@ -2514,6 +2517,7 @@ final class ReaderModel {
     func waitForLocalRetirement() async { await retirementQueue.wait() }
 
     private func clearAccountView() {
+        clearPDFPeek()
         localAI.cancelInference()
         contextualChat = nil; contextualComposers = [:]; explainerReturn = nil; presentedExplainer = nil; promotedChatContexts = [:]
         fullTextIndexer.detach(); librarySnippets = [:]; libraryMatches = [:]; pendingPaperFind = nil
@@ -6737,5 +6741,74 @@ extension ReaderModel {
         chatInput = question
         pendingSelection = (current.composer, question, quote, nil, current.origin, false)
         await sendMessage()
+    }
+}
+
+extension ReaderModel {
+    func isCurrentPDFPeek(paper: Paper, scope: ReaderDocumentScope) -> Bool {
+        readerDocumentScope == scope && paper.id == scope.paperID
+            && selectedPaper?.sourceID == paper.sourceID && selectedPaper?.sourceRevision == paper.sourceRevision
+    }
+
+    func clearPDFPeek() {
+        pdfPeek = nil
+        pdfPeekWorker = PDFPositionWorker()
+    }
+
+    /// PDF peek uses only the encrypted local original, optionally fetched directly after the sheet's download action.
+    /// No backend original/download endpoint or upload queue participates.
+    func pdfForPeek(paper: Paper, scope: ReaderDocumentScope, download: Bool,
+                    fetcher: any DevicePDFFetching = DevicePDFFetcher()) async throws -> (Data, LocalPaperIdentity) {
+        #if DEBUG && FIXTURE_HOST
+        if PDFPeekFixture.isEnabled {
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope), paper.isSample,
+                  paper.readerBundle?.manifestSHA256 == ReaderBundleLoader.sampleManifestSHA256 else { throw PDFPeekError.unavailable }
+            return try PDFPeekFixture.original()
+        }
+        #endif
+        guard isCurrentPDFPeek(paper: paper, scope: scope), let store = localPersistence.localPaperStore else { throw PDFPeekError.unavailable }
+        // A device-converted reading binds its original by digest, including PDFs imported from Files.
+        if let provenance = paper.readerBundle?.devicePDFSource {
+            guard let record = localPaperRecords.first(where: { $0.identity.sha256.hex == provenance.pdfSHA256 }) else { throw PDFPeekError.unavailable }
+            let data = try await store.read(record.identity)
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            return (data, record.identity)
+        }
+        guard
+              let sourceID = paper.sourceID, let revision = paper.sourceRevision,
+              let source = try? ArxivReference(sourceID: sourceID, revision: revision) else { throw PDFPeekError.unavailable }
+        try Task.checkCancellation()
+        var record = await store.record(sourceID: sourceID, revision: revision)
+        try Task.checkCancellation()
+        guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+        if record == nil {
+            guard download else { throw PDFPeekError.missing }
+            guard let url = URL(string: "https://arxiv.org/pdf/\(source.identifier)") else { throw PDFPeekError.unavailable }
+            let pdf = try await fetcher.fetch([url], progress: { _ in })
+            defer { try? FileManager.default.removeItem(at: pdf.file) }
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            guard pdf.link.scheme == "https", pdf.link.path.hasPrefix("/pdf/"),
+                  let final = try? ArxivReference(pdf.link.absoluteString), final == source else { throw PDFPeekError.wrongRevision }
+            try await PDFPositionWorker().validate(file: pdf.file)
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            let write = try acceptLocalPaperWrite { store in
+                try await store.install(pdfAt: pdf.file, sourceID: sourceID, revision: revision)
+            }
+            record = try await write.value
+            let records = await store.records()
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            localPaperRecords = records
+        }
+        try Task.checkCancellation()
+        guard isCurrentPDFPeek(paper: paper, scope: scope), let record else { throw CancellationError() }
+        let data = try await store.read(record.identity)
+        try Task.checkCancellation()
+        guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+        return (data, record.identity)
     }
 }

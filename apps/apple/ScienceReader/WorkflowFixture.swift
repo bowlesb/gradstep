@@ -313,3 +313,44 @@ extension ReaderModel {
     }
 }
 #endif
+
+#if DEBUG && FIXTURE_HOST
+import CryptoKit
+import UIKit
+
+/// Synthetic PDF bytes for the real reader → PDFKit sheet journey. Never compiled into a phone/release build;
+/// the workflow fixture exits before account/network setup. This substitutes only original acquisition.
+@MainActor
+enum PDFPeekFixture {
+    static var isEnabled: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("--workflow-fixture") && arguments.contains("--pdf-peek-fixture")
+    }
+
+    static func original() throws -> (Data, LocalPaperIdentity) {
+        let section = """
+        1. Start with the question
+
+        A useful first pass identifies the problem, the proposed method, and the evidence. Separate the authors’ claims from the measurements that support them. Mark passages that depend on assumptions you want to revisit.
+        """
+        // A second visible reader paragraph is on another PDF page: the two-finger test must use its touch point,
+        // not the toolbar's upper-quarter viewport anchor. Column-width text also exercises an actual zoom inward.
+        let next = """
+        Select a few words in this paragraph. The reader offers Copy, Explain in Chat, and Save snippet; a chat started from the passage stays connected to it.
+
+        An input x_i and a prediction y_i are small parts of a larger argument. Seeing x_i again should preserve the same meaning while giving each occurrence its own reading anchor. The literal price $5 and the code $not_math$ are not equations.
+        """
+        let pages = ["Synthetic PDF fixture. The matching reader passage is on the next page.", section, next]
+        let bytes = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { context in
+            for text in pages {
+                context.beginPage()
+                if !ProcessInfo.processInfo.arguments.contains("--pdf-peek-image-only") {
+                    (text as NSString).draw(in: CGRect(x: 48, y: 72, width: 230, height: 640),
+                                           withAttributes: [.font: UIFont.systemFont(ofSize: 16)])
+                }
+            }
+        }
+        return (bytes, try LocalPaperIdentity(sourceID: "2610.12345", revision: 1, sha256: Data(SHA256.hash(data: bytes))))
+    }
+}
+#endif

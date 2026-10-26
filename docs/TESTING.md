@@ -1,5 +1,32 @@
 # Fast and slow tests
 
+## Reader-position PDF preview — October 25
+
+`npm test` includes the nine tests of the app-bundled lexical matcher. `tests/reader/pdf-position-bridge.mjs`
+is the optional browser capture regression; the native checks below exercise the actual WKWebView bridge.
+
+`bash scripts/test-pdf-peek-apple.sh SIMULATOR_UDID` is the opt-in native gate. It checks the supplied iPhone/iPad
+Simulator and one available companion of the other family on the same runtime, with release Swift optimization.
+It uses separate sequential Xcode invocations (the second reuses the build); Xcode 26.4 stalled between destinations
+when both were supplied to one serial invocation. It runs PDFPositionTests, three PDF capture tests in
+PaperWebViewTests, PDFPeekJourneyTests, and the existing one-finger Contents double-tap regression. The full-screen
+journeys use an actual simultaneous two-touch single tap, then check zoom/fade, screen size, X/top-row dismissal,
+reader position, browsing/pinch, rotation, large text and background clearing. The PDFKit geometry check covers
+actual outline opacity over time and a cropped/rotated page; the cached-paper check also covers Reduce Motion.
+The runner uses only `simctl` to validate devices; it never queries or targets a physical phone.
+
+For native PDFKit extraction and warm-matching timing, set `PDF_PEEK_PDF` to the already cached
+`2305.18290v3/paper.pdf` (SHA-256 `92cb3a2b71362acda98a789b03d88688fd33cf5fcf13f81d2b1de30ee7d3b67a`).
+This adds PDFPeekCorpusTests. It checks the known page and PDFKit region and attaches timings for cold extraction
+plus indexing and 100 warm queries. No network fetch is made. Results/synthetic screenshots are in
+`.artifacts/pdf-peek-derived/Logs/Test/`; export attachments with `xcrun xcresulttool export attachments`.
+
+The new downloader test uses scripted HTTP through the real fetcher and encrypted store, then a fresh model with
+no HTTP responses to verify offline reopening. The UI fixture substitutes PDF acquisition, so UI passes alone
+cannot certify downloading or persistence. Scope, cancellation, wrong revision, rotated/cropped geometry,
+ambiguous and no-text cases remain separate assertions. Record all native results and limits in
+[READER_PDF_PEEK.md](architecture/READER_PDF_PEEK.md); desktop corpus evidence is not Apple performance evidence.
+
 ## The bar with More and 🔍 (navigation half of global search) — October 25
 
 Fast: Core `swift test --filter "LayoutShapeTests|TallBarTests"` (which bar a window gets: phones in both orientations,

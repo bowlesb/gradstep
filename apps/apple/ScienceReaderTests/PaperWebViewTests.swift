@@ -7,6 +7,94 @@ import ScienceReaderCore
 
 @MainActor
 final class PaperWebViewTests: XCTestCase {
+    func testPDFSnapshotUsesLiveSelectionAndDoesNotMoveTheReader() async throws {
+        let bundle = try ReaderBundleLoader.sample(), harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let state = try await script(web, """
+            const block = [...document.querySelectorAll('p[data-reader-block]')].find(node => node.textContent.length > 100);
+            block.scrollIntoView();
+            const range = document.createRange(); range.selectNodeContents(block);
+            const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            const y = scrollY, before = selection.toString(), html = document.body.innerHTML;
+            const snapshot = window.__scienceReaderPDFPosition();
+            return {snapshot, sameScroll: scrollY === y, sameSelection: before === selection.toString(), sameDOM: html === document.body.innerHTML};
+            """, [:]) as? [String: Any]
+        let result = try XCTUnwrap(state)
+        XCTAssertEqual(result["sameScroll"] as? Bool, true)
+        XCTAssertEqual(result["sameSelection"] as? Bool, true)
+        XCTAssertEqual(result["sameDOM"] as? Bool, true)
+        let raw = try XCTUnwrap(result["snapshot"] as? [String: Any])
+        XCTAssertEqual(raw["kind"] as? String, "selection")
+        XCTAssertNotNil(PDFReadingSnapshot(message: raw, bundle: bundle))
+    }
+
+    func testPDFSnapshotKeepsShortSelectionsAndEquationContextLocalInLongBlocks() async throws {
+        let bundle = try ReaderBundleLoader.sample(), harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let state = try await script(web, """
+            const block = [...document.querySelectorAll('p[data-reader-block]')].find(node => !node.querySelector('[data-reader-equation]'));
+            block.replaceChildren(document.createTextNode('Earlier material fills this unusually long paragraph. '.repeat(150)));
+            const focus = document.createElement('span'); focus.style.display = 'block';
+            focus.textContent = 'Distinctive nearby coastal measurements.'; block.append(focus);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            focus.scrollIntoView(); scrollBy(0, -innerHeight * .25 + 1);
+            const y = scrollY, visible = window.__scienceReaderPDFPosition();
+            const stableScroll = scrollY === y;
+            const range = document.createRange(); range.setStart(focus.firstChild, 19); range.setEnd(focus.firstChild, 25);
+            getSelection().removeAllRanges(); getSelection().addRange(range);
+            const selected = window.__scienceReaderPDFPosition(), keptSelection = getSelection().toString();
+            window.__scienceReaderClearSelection();
+            const equation = document.querySelector('[data-reader-equation]');
+            equation.before(document.createTextNode('Distant equation block content. '.repeat(150)));
+            equation.before(document.createTextNode('Distinctive spectral calibration immediately precedes this mathematical expression. '));
+            equation.after(document.createTextNode(' A nearby explanation concerns its specific assumptions.'));
+            await new Promise(resolve => setTimeout(resolve, 0));
+            equation.click();
+            return {visible, selected, nearby: window.__scienceReaderPDFPosition(), stableScroll, keptSelection};
+            """, [:]) as? [String: Any]
+        let result = try XCTUnwrap(state)
+        for key in ["visible", "selected"] {
+            let raw = try XCTUnwrap(result[key] as? [String: Any])
+            XCTAssertTrue((raw["text"] as? String)?.contains("coastal measurements") == true)
+            XCTAssertNotNil(PDFReadingSnapshot(message: raw, bundle: bundle))
+        }
+        XCTAssertEqual(result["stableScroll"] as? Bool, true)
+        XCTAssertEqual(result["keptSelection"] as? String, "coasta")
+        let equation = try XCTUnwrap(result["nearby"] as? [String: Any])
+        XCTAssertEqual(equation["kind"] as? String, "nearby")
+        XCTAssertTrue((equation["text"] as? String)?.contains("spectral calibration") == true)
+    }
+
+    func testPDFSnapshotAtTwoFingerPointIgnoresOldSelectionWithoutClearingIt() async throws {
+        let bundle = try ReaderBundleLoader.sample(), harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let state = try await script(web, """
+            const blocks = [...document.querySelectorAll('p[data-reader-block]')].filter(node => node.textContent.length > 100);
+            const old = blocks[0], target = blocks[blocks.length - 1];
+            target.scrollIntoView();
+            const range = document.createRange(); range.selectNodeContents(old);
+            getSelection().removeAllRanges(); getSelection().addRange(range);
+            const rect = target.getBoundingClientRect();
+            const point = {x: (rect.left + 30) / innerWidth, y: Math.max(1, Math.min(innerHeight - 1, rect.top + 15)) / innerHeight};
+            const y = scrollY, selection = getSelection().toString(), html = document.body.innerHTML;
+            const snapshot = window.__scienceReaderPDFPosition(point);
+            return {snapshot, expected: target.id, old: old.id, sameScroll: y === scrollY,
+                    sameSelection: selection === getSelection().toString(), sameDOM: html === document.body.innerHTML};
+            """, [:]) as? [String: Any]
+        let result = try XCTUnwrap(state), raw = try XCTUnwrap(result["snapshot"] as? [String: Any])
+        XCTAssertNotEqual(result["expected"] as? String, result["old"] as? String)
+        XCTAssertEqual(raw["block_id"] as? String, result["expected"] as? String)
+        XCTAssertNotEqual(raw["kind"] as? String, "selection")
+        for key in ["sameScroll", "sameSelection", "sameDOM"] { XCTAssertEqual(result[key] as? Bool, true) }
+        XCTAssertNotNil(PDFReadingSnapshot(message: raw, bundle: bundle))
+    }
+
     func testBridgeConfigurationKeepsTheVerifiedIndexWithoutFoundationRoundTrips() throws {
         let bundle = try OfflineReaderFixture.reader(variant: .mathpix)
         for figureID in [nil, bundle.index.figures.first?.id] {

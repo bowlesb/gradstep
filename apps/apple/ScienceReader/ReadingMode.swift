@@ -238,6 +238,7 @@ struct ReadingTopBar: View {
     let forced: Bool
     let contents: () -> Void
     let figures: (() -> Void)?
+    var showInPDF: (() -> Void)? = nil
     @State private var shown = true
     @State private var hovering = false
     @State private var hide: Task<Void, Never>?
@@ -292,6 +293,10 @@ struct ReadingTopBar: View {
             if let percent {
                 Text("\(percent)%").font(.caption).monospacedDigit().foregroundStyle(.secondary)
                     .accessibilityLabel("\(percent) percent read")
+            }
+            if let showInPDF {
+                Button(action: showInPDF) { Image(systemName: "doc.viewfinder").frame(width: 40, height: 40) }
+                    .accessibilityLabel("Show in PDF").accessibilityIdentifier("paper.showInPDF")
             }
             if let figures {
                 Button(action: figures) { Image(systemName: "photo.on.rectangle").frame(width: 40, height: 40) }

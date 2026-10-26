@@ -6,7 +6,11 @@ Owner, 2026-10-24: "it would be neat to somehow have a feature where, wherever y
 that is and show it to you with a pop up that you can zoom around in" — a way to check a doubtful passage of an on-device
 reading against the PDF. Decision record:
 [DECISIONS](../DECISIONS.md#show-in-pdf-for-on-device-readings-owner-request-2026-10-24-agent-decisions-reversible).
-On-device readings only (an arXiv HTML reading has no PDF); everything happens on the device, nothing is sent.
+These selection/equation menu actions use on-device readings and their converter provenance; everything happens
+on the device, nothing is sent. The separate [reader-position PDF preview](READER_PDF_PEEK.md), added October 25,
+also handles HTML readings through a simultaneous two-finger tap or toolbar button and an exact-revision original
+stored or downloaded on the device. The owner requested the same full-screen/zoom/fading-outline interaction here;
+the full-screen/two-finger follow-up is now Simulator-audited as recorded in READER_PDF_PEEK.
 
 - **Where each block is.** The converter (port revision 11) adds `blocks` to `provenance.json`: `[block id, page (from 0),
   x0, y0, x1, y1]`, points from the top left of the page as shown, one row per layout region the block was read from (a

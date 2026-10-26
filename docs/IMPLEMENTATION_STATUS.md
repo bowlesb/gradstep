@@ -1,5 +1,26 @@
 # Implementation status
 
+## Reader-position PDF — 2026-10-25 PDT (full-screen/two-finger audit verified; not released)
+
+Merged into `main` as one standalone commit on 2026-10-26, from the audited work based on `a993d838`.
+The completed feature worktree/branch are retired. A simultaneous two-finger single tap opens the original
+PDF full screen at the passage beneath the fingers, zooms for 350 ms and immediately fades the figure explainer's
+violet outline over one second. X or a top-row swipe returns to the unchanged reader. The toolbar entry remains;
+ordinary pinch and the existing one-finger Contents double tap are preserved. This replaces the first version's
+sheet and persistent highlight. The unchanged lexical matcher, original download and encrypted store stay on device.
+
+**18 distinct focused checks are verified per iPhone/iPad Simulator**, including two-touch input, touch-specific
+pages, PDF pan/pinch, X/swipe return with unchanged reading position, iPad reading mode, rotation/large text,
+Reduce Motion, PDFKit crop/rotation geometry, scope and encrypted offline reopening. The final affected journey
+rerun passed both devices after correcting the tablet toolbar test's expected page; no application code changed.
+`npm test` passes all ten steps, including nine matcher tests, and Chromium capture checks pass at 390/1024 px.
+[Native report, exact runs and screenshots](reviews/PDF_PEEK_NATIVE_20261025.md).
+
+Merged locally; not deployed or released to TestFlight. Preserved patch and evidence:
+`/Users/benbowlwes/science-reader/.artifacts/pdf-peek-complete/`. Physical phone work remains paused. Existing
+converter-provenance selection/equation menu actions remain intact. [Architecture](architecture/READER_PDF_PEEK.md).
+The HTML-first cutover is already verified below; the handoff's older pending-cutover statement is obsolete.
+
 ## After TestFlight 93 — 2026-10-25: adding rows keep their height without Progress; the double-tap journey; For you without headings (built, not in a build)
 
 - **Library table, Progress column hidden** (JUDGMENT_LOG 17, 27): an import's spinner (regular, 20 pt) and one word
