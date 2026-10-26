@@ -8,6 +8,24 @@ kit** (`/home/ben/mathpix/docs/DEVICE_ROUTE_SPEC.md`, converter 0.1.0; layout `l
 implements it as an **experiment beside the arXiv HTML reader**, never in its place: the HTML reader stays the
 first-class path (owner direction, 2026-10-13), the PDF never leaves the device, and nothing here touches the server.
 
+## Complete inline spans — 2026-10-26 (port 17, locally verified)
+
+The locked inline model is now **v5a**, a small bidirectional GRU with 24 glyphs of neighboring-line context,
+twelve features and a development-calibrated **0.7** threshold. It replaces the original port-kit v4 tagger;
+layout and formula recogniser weights are unchanged. The [coverage review](../reviews/DEVICE_PDF_SPAN_COVERAGE_20261026.md)
+records the fixed labeled comparison, arXiv/publisher scores, table tradeoff and export precision limits.
+
+Context comes only from the same layout region; table-cell lines remain independent. A long line uses bounded
+400-glyph windows with adjacent context and its original geometry. Every own glyph contributes exactly one logit;
+context logits are discarded, and spans form after stitching, so neither a line tail nor a crossing equation is
+silently cut. The Swift host checks ten-feature v4 / twelve-feature v5 vocabulary compatibility against the model.
+Invalid tagger output (wrong length, non-finite or entirely zero) retries once, then fails explicitly.
+
+`scripts/device-models.mjs` pins the threshold in `device-models.lock.json` and the downloaded pack vocabulary.
+The actual v5a package digest and every generated pack file are verified. Existing downloaded readings are not
+migrated; the change applies when a reading is prepared or explicitly updated. The HTML-first route and all reader
+interactions remain intact. This is local Mac verification, not a TestFlight release or physical-phone measurement.
+
 ## Components
 
 | Piece | Where | What it does | Gate |

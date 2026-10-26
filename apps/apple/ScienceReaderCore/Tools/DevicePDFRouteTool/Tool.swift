@@ -78,6 +78,63 @@ struct Tool {
             try renderCrops(jobs: URL(fileURLWithPath: jobsPath))
             return
         }
+        // Actual Core ML outputs for offline parity checks and filling newly requested tagger windows in a replay.
+        // Inputs are the converter's unrounded TagLine values; no PDF is acquired or processed by a server.
+        if let inputsPath = option("--tag-inputs"), let modelsPath = option("--models"), let outPath = option("--out") {
+            guard #available(macOS 15.0, *) else { exit(2) }
+            struct TagInput: Decodable { let x: [Float]; let font: [Int32]; let cls: [Int32]; let char: [Int32] }
+            let inputs = try JSONDecoder().decode([TagInput].self, from: Data(contentsOf: URL(fileURLWithPath: inputsPath)))
+            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: modelsPath), taggerUnits: .cpuOnly)
+            let outputs = try inputs.map { try loaded.tag(x: $0.x, font: $0.font, cls: $0.cls, char: $0.char) }
+            let result: [String: Any] = ["logits": outputs, "features": loaded.taggerFeatures, "models": loaded.provenance]
+            try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]).write(to: URL(fileURLWithPath: outPath), options: .atomic)
+            print("tagged \(inputs.count) exact-length inputs with \(loaded.taggerFeatures) features")
+            return
+        }
+        // Fill only recogniser requests absent from a recorded conversion, using the same local raster and model.
+        // JSONL output preserves completed batches if a long corpus run is interrupted.
+        if let jobsPath = option("--recognise-crops"), let modelsPath = option("--models"), let outPath = option("--out") {
+            guard #available(macOS 15.0, *) else { exit(2) }
+            struct CropJob: Decodable { let id: String; let pdf: String; let page: Int; let rect: [Int] }
+            let jobs = try JSONDecoder().decode([CropJob].self, from: Data(contentsOf: URL(fileURLWithPath: jobsPath)))
+            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: modelsPath))
+            if let issue = loaded.recogniserIssue { throw DevicePDFModelError.unusable(issue) }
+            let c = loaded.configuration.recogniser
+            let outputURL = URL(fileURLWithPath: outPath)
+            guard !FileManager.default.fileExists(atPath: outPath) else { throw DevicePDFModelError.unusable("crop output already exists") }
+            FileManager.default.createFile(atPath: outPath, contents: nil)
+            let output = try FileHandle(forWritingTo: outputURL)
+            defer { try? output.close() }
+            func write(_ value: [String: Any]) throws {
+                var data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]); data.append(10)
+                try output.write(contentsOf: data)
+            }
+            try write(["models": loaded.provenance])
+            var documentPath = "", document: CGPDFDocument?, cachedKey = "", cachedPage: DevicePDFRaster.RGB?
+            for start in stride(from: 0, to: jobs.count, by: loaded.recogniserBatch) {
+                let group = Array(jobs[start..<min(jobs.count, start + loaded.recogniserBatch)])
+                let pixels = try group.map { job -> [Float] in
+                    if documentPath != job.pdf {
+                        documentPath = job.pdf
+                        document = CGPDFDocument(URL(fileURLWithPath: job.pdf) as CFURL)
+                    }
+                    let key = "\(job.pdf)#\(job.page)"
+                    if cachedKey != key {
+                        guard let page = document?.page(at: job.page + 1), let rendered = DevicePDFRaster.render(page, dpi: 150) else {
+                            throw DevicePDFModelError.unusable("crop page \(job.id)")
+                        }
+                        cachedPage = DevicePDFRaster.rgb(rendered); cachedKey = key
+                    }
+                    guard let image = cachedPage, job.rect.count == 4 else { throw DevicePDFModelError.unusable("crop rectangle") }
+                    return DevicePDFRaster.recogniserPixels(DevicePDFRaster.crop(image, job.rect, margin: 8), size: c.imageSize, mean: c.mean, std: c.std)
+                }
+                let recognised = try loaded.recognise(batch: pixels)
+                guard recognised.count == group.count else { throw DevicePDFModelError.unusable("crop answer count") }
+                for (job, answer) in zip(group, recognised) { try write(["id": job.id, "latex": answer.latex, "probs": answer.probabilities]) }
+                if start % 64 == 0 { print("recognised \(min(jobs.count, start + group.count))/\(jobs.count)") }
+            }
+            return
+        }
         // --dump-glyphs <page> <pdf>: that page's glyphs as the host reads them (text layer, or text recognition when the
         // layer is unreadable), one per line: text, x0, top, x1, bottom, size, font.
         if let pageText = option("--dump-glyphs"), let pdfPath = args.first, let index = Int(pageText) {
@@ -99,7 +156,7 @@ struct Tool {
             typealias Line = (x: [Float], font: [Int32], cls: [Int32], char: [Int32])
             var lines: [Line] = []
             for t in stride(from: 6, through: 160, by: 3) {
-                let x: [Float] = (0..<(t * 10)).map { i -> Float in Float(sin(Double(i + t) * 0.37)) }
+                let x: [Float] = (0..<(t * loaded.taggerFeatures)).map { i -> Float in Float(sin(Double(i + t) * 0.37)) }
                 let font: [Int32] = (0..<t).map { i -> Int32 in Int32(i % 7) }
                 let cls: [Int32] = (0..<t).map { i -> Int32 in Int32(i % 9) }
                 let char: [Int32] = (0..<t).map { i -> Int32 in Int32((i * 13) % 200) }

@@ -4,6 +4,21 @@ Last updated: 2026-10-26 UTC. Requirements below come from the current user conv
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Complete device-PDF inline spans (owner continuation, 2026-10-26; locally verified, not released)
+
+Evaluate the existing context-aware v5a tagger and repair the prototype's dropped long-line tails before model
+promotion. Require at least 10% fewer cut/split errors on identical complete labeled lines, no text-F1/inline-glyph
+regression on recorded arXiv and publisher comparisons, native model-output verification and correct model-pack
+identity. The [span review](reviews/DEVICE_PDF_SPAN_COVERAGE_20261026.md) records the contract and evidence.
+No server PDF processing, reader interaction change, migration, paid model call or physical-phone work is introduced.
+
+**Verified:** port 17 uses context-aware v5a with a development-selected 0.7 threshold and complete windows.
+Held-out cut/split errors fall 830 → 682 (17.8%); no input tails are omitted. All 93 recorded PDFs replay with
+complete real model answers; the 83 scorable arXiv/publisher papers improve inline glyph matches without text-F1
+regression. The small arXiv table-cell F1 decreases (0.1/0.3 percentage points) are documented. Actual Core ML outputs,
+pack hashes, fast checks and native checks pass; full Mac conversions with JIT disabled pass for arXiv and publisher
+PDFs. Invalid all-zero tagger buffers retry once, then fail explicitly. The model lock names the actual v5a package.
+
 ## Device PDF equation integrity (owner-directed quality task, 2026-10-26; locally verified, not released)
 
 After merging the full-screen PDF preview as standalone commit `09e71c2f`, audit the local PDF conversion models

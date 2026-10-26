@@ -11,7 +11,7 @@ import { readerAccents } from '../accents.ts';
 export const VERIFY_FLOOR = 0.5;
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell, type TableOptions } from './tables.ts';
-import { aliasFont, aliasText, fontFamily, spansOf, tagInput } from './tagger.ts';
+import { aliasFont, aliasText, fontFamily, spansOf, tagWindows } from './tagger.ts';
 import { mathRuns, mathStyle, transcribe } from './transcribe.ts';
 import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region,
@@ -270,9 +270,13 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       return cellCache.get(r)!;
     };
     const candidates: Glyph[][] = [];
+    const neighbours = new Map<Glyph[], [Glyph[] | null, Glyph[] | null]>();
+    const regionLines = (lines: Glyph[][]) => lines.forEach((l, i) => {
+      if (l.length >= 2) { candidates.push(l); neighbours.set(l, [lines[i - 1] ?? null, lines[i + 1] ?? null]); }
+    });
     for (const r of ordered) {
-      if (TAGGED.has(r.cls)) candidates.push(...linesFor(r).filter(l => l.length >= 2));
-      if (input.captionMath) for (const c of r.captions ?? []) candidates.push(...linesFor(c).filter(l => l.length >= 2));
+      if (TAGGED.has(r.cls)) regionLines(linesFor(r));
+      if (input.captionMath) for (const c of r.captions ?? []) regionLines(linesFor(c));
       if (r.cls === 'table') {
         const body = owned(r).filter(visible), cells = cellsFor(r);
         if (cells && cells.reduce((n, row) => n + row.reduce((m, [gl]) => m + gl.length, 0), 0) >= TABLE_PLACED * body.length) {
@@ -283,9 +287,16 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const spanCache = new Map<Glyph[], [number, number][]>();
     const unique = [...new Set(candidates)];
     if (unique.length) {
-      const logits = host.tag(unique.map(l => tagInput(l, input.tagger)));
-      check(Array.isArray(logits) && logits.length === unique.length, 'device_pdf_tagger');
-      unique.forEach((l, i) => spanCache.set(l, spansOf((logits[i] ?? []).map(Number), input.tagger.threshold)));
+      const windows = unique.flatMap((l, line) => tagWindows(l, input.tagger, ...(neighbours.get(l) ?? [null, null])).map(w => ({ ...w, line })));
+      const logits = host.tag(windows.map(w => w.input));
+      check(Array.isArray(logits) && logits.length === windows.length, 'device_pdf_tagger');
+      const stitched = unique.map(l => new Array<number>(l.length));
+      windows.forEach((w, i) => {
+        const values = logits[i];
+        check(Array.isArray(values) && values.length === w.input.font.length && values.every(v => Number.isFinite(Number(v))), 'device_pdf_tagger');
+        for (let j = w.from; j < w.to; j++) stitched[w.line][j] = Number(values[w.own[0] + j - w.from]);
+      });
+      unique.forEach((l, i) => spanCache.set(l, spansOf(stitched[i], input.tagger.threshold)));
     }
     const spansFor = (line: Glyph[]) => line.length < 2 ? [] : spanCache.get(line) ?? [];
 

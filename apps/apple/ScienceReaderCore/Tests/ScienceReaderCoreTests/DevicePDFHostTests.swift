@@ -9,6 +9,30 @@ import XCTest
 /// recogniser 20/20 on 2026-10-15).
 @available(macOS 15.0, iOS 18.0, *)
 final class DevicePDFHostTests: XCTestCase {
+    func testInvalidTaggerBuffersRetryOnceWithoutSilentlyRemovingMath() throws {
+        for invalid: [Float] in [[0, 0, 0], [-2, .nan, 3], [-2, .infinity, 3], [-2, 3]] {
+            var calls = 0
+            let recovered = try DevicePDFModels.readTaggerOutput(count: 3) { calls += 1; return calls == 1 ? invalid : [-2, 0, 3] }
+            XCTAssertEqual(recovered, [-2, 0, 3]); XCTAssertEqual(calls, 2)
+            calls = 0
+            XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: 3) { calls += 1; return invalid })
+            XCTAssertEqual(calls, 2, "persistent bad output fails after a bounded retry")
+        }
+        var calls = 0
+        _ = try DevicePDFModels.readTaggerOutput(count: 3) { calls += 1; return [-2, 0, 3] }
+        XCTAssertEqual(calls, 1, "valid outputs have no extra model call")
+    }
+
+    func testTaggerVocabularyMatchesTheLoadedModelShape() throws {
+        XCTAssertEqual(try DevicePDFModels.validateTaggerShape(modelWidth: 10, context: 0, maximum: 400), 10)
+        XCTAssertEqual(try DevicePDFModels.validateTaggerShape(modelWidth: 12, context: 24, maximum: 400), 12)
+        for (width, context, maximum) in [(10, 24, 400), (12, 0, 400), (14, 24, 400), (12, -1, 400), (12, 200, 400), (12, 24, 401), (10, 0, 1)] {
+            XCTAssertThrowsError(try DevicePDFModels.validateTaggerShape(modelWidth: width, context: context, maximum: maximum))
+        }
+        XCTAssertThrowsError(try DevicePDFModels.validateTaggerShape(modelWidth: nil, context: 0, maximum: 400))
+        XCTAssertThrowsError(try DevicePDFModels.validateTaggerShape(modelWidth: 10, context: 0, maximum: nil))
+    }
+
     func testPaddedRowsAreReadThroughTheirStrides() throws {
         // Core ML hands the layout's [30704, 11] scores back with strides [32, 1].
         var storage = [Float](repeating: -1, count: 3 * 4)

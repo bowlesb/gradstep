@@ -1,5 +1,19 @@
 # Implementation status
 
+## Complete device-PDF inline spans — 2026-10-26 (port 17 verified locally; not released)
+
+The context-aware v5a tagger is integrated with a development-selected 0.7 threshold, twelve input features and
+bounded windows that preserve every glyph. Held-out cut/split errors decrease **17.8% (830 → 682)**. Whole-equation
+inline glyph matches improve **91.4% → 93.3% / 91.8% → 92.7% / 81.5% → 84.5%** on the arXiv development/test and
+publisher comparisons; text F1 is unchanged or better. All 93 replays have complete model answers, including 700
+new recogniser crops evaluated on this Mac. Table-cell F1 declines 0.1/0.3 points on the arXiv sets and improves
+1.7 points on publishers; this remains a separate quality gap.
+
+The rebuilt pack records the actual v5a digest and threshold. The native host checks the model contract and retries
+invalid outputs once, preventing a zero buffer from silently removing math. Fast tests, native checks, and complete
+arXiv/publisher Mac conversions with JIT disabled pass. No client upload, deployment or physical-phone work.
+[Exact comparisons, model identity, visual examples and limits](reviews/DEVICE_PDF_SPAN_COVERAGE_20261026.md).
+
 ## Device PDF equation integrity — 2026-10-26 (port 16 verified locally; not released)
 
 Uncertain equations must preserve named mathematical operators and account for every unnamed PDF glyph before

@@ -51,6 +51,8 @@ public final class DevicePDFModels: @unchecked Sendable {
     let taggers: [MLModel]
     var tagger: MLModel { taggers[0] }
     public static let taggerInstances = 4
+    /// v4 has ten features; the context-aware model adds two flags. Validated against its own vocabulary on load.
+    public let taggerFeatures: Int
     /// The tagger (CPU) and the recogniser (GPU) never predict at the same time: under load, tagger predictions made
     /// while a recogniser prediction ran gave different logits for the same line, so the same PDF read differently
     /// (2026-10-21, docs/reviews/DEVICE_PDF_ROUTE_20261021.md). Held per tagged page and per recogniser call.
@@ -90,6 +92,11 @@ public final class DevicePDFModels: @unchecked Sendable {
         }
         layout = try load(configuration.layout.model, layoutUnits, "layout")
         taggers = try (0..<Self.taggerInstances).map { _ in try load(configuration.tagger.model, taggerUnits, "tagger") }
+        guard let vocabulary = try? Data(contentsOf: directory.appendingPathComponent(configuration.tagger.vocabulary)),
+              let tagger = (try? JSONSerialization.jsonObject(with: vocabulary)) as? [String: Any] else { throw DevicePDFModelError.missing(configuration.tagger.vocabulary) }
+        taggerFeatures = try Self.validateTaggerShape(modelWidth: taggers[0].modelDescription.inputDescriptionsByName["x"]?.multiArrayConstraint?.shape.last?.intValue,
+                                                     context: tagger["context"] as? Int ?? 0, maximum: tagger["max_len"] as? Int)
+        taggerVocabulary = tagger
         // The stateful decoder does not load everywhere (the Neural Engine on the Mac; the iOS Simulator): the asked
         // units first, then the CPU alone, then none.
         var loaded: (MLModel, MLModel)?, issue: String?
@@ -102,9 +109,6 @@ public final class DevicePDFModels: @unchecked Sendable {
         }
         encoder = loaded?.0; decoder = loaded?.1; recogniserIssue = issue
         loadSeconds = seconds
-        guard let vocabulary = try? Data(contentsOf: directory.appendingPathComponent(configuration.tagger.vocabulary)),
-              let tagger = try? JSONSerialization.jsonObject(with: vocabulary) else { throw DevicePDFModelError.missing(configuration.tagger.vocabulary) }
-        taggerVocabulary = tagger
         tokenizer = try DevicePDFTokenizer(vocabulary: directory.appendingPathComponent(configuration.recogniser.vocabulary),
                                            added: directory.appendingPathComponent(configuration.recogniser.addedTokens))
     }
@@ -174,11 +178,17 @@ public final class DevicePDFModels: @unchecked Sendable {
 
     // MARK: Inline tagger
 
+    static func validateTaggerShape(modelWidth: Int?, context: Int, maximum: Int?) throws -> Int {
+        guard let maximum, (2...400).contains(maximum), context >= 0, context <= (maximum - 2) / 2,
+              let width = modelWidth, width == (context > 0 ? 12 : 10) else { throw DevicePDFModelError.unusable("tagger vocabulary does not match model inputs") }
+        return width
+    }
+
     /// One line's features (computed by the converter) to one logit per glyph.
     public func tag(x: [Float], font: [Int32], cls: [Int32], char: [Int32], slot: Int = 0) throws -> [Float] {
         let t = font.count
-        guard t >= 2, t <= 400, x.count == t * 10, cls.count == t, char.count == t else { throw DevicePDFModelError.unusable("tagger input") }
-        let xs = try MLMultiArray(shape: [1, NSNumber(value: t), 10], dataType: .float32)
+        guard t >= 2, t <= 400, x.count == t * taggerFeatures, cls.count == t, char.count == t else { throw DevicePDFModelError.unusable("tagger input") }
+        let xs = try MLMultiArray(shape: [1, NSNumber(value: t), NSNumber(value: taggerFeatures)], dataType: .float32)
         x.withUnsafeBufferPointer { src in xs.withUnsafeMutableBytes { raw, _ in raw.copyMemory(from: UnsafeRawBufferPointer(src)) } }
         func ints(_ values: [Int32]) throws -> MLMultiArray {
             let array = try MLMultiArray(shape: [1, NSNumber(value: t)], dataType: .int32)
@@ -186,10 +196,21 @@ public final class DevicePDFModels: @unchecked Sendable {
             return array
         }
         let input = try MLDictionaryFeatureProvider(dictionary: ["x": xs, "font": try ints(font), "cls": try ints(cls), "char": try ints(char)])
-        guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { throw DevicePDFModelError.unusable("tagger output") }
-        let all = Self.floats(logits)
-        guard all.count >= t else { throw DevicePDFModelError.unusable("tagger output") }
-        return Array(all.prefix(t))
+        // A flexible-shape Core ML prediction can occasionally return an entirely zero buffer under load (observed
+        // on the Mac corpus). That silently classifies every glyph as prose. Retry once on this thread's own instance;
+        // another instance may be in use by a different tagging worker. Persistent invalid output is an explicit failure.
+        return try Self.readTaggerOutput(count: t) {
+            guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { return [] }
+            return Self.floats(logits)
+        }
+    }
+
+    static func readTaggerOutput(count: Int, prediction: () throws -> [Float]) throws -> [Float] {
+        for _ in 0..<2 {
+            let values = try prediction()
+            if values.count == count && values.allSatisfy(\.isFinite) && values.contains(where: { $0 != 0 }) { return values }
+        }
+        throw DevicePDFModelError.unusable("tagger output")
     }
 
     // MARK: Recogniser
