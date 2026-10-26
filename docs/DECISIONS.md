@@ -4,6 +4,19 @@ Last updated: 2026-10-26 UTC. Requirements below come from the current user conv
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Long PDF headers and footers (owner continuation, 2026-10-26; port 19 locally verified, not released)
+
+Remove at least 80% of the 76 frozen margin-text intrusions and all seven false Contents entries in eLife 88793,
+while retaining article content, reference order and PDF locations. Extend the existing short-line heuristic with
+repeated text at consistent outer-margin geometry; remove only matching glyphs after layout/ownership are fixed.
+
+**Verified:** 76 → 0 primary intrusions and 7 → 0 false headings. Across 99 PDFs / 2,699 pages, four papers lose
+109 verified intrusions and regain nine continuations; the other 95 readings are identical. Content, reference
+order, all 60,864 equation records, figure regions and text-to-PDF correspondence pass the strict gate. Seven
+focused tests, `npm test`, a fresh 22-page native conversion and no-JIT replay pass. No model or UI change.
+The [review](reviews/DEVICE_PDF_MARGIN_TEXT_20261026.md) records the rejected ordering side effect, model retry,
+source-pinned labels and limits. This is a targeted regression result, not general header-removal accuracy.
+
 ## Scientific-PDF reading continuity (owner-directed audit, 2026-10-26; locally verified, not released)
 
 Investigate non-equation reading failures, quantify them and independently improve one concrete product problem.

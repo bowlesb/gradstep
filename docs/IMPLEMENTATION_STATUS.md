@@ -1,5 +1,15 @@
 # Implementation status
 
+## Repeated PDF margin text — 2026-10-26 (port 19 verified locally; not released)
+
+Long repeated headers/footers now require consistent outer-margin geometry, spacing and typography. Only their
+glyphs are removed, after layout order/ownership; body copies and mixed-region body text stay. The fixed eLife
+case improves **76 → 0** intrusions and **7 → 0** false Contents entries. Across 99 PDFs / 2,699 pages, four papers
+lose 109 verified intrusions and regain nine continuations; 95 readings remain identical. Article text, reference
+order, equation/figure content and PDF locations pass the content gate. Seven focused tests, the fast gate, actual
+22-page Core ML conversion and no-JIT replay pass. No model, UI, migration, release or service change.
+[Measurement, source labels and limits](reviews/DEVICE_PDF_MARGIN_TEXT_20261026.md).
+
 ## Scientific-PDF paragraph continuity — 2026-10-26 (port 18 verified locally; not released)
 
 The on-device converter retains unfinished paragraphs across adjacent pages while rejecting uncertain prose,

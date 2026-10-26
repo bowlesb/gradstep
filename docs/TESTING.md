@@ -1,5 +1,16 @@
 # Fast and slow tests
 
+## Long PDF headers/footers — October 26, port 19
+
+`npm test` includes seven cases in `tests/backend/device-pdf-margin.test.ts`. They protect body copies, changing
+numbers, close body lines, tables/figures, rotated/OCR text, typography/position variation and mixed-region PDF
+locations. Slow: `audit_margins.mjs RECORDS OUTPUT.json` proposes physical lines; inspect the source PDFs.
+`check_margins.py BEFORE AFTER tests/fixtures/device-pdf/margin-corpus.json SPLIT OUTPUT.json` gates the four
+PDF-reviewed cases (`bio`, `dev`, `test`, `venue`), rejecting any unreviewed change in other papers. Every remaining
+paragraph must be conserved, references retain order, and each source region must belong to its original text.
+Use complete actual-model records, then native full conversion and no-JIT replay of the new native record.
+The [99-PDF review](reviews/DEVICE_PDF_MARGIN_TEXT_20261026.md) records results, negative controls and limitations.
+
 ## Device-PDF paragraph continuity — October 26, port 18
 
 `npm test` includes the twelve cases in `tests/backend/device-pdf-continuity.test.ts`: adjacent page joins and

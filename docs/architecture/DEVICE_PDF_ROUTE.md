@@ -28,6 +28,14 @@ interactions remain intact. This is local Mac verification, not a TestFlight rel
 
 ## Components
 
+Long running margin text is additionally handled in port 19 (2026-10-26, locally verified). Unlike the legacy
+eight-word rule, it requires matching outer-edge geometry, font and separating space on three distinct pages;
+only explicit page counters vary. It returns per-page glyph sets and filters them after layout/ownership are
+established, avoiding changes to overlapping bibliography order. Figure/table/caption/display/listing regions,
+OCR and rotated text abstain. Mixed regions retain body text and its narrowed source box. The
+[margin-text review](../reviews/DEVICE_PDF_MARGIN_TEXT_20261026.md) records the 76 → 0 primary result, 99-PDF
+conservation gate and native verification. Model weights, acquisition and reader interactions are unchanged.
+
 | Piece | Where | What it does | Gate |
 |---|---|---|---|
 | Signals host (Swift) | `ScienceReaderCore/DevicePDF/` | Opens the PDF (PDFKit), renders pages (150 dpi for layout and recogniser crops, 216 dpi for formula images), reads the text layer as glyphs, runs the three Core ML models, decodes the layout's boxes (per-class thresholds, NMS 0.6, best 300) and the recogniser's tokens (byte-level BPE with the tokenizer's space clean-up), cuts and encodes crops | `swift test` on macOS: decode, tokenizer, crop geometry; the CLI below |

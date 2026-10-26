@@ -9,7 +9,7 @@ import { readerAccents } from '../accents.ts';
 
 /** verifyGlyphs: the lowest confidence a recognition whose glyphs the PDF's text layer confirms is typeset at. */
 export const VERIFY_FLOOR = 0.5;
-import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
+import { furniture, isFrontMatter, isFurniture, longMarginGlyphs, marginGlyphLines, structure, venueNotice } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell, type TableOptions } from './tables.ts';
 import { aliasFont, aliasText, fontFamily, spansOf, tagWindows } from './tagger.ts';
 import { mathRuns, mathStyle, transcribe } from './transcribe.ts';
@@ -111,6 +111,9 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   // Pages the host read by text recognition (its text layer missing or unreadable; DevicePDFOCR.swift).
   const recognisedPages = pages.filter(page => page.glyphs.length && page.glyphs.every(g => g.font === OCR_FONT)).length;
   const s = DPI / 72;
+  const longHeads = longMarginGlyphs(pages.map(page => ({ ...page, protected: page.detections
+    .filter(d => ['figure', 'table', 'caption', 'display', 'listing'].includes(d.cls))
+    .map(d => d.box.map(v => v / page.scale / s) as Box) })));
   const blocks: LogicalBlock[] = [];
   const formulas = new Map<string, Formula>();
   const committed: string[] = [];
@@ -281,6 +284,12 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     let owner = growLines(glyphs, assign(glyphs, readers));
     if (input.lineOwners) owner = lineOwners(glyphs, owner);
     for (const r of ordered) if (r.cls === 'authors') { const parts = new Set(r.parts); owner = owner.map(o => o && parts.has(o) ? r : o); }
+    // Establish layout order and ownership first. Removing a running line before orphan-region
+    // construction can reorder overlapping bibliography boxes. Only its text is removed here.
+    if (longHeads[p].size) {
+      const retained = glyphs.map((g, i) => longHeads[p].has(g) ? -1 : i).filter(i => i >= 0);
+      glyphs = retained.map(i => glyphs[i]); owner = retained.map(i => owner[i]);
+    }
     nGlyphs += glyphs.length; nUnowned += owner.filter(o => o === null).length;
     const owned = (r: Region) => glyphs.filter((_, i) => owner[i] === r);
 

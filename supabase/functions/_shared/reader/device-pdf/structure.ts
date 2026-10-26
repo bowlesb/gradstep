@@ -1,7 +1,7 @@
 // Page structure, ported from the reference: running heads and feet, first-page front matter, reading order by
 // column rules (eval/reading_order.py), the author block, captions attached to floats, floats placed in the flow.
-import { centreIn, lineText, linesOf, visible } from './geometry.ts';
-import { FLOWISH, MARGIN, type Glyph, type Region } from './types.ts';
+import { centreIn, lineText, linesOf, median, union, visible } from './geometry.ts';
+import { FLOWISH, MARGIN, type Box, type Glyph, type Region } from './types.ts';
 
 const DIGITS = /\p{Nd}+/gu;
 const words = (text: string) => text.split(/\s+/).filter(Boolean);
@@ -31,6 +31,49 @@ export function furniture(pages: readonly { glyphs: Glyph[]; height: number }[])
   });
   const out = new Set<string>();
   if (pages.length >= 3) for (const [text, ps] of seen) if (ps.size >= 3) out.add(text);
+  return out;
+}
+
+/** Long running lines (including left/right headers on one baseline) need stronger evidence than
+ * the legacy short-line rule. Return the matching glyphs, never a document-wide text blacklist. */
+export function longMarginGlyphs(pages: readonly { glyphs: Glyph[]; height: number; protected: readonly Box[] }[]): Set<Glyph>[] {
+  const out = pages.map(() => new Set<Glyph>());
+  type Candidate = { page: number; glyphs: Glyph[]; box: Box; size: number; height: number; fonts: string };
+  const groups = new Map<string, Candidate[][]>();
+  pages.forEach((page, p) => {
+    const shown = page.glyphs.filter(visible);
+    const body = median(shown.filter(g => g.top >= MARGIN * page.height && g.bottom <= (1 - MARGIN) * page.height).map(g => g.size));
+    const lines = linesOf(shown).map(glyphs => ({ glyphs, box: union(glyphs) }));
+    for (const { glyphs, box } of lines) {
+      const top = box[3] <= 0.06 * page.height, bottom = box[1] >= 0.94 * page.height;
+      if (!top && !bottom) continue;
+      if (glyphs.some(g => !g.upright || g.font === 'GradstepOCR' || page.protected.some(b => centreIn(g, b)))) continue;
+      const text = lineText(glyphs, [])[0];
+      if (words(text.replace(DIGITS, '')).length <= 8) continue;
+      const size = median(glyphs.map(g => g.size));
+      if (!(size > 0 && body > 0) || size > 1.05 * body) continue;
+      // A body/table line close to the edge is not a running header. Require a separating gap
+      // from the nearest inward line that overlaps it horizontally.
+      const inward = lines.filter(l => Math.min(box[2], l.box[2]) > Math.max(box[0], l.box[0]) &&
+        (top ? l.box[1] >= box[3] : l.box[3] <= box[1]));
+      const gap = Math.min(...inward.map(l => top ? l.box[1] - box[3] : box[1] - l.box[3]));
+      if (!Number.isFinite(gap) || gap < 0.75 * size) continue;
+      // Only an explicit trailing "n of m" / "n / m" counter may vary. Bare numbers, measurements
+      // and dates remain literal; a coincidentally repeated sentence must not erase different results.
+      const key = `${top ? 'top' : 'bottom'}:${text.replace(/\s+\p{Nd}+\s*(?:of|\/)\s*\p{Nd}+\s*$/u, ' #').replace(/\s+/g, ' ').trim()}`;
+      const fonts = [...new Set(glyphs.map(g => g.font.replace(/^[A-Z]{6}\+/, '')))].sort().join('|');
+      const candidate = { page: p, glyphs, box, size, height: page.height, fonts };
+      const clusters = groups.get(key) ?? [];
+      const cluster = clusters.find(([first]) => first.fonts === fonts && Math.abs(first.height - page.height) <= 1 &&
+        Math.abs(first.size - size) <= 0.05 * size && box.every((v, i) => Math.abs(v - first.box[i]) <= 2));
+      if (cluster) cluster.push(candidate); else clusters.push([candidate]);
+      groups.set(key, clusters);
+    }
+  });
+  for (const clusters of groups.values()) for (const cluster of clusters) {
+    if (new Set(cluster.map(c => c.page)).size < 3) continue;
+    for (const c of cluster) for (const g of c.glyphs) out[c.page].add(g);
+  }
   return out;
 }
 

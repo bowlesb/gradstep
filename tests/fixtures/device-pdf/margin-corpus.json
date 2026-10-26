@@ -1,0 +1,2167 @@
+{
+ "format": "device-pdf-margin-corpus-v1",
+ "baseline_commit": "b544eb71",
+ "paper": "elife-88793",
+ "pdf_sha256": "fa8c1ad510f1b3f4fdbea1b073ffbe2870fdec01b4ea561870381c3f6933823a",
+ "patterns": {
+  "article_type": "Research article",
+  "subject_header": "Computational and Systems Biology\\s*\\|\\s*Evolutionary Biology",
+  "citation_footer": "Ben Nissan, Milshtein et al\\. eLife 2023;13:RP88793\\. DOI: https://doi\\.org/10\\.7554/eLife\\.88793",
+  "page_counter": "^\\d+ of 22$"
+ },
+ "labels": [
+  {
+   "block": "b-2ce6475e9ea6-25",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     0,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-26",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     1,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-27",
+   "kind": "heading",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     1,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-36",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     1,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-37",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     2,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-39",
+   "kind": "paragraph",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     2,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-42",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     2,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-43",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     3,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-44",
+   "kind": "heading",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     3,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-54",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     3,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-55",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     4,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-56",
+   "kind": "heading",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     4,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-69",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     4,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-71",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     5,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-82",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     6,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-84",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     7,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-85",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     8,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-86",
+   "kind": "paragraph",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     8,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-96",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     8,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-103",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     9,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-104",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     10,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-105",
+   "kind": "paragraph",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     10,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ],
+    [
+     10,
+     168.5,
+     54.1,
+     575,
+     87.1
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-115",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     10,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-120",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     11,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-121",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     12,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-123",
+   "kind": "paragraph",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     12,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-131",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     12,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-132",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     13,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-133",
+   "kind": "heading",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     13,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-142",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     13,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-143",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     14,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-144",
+   "kind": "heading",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     14,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-156",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     14,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-157",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     15,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-158",
+   "kind": "heading",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     15,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-170",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     15,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-171",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     16,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-173",
+   "kind": "paragraph",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     16,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-183",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     16,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-184",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     17,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-185",
+   "kind": "heading",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     17,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-197",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     17,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-198",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     18,
+     77.9,
+     37,
+     135,
+     45
+    ],
+    [
+     18,
+     168.5,
+     201.4,
+     322.4,
+     209.4
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-200",
+   "kind": "paragraph",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     18,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-207",
+   "kind": "paragraph",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     18,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-208",
+   "kind": "paragraph",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     19,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-211",
+   "kind": "paragraph",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     19,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-233",
+   "kind": "list",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     19,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-234",
+   "kind": "list",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     20,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-235",
+   "kind": "list",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     20,
+     363.1,
+     36.9,
+     575,
+     44.9
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-260",
+   "kind": "list",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     20,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-261",
+   "kind": "list",
+   "family": "article_type",
+   "text": "Research article",
+   "offset": [
+    0,
+    16
+   ],
+   "places": [
+    [
+     21,
+     77.9,
+     37,
+     135,
+     45
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-262",
+   "kind": "list",
+   "family": "subject_header",
+   "text": "Computational and Systems Biology | Evolutionary Biology",
+   "offset": [
+    0,
+    56
+   ],
+   "places": [
+    [
+     21,
+     168.5,
+     36.9,
+     575,
+     382
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-275",
+   "kind": "list",
+   "family": "citation_footer",
+   "text": "Ben Nissan, Milshtein et al. eLife 2023;13:RP88793. DOI: https://doi.org/10.7554/eLife.88793",
+   "offset": [
+    0,
+    92
+   ],
+   "places": [
+    [
+     21,
+     37,
+     749,
+     374.1,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-24",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "1 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     0,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-35",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "2 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     1,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-41",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "3 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     2,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-53",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "4 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     3,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-66",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "5 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     4,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-74",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "6 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     5,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-80",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "7 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     6,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-83",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "8 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     7,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-98",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "9 of 22",
+   "offset": [
+    0,
+    7
+   ],
+   "places": [
+    [
+     8,
+     549.8,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-102",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "10 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     9,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-113",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "11 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     10,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-119",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "12 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     11,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-130",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "13 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     12,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-141",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "14 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     13,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-155",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "15 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     14,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-169",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "16 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     15,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-182",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "17 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     16,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-196",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "18 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     17,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-206",
+   "kind": "paragraph",
+   "family": "page_counter",
+   "text": "19 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     18,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-232",
+   "kind": "list",
+   "family": "page_counter",
+   "text": "20 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     19,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-259",
+   "kind": "list",
+   "family": "page_counter",
+   "text": "21 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     20,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  },
+  {
+   "block": "b-2ce6475e9ea6-274",
+   "kind": "list",
+   "family": "page_counter",
+   "text": "22 of 22",
+   "offset": [
+    0,
+    8
+   ],
+   "places": [
+    [
+     21,
+     545.3,
+     749,
+     575,
+     757
+    ]
+   ]
+  }
+ ],
+ "target_reduction": 0.8,
+ "false_headings_target": 0,
+ "split": "bio",
+ "regression_papers": [
+  {
+   "paper": "2610.27142v1",
+   "split": "dev",
+   "pdf_sha256": "3d714c69328cfcad000a54816571adee3f34cf68496cc02bc3b113bb0a8a4ebf",
+   "labels": [
+    {
+     "block": "b-0db074cd427e-16",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Preprint ICLHerd: Herding-Based Data Selection for LLMs with In-Context Learning as a Proxy",
+     "offset": [
+      0,
+      91
+     ],
+     "places": [
+      [
+       2,
+       85,
+       35.9,
+       478.5,
+       44.9
+      ],
+      [
+       2,
+       85,
+       73.7,
+       528.2,
+       143.4
+      ]
+     ]
+    },
+    {
+     "block": "b-0db074cd427e-40",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Preprint ICLHerd: Herding-Based Data Selection for LLMs with In-Context Learning as a Proxy",
+     "offset": [
+      0,
+      91
+     ],
+     "places": [
+      [
+       4,
+       85,
+       35.9,
+       478.5,
+       44.9
+      ]
+     ]
+    },
+    {
+     "block": "b-0db074cd427e-74",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Preprint ICLHerd: Herding-Based Data Selection for LLMs with In-Context Learning as a Proxy",
+     "offset": [
+      0,
+      91
+     ],
+     "places": [
+      [
+       6,
+       85,
+       35.9,
+       478.5,
+       44.9
+      ]
+     ]
+    },
+    {
+     "block": "b-0db074cd427e-91",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Preprint ICLHerd: Herding-Based Data Selection for LLMs with In-Context Learning as a Proxy",
+     "offset": [
+      0,
+      91
+     ],
+     "places": [
+      [
+       8,
+       85,
+       35.9,
+       478.5,
+       44.9
+      ],
+      [
+       8,
+       85,
+       374.5,
+       528.7,
+       432.3
+      ]
+     ]
+    },
+    {
+     "block": "b-0db074cd427e-105",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Preprint ICLHerd: Herding-Based Data Selection for LLMs with In-Context Learning as a Proxy",
+     "offset": [
+      0,
+      91
+     ],
+     "places": [
+      [
+       10,
+       85,
+       35.9,
+       478.5,
+       44.9
+      ],
+      [
+       10,
+       85,
+       73.7,
+       528.2,
+       95.6
+      ]
+     ]
+    },
+    {
+     "block": "b-0db074cd427e-139",
+     "kind": "list",
+     "family": "running_margin",
+     "text": "Preprint ICLHerd: Herding-Based Data Selection for LLMs with In-Context Learning as a Proxy",
+     "offset": [
+      0,
+      91
+     ],
+     "places": [
+      [
+       12,
+       85,
+       35.9,
+       478.5,
+       44.9
+      ]
+     ]
+    },
+    {
+     "block": "b-0db074cd427e-161",
+     "kind": "list",
+     "family": "running_margin",
+     "text": "Preprint ICLHerd: Herding-Based Data Selection for LLMs with In-Context Learning as a Proxy",
+     "offset": [
+      0,
+      91
+     ],
+     "places": [
+      [
+       14,
+       85,
+       35.9,
+       478.5,
+       44.9
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "paper": "2610.26832v1",
+   "split": "test",
+   "pdf_sha256": "f8014df534bb2d5aea2527a58dc0a803b505fd65c2987dac6d3406a6df9d94e3",
+   "labels": [
+    {
+     "block": "b-f2a80b870028-29",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       1,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-30",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 2 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       1,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-43",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       2,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-44",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 3 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       2,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-63",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       3,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-64",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 4 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       3,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-86",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       4,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ],
+      [
+       4,
+       486.3,
+       664.4,
+       505.4,
+       674.4
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-87",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 5 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       4,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-111",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       5,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-112",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 6 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       5,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-128",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       6,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-129",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 7 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       6,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-147",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       7,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-148",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 8 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       7,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-160",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       8,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-161",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 9 of 13",
+     "offset": [
+      0,
+      12
+     ],
+     "places": [
+      [
+       8,
+       456.2,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-177",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       9,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-178",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 10 of 13",
+     "offset": [
+      0,
+      13
+     ],
+     "places": [
+      [
+       9,
+       451.6,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-190",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       10,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-189",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 11 of 13",
+     "offset": [
+      0,
+      13
+     ],
+     "places": [
+      [
+       10,
+       451.6,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-206",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "J. Liu and I.O. Shevchenko: Preprint submitted to Elsevier",
+     "offset": [
+      0,
+      58
+     ],
+     "places": [
+      [
+       11,
+       38.8,
+       704.5,
+       257.9,
+       713.6
+      ]
+     ]
+    },
+    {
+     "block": "b-f2a80b870028-207",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Page 12 of 13",
+     "offset": [
+      0,
+      13
+     ],
+     "places": [
+      [
+       11,
+       451.6,
+       704.5,
+       505.4,
+       713.5
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "paper": "2610.28350v1",
+   "split": "test",
+   "pdf_sha256": "859769a94197b7eff63ab66cad4c91c993767d3331cdaf4244c85ddf7fd6b2cc",
+   "labels": [
+    {
+     "block": "b-167b3f877ee9-17",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Accepted to Symposium on Model Accountability, Sustainability and Healthcare 2026",
+     "offset": [
+      0,
+      81
+     ],
+     "places": [
+      [
+       1,
+       108,
+       27.6,
+       452.7,
+       37.5
+      ],
+      [
+       1,
+       108,
+       53.1,
+       504,
+       84.9
+      ]
+     ]
+    },
+    {
+     "block": "b-167b3f877ee9-34",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Accepted to Symposium on Model Accountability, Sustainability and Healthcare 2026",
+     "offset": [
+      0,
+      81
+     ],
+     "places": [
+      [
+       2,
+       108,
+       27.6,
+       452.7,
+       37.5
+      ]
+     ]
+    },
+    {
+     "block": "b-167b3f877ee9-44",
+     "kind": "paragraph",
+     "family": "running_margin",
+     "text": "Accepted to Symposium on Model Accountability, Sustainability and Healthcare 2026",
+     "offset": [
+      0,
+      81
+     ],
+     "places": [
+      [
+       3,
+       108,
+       27.6,
+       452.7,
+       37.5
+      ],
+      [
+       3,
+       108,
+       179.5,
+       504,
+       222.6
+      ]
+     ]
+    },
+    {
+     "block": "b-167b3f877ee9-52",
+     "kind": "list",
+     "family": "running_margin",
+     "text": "Accepted to Symposium on Model Accountability, Sustainability and Healthcare 2026",
+     "offset": [
+      0,
+      81
+     ],
+     "places": [
+      [
+       4,
+       108,
+       27.6,
+       452.7,
+       37.5
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}
