@@ -4,6 +4,23 @@ Last updated: 2026-10-26 UTC. Requirements below come from the current user conv
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Device PDF equation integrity (owner-directed quality task, 2026-10-26; locally verified, not released)
+
+After merging the full-screen PDF preview as standalone commit `09e71c2f`, audit the local PDF conversion models
+and address a measurable product failure. Selected goal: prevent uncertain equations with demonstrably missing
+or changed mathematical operators from being typeset through glyph verification; keep their original crop and
+retain at least 98% of currently typeset equations in each recorded arXiv development/test and publisher corpus.
+The [quality review](reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md) records the other gaps, evidence and limits.
+This is converter verification work first; model training is justified only if the failure needs it. No service,
+paid usage, model promotion, deployment or physical-phone testing is introduced.
+
+**Verified:** port 16 checks operators/radicals and accounts for every unnamed glyph. Across 93 recorded PDFs,
+333 equations switch to their original crop; 99.64% / 99.53% / 98.90% of previously typeset equations remain
+typeset in development/test/publisher corpora. No new promotions or changed text, identities or PDF regions.
+Two real omitted-integral cases and the full bundle fallback are regression-tested. Their source regions remain
+partial: this is an acceptance-gate repair, not complete formula reconstruction or a general accuracy claim.
+`npm test` and Apple JavaScriptCore replay pass. The model pack and release remain unchanged.
+
 ## Visible reading position to a local PDF (owner requests and desktop handoff, 2026-10-25; Simulator-verified, not released)
 
 The owner asked for a full-screen original PDF at the reader's current area, then specified **one simultaneous

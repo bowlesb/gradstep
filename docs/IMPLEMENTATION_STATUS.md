@@ -1,5 +1,18 @@
 # Implementation status
 
+## Device PDF equation integrity — 2026-10-26 (port 16 verified locally; not released)
+
+Uncertain equations must preserve named mathematical operators and account for every unnamed PDF glyph before
+being typeset. Otherwise the reader uses the original crop. Two real missing-integral cases are covered by
+regressions; their underlying spans remain partial. The separate quality change follows PDF preview commit
+`09e71c2f`. Model weights and client releases are unchanged.
+
+Replaying 93 PDFs / 2,532 pages preserves 99.64% / 99.53% / 98.90% of previously typeset equations across arXiv
+development/test and publisher corpora: 333 new crop fallbacks, zero new promotions, zero missing model answers,
+unchanged block text, identities and source regions. These are retention figures, not general math accuracy.
+`npm test`, 28 focused tests and Apple JavaScriptCore replay with JIT disabled pass. Physical phone work stays paused.
+[Product gaps, exact evidence and limitations](reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md).
+
 ## Reader-position PDF — 2026-10-25 PDT (full-screen/two-finger audit verified; not released)
 
 Merged into `main` as one standalone commit on 2026-10-26, from the audited work based on `a993d838`.

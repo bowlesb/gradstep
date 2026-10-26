@@ -1,0 +1,59 @@
+[
+  {
+    "paper": "2610.27022v1",
+    "pdfSHA256": "9a9ea9feb8bd70aa3aca429f1a3757d0b391ee93dbb944fe34648622be6f21cb",
+    "page": 18,
+    "id": "e-61c3e26839bd-687",
+    "box": [
+      171.31200000000007,
+      496.57295999999997,
+      231.65122056,
+      516.0517444
+    ],
+    "latex": "=(\\gamma\\sqrt{\\pi})^{-2\\varrho}",
+    "glyphs": [
+      "=",
+      "(",
+      "γ",
+      "√",
+      "π",
+      ")",
+      "−",
+      "2",
+      "ϱ",
+      "(cid:90)"
+    ],
+    "confidence": 0.71049,
+    "reason": "The PDF region ends with an integral sign; recognition omits it."
+  },
+  {
+    "paper": "2610.27022v1",
+    "pdfSHA256": "9a9ea9feb8bd70aa3aca429f1a3757d0b391ee93dbb944fe34648622be6f21cb",
+    "page": 23,
+    "id": "e-61c3e26839bd-942",
+    "box": [
+      184.906,
+      560.5569599999999,
+      272.31822056000004,
+      580.0347443999999
+    ],
+    "latex": "\\mathcal{R}(f)-\\mathcal{R}^{*}\\leq 8^{1-r}",
+    "glyphs": [
+      "R",
+      "(",
+      "f",
+      ")",
+      "−",
+      "R",
+      "∗",
+      "≤",
+      "8",
+      "1",
+      "−",
+      "r",
+      "(cid:90)"
+    ],
+    "confidence": 0.63437,
+    "reason": "The PDF region ends with an integral sign; recognition omits it."
+  }
+]

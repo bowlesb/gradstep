@@ -28,28 +28,87 @@ const ACCENTS: Record<string, string> = {
   '¨': '¨', '̈': '¨', '˚': '˚', '̊': '˚', 'ˇ': 'ˇ', '̌': 'ˇ', '˘': '˘', '̆': '˘', '´': '´', '́': '´', '`': '`', '̀': '`',
   '⃗': '→', '*': '∗', '∗': '∗', '-': '−',
 };
-/** The letters, digits, accents and plain operators a formula shows, letters and digits folded to their plain forms
- * (𝑥, 𝐱 and ℝ as x, x and R), sorted. Delimiters, which the text layer names inconsistently (a big one has no Unicode),
- * bars and spaces are left out. */
-function checkable(chars: readonly string[]): string {
+const SYMBOLS: Record<string, string> = {
+  '·': '⋅', '∙': '⋅', '⋯': '⋅⋅⋅', '◦': '∘', '\\': '∖',
+  '∬': '∫∫', '∭': '∫∫∫', '∛': '3√', '∜': '4√',
+};
+function characters(chars: readonly string[]): string[] {
   return chars.flatMap(c => [...c]).flatMap(c => ACCENTS[c] ? [ACCENTS[c]] : [...c.normalize('NFKC')])
-    .map(c => c === 'ı' ? 'i' : c === 'ȷ' ? 'j' : c === '-' ? '−' : c)
-    .filter(c => /[\p{L}\p{N}=+−,;<>≤≥×∗⋆′ˆ˜¯˙¨˚ˇ˘´`→]/u.test(c)).sort().join('');
+    .map(c => c === 'ı' ? 'i' : c === 'ȷ' ? 'j' : c === '-' ? '−' : c);
 }
-/** verifyGlyphs (2026-10-24, docs/reviews/DEVICE_PDF_WEAKNESSES_20261024.md): the recognised formula's letters and
- * digits are exactly the formula's glyphs on the page (the text layer names each one), as many of each, at least `min`
- * of them. Glyphs the text layer cannot name (`(cid:18)`, a big delimiter) and every operator, bar and space are left
- * out of both sides; what is compared is what a misreading most often changes. */
+/** Keep the original character-evidence requirement as well as the stronger symbol check. This change narrows
+ * promotions; equivalent encodings or newly counted multi-character glyphs must not admit previously refused math. */
+function characterEvidence(chars: readonly string[]): string {
+  return characters(chars).filter(c => /[\p{L}\p{N}=+−,;<>≤≥×∗⋆′ˆ˜¯˙¨˚ˇ˘´`→]/u.test(c)).sort().join('');
+}
+/** The letters, digits, accents and mathematical operators a formula shows, letters and digits folded to their plain forms
+ * (𝑥, 𝐱 and ℝ as x, x and R), sorted. Delimiters, which the text layer names inconsistently (a big one has no Unicode),
+ * bars and spaces are left out. Unnamed glyphs are accounted for separately. */
+function checkable(chars: readonly string[]): string {
+  return characters(chars)
+    .flatMap(c => [...(SYMBOLS[c] ?? (/\p{Sm}/u.test(c) ? c.normalize('NFD') : c))])
+    .filter(c => !/[|∣‖∥⟨⟩]/u.test(c) && /[\p{L}\p{N}\p{Sm},;′ˆ˜¯˙¨˚ˇ˘´`\u0338]/u.test(c)).sort().join('');
+}
+/** Count unmatched, balanced grouping delimiters in MathML. Negative or unbalanced counts are inconclusive. */
+function extraDelimiters(page: readonly string[], math: readonly string[]): number | null {
+  const counts = (chars: readonly string[]) => {
+    const out = new Map<string, number>();
+    for (const text of chars) for (const c of text.normalize('NFKC')) if ('()[]{}⟨⟩'.includes(c)) out.set(c, (out.get(c) ?? 0) + 1);
+    return out;
+  };
+  const before = counts(page), after = counts(math);
+  let accounted = 0;
+  for (const [left, right] of ['()', '[]', '{}', '⟨⟩']) {
+    const l = (after.get(left) ?? 0) - (before.get(left) ?? 0);
+    const r = (after.get(right) ?? 0) - (before.get(right) ?? 0);
+    if (l < 0 || l !== r) return null;
+    accounted += l + r;
+  }
+  return accounted;
+}
+/** The named characters must all survive. Only extra mathematical operators (never letters/digits/accents) may
+ * account for unnamed PDF symbols. This checks their count, not the identity of an unknown character. */
+function extraOperators(page: string, math: string): number | null {
+  const remaining = new Map<string, number>();
+  for (const c of math) remaining.set(c, (remaining.get(c) ?? 0) + 1);
+  for (const c of page) {
+    const count = remaining.get(c) ?? 0;
+    if (!count) return null;
+    remaining.set(c, count - 1);
+  }
+  let count = 0;
+  for (const [c, n] of remaining) {
+    if (n && !/[\p{Sm}\u0338]/u.test(c)) return null;
+    count += n;
+  }
+  return count;
+}
+/** verifyGlyphs: the recognised formula agrees with the PDF's named letters, digits, accents and operators, with
+ * at least `min` checked characters. Every unnamed glyph must be accounted for by an unmatched operator or balanced
+ * grouping delimiter in MathML. This catches an omitted integral without discarding correct large delimiters, but
+ * cannot prove an unnamed symbol's identity, script/fraction structure, delimiter shape or character order.
+ * See docs/reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md. */
 export function glyphsAgree(pageGlyphs: readonly string[], math: OutNode, min = 2): boolean {
-  const page = checkable(pageGlyphs.filter(t => [...t].length === 1));
-  if (page.length < min) return false;
+  if (pageGlyphs.some(t => /[\uFFFC\uFFFD]/u.test(t))) return false;
+  const opaque = (t: string) => /\(cid:|\p{Co}/u.test(t);
+  const unknown = pageGlyphs.filter(opaque);
+  const named = pageGlyphs.filter(t => !opaque(t));
+  const page = checkable(named);
+  const evidence = characterEvidence(pageGlyphs.filter(t => [...t].length === 1));
+  if (evidence.length < min) return false;
   const leaves: string[] = [];
   const visit = (n: OutNode | string, token: boolean) => {
     if (typeof n === 'string') { if (token) leaves.push(n); return; }
+    // MathML draws radicals structurally; they are not token leaves like + or ∫.
+    if (n.name === 'msqrt' || n.name === 'mroot') leaves.push('√');
     for (const c of n.children) visit(c, isMathToken(n.name));
   };
   visit(math, false);
-  return checkable(leaves) === page;
+  if (characterEvidence(leaves) !== evidence) return false;
+  const candidate = checkable(leaves);
+  if (!unknown.length) return candidate === page;
+  const operators = extraOperators(page, candidate), delimiters = extraDelimiters(named, leaves);
+  return operators !== null && delimiters !== null && operators + delimiters === unknown.length;
 }
 
 type Child = OutNode | string;

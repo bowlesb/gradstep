@@ -440,3 +440,16 @@ reading, scored against the reference) is unchanged. Replaying the 76 recorded m
 (`.artifacts/device-route/accuracy/*/record.json`) through this converter: 4 change, each moving Figure 1 of a venue
 paper (ACL 2024 long 42 and 233, EMNLP 2024 105, a NeurIPS 2024 paper) into its Introduction; none refused.
 `tests/backend/arxiv-float-placement.test.ts` covers the rule on model-reading blocks.
+
+## Equation symbol integrity — port revision 16, 2026-10-26 (locally verified, not released)
+
+`verifyGlyphs` now requires operator/radical agreement in addition to the original character-evidence check.
+Every unnamed glyph must be accounted for by an unmatched mathematical operator or balanced grouping delimiter
+in the recognized MathML. Inconclusive readings retain the original PDF crop. This checks symbol counts, not the
+identity of an unnamed glyph or two-dimensional formula structure. High-confidence recognitions keep their gate.
+No model weights, host contract, source geometry or equation identities change.
+
+The [quality review](../reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md) records the real missing-integral failures,
+product gaps and 93-PDF replay: 333 extra crops, zero new typeset promotions, 98.90–99.64% retention in each corpus,
+zero missing model answers and unchanged text/regions. `npm test` and JavaScriptCore replay with JIT disabled pass.
+The original crops can still be partial; fixing inline span coverage is the next model-quality task.

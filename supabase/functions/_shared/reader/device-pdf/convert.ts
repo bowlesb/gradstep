@@ -877,7 +877,7 @@ export function gate(reading: Reading): void {
     // A display's punctuation the recogniser could not see (displayPunctuation): after the formula, as LaTeXML sets it.
     if (f.trailing && f.latex && !f.transcribed && !/[.,;]\s*(\\end\{[a-z*]+\}\s*)?$/.test(f.latex)) f.latex = `${f.latex}${f.trailing}`;
     const confident = f.confidence >= (f.display ? reading.displayGate : GATE);
-    // verifyGlyphs: under the gate, a reading whose letters and digits are the page's own glyphs is typeset too.
+    // verifyGlyphs: under the gate, named PDF glyphs must confirm the reading, including its mathematical operators.
     const checkable = !confident && reading.verifyFloor !== null && !!f.glyphTexts && f.confidence >= reading.verifyFloor;
     if (f.latex && (confident || checkable)) {
       let math = renderMath(f.latex, f.display);

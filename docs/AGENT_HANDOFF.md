@@ -7,11 +7,17 @@ The completed worktree and branch are retired, with compact evidence preserved i
 and reachable through `.artifacts/pdf-peek-evidence`. The main desktop handoff remains in `.artifacts/pdf-peek-handoff/`.
 No deployment or TestFlight release occurred. Other tasks' worktrees and branches are outside this cleanup.
 
-Next owner request: inspect the on-device PDF **conversion** model and its product gaps, choose a concrete,
-measurable quality improvement, and implement/evaluate it in a fresh worktree. The route is documented in
-`docs/architecture/DEVICE_PDF_ROUTE.md`; the current model assets, converter and recorded weakness reports are local.
+**Follow-up quality task merged into local main as a separate commit:** converter port 16 prevents missing mathematical operators from
+being overlooked by low-confidence glyph verification. Two real dropped-integral cases now use the original
+PDF crop; the incomplete spans themselves remain a model/layout gap. The new check is a separate commit from
+`09e71c2f`. Across 93 recorded PDFs it retains 98.90–99.64% of previously typeset equations in each corpus,
+with 333 new crops and no new typeset promotions. Text, identities and PDF regions are unchanged.
+`npm test`, 28 focused tests and Apple JavaScriptCore replay (including JIT disabled) pass. No model weights or
+release changed. [Review and next concrete model experiment](reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md).
+Inputs, reports and visual evidence are preserved under the main checkout's `.artifacts/device-pdf-quality-20261026/`.
+The completed quality worktree and branch are retired after preserving that evidence.
 
-The owner's latest request is implemented: one simultaneous two-finger single tap opens a full-screen PDF at the
+The PDF preview request is implemented: one simultaneous two-finger single tap opens a full-screen PDF at the
 passage under the fingers, zooming for 350 ms with the figure explainer's violet outline immediately fading over
 one second. X or a top-row swipe returns to the unchanged reader. Native PDF pan/pinch remains; the existing
 one-finger double tap still opens Contents. The toolbar uses selection/viewport, which can differ from the last
