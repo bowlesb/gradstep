@@ -4,9 +4,13 @@
 [training/device_pdf/README.md](../training/device_pdf/README.md), the single current progress log and ranked backlog.
 It summarizes the older experiments so they need not be rediscovered. Core training is in this repo; GPU work uses
 `192.168.1.32:/home/ben/science-reader-training`, separate from the older dirty checkout. Port 20 removes 4,973 rejected
-transcription exposures on 101 recorded PDFs, with accepted formulas and PDF locations unchanged; native and fast
-checks pass. Model weights remain v5b-journal / layout-v5 / TexTeller-v4. Next priority is source-crop completeness,
-with a frozen denominator before changing geometry or training. Evidence is in `.artifacts/device-pdf-development`.
+transcription exposures; port 21 reduces confirmed neighboring-line intrusions **25→6** in 61 journal crops, with
+zero own-ink changes and all 60 cleaner controls passing. Both preserve recognition and source locations across
+101 recorded PDFs. Fresh native conversion verifies the actual images; one earlier opaque read-stage failure is
+logged as unresolved despite successful reruns. Model weights remain v5b-journal / layout-v5 / TexTeller-v4.
+Next priority is upstream span completeness on fresh reserved development families, not further tuning on these
+revealed journals. Evidence is in `.artifacts/device-pdf-development`; use `crops/scored` and `protection/final`,
+not superseded attempts. Do not repeat the known-negative layout/recognizer runs summarized in the log.
 Earlier dated reviews below remain historical evidence; do not create another competing current PDF handoff.
 
 **Earlier checkpoint, 2026-10-26: PDF preview merged as a standalone commit.** At the owner's request the two

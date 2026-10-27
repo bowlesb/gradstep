@@ -1,6 +1,6 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-27 UTC (2026-10-26 PDT). Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-27. Requirements below come from the current user conversation, not from TextBrain's product specification.
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
@@ -24,6 +24,14 @@ parity, exact journal predictions and an optimizer smoke pass. Port 20 removes *
 exposures on **101 PDFs / 2,721 pages**, preserving all **56,193 accepted formulas**, content, crop requests and PDF
 places. A fresh 11-page native conversion, fast gate and evaluation tests pass. The linked development log is the
 current handoff, including ranked next tasks and unsuccessful prior directions. No weights were promoted here.
+
+**Crop follow-up, port 21:** native upright inline formula images use a protected full-width line band to remove
+neighboring-line ink. Recognition crops, gates, text and PDF source regions stay unchanged. Composed accents,
+uncertain vertical bounds, displays, OCR and rotations retain legacy cleaning. On the fixed journal regression,
+25 confirmed intrusions fall to 6 (76% fewer), with zero own-line ink changes; 60 source-label preservation controls
+also pass. The 101-PDF conservation gate, fast tests, 16 Swift tests and fresh native conversion pass. One earlier
+native read-stage error was not reproduced and remains unresolved in the log. This is a local presentation repair,
+not clipping recovery, general model accuracy or a release. Continue from the same development entry point.
 
 ## Private Papers corpus model development (owner direction, 2026-10-26; locally verified, not released)
 

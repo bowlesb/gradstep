@@ -1,5 +1,20 @@
 # Fast and slow tests
 
+## Native inline crop cleanup — port 21
+
+Routine `npm test` includes the crop-band eligibility, detached-script, punctuation and composed-accent regressions
+in `device-pdf-crop-bounds.test.ts`. For cleaner changes, run `swift test -c release --filter
+DevicePDFFormulaCleanTests` (16 cases). The [development log](../training/device_pdf/README.md#reproducing-the-crop-regression)
+contains the three audit/scoring commands and canonical evidence: source-reviewed native crop pairs, source-label
+protection controls, and 101-PDF request/content conservation against **738515bc**. Synthetic replay pixels cannot
+measure crop quality; use the actual 216 dpi CoreGraphics outputs. Do not count a baseline-label disagreement as a
+fixed failure or silently drop gray/unaligned oracle controls. Keep the known-case scope separate from fresh accuracy.
+
+Final local evidence: fast gate, 16 Swift checks, zero replay misses, 61/61 baseline images reproduced exactly,
+60/60 preservation controls, no-JIT converter replay and complete native 11-page conversion. The latter's 54 image
+assets exactly match the native scorer; text and source locations match port 20. An earlier native read-stage
+failure remains unresolved; successful reruns are not a reliability benchmark. No physical-phone testing occurred.
+
 ## PDF training source and rejected transcriptions — port 20
 
 `npm test` includes `device-pdf-transcription.test.ts` and the expanded image-budget regression: rejected guesses

@@ -260,8 +260,16 @@ public final class DevicePDFRoute {
             let clean = request.objectForKeyedSubscript("clean")
             if let clean, clean.isObject, let em = clean.objectForKeyedSubscript("em")?.toNumber()?.doubleValue, em.isFinite, em > 0, em <= 1000,
                let margin = clean.objectForKeyedSubscript("margin")?.toNumber()?.intValue, (0...200).contains(margin) {
+                // The converter sends native-glyph content in absolute page pixels. Keep fractional boundaries;
+                // the cleaner validates them after translating into the requested crop's coordinate system.
+                let absolute = (clean.objectForKeyedSubscript("content")?.toArray() as? [NSNumber])?.map(\.doubleValue)
+                let content = absolute.flatMap { values -> [Double]? in
+                    guard values.count == 4 else { return nil }
+                    return [values[0] - Double(rect[0]), values[1] - Double(rect[1]),
+                            values[2] - Double(rect[0]), values[3] - Double(rect[1])]
+                }
                 let (png, placed) = timed("images", page: page) { () -> (Data, [Int]) in
-                    let cleaned = DevicePDFRaster.cleanFormula(DevicePDFRaster.crop(source, rect), em: em, margin: margin)
+                    let cleaned = DevicePDFRaster.cleanFormula(DevicePDFRaster.crop(source, rect), em: em, margin: margin, content: content)
                     return (DevicePDFRaster.png(cleaned.image), [rect[0] + cleaned.rect[0], rect[1] + cleaned.rect[1], rect[0] + cleaned.rect[2], rect[1] + cleaned.rect[3]])
                 }
                 return ["png": png.base64EncodedString(), "width": placed[2] - placed[0], "height": placed[3] - placed[1], "rect": placed] as [String: Any]

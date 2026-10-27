@@ -13,7 +13,7 @@ import { furniture, isFrontMatter, isFurniture, longMarginGlyphs, marginGlyphLin
 import { cellSpanOk, tableCells, type Cell, type TableOptions } from './tables.ts';
 import { aliasFont, aliasText, fontFamily, spansOf, tagWindows } from './tagger.ts';
 import { mathRuns, mathStyle, transcribe } from './transcribe.ts';
-import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
+import { BLOCK_TEXT_CHUNK, CROP_MARGIN, CROP_SCALE, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region,
   type TaggerVocabulary } from './types.ts';
 
@@ -101,7 +101,14 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   // The text layer and the layout of every page first: running heads are known only from the whole document.
   const pages: Page[] = [];
   for (let p = 0; p < nPages; p++) { cancelled(); pages.push(readPage(host.page(p), input.fontAliases ? input.tagger : undefined)); host.progress?.('layout', p + 1, nPages); }
-  if (input.accents) for (const page of pages) composeAccents(page.glyphs);
+  const composedAccentGlyphs = pages.map(page => {
+    if (!input.accents) return [];
+    const before = page.glyphs.slice();
+    composeAccents(page.glyphs);
+    // Composition replaces only the base and emptied accent. Retain both original boxes for image-hint safety;
+    // their text, geometry and subsequent reading stay exactly as composeAccents already produces them.
+    return page.glyphs.filter((g, i) => g !== before[i]);
+  });
   if (input.wordGaps) useWordGaps(typicalGap(pages));
   // compounds: the paper's own words decide whether a hyphen at a line's end is the word's or TeX's.
   const documentLines = pages.flatMap(page => linesOf(page.glyphs.filter(visible)).map(l => lineText(l, [])[0]));
@@ -201,12 +208,27 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     });
     refs = []; refPlaces = [];
   };
-  const makeFormula = (gl: Glyph[], page: number, display: boolean, fontSize: number, box?: Box): Formula => {
+  const makeFormula = (gl: Glyph[], page: number, display: boolean, fontSize: number, box?: Box, line?: Glyph[]): Formula => {
     const bx = box ?? union(gl);
     const shown = gl.filter(visible);
     const f: Formula = { id: equationID(), display, page, box: bx, fontSize: fontSize > 0 ? fontSize : 10,
       baseline: display ? undefined : Math.max(...shown.map(g => g.bottom)) - bx[1],
       glyphText: byX(gl).map(g => g.text).join(''), latex: '', confidence: 0, recognised: false, rendered: false };
+    if (!display && shown.length && shown.every(g => g.upright && g.font !== OCR_FONT)) {
+      // A tagger can miss a detached script/prime. Preserve the full crop width and every same-line glyph's
+      // vertical extent, even when it was not tagged. Only remove other-line ink, never same-line punctuation.
+      // If a protected glyph extends vertically past the crop, abstain to legacy cleaning.
+      const near = (line ?? gl).filter(g => visible(g) && g.x1 > bx[0] - 2 && g.x0 < bx[2] + 2 && g.bottom > bx[1] - 2 && g.top < bx[3] + 2);
+      const content = union([...shown, ...near]);
+      // An emptied accent can extend beyond its base or belong to another line. Check its original page box,
+      // including emit.ts's integer-pixel crop fringe, and abstain rather than delete ink omitted from the composed bounds.
+      const crop = [Math.trunc(Math.max(0, bx[0] - 2) * CROP_SCALE), Math.trunc(Math.max(0, bx[1] - 2) * CROP_SCALE),
+        Math.trunc((bx[2] + 2) * CROP_SCALE + 0.999), Math.trunc((bx[3] + 2) * CROP_SCALE + 0.999)];
+      const composedInCrop = composedAccentGlyphs[page].some(g => g.x1 * CROP_SCALE > crop[0] && g.x0 * CROP_SCALE < crop[2] &&
+        g.bottom * CROP_SCALE > crop[1] && g.top * CROP_SCALE < crop[3]);
+      if (!composedInCrop && content[1] >= Math.max(0, bx[1] - 2) && content[3] <= bx[3] + 2 &&
+        near.every(g => g.upright && g.font !== OCR_FONT)) f.imageContentBox = [Math.max(0, bx[0] - 2), content[1], bx[2] + 2, content[3]];
+    }
     // A simple inline formula is written from the text layer and never reaches the recogniser (transcribe.ts).
     const tex = !display && input.transcribe ? transcribe(gl, fontSize) : null;
     if (tex) Object.assign(f, { latex: tex, probs: [], recognised: true, confidence: 1, transcribed: true });
@@ -386,7 +408,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         let marked = text;
         const size = median(line.map(g => g.size));
         for (const gl of fl) {
-          const f = makeFormula(gl, p, false, size);
+          const f = makeFormula(gl, p, false, size, undefined, line);
           tagFormulas.push(f);
           marked = marked.replace(PLACEHOLDER, marker(f.id));
         }
@@ -476,7 +498,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         const [text, fl] = lineText(line, spans);
         let marked = text;
         const size = median(line.map(g => g.size));
-        for (const gl of fl) { const f = makeFormula(gl, pageIndex, false, size); capFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
+        for (const gl of fl) { const f = makeFormula(gl, pageIndex, false, size, undefined, line); capFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
         return marked;
       }))).filter(Boolean).join(' ') : undefined;
       const kind = r.cls === 'figure' ? 'figure' : 'table';
@@ -502,7 +524,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
                 texts.push(text);
                 let marked = text;
                 const size = median(line.map(g => g.size));
-                for (const fgl of fl) { const f = makeFormula(fgl, pageIndex, false, size); cellFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
+                for (const fgl of fl) { const f = makeFormula(fgl, pageIndex, false, size, undefined, line); cellFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
                 if (marked) parts.push(marked);
               }
               tds.push({ marked: parts.join(' '), span });

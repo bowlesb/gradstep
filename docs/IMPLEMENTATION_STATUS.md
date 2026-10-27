@@ -1,5 +1,19 @@
 # Implementation status
 
+## Inline PDF crop cleanup — 2026-10-27 (port 21; local, not released)
+
+Native upright inline fallback images preserve their own line while removing fragments above/below it. The fixed
+61-crop journal regression improves **25 confirmed contaminated crops → 6**, with own-line RGB unchanged; 60 controls
+across 24 existing papers preserve dark and gray own ink. This does not repair already-incomplete formula spans.
+Displays, OCR, rotations and uncertain/composed-accent crops retain legacy cleaning. Models and recognition stay fixed.
+
+All 101 recorded PDFs / 2,721 pages conserve recognition, reader content and PDF locations. Fast tests, 16 Swift
+tests and no-JIT replay pass. Fresh 11-page Core ML conversion produces 54 fallback images exactly matching the
+pixel audit, with unchanged reader index and source provenance (unique image count decreases through deduplication).
+One prior fresh read-stage conversion failed opaquely; diagnostic and unmodified reruns passed, but its cause is
+unresolved. Evidence, failed approaches, limitations and the next completeness task live in the
+[single development log](../training/device_pdf/README.md). No release or automatic regeneration of saved readings.
+
 ## Shared PDF training and trustworthy formula metadata — 2026-10-26/27 (port 20; local, not released)
 
 Core training for layout, equation recognition and inline tagging now lives in `training/device_pdf`, with existing

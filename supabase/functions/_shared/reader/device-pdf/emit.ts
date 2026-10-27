@@ -100,7 +100,8 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
       Math.trunc((b[2] + pad) * CROP_SCALE + 0.999), Math.trunc((b[3] + pad) * CROP_SCALE + 0.999)];
     if (rect[2] <= rect[0] || rect[3] <= rect[1]) continue;
     const em = (f.fontSize > 0 ? f.fontSize : 10) * CROP_SCALE;
-    const placed = fetchPlaced({ page: f.page, dpi: 72 * CROP_SCALE, rect, clean: { em: pyRound(em, 2), margin: Math.round(em * (f.display ? 0.25 : 0.12)) } });
+    const placed = fetchPlaced({ page: f.page, dpi: 72 * CROP_SCALE, rect, clean: { em: pyRound(em, 2), margin: Math.round(em * (f.display ? 0.25 : 0.12)),
+      ...(f.imageContentBox ? { content: f.imageContentBox.map(v => v * CROP_SCALE) as [number, number, number, number] } : {}) } });
     if (placed) formulaImages.set(id, placed);
   }
 

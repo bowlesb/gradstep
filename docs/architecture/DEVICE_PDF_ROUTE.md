@@ -171,7 +171,8 @@ host.tag(lines)   -> logits[][]   lines: [{ x: number[T*10], font: int[T], cls: 
 host.recognise(c) -> [{ latex, probs[] }]   c: [{ page, rect: [x0, y0, x1, y1] (150 dpi pixels, halo included) }]
                      the host pastes the crop on white with the 8 px margin, preprocesses, decodes greedily
 host.image(r)     -> { png (base64), width, height, rect? }   r: { page, dpi: 150 | 216, rect: [x0, y0, x1, y1] (pixels at dpi),
-                     clean?: { em, margin } (pixels at dpi; formula crops) }; with `clean` the host trims the crop (below)
+                     clean?: { em, margin, content?: [x0,y0,x1,y1] } (pixels at dpi; content absolute on page) };
+                     with `clean` the host trims the formula crop (below)
                      and returns where the image now sits, `rect`, in the same pixels
 host.progress(stage, done, total); host.cancelled() -> bool
 host.submit(c)    -> ticket   (optional, with collect; port revision 5) c as for recognise, each with display: bool;
@@ -207,6 +208,21 @@ size; inline height likewise, and its bottom as far below the formula's box as o
 a fraction, nothing to trim, a clipped formula, specks, a side sliver), `device-pdf.test.ts` (requests, sizing, a host
 whose rectangle disagrees). On Waypoint-OPD and Mamba (first 10 pages) every neighbour's tail went and every bar,
 script, root and equation number stayed; a cut word wider than 0.3 em at a side ("an|d B̄ = …") stays.
+
+**Native inline bands (port 21, 2026-10-27):** upright native inline crops may additionally send `clean.content`,
+the padded crop's full width and the union of visible formula/same-line neighboring glyphs' vertical bounds. This
+is presentation-only; recognition rectangles, original formula boxes and PDF provenance do not change. Include
+untagged same-line scripts/primes reaching the crop. Abstain if any protected glyph extends vertically outside it,
+uses OCR/rotation, or if an actually composed base/emptied accent intersects the crop (including pixel rounding).
+Displays retain legacy cleaning. Swift converts absolute content coordinates into crop coordinates and validates
+finite ordered in-crop bounds; invalid hints or hints protecting no ink use the legacy result.
+
+With a valid hint, retain whole intersecting components with one pixel of tolerance and remove disconnected foreign
+components. Small top/bottom edge tails (<0.45 em high) whose midpoint lies outside the band can also go: a preceding
+line's descender may overlap a loose font ascent box. Retained connected operators are never clipped to the hint;
+the existing antialias rim, margin and placement logic stay. Same-line punctuation remains deliberately protected.
+The [development log](../../training/device_pdf/README.md) records the fixed 25→6 other-line regression, zero own-ink
+loss, 60 cleaner controls, 101-PDF conservation, native verification and remaining upstream clipping limits.
 
 ## Output: this app's reader vocabulary, not the Python bundle's
 

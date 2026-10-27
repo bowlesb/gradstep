@@ -98,4 +98,100 @@ final class DevicePDFFormulaCleanTests: XCTestCase {
         let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin)
         XCTAssertEqual(cleaned.rect, [33 - margin, 24 - margin, 261 + margin, 56 + margin])
     }
+
+    /// Compare ink in original crop coordinates, so a smaller image or moved margin cannot hide lost symbols.
+    private func positions(_ rectangles: [[Int]], width: Int) -> Set<Int> {
+        Set(rectangles.flatMap { r in (r[1]..<r[3]).flatMap { y in (r[0]..<r[2]).map { x in y * width + x } } })
+    }
+
+    private func blackPositions(_ cleaned: DevicePDFRaster.CleanedCrop, width: Int) -> Set<Int> {
+        Set(dark(cleaned, below: 1).map { $0.1 * width + $0.0 })
+    }
+
+    func testNativeContentRemovesInteriorPunctuationAndNeighborFragments() {
+        // Neither foreign piece reaches the crop edge. The old pixel-only core inference keeps both.
+        let own = [[20, 20, 100, 40]], foreign = [[110, 24, 114, 29], [35, 4, 43, 10]]
+        let crop = canvas(120, 60, own, halo: foreign)
+        let legacy = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin)
+        XCTAssertTrue(blackPositions(legacy, width: 120).isSuperset(of: positions(foreign, width: 120)))
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [19, 19, 101, 41])
+        assertShape(cleaned)
+        XCTAssertEqual(blackPositions(cleaned, width: 120), positions(own, width: 120))
+        XCTAssertTrue(dark(cleaned).allSatisfy { (20..<100).contains($0.0) && (20..<40).contains($0.1) }, "foreign antialiasing is removed too")
+    }
+
+    func testNativeContentCanRemoveMoreForeignInkThanTheSmallStatisticContains() {
+        let own = [[50, 25, 60, 35]], foreign = [[10, 0, 110, 8]]
+        let crop = canvas(120, 60, own + foreign)
+        let legacy = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin)
+        XCTAssertEqual(blackPositions(legacy, width: 120).count, 900, "legacy quarter-ink safeguard keeps the neighboring line")
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [49, 24, 61, 36])
+        XCTAssertEqual(blackPositions(cleaned, width: 120), positions(own, width: 120), "ownership preserves the entire statistic while removing 800 foreign pixels")
+    }
+
+    func testNativeContentProtectsDisconnectedDotsPrimesScriptsFractionAndIntegralLimits() {
+        let own = [[70, 35, 150, 60], [40, 20, 60, 27], [35, 31, 65, 33], [40, 38, 60, 45],
+                   [15, 10, 20, 90], [10, 5, 25, 8], [10, 92, 25, 95],
+                   [90, 28, 92, 30], [110, 21, 112, 26], [130, 18, 140, 24]]
+        let crop = canvas(220, 110, own + [[180, 30, 190, 40]])
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [9, 4, 151, 96])
+        assertShape(cleaned)
+        XCTAssertEqual(blackPositions(cleaned, width: 220), positions(own, width: 220), "small detached mathematical marks are protected, not treated as specks")
+    }
+
+    func testProtectedComponentsStayWholeAcrossContentBoundsAndCropEdges() {
+        // A connected radical/bar extends above and left of the hint; a first glyph is clipped by the crop's edge.
+        let own = [[5, 15, 52, 18], [48, 15, 52, 40], [0, 25, 6, 45], [40, 35, 100, 50]]
+        let crop = canvas(130, 70, own + [[110, 25, 116, 40]])
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [3, 20, 101, 51])
+        XCTAssertEqual(blackPositions(cleaned, width: 130), positions(own, width: 130), "a component is never clipped to the content rectangle")
+        XCTAssertEqual(cleaned.rect[0], -margin, "ink already at the crop edge is retained")
+    }
+
+    func testContentUsesPixelToleranceAndKeepsProtectedAntialiasing() {
+        let own = [[30, 20, 60, 40]], rim = [[30, 20, 60, 40]]
+        let crop = canvas(100, 70, [], halo: rim + [[75, 20, 80, 40]])
+        // A subpixel bound just beyond the main ink still intersects the one-pixel protected tolerance.
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [60.5, 19, 70, 41])
+        XCTAssertEqual(blackPositions(cleaned, width: 100), positions(own, width: 100))
+        XCTAssertEqual(dark(cleaned).count, 32 * 22, "all protected one-pixel grey edges remain")
+    }
+
+    func testShortEdgeDescendersOverlappingLooseFontBoundsGoButOwnScriptsStay() {
+        // The neighboring line's g reaches inside a loose ascent box, but most of its clipped tail is outside.
+        // A detached superscript and prime wholly inside the band must remain, even though both are small.
+        let own = [[20, 17, 90, 38], [93, 8, 99, 13], [102, 7, 104, 11]]
+        let crop = canvas(120, 50, own, halo: [[30, 0, 36, 12], [45, 44, 50, 50]])
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [0, 6.6, 120, 44])
+        XCTAssertEqual(blackPositions(cleaned, width: 120), positions(own, width: 120))
+    }
+
+    func testNativeBandRetainsTallClippedOperatorsAndAnEdgeScriptWithItsMidpointInside() {
+        let own = [[10, 0, 15, 24], [20, 0, 25, 12], [40, 20, 90, 40]]
+        let crop = canvas(120, 50, own)
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [0, 5, 120, 41])
+        XCTAssertEqual(blackPositions(cleaned, width: 120), positions(own, width: 120))
+    }
+
+    func testMalformedOrOutOfCropContentKeepsTheExactLegacyResult() {
+        let crop = canvas(120, 60, [[20, 20, 100, 40], [50, 0, 55, 5]])
+        let legacy = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin)
+        let invalid: [[Double]] = [[], [1, 2, 3], [1, 2, 3, 4, 5], [.nan, 10, 100, 50],
+                                   [10, 10, .infinity, 50], [-1, 10, 100, 50], [10, -1, 100, 50],
+                                   [10, 10, 121, 50], [10, 10, 100, 61], [30, 10, 20, 50],
+                                   [10, 40, 100, 20], [10, 10, 10, 40], [10, 10, 100, 10]]
+        for content in invalid {
+            let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: content)
+            XCTAssertEqual(cleaned.rect, legacy.rect, "invalid content: \(content)")
+            XCTAssertEqual(cleaned.image.pixels, legacy.image.pixels, "invalid content: \(content)")
+        }
+    }
+
+    func testContentWithoutAnyProtectedInkAbstainsToLegacyCleaning() {
+        let crop = canvas(120, 60, [[20, 20, 100, 40], [50, 0, 55, 5]])
+        let legacy = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin)
+        let cleaned = DevicePDFRaster.cleanFormula(crop, em: em, margin: margin, content: [105, 45, 115, 55])
+        XCTAssertEqual(cleaned.rect, legacy.rect)
+        XCTAssertEqual(cleaned.image.pixels, legacy.image.pixels, "a misplaced hint cannot erase every component")
+    }
 }

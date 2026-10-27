@@ -65,6 +65,10 @@ struct Tool {
             let value = args[i + 1]; args.removeSubrange(i...(i + 1)); return value
         }
         func flag(_ name: String) -> Bool { if let i = args.firstIndex(of: name) { args.remove(at: i); return true }; return false }
+        // Same source pixels through legacy and content-aware image cleaning; no model inference or PDF writes.
+        if let jobs = option("--clean-formula-crops") {
+            try cleanFormulaCrops(jobs: URL(fileURLWithPath: jobs)); return
+        }
         // --replay-converter <record.json> --compiler <js>: the converter alone in JavaScriptCore on a run's recorded host
         // answers (no models), timed: with JSC_useJIT=false in the environment this is the phone's case (no JIT for an
         // app's JSContext).
@@ -298,6 +302,37 @@ struct Tool {
         } catch { print("NOT VERIFIED: \(error)") }
         print(String(decoding: output.summary, as: UTF8.self))
     }
+}
+
+private func cleanFormulaCrops(jobs url: URL) throws {
+    struct Job: Decodable { let id: String; let pdf: String; let page: Int; let rect: [Int]; let em: Double; let margin: Int; let content: [Double]?; let out: String }
+    let jobs = try JSONDecoder().decode([Job].self, from: Data(contentsOf: url))
+    var documents: [String: CGPDFDocument] = [:]
+    var cached: (pdf: String, page: Int, image: DevicePDFRaster.RGB)?
+    for job in jobs {
+        guard job.rect.count == 4, job.rect[2] > job.rect[0], job.rect[3] > job.rect[1] else { throw DevicePDFModelError.unusable("crop audit rectangle") }
+        guard job.content == nil || job.content!.count == 4 else { throw DevicePDFModelError.unusable("crop audit content rectangle") }
+        if documents[job.pdf] == nil { documents[job.pdf] = CGPDFDocument(URL(fileURLWithPath: job.pdf) as CFURL) }
+        guard let page = documents[job.pdf]?.page(at: job.page + 1) else { throw DevicePDFModelError.unusable("crop audit page") }
+        let source: DevicePDFRaster.RGB
+        if let cached, cached.pdf == job.pdf, cached.page == job.page { source = cached.image }
+        else {
+            guard let image = DevicePDFRaster.render(page, dpi: 216) else { throw DevicePDFModelError.unusable("crop audit render") }
+            source = DevicePDFRaster.rgb(image); cached = (job.pdf, job.page, source)
+        }
+        let raw = DevicePDFRaster.crop(source, job.rect)
+        let content = job.content.map { [$0[0] - Double(job.rect[0]), $0[1] - Double(job.rect[1]), $0[2] - Double(job.rect[0]), $0[3] - Double(job.rect[1])] }
+        let before = DevicePDFRaster.cleanFormula(raw, em: job.em, margin: job.margin)
+        let after = DevicePDFRaster.cleanFormula(raw, em: job.em, margin: job.margin, content: content)
+        let out = URL(fileURLWithPath: job.out, isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        for (name, image) in [("raw", raw), ("before", before.image), ("after", after.image)] {
+            try DevicePDFRaster.png(image).write(to: out.appendingPathComponent(name + ".png"), options: .atomic)
+        }
+        let meta: [String: Any] = ["id": job.id, "rect": job.rect, "before": before.rect, "after": after.rect]
+        try JSONSerialization.data(withJSONObject: meta, options: [.sortedKeys]).write(to: out.appendingPathComponent("geometry.json"), options: .atomic)
+    }
+    print("cleaned \(jobs.count) crops from the same CoreGraphics pixels")
 }
 
 enum MLUnits: String {
