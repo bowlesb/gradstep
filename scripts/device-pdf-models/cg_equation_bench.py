@@ -7,8 +7,8 @@ TexTeller (texteller-ft-v4) reads both greedily, as the device does (255 new tok
 normalisation, on the held-out families only (dev and test splits; the recogniser trained on the train split).
 
 Runs on the desktop with the mathpix project's environment, read-only (it writes only under --out):
-    CUDA_VISIBLE_DEVICES=0 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/ben/mathpix/src \
-      /home/ben/mathpix/.venv/bin/python -B -s cg_equation_bench.py --out /home/ben/science-reader-device-pdf/runs/cg-bench
+    CUDA_VISIBLE_DEVICES=0 PYTHONDONTWRITEBYTECODE=1 SR_PDF_DATA_ROOT=/path/to/local/data \
+      python -B scripts/device-pdf-models/cg_equation_bench.py --out /path/to/new/run
 """
 
 from __future__ import annotations
@@ -22,11 +22,12 @@ import numpy as np
 import torch
 from PIL import Image
 
-from gradstep.data.export import PAD_DISPLAY, PAD_INLINE, _crop
-from gradstep.eval.equations import normalize
-from gradstep.models.texteller import preprocess_image
+import training_core  # puts this checkout's package on sys.path
+from science_reader_pdf.data.export import PAD_DISPLAY, PAD_INLINE, _crop
+from science_reader_pdf.eval.equations import normalize
+from science_reader_pdf.models.texteller import preprocess_image
 
-DATA = Path("/home/ben/mathpix/data")
+from science_reader_pdf.paths import DATA
 
 
 def main() -> None:

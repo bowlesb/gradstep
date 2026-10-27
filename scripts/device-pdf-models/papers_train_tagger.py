@@ -3,7 +3,7 @@
 Exact-length batches preserve the model's bidirectional input contract. Journal labels
 never train on unknown glyphs or neighbouring context. No evaluation family is loaded.
 """
-import argparse,copy,hashlib,importlib.util,json,random,time
+import argparse,copy,hashlib,json,random,time
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
@@ -11,12 +11,12 @@ import torch
 from torch.nn import functional as F
 
 
-def load_module(name,path):
-    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+from training_core import tagger as T, source_identity
+import evaluate_tagger_coverage as E
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--training-source',type=Path,required=True)
+    p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--training-root',type=Path,required=True)
     p.add_argument('--checkpoint',type=Path,required=True);p.add_argument('--run',type=Path,required=True)
     p.add_argument('--steps',type=int,default=3000);p.add_argument('--lr',type=float,default=0.0001)
     p.add_argument('--replay',type=float,default=0.6);p.add_argument('--font-dropout',type=float,default=0.15)
@@ -25,8 +25,6 @@ def main():
     p.add_argument('--save-steps',default='500,1500')
     p.add_argument('--seed',type=int,default=727);a=p.parse_args();a.run.mkdir(parents=True,exist_ok=False)
     torch.set_num_threads(4);torch.manual_seed(a.seed);random.seed(a.seed);rng=np.random.default_rng(a.seed)
-    T=load_module('tagger_reference',a.training_source)
-    E=load_module('complete_windows',a.root/'evaluate_tagger_coverage.py')
     ck=torch.load(a.checkpoint,map_location='cpu',weights_only=False)
     model=T.Tagger(12,ck.get('hidden',96));model.load_state_dict(ck['model']);model.cuda().train()
     teacher=copy.deepcopy(model).eval().requires_grad_(False) if a.distill else None
@@ -34,10 +32,10 @@ def main():
     native={k:source[k] for k in ['x','font','cls','char','y','start','positive']}
     split_rows=json.loads((a.root/'splits.json').read_text());splits={r['sha256']:r['split'] for r in split_rows}
     assert all(splits[paper]=='train' for paper in source['papers'].tolist())
-    ids,_dev,_test=T.load_lists()
+    ids,_dev,_test=T.load_lists(root=a.training_root)
     ids=sorted(ids,key=lambda x:hashlib.sha256(('journal-replay:'+x).encode()).hexdigest())[:a.replay_papers]
     assert set(ids).isdisjoint(_dev) and set(ids).isdisjoint(_test)
-    c=T.Corpus(ids);c.encode(ck['vocab'],ck['prior'],ck['cvocab'])
+    c=T.Corpus(ids,data_dir=a.training_root/'data');c.encode(ck['vocab'],ck['prior'],ck['cvocab'])
     order=rng.permutation(len(c.items))[:a.replay_items]
     examples=[]
     for item in order:
@@ -68,9 +66,9 @@ def main():
             f[:]=0;x[:,:,6:9]=0.04
         values=[x,f,*[np.stack([v[j] for v in seqs]) for j in [2,3,4]]]
         return [torch.tensor(v,device='cuda',dtype=torch.float32 if j in [0,4] else torch.int64) for j,v in enumerate(values)]
-    run_info={'base_checkpoint_sha256':hashlib.sha256(a.checkpoint.read_bytes()).hexdigest(),
+    run_info={'source_files_sha256':source_identity(),'base_checkpoint_sha256':hashlib.sha256(a.checkpoint.read_bytes()).hexdigest(),
               'native_data_sha256':hashlib.sha256((a.root/'train.npz').read_bytes()).hexdigest(),
-              'training_source_sha256':hashlib.sha256(a.training_source.read_bytes()).hexdigest(),
+              'training_source_sha256':hashlib.sha256(Path(T.__file__).read_bytes()).hexdigest(),
               'native_families':len(set(source['papers'].tolist())),'base_replay_papers':ids,
               'base_replay_sequences':len(examples),'pools':{k:len(v) for k,v in pools.items()},
               'steps':a.steps,'lr':a.lr,'replay_probability':a.replay,'font_dropout':a.font_dropout,'seed':a.seed,

@@ -4,6 +4,21 @@ Last updated: 2026-10-27 UTC (2026-10-26 PDT). Requirements below come from the 
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Shared PDF training and measurable product improvements (owner direction, 2026-10-26; in progress)
+
+Keep the core layout, equation-recognition and inline-tagger training code in this repository. Data, private
+labels, checkpoints and generated runs stay outside Git on the owner's devices, selected by explicit paths.
+Import the existing desktop implementations with source hashes and numerical parity checks; do not rebuild
+already-tested approaches or modify the desktop's older dirty checkout. Use a separate desktop Git worktree.
+
+The single current entry point and progress log is [training/device_pdf/README.md](../training/device_pdf/README.md).
+It ranks work by reader impact, links prior evidence, records unsuccessful directions and names the next experiment.
+Reuse the existing PDF collections and frozen recordings before acquiring more. The first product target is zero
+rejected formula transcriptions in delivered reader text, equation metadata or image alternatives, while preserving
+accepted formulas, crops, identities and PDF locations. Raw model answers may remain in explicitly diagnostic records.
+Measure this independently of mathematical accuracy; hiding an uncertain transcription does not improve recognition.
+No release, service processing, NAS access or physical-phone work is included.
+
 ## Private Papers corpus model development (owner direction, 2026-10-26; locally verified, not released)
 
 Use the owner's copied PDF library to produce a measurably better on-device model. All work uses the verified

@@ -3,14 +3,13 @@
 The vocabulary and architecture remain the reference model's. Export validation must
 use actual Core ML predictions on the Mac; conversion succeeding alone is insufficient.
 """
-import argparse, hashlib, importlib.util, json
+import argparse, hashlib, json
 from pathlib import Path
 import numpy as np
 import torch
 import coremltools as ct
 
 p = argparse.ArgumentParser()
-p.add_argument('--training-source', type=Path, required=True)
 p.add_argument('--checkpoint', type=Path, required=True)
 p.add_argument('--vocab', type=Path, required=True)
 p.add_argument('--threshold', type=float, required=True)
@@ -18,9 +17,7 @@ p.add_argument('--out', type=Path, required=True)
 a = p.parse_args()
 assert 0 < a.threshold < 1
 a.out.mkdir(parents=True, exist_ok=False)
-spec = importlib.util.spec_from_file_location('reference_tagger', a.training_source)
-T = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(T)
+from training_core import tagger as T, source_identity
 ck = torch.load(a.checkpoint, map_location='cpu', weights_only=False)
 model = T.Tagger(ck['n_feats'], ck['hidden'])
 model.load_state_dict(ck['model'])
@@ -42,8 +39,8 @@ ml = ct.convert(traced, inputs=[
     compute_precision=ct.precision.FLOAT16, minimum_deployment_target=ct.target.iOS18)
 ml.save(str(a.out/'tagger.mlpackage'))
 (a.out/'vocab.json').write_text(json.dumps(vocab, indent=1)+'\n')
-metadata = {'kind': 'inline-tagger', 'checkpoint_sha256': hashlib.sha256(a.checkpoint.read_bytes()).hexdigest(),
-            'training_source_sha256': hashlib.sha256(a.training_source.read_bytes()).hexdigest(),
+metadata = {'kind': 'inline-tagger', 'source_files_sha256': source_identity(), 'checkpoint_sha256': hashlib.sha256(a.checkpoint.read_bytes()).hexdigest(),
+            'training_source_sha256': hashlib.sha256(Path(T.__file__).read_bytes()).hexdigest(),
             'threshold': a.threshold, 'context': ck['context'], 'features': ck['n_feats'], 'hidden': ck['hidden'],
             'torch_version': torch.__version__, 'coremltools_version': ct.__version__,
             'precision': 'float16', 'deployment_target': 'iOS18', 'max_len': vocab['max_len'],

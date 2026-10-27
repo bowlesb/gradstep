@@ -1,11 +1,10 @@
 """Offline comparison on identical complete labeled lines, using the existing desktop training corpus.
 
-Run on the owner's GPU desktop. This imports its frozen training reader/architecture; it never trains or fetches.
+Run on the owner's GPU desktop. The training reader/architecture comes from this checkout; it never trains or fetches.
 Batch only equal-length sequences: a bidirectional GRU must not see padding absent from the device's prediction.
 """
 import argparse
 import hashlib
-import importlib.util
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -75,16 +74,15 @@ def main():
     parser.add_argument('--thresholds', default='')
     parser.add_argument('--candidate-threshold', type=float)
     args = parser.parse_args()
-    spec = importlib.util.spec_from_file_location('tagger_training', args.training_root / 'train.py')
-    T = importlib.util.module_from_spec(spec); spec.loader.exec_module(T)
+    from training_core import tagger as T
     torch.set_num_threads(4)
     torch.manual_seed(0)
     splits = json.loads((args.training_root / 'papers.json').read_text())
-    ids = [p for p in splits[args.split] if (T.DATA / f'{p}.npz').is_file()]
-    c = T.Corpus(ids)
+    ids = [p for p in splits[args.split] if (args.training_root / 'data' / f'{p}.npz').is_file()]
+    c = T.Corpus(ids, data_dir=args.training_root / 'data')
     result = {'split': args.split, 'papers': ids, 'items': len(c.items), 'glyphs': int(len(c.y)), 'rows': {},
-              'training_source_sha256': hashlib.sha256((args.training_root / 'train.py').read_bytes()).hexdigest(),
-              'data_sha256': {p: hashlib.sha256((T.DATA / f'{p}.npz').read_bytes()).hexdigest() for p in ids}}
+              'training_source_sha256': hashlib.sha256(Path(T.__file__).read_bytes()).hexdigest(),
+              'data_sha256': {p: hashlib.sha256((args.training_root / 'data' / f'{p}.npz').read_bytes()).hexdigest() for p in ids}}
     for name, checkpoint, complete in [('v4_shipped', args.v4, False), ('v5a_prototype', args.candidate, False), ('v5a_complete', args.candidate, True)]:
         if args.skip_prototype and name == 'v5a_prototype':
             continue

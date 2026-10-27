@@ -1,0 +1,92 @@
+{
+  "source_host": "owner GPU desktop 192.168.1.32",
+  "captured": "2026-10-27",
+  "note": "Source hashes before package/path refactor. Git tracks imported versions and subsequent changes. Large data, checkpoints, obsolete exports and acquisition code are excluded.",
+  "files": {
+    "src/science_reader_pdf/__init__.py": {
+      "source": "/home/ben/mathpix/src/gradstep/__init__.py",
+      "sha256": "94cdb9fe67eb9cdf48f1839507296d4eb3fd54c9876dc0c5e93677f68aa63233"
+    },
+    "src/science_reader_pdf/data/__init__.py": {
+      "source": "/home/ben/mathpix/src/gradstep/data/__init__.py",
+      "sha256": "754a2a92302121ab3e29054e14f372408bda737c6890d03bf23b7479614011bb"
+    },
+    "src/science_reader_pdf/data/export.py": {
+      "source": "/home/ben/mathpix/src/gradstep/data/export.py",
+      "sha256": "4fc7b5cea13967d7723d45f245baa0d2cc54ddf5413b0f82c6c742b887e75b29"
+    },
+    "src/science_reader_pdf/data/labelcheck.py": {
+      "source": "/home/ben/mathpix/src/gradstep/data/labelcheck.py",
+      "sha256": "9d9294edc540cde46e44adf0684d51352effd27e992e6cfec3017b85076ea5f5"
+    },
+    "src/science_reader_pdf/data/papers.py": {
+      "source": "/home/ben/mathpix/src/gradstep/data/papers.py",
+      "sha256": "537330e73243de2461a0834f6f4482acc0a84cec00243aeefffefaf8ba0a67fe"
+    },
+    "src/science_reader_pdf/data/pdftext.py": {
+      "source": "/home/ben/mathpix/src/gradstep/data/pdftext.py",
+      "sha256": "e879b1defcc1cbf2a68bf895cb871663076cb4e6e53ec30aba4c671d3f35790e"
+    },
+    "src/science_reader_pdf/eval/__init__.py": {
+      "source": "/home/ben/mathpix/src/gradstep/eval/__init__.py",
+      "sha256": "1804c6d55d7b615c8c356270215b379480cf2083d284a734ceb53c232ceead21"
+    },
+    "src/science_reader_pdf/eval/equations.py": {
+      "source": "/home/ben/mathpix/src/gradstep/eval/equations.py",
+      "sha256": "870f97731b116e5ed644d61f9a4db32af0a30a166e1aa6e760a72153d5ca3ba0"
+    },
+    "src/science_reader_pdf/eval/layout.py": {
+      "source": "/home/ben/mathpix/src/gradstep/eval/layout.py",
+      "sha256": "03f876b8f7b1534dd9766da09b48ff860517cd94203054bd51aa053136b945cf"
+    },
+    "src/science_reader_pdf/eval/render.py": {
+      "source": "/home/ben/mathpix/src/gradstep/eval/render.py",
+      "sha256": "dde7478f4182b46ddf1748614f0bdd6eb097a286ac20ef40078a398c380a4997"
+    },
+    "src/science_reader_pdf/models/__init__.py": {
+      "source": "/home/ben/mathpix/src/gradstep/models/__init__.py",
+      "sha256": "7906aa8007d35710be53f347743c237fc2a762d0706a79dc4e3290bfd414d816"
+    },
+    "src/science_reader_pdf/models/coreml_layout.py": {
+      "source": "/home/ben/mathpix/src/gradstep/models/coreml_layout.py",
+      "sha256": "e5da433af455deb46656fea2cb450f7f4be8e6a20b237694bad8b45d1434c0d4"
+    },
+    "src/science_reader_pdf/models/texteller.py": {
+      "source": "/home/ben/mathpix/src/gradstep/models/texteller.py",
+      "sha256": "3b70044d9f7e55b3b44371a5214b58bffa270e2b6a740ec6a1c348580dde84ad"
+    },
+    "src/science_reader_pdf/models/train_layout.py": {
+      "source": "/home/ben/mathpix/src/gradstep/models/train_layout.py",
+      "sha256": "b3d5ce0cd73a4d5f92eac6b7f0682bab6deaa122dcb2090a79976bb724fdaee6"
+    },
+    "src/science_reader_pdf/models/train_layout_fcos.py": {
+      "source": "/home/ben/mathpix/src/gradstep/models/train_layout_fcos.py",
+      "sha256": "203374738307d96b1d63b80ba347a5dd08be72d3a9c8d38860a34ce7f4596b48"
+    },
+    "src/science_reader_pdf/models/train_texteller.py": {
+      "source": "/home/ben/mathpix/src/gradstep/models/train_texteller.py",
+      "sha256": "b853d8be6b5f7ac59981ecf62753c87c5b012aaedd7641c783ac59335df0bdb4"
+    },
+    "src/science_reader_pdf/data/sandbox.py": {
+      "source": "/home/ben/mathpix/src/gradstep/data/compile.py",
+      "sha256": "74b4b76e668150dd163e76ac813b7758fb74b2fa3a9af4afdeee269328c53dd0",
+      "selection": "docker_cmd only; image name unchanged"
+    },
+    "src/science_reader_pdf/tagger/train.py": {
+      "source": "/home/ben/science-reader-device-pdf/tagger/train.py",
+      "sha256": "c6593169095a2486464c3668eb2a01b804235475f72ac8d8bb307031aa59ba40"
+    },
+    "src/science_reader_pdf/tagger/extract.py": {
+      "source": "/home/ben/science-reader-device-pdf/tagger/extract.py",
+      "sha256": "1b2862547b1e230f2884094eac980c14c5d5c1fe99dc1c50791f34ebf668c208"
+    },
+    "src/science_reader_pdf/layout/fine_tune.py": {
+      "source": "/home/ben/science-reader-device-pdf/layout/layout_ft.py",
+      "sha256": "f8bab193a922f954c648947763109e9027f2365be30f6f39affbdbd01e1651f9"
+    },
+    "src/science_reader_pdf/tagger/exclude-ids.txt": {
+      "source": "/home/ben/science-reader-device-pdf/tagger/exclude-ids.txt",
+      "sha256": "e14ac5e6ab6cc1eab6b9f2cb8b3020d7a98b1484a7e2c1584baebcce2d5f5dc5"
+    }
+  }
+}

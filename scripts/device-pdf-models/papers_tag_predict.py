@@ -1,13 +1,14 @@
 """Predict variable-length journal inputs without padding; uses the frozen v5 architecture."""
-import argparse,importlib.util,json,hashlib
+import argparse,json,hashlib
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
 import torch
 
 p=argparse.ArgumentParser();p.add_argument('--inputs',type=Path,required=True);p.add_argument('--checkpoint',type=Path,required=True)
-p.add_argument('--training-source',type=Path,required=True);p.add_argument('--out',type=Path,required=True);a=p.parse_args()
-spec=importlib.util.spec_from_file_location('training',a.training_source);T=importlib.util.module_from_spec(spec);spec.loader.exec_module(T)
+p.add_argument('--out',type=Path,required=True);a=p.parse_args()
+from training_core import tagger as T
+
 torch.set_num_threads(4)
 ck=torch.load(a.checkpoint,map_location='cpu',weights_only=False)
 model=T.Tagger(ck.get('n_feats',12),ck.get('hidden',96));model.load_state_dict(ck['model']);model.cuda().eval()
