@@ -196,8 +196,8 @@ public final class DevicePDFModels: @unchecked Sendable {
             return array
         }
         let input = try MLDictionaryFeatureProvider(dictionary: ["x": xs, "font": try ints(font), "cls": try ints(cls), "char": try ints(char)])
-        // A flexible-shape Core ML prediction can occasionally return an entirely zero buffer under load (observed
-        // on the Mac corpus). That silently classifies every glyph as prose. Retry once on this thread's own instance;
+        // A flexible-shape Core ML prediction can occasionally return an entirely or partially zero buffer under load
+        // (observed on the Mac corpus). That silently classifies affected glyphs as prose. Retry on this thread's instance;
         // another instance may be in use by a different tagging worker. Persistent invalid output is an explicit failure.
         return try Self.readTaggerOutput(count: t) {
             guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { return [] }
@@ -208,7 +208,12 @@ public final class DevicePDFModels: @unchecked Sendable {
     static func readTaggerOutput(count: Int, prediction: () throws -> [Float]) throws -> [Float] {
         for _ in 0..<2 {
             let values = try prediction()
-            if values.count == count && values.allSatisfy(\.isFinite) && values.contains(where: { $0 != 0 }) { return values }
+            // One journal audit returned 32 valid logits followed by 35 exact zeros; repeating the same input returned
+            // ordinary negative logits throughout. A run of eight exact zeros is not a credible learned sequence.
+            // Isolated zero logits remain valid. Reject a partial empty buffer as well as a wholly empty one.
+            var zeros = 0, longest = 0
+            for value in values { zeros = value == 0 ? zeros + 1 : 0; longest = max(longest, zeros) }
+            if values.count == count && values.allSatisfy(\.isFinite) && values.contains(where: { $0 != 0 }) && longest < 8 { return values }
         }
         throw DevicePDFModelError.unusable("tagger output")
     }

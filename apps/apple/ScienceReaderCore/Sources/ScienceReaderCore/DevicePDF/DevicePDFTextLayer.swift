@@ -3,7 +3,8 @@ import Foundation
 
 /// One character of a page's text layer, as the device route's reference reads it (`gradstep.data.pdftext.read_pages`:
 /// pdfplumber's characters with the baseline correction for fonts whose metrics put the glyph below its baseline).
-/// Points, origin at the top left of the page; `size` is the glyph box's height (its width for vertical writing).
+/// Points, origin at the top left of the displayed CropBox, including page rotation (rather than pdfplumber's
+/// absolute MediaBox offsets); `size` is the glyph box's height (its width for vertical writing).
 public struct DevicePDFGlyph: Sendable, Equatable {
     public let text: String
     public let x0: Double
@@ -41,7 +42,7 @@ public enum DevicePDFTextLayer {
         return run.glyphs
     }
 
-    /// pdfplumber's `page.width` and `page.height`: the box the glyphs' coordinates are measured in.
+    /// The displayed crop box, rotated like DevicePDFRaster, in the same coordinates as layout and formula crops.
     public static func pageSize(page: CGPDFPage) -> CGSize {
         let g = PageGeometry(page)
         return CGSize(width: g.width, height: g.height)
@@ -82,13 +83,11 @@ private struct PageGeometry {
     let ctm: DevicePDFMatrix
     let width: Double
     let height: Double
-    let mediaX0: Double
-    let mediaTop: Double
 
     init(_ page: CGPDFPage) {
         let dict = page.dictionary
-        var box = [0.0, 0.0, 612.0, 792.0] // pdfminer's default when MediaBox is missing or invalid
-        if case .array(let a)? = DevicePDFTextLayer.inherited(dict, "MediaBox"), let r = DevicePDFObject.rect(a) { box = r }
+        let crop = page.getBoxRect(.cropBox).standardized
+        let box = [crop.minX, crop.minY, crop.maxX, crop.maxY]
         var rotate = 0
         switch DevicePDFTextLayer.inherited(dict, "Rotate") {
         case .int(let r)?: rotate = r
@@ -96,7 +95,8 @@ private struct PageGeometry {
         default: break
         }
         rotate = ((rotate % 360) + 360) % 360
-        // pdfminer `PDFPageInterpreter.process_page`, from the raw MediaBox.
+        // Normalize the displayed crop box exactly once. Returning pdfplumber's absolute MediaBox
+        // offsets here shifts glyphs away from the raster on publisher PDFs with a nonzero origin.
         let (x0, y0, x1, y1) = (box[0], box[1], box[2], box[3])
         switch rotate {
         case 90: ctm = DevicePDFMatrix(a: 0, b: -1, c: 1, d: 0, e: -y0, f: x1)
@@ -104,14 +104,9 @@ private struct PageGeometry {
         case 270: ctm = DevicePDFMatrix(a: 0, b: 1, c: -1, d: 0, e: y1, f: -x0)
         default: ctm = DevicePDFMatrix(a: 1, b: 0, c: 0, d: 1, e: -x0, f: -y0)
         }
-        // pdfplumber `Page.__init__`: the normalized box (sides swapped for 90 and 270), flipped vertically.
-        var n = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-        if rotate == 90 || rotate == 270 { n = (n.1, n.0, n.3, n.2) }
-        let mbHeight = n.3 - n.1
-        mediaX0 = n.0
-        mediaTop = mbHeight - n.3
-        width = n.2 - n.0
-        height = (mbHeight - n.1) - (mbHeight - n.3)
+        let quarter = rotate == 90 || rotate == 270
+        width = quarter ? y1 - y0 : x1 - x0
+        height = quarter ? x1 - x0 : y1 - y0
     }
 }
 
@@ -374,10 +369,10 @@ private final class Interpreter {
         let x0 = min(p1.0, p2.0, p3.0, p4.0), x1 = max(p1.0, p2.0, p3.0, p4.0)
         let y0 = min(p1.1, p2.1, p3.1, p4.1), y1 = max(p1.1, p2.1, p3.1, p4.1)
         let size = font.vertical ? x1 - x0 : y1 - y0
-        // pdfplumber `Page.process_object`.
+        // Top-left coordinates of the displayed crop; the raster uses the same crop and rotation.
         let g = run.geometry
-        var top = (g.height - y1) + g.mediaTop
-        var bottom = (g.height - y0) + g.mediaTop
+        var top = g.height - y1
+        var bottom = g.height - y0
         // gradstep `pdftext._off_baseline`: metrics that put the glyph box away from its baseline (STIX Two Math in
         // Word-made PDFs) are replaced by a box from the baseline.
         if m.b == 0, m.c == 0, m.d > 0 {
@@ -387,7 +382,9 @@ private final class Interpreter {
                 bottom = g.height - (baseline - 0.25 * size)
             }
         }
-        run.glyphs.append(DevicePDFGlyph(text: text, x0: x0 + g.mediaX0, top: top, x1: x1 + g.mediaX0, bottom: bottom, size: size,
+        // Content streams can contain text outside CropBox; it is not visible in the PDF image.
+        guard x1 >= 0, x0 <= g.width, bottom >= 0, top <= g.height else { return adv }
+        run.glyphs.append(DevicePDFGlyph(text: text, x0: x0, top: top, x1: x1, bottom: bottom, size: size,
                                          font: font.fontname, upright: upright))
         return adv
     }

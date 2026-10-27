@@ -9,6 +9,19 @@ import XCTest
 /// recogniser 20/20 on 2026-10-15).
 @available(macOS 15.0, iOS 18.0, *)
 final class DevicePDFHostTests: XCTestCase {
+    func testPartiallyEmptyTaggerOutputRetriesAndFailsExplicitly() throws {
+        let valid = (0..<67).map { Float($0) * 0.01 - 10 }
+        let partial = Array(valid.prefix(32)) + [Float](repeating: 0, count: 35)
+        var calls = 0
+        let recovered = try DevicePDFModels.readTaggerOutput(count: valid.count) {
+            calls += 1; return calls == 1 ? partial : valid
+        }
+        XCTAssertEqual(recovered, valid); XCTAssertEqual(calls, 2)
+        XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: partial.count) { partial })
+        let separated: [Float] = [0, -1, 0, -2, 0, -3, 0, -4, 0, -5, 0, -6, 0, -7, 0]
+        XCTAssertEqual(try DevicePDFModels.readTaggerOutput(count: separated.count) { separated }, separated)
+    }
+
     func testInvalidTaggerBuffersRetryOnceWithoutSilentlyRemovingMath() throws {
         for invalid: [Float] in [[0, 0, 0], [-2, .nan, 3], [-2, .infinity, 3], [-2, 3]] {
             var calls = 0

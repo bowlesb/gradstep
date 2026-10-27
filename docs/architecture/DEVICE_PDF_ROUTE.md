@@ -8,9 +8,23 @@ kit** (`/home/ben/mathpix/docs/DEVICE_ROUTE_SPEC.md`, converter 0.1.0; layout `l
 implements it as an **experiment beside the arXiv HTML reader**, never in its place: the HTML reader stays the
 first-class path (owner direction, 2026-10-13), the PDF never leaves the device, and nothing here touches the server.
 
-## Complete inline spans — 2026-10-26 (port 17, locally verified)
+## Journal adaptation — 2026-10-26 (v5b-journal, locally verified)
 
-The locked inline model is now **v5a**, a small bidirectional GRU with 24 glyphs of neighboring-line context,
+The current lock selects **inline-tagger-v5b-journal** at **0.65**, adapted from v5a using partial native journal
+labels, original-training replay and distillation from the frozen parent. Architecture, vocabulary and context
+contract are unchanged. Selected family-held-out statistics improve 0/104 → 99/104; original labeled cut/split
+errors decrease 682 → 533. The [model review](../reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md) records selection,
+original-corpus gates, actual Core ML/native results and remaining crop/recognizer limits. No release is implied.
+
+Glyph positions now use the displayed CropBox normalized to zero, with rotation, matching `DevicePDFRaster`.
+The prior absolute MediaBox offsets shifted glyphs and formula crops in publisher PDFs. Wholly off-crop glyphs
+are excluded. Unit raster checks cover shifted boxes and four rotations; ordinary zero-origin fixtures are exact.
+The tagger's bounded retry also catches partially zero buffers (eight consecutive exact zero logits), following
+an observed 32-valid/35-zero output in the native audit. Isolated zeros remain valid; repeated invalid output fails.
+
+## Complete inline spans — 2026-10-26 (port 17 foundation, locally verified)
+
+Port 17 introduced **v5a**, a small bidirectional GRU with 24 glyphs of neighboring-line context,
 twelve features and a development-calibrated **0.7** threshold. It replaces the original port-kit v4 tagger;
 layout and formula recogniser weights are unchanged. The [coverage review](../reviews/DEVICE_PDF_SPAN_COVERAGE_20261026.md)
 records the fixed labeled comparison, arXiv/publisher scores, table tradeoff and export precision limits.
@@ -22,7 +36,7 @@ silently cut. The Swift host checks ten-feature v4 / twelve-feature v5 vocabular
 Invalid tagger output (wrong length, non-finite or entirely zero) retries once, then fails explicitly.
 
 `scripts/device-models.mjs` pins the threshold in `device-models.lock.json` and the downloaded pack vocabulary.
-The actual v5a package digest and every generated pack file are verified. Existing downloaded readings are not
+The selected package digest and every generated pack file are verified. Existing downloaded readings are not
 migrated; the change applies when a reading is prepared or explicitly updated. The HTML-first route and all reader
 interactions remain intact. This is local Mac verification, not a TestFlight release or physical-phone measurement.
 
@@ -215,7 +229,8 @@ row the app can't read is dropped, never the reading; older readings simply have
 ## Known differences from the reference (to report, not to hide)
 
 - **Text layer.** The reference reads pdfplumber's characters (boxes from the font's ascent and descent at the
-  baseline). PDFKit's character bounds and font names differ in places; conformance measures the effect.
+  baseline). Native CGPDFScanner keeps those font metrics, but normalizes to the displayed CropBox rather than
+  reproducing pdfplumber's absolute MediaBox offsets. PDFKit's substituted fonts/ink boxes are not used here.
 - **Recogniser length.** The Core ML decoder step has a 512-token cache (256 until 2026-10-23); the reference decodes up to 1,024 tokens.
 - **Image resampling.** Core Graphics and vImage instead of PIL and torchvision's antialiased bicubic.
 - **Compute units.** The stateful decoder does not load on the Neural Engine (macOS 26, coremltools 9): the

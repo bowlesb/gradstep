@@ -78,6 +78,38 @@ struct Tool {
             try renderCrops(jobs: URL(fileURLWithPath: jobsPath))
             return
         }
+        // Offline corpus research: preserve the exact device glyphs and layout without running formula recognition.
+        // A job is {pdf, page (zero-based), out}; originals are opened read-only and each result is written atomically.
+        if let jobsPath = option("--audit-pages"), let modelsPath = option("--models") {
+            guard #available(macOS 15.0, *) else { exit(2) }
+            struct AuditJob: Decodable { let pdf: String; let page: Int; let out: String }
+            let jobs = try JSONDecoder().decode([AuditJob].self, from: Data(contentsOf: URL(fileURLWithPath: jobsPath)))
+            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: modelsPath))
+            for (index, job) in jobs.enumerated() {
+                if FileManager.default.fileExists(atPath: job.out) { continue }
+                guard job.page >= 0, let document = CGPDFDocument(URL(fileURLWithPath: job.pdf) as CFURL),
+                      let page = document.page(at: job.page + 1), let image = DevicePDFRaster.render(page, dpi: 150) else {
+                    throw DevicePDFModelError.unusable("audit page \(job.page)")
+                }
+                let size = DevicePDFTextLayer.pageSize(page: page)
+                let layer = DevicePDFTextLayer.glyphs(page: page)
+                let needsOCR = DevicePDFOCR.unreadable(layer)
+                let glyphs = needsOCR ? DevicePDFOCR.glyphs(layer: layer, image: image, size: size) : layer
+                let detected = try loaded.detect(page: image)
+                let output: [String: Any] = [
+                    "pdf": job.pdf, "page": job.page, "ocr": needsOCR, "models": loaded.provenance,
+                    "width": size.width, "height": size.height, "image_width": image.width, "image_height": image.height,
+                    "scale": detected.scale,
+                    "glyphs": ["text": glyphs.map(\.text), "x0": glyphs.map(\.x0), "top": glyphs.map(\.top),
+                               "x1": glyphs.map(\.x1), "bottom": glyphs.map(\.bottom), "size": glyphs.map(\.size),
+                               "font": glyphs.map(\.font), "upright": glyphs.map(\.upright)],
+                    "detections": detected.detections.map { ["cls": $0.cls, "score": $0.score, "box": $0.box] }
+                ]
+                try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]).write(to: URL(fileURLWithPath: job.out), options: .atomic)
+                print("audited \(index + 1)/\(jobs.count)")
+            }
+            return
+        }
         // Actual Core ML outputs for offline parity checks and filling newly requested tagger windows in a replay.
         // Inputs are the converter's unrounded TagLine values; no PDF is acquired or processed by a server.
         if let inputsPath = option("--tag-inputs"), let modelsPath = option("--models"), let outPath = option("--out") {

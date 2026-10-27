@@ -133,8 +133,53 @@ struct DevicePDFTextLayerTests {
         }
     }
 
-    @Test func pageSizeIsTheInheritedMediaBox() throws {
+    @Test func pageSizeUsesTheDisplayedBox() throws {
         #expect(DevicePDFTextLayer.pageSize(page: try page()) == CGSize(width: 612, height: 792))
+    }
+
+    @Test func shiftedAndCroppedPagesKeepGlyphsOnTheRenderedInk() throws {
+        for rotate in [0, 90, 180, 270] {
+            // Inherited, nonzero MediaBox; a smaller CropBox; one visible letter and text outside the crop.
+            let stream = "BT /F1 20 Tf 1 0 0 1 90 170 Tm (H) Tj 1 0 0 1 42 55 Tm (OFF) Tj ET"
+            let objects = [
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [40 50 260 280] >>",
+                "<< /Type /Page /Parent 2 0 R /CropBox [60 80 200 240] /Rotate \(rotate) /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                "<< /Length \(stream.utf8.count) >>\nstream\n\(stream)\nendstream"
+            ]
+            var pdf = "%PDF-1.4\n", offsets = [0]
+            for (index, object) in objects.enumerated() {
+                offsets.append(pdf.utf8.count); pdf += "\(index + 1) 0 obj\n\(object)\nendobj\n"
+            }
+            let xref = pdf.utf8.count
+            pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+            for offset in offsets.dropFirst() { pdf += String(format: "%010d 00000 n \n", offset) }
+            pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+            let provider = try #require(CGDataProvider(data: Data(pdf.utf8) as CFData))
+            let document = try #require(CGPDFDocument(provider)), page = try #require(document.page(at: 1))
+            let size = DevicePDFTextLayer.pageSize(page: page)
+            let quarter = rotate == 90 || rotate == 270
+            #expect(size == CGSize(width: quarter ? 160 : 140, height: quarter ? 140 : 160))
+            let glyphs = DevicePDFTextLayer.glyphs(page: page)
+            #expect(glyphs.map(\.text) == ["H"])
+            let glyph = try #require(glyphs.first)
+            let image = try #require(DevicePDFRaster.render(page, dpi: 144))
+            let rgb = DevicePDFRaster.rgb(image)
+            var ink = 0, outside = 0
+            for y in 0..<rgb.height {
+                for x in 0..<rgb.width {
+                    let offset = (y * rgb.width + x) * 3
+                    if rgb.pixels[offset] < 100 && rgb.pixels[offset + 1] < 100 && rgb.pixels[offset + 2] < 100 {
+                        ink += 1
+                        let px = Double(x) / 2, py = Double(y) / 2
+                        if px < glyph.x0 - 1 || px > glyph.x1 + 1 || py < glyph.top - 1 || py > glyph.bottom + 1 { outside += 1 }
+                    }
+                }
+            }
+            #expect(ink > 20)
+            #expect(outside == 0, "rotation \(rotate): \(outside) ink pixels outside \(glyph)")
+        }
     }
 
     @Test func fontCasesReadTheirText() throws {

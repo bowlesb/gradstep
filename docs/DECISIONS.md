@@ -1,8 +1,31 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-26 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-27 UTC (2026-10-26 PDT). Requirements below come from the current user conversation, not from TextBrain's product specification.
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
+
+## Private Papers corpus model development (owner direction, 2026-10-26; locally verified, not released)
+
+Use the owner's copied PDF library to produce a measurably better on-device model. All work uses the verified
+Mac and GPU-desktop copies; no further NAS access, service PDF processing, paid model calls or physical-phone work.
+Original files and catalogs remain immutable, outside Git. Derived profiles, splits, labels, runs and checkpoints
+live in the separate `papers-model-20261026` research directories. Implementation uses an isolated worktree.
+
+First profile the corpus and group copies by DOI, distinctive title and normalized text before freezing the split.
+Inspect actual native glyph/layout outputs on development pages, then choose a concrete model failure and a fixed
+source-reviewed metric. Training and model selection may use train/development families only. Keep a separate final
+evaluation and audit known base-training overlap. Model promotion requires a real gain, existing-corpus regression
+checks, export identity/parity and actual Core ML reader verification. A copied dataset or a training run alone is
+not a successful outcome. No deployment or release is part of this experiment.
+
+**Verified:** the corpus provides 3,103 PDF candidates / 2,978 grouped families. Journal supervision plus
+original-data replay and teacher preservation produces **v5b-journal**, selected on development and frozen before
+the new test: **0/104 → 99/104** complete selected statistics, zero detections in 103 prose controls. Original
+30-paper cut/split errors decrease **682 → 533**, with glyph precision/recall effectively unchanged. Actual Core ML
+preserves the journal score; two complete native articles preserve all 330 text blocks and PDF places. The host
+also repairs shifted CropBox coordinates and retries partially zero model output. The model pack pins the new
+weights and 0.65 threshold. The [review](reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md) records the rejected first run,
+data separation, exact identities, remaining crop artifacts/metadata limitations and device-testing limits.
 
 ## Long PDF headers and footers (owner continuation, 2026-10-26; port 19 locally verified, not released)
 

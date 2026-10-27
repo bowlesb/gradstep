@@ -1,5 +1,24 @@
 # Fast and slow tests
 
+## Journal PDF model — October 26, v5b-journal
+
+Fast, no private data: `python3 -m unittest discover -s scripts/device-pdf-models -p 'test_papers_*.py'` checks
+family grouping and acceptance scoring. Focused native: `swift test -c release --filter
+'DevicePDFTextLayerTests|DevicePDFHostTests'` checks displayed CropBox coordinates against raster ink at every
+rotation and the bounded retry for entirely/partially zero tagger output. Routine project gate remains `npm test`.
+
+Slow, only for model/host changes: the private `papers-model-20261026` research artifacts retain frozen family
+splits, native inputs, source-reviewed labels, baseline/candidate predictions and complete-paper runs. Use
+`papers_score_statistics.py GOLD PREDICTIONS OUT --inputs INPUTS --thresholds THRESHOLD` to bind scores to actual
+inputs. `papers_eval_original.py` evaluates complete, unpadded original labeled lines; never train on those
+development/test papers. `papers_check_native.py BEFORE AFTER OUT` verifies newly detected math in the two journal
+examples preserves original text and locations by reconstructing source glyphs. Inspect actual source crops and
+generated reader paragraphs separately: conservation does not guarantee transcription or crop quality.
+
+The [review](reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md) records gates, exact model/gold hashes, export parity and
+remaining limitations. New tuning must use fresh reserved families; do not keep selecting against this revealed
+test. After a host coordinate change, regenerate native records rather than silently reusing old audit outputs.
+
 ## Long PDF headers/footers — October 26, port 19
 
 `npm test` includes seven cases in `tests/backend/device-pdf-margin.test.ts`. They protect body copies, changing

@@ -1,5 +1,20 @@
 # Implementation status
 
+## Journal statistics model — 2026-10-26 (v5b-journal verified locally; not released)
+
+The copied Papers corpus now supplies grouped splits, source-reviewed evaluation and a trained on-device tagger.
+Fine-tuning with replay and teacher preservation improves complete selected held-out statistics **0/104 → 99/104**,
+with zero detections in 103 prose controls. Separate original-corpus cut/split errors fall **682 → 533**; glyph
+precision 98.27% → 98.30%, recall 96.83% → 96.82%. The new tagger uses the existing twelve-feature GRU interface
+at a development-selected 0.65 threshold; layout/recognizer weights and converter port 19 remain unchanged.
+
+Core ML reproduces the journal score. Two complete native articles conserve all 330 blocks and PDF locations;
+all nine reviewed unnamed-comparison statistics become complete formula regions. The host now aligns glyphs with
+the displayed CropBox and retries partially zero output. Fast checks, 19 focused Swift tests, five evaluation
+tests and pack verification pass. Local pack `81701d81e3d6`, about 364.6 MB; no upload/deployment or phone testing.
+Remaining limits include bold/small statistics, imperfect image crops and unverified recognition metadata behind
+source-image fallbacks. [Training, held-out measurements and limits](reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md).
+
 ## Repeated PDF margin text — 2026-10-26 (port 19 verified locally; not released)
 
 Long repeated headers/footers now require consistent outer-margin geometry, spacing and typography. Only their
