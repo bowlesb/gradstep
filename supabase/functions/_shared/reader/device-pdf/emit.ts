@@ -1,6 +1,6 @@
 // The logical blocks in this reader's vocabulary (html.ts, html-validate.ts with the device-pdf extension), the
 // formula images and figure crops within the bundle's budget, and the reference's index (`trace`) completed.
-// Degrade, never refuse: past the image budget a formula shows its LaTeX as text and a figure is scaled down or
+// Degrade, never refuse: past the image budget an untranscribed formula points to the PDF and a figure is scaled down or
 // shown by its caption; past the equation limit a formula is its own characters. Every degradation is counted.
 import { el, outText, normalizeSpace, type OutNode } from '../html.ts';
 import { LIMITS } from '../profile.ts';
@@ -31,6 +31,10 @@ export interface Emitted {
 const MAX_IMAGES = 507, FIGURE_PIXELS = 48_000_000, IMAGE_BYTES = 24 * 1024 * 1024;
 const STYLE_NUMBER = (v: number) => { const n = Math.min(999, Math.max(0, v)); return String(pyRound(n, 3)); };
 const cleanText = (text: string) => text.replaceAll(PLACEHOLDER, '').replace(/[\t\n\r]/g, ' ').replace(new RegExp(CONTROL.source, 'g'), '');
+// The acceptance gate covers every delivered representation. A source crop does not make its rejected
+// recognizer guess safe for copy/search, screen readers or AI context. Raw answers remain only in the trace.
+export const UNTRANSCRIBED_TEXT = 'Equation in PDF (transcription unavailable)';
+export const UNTRANSCRIBED_LATEX = `\\text{${UNTRANSCRIBED_TEXT}}`;
 
 export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: string): Emitted {
   const { prefix, formulas } = reading;
@@ -125,7 +129,8 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     blocks.push({ id, kind, node });
     return node;
   };
-  const latexOf = (f: Formula) => excerpt(cleanText(f.latex || '\\text{?}'), 4000) || '\\text{?}';
+  const latexOf = (f: Formula) => f.rendered && f.mathml
+    ? excerpt(cleanText(f.latex || '\\text{?}'), 4000) || '\\text{?}' : UNTRANSCRIBED_LATEX;
   const equation = (f: Formula, owner: () => string): Child => {
     if (equations.length >= LIMITS.equations) { degraded.equationLimit += 1; return cleanText(f.glyphText); }
     const latex = latexOf(f);
@@ -146,7 +151,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
       const shift = -(below / fs + 0.22);
       const style = f.display ? `width:${STYLE_NUMBER(width / fs)}em`
         : `height:${STYLE_NUMBER(height / fs)}em;vertical-align:${shift < 0 ? '-' : ''}${STYLE_NUMBER(Math.abs(shift))}em`;
-      children = [el('img', { src: image.path, width: String(image.width), height: String(image.height), alt: excerpt(latex, 200).trim() || 'equation', style })];
+      children = [el('img', { src: image.path, width: String(image.width), height: String(image.height), alt: UNTRANSCRIBED_TEXT, style })];
     } else {
       names.push('reader-math-fallback'); degraded.formulaText += 1;
       children = [f.display ? latex : `\\(${latex}\\)`];

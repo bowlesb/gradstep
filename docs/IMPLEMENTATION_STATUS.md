@@ -1,5 +1,19 @@
 # Implementation status
 
+## Shared PDF training and trustworthy formula metadata — 2026-10-26/27 (port 20; local, not released)
+
+Core training for layout, equation recognition and inline tagging now lives in `training/device_pdf`, with existing
+journal workflows under `scripts/device-pdf-models`. The laptop and GPU desktop share Git source; data/checkpoints
+stay outside Git. Numerical parity and optimizer/evaluation smoke checks pass. The single
+[development entry point](../training/device_pdf/README.md) contains commands, evidence, ranked targets and the log.
+
+Port 20 prevents rejected recognizer guesses reaching delivered equation metadata, block text, image alternatives
+and missing-image fallbacks. On 101 recorded PDFs / 2,721 pages, exposures fall **4,973→0** while **56,193 accepted
+formulas**, other content, crop requests and source locations remain unchanged. Fresh native Core ML conversion
+with JIT disabled confirms zero exposures in 54 rejected equations. `npm test` and five Python evaluation tests pass.
+Raw diagnostic traces retain unverified answers for scoring. Current model weights remain unchanged; this does not
+claim recognition accuracy, physical-device performance or an update to already prepared readings.
+
 ## Journal statistics model — 2026-10-26 (v5b-journal verified locally; not released)
 
 The copied Papers corpus now supplies grouped splits, source-reviewed evaluation and a trained on-device tagger.

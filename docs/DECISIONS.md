@@ -4,7 +4,7 @@ Last updated: 2026-10-27 UTC (2026-10-26 PDT). Requirements below come from the 
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
-## Shared PDF training and measurable product improvements (owner direction, 2026-10-26; in progress)
+## Shared PDF training and measurable product improvements (owner direction, 2026-10-26; locally verified, not released)
 
 Keep the core layout, equation-recognition and inline-tagger training code in this repository. Data, private
 labels, checkpoints and generated runs stay outside Git on the owner's devices, selected by explicit paths.
@@ -18,6 +18,12 @@ rejected formula transcriptions in delivered reader text, equation metadata or i
 accepted formulas, crops, identities and PDF locations. Raw model answers may remain in explicitly diagnostic records.
 Measure this independently of mathematical accuracy; hiding an uncertain transcription does not improve recognition.
 No release, service processing, NAS access or physical-phone work is included.
+
+**Verified:** the three core trainers are repo-owned and the new desktop worktree uses the same source. Numerical
+parity, exact journal predictions and an optimizer smoke pass. Port 20 removes **4,973→0** rejected-transcription
+exposures on **101 PDFs / 2,721 pages**, preserving all **56,193 accepted formulas**, content, crop requests and PDF
+places. A fresh 11-page native conversion, fast gate and evaluation tests pass. The linked development log is the
+current handoff, including ranked next tasks and unsuccessful prior directions. No weights were promoted here.
 
 ## Private Papers corpus model development (owner direction, 2026-10-26; locally verified, not released)
 

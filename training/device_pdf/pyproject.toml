@@ -10,7 +10,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "numpy", "pillow", "torch", "torchvision", "transformers>=4.50,<5",
   "opencv-contrib-python", "pypdfium2", "pdfplumber", "lxml", "pydantic", "tqdm",
-  "accelerate", "safetensors",
+  "accelerate", "safetensors", "scipy",
 ]
 
 [project.optional-dependencies]

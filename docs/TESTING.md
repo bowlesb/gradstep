@@ -1,5 +1,14 @@
 # Fast and slow tests
 
+## PDF training source and rejected transcriptions — port 20
+
+`npm test` includes `device-pdf-transcription.test.ts` and the expanded image-budget regression: rejected guesses
+cannot enter delivered index text, `data-latex`, image alternatives or missing-image text; accepted MathML survives.
+The [single development log](../training/device_pdf/README.md#verification-and-evidence-map) gives source-parity,
+training-smoke and 101-PDF replay commands/evidence. The slow replay requires a port-19 baseline checkout and
+SHA-bound local recordings, fails on missing model answers, and checks accepted math/content/crop/region conservation.
+Do not use the current branch as its own baseline or infer mathematical accuracy from this metadata boundary test.
+
 ## Journal PDF model — October 26, v5b-journal
 
 Fast, no private data: `python3 -m unittest discover -s scripts/device-pdf-models -p 'test_papers_*.py'` checks

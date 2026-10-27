@@ -1,6 +1,15 @@
 # Agent handoff
 
-**Current checkpoint, 2026-10-26: PDF preview merged as a standalone commit.** At the owner's request the two
+**Current on-device PDF work, 2026-10-26/27:** start with
+[training/device_pdf/README.md](../training/device_pdf/README.md), the single current progress log and ranked backlog.
+It summarizes the older experiments so they need not be rediscovered. Core training is in this repo; GPU work uses
+`192.168.1.32:/home/ben/science-reader-training`, separate from the older dirty checkout. Port 20 removes 4,973 rejected
+transcription exposures on 101 recorded PDFs, with accepted formulas and PDF locations unchanged; native and fast
+checks pass. Model weights remain v5b-journal / layout-v5 / TexTeller-v4. Next priority is source-crop completeness,
+with a frozen denominator before changing geometry or training. Evidence is in `.artifacts/device-pdf-development`.
+Earlier dated reviews below remain historical evidence; do not create another competing current PDF handoff.
+
+**Earlier checkpoint, 2026-10-26: PDF preview merged as a standalone commit.** At the owner's request the two
 feature commits from `codex/pdf-peek-fullscreen-20261025` are squashed into one commit on `main`, including these
 status updates. Application/test code is unchanged from the audited work; routine `npm test` is the merge check.
 The completed worktree and branch are retired, with compact evidence preserved in `.artifacts/pdf-peek-complete/`

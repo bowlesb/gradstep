@@ -8,6 +8,19 @@ kit** (`/home/ben/mathpix/docs/DEVICE_ROUTE_SPEC.md`, converter 0.1.0; layout `l
 implements it as an **experiment beside the arXiv HTML reader**, never in its place: the HTML reader stays the
 first-class path (owner direction, 2026-10-13), the PDF never leaves the device, and nothing here touches the server.
 
+## Training ownership and transcription boundary — port 20, 2026-10-26/27 (locally verified)
+
+The core training code is now in this repository. Start at [training/device_pdf](../../training/device_pdf/README.md)
+for commands, source provenance, the desktop worktree, ranked product targets and the current progress log.
+Datasets, labels and weights stay outside Git on the owner's devices; there is no external training-code import.
+
+The formula acceptance decision governs every delivered representation. A rejected recognition uses its PDF crop
+with a plain untranscribed-equation alternative; `data-latex`, `reader.json` and derived block text carry an explicit
+LaTeX-shaped unavailable marker. If the crop fails or the image budget runs out, the same marker is shown using the
+existing fallback vocabulary. Accepted math, identities and PDF places are unchanged. Diagnostic traces and host
+recordings deliberately retain raw model answers and rejection status for evaluation; they are not trusted reader
+text. Port 20 is verified across 101 recordings and one fresh native article; no weights or release changed.
+
 ## Journal adaptation — 2026-10-26 (v5b-journal, locally verified)
 
 The current lock selects **inline-tagger-v5b-journal** at **0.65**, adapted from v5a using partial native journal
