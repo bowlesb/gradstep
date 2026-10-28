@@ -4,6 +4,14 @@ Last updated: 2026-10-27. Requirements below come from the current user conversa
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Publish the founder's landing copy (owner request, 2026-10-27; verified)
+
+The owner explicitly requested opening the PDFs, deploying the landing page, merging and organizing the work.
+Promote the revised page into `web/site/`, reconcile the existing privacy notice and retire the duplicate draft.
+Use the existing `gradstep-site` Cloudflare Pages project and keep beta admission and app/backend releases separate.
+Deployment `e631ca58` is verified on `gradstep.ai`; [the landing record](proposals/LANDING_PAGE.md) holds file hashes,
+redirect/header checks and current copy decisions. No new infrastructure or fixed spending commitment.
+
 ## Protect distributed Core ML models (owner request, 2026-10-27; setup verified, full pack blocked)
 
 Encrypt the on-device PDF model pack with Apple's team-managed model keys. Preserve the current ODR/Mac packaging,
@@ -19,7 +27,8 @@ encrypted-state failure independently of trained weights. An explicit-cache expo
 at **at least 5.835 times baseline memory** before completing parity/timing. Keep the original model selection;
 release scripts fail closed at signed runtime qualification. Any replacement requires actual encrypted loading,
 inference conservation and acceptable speed/memory before promotion. Do not claim encryption of the complete
-shipping pack until all assets qualify. No physical-phone work or release.
+shipping pack until all assets qualify. No physical-phone work or native app/model-pack release is included.
+The separate authorization to publish the marketing website does not qualify or release these models.
 
 The same architecture document now starts with the owner's requested end-to-end runtime walkthrough, including
 the distinction between local PDF conversion and subsequent AI-context requests.
@@ -340,11 +349,12 @@ accounts" (and to move serving from staff to all), the owner answered: **"2 and 
   every signed-in reader gets Library topics and the index path of a Feed paper's related papers, and For you's
   similarity applies to every reader For you serves. Not flipped yet: the steps are in
   [INTEREST_INDEX.md › Serving to all](architecture/INTEREST_INDEX.md#serving-to-all-prepared-2026-10-25-not-run).
-- **Where the notice appears** (agent placement, reversible): gradstep.ai/privacy (`web/site/privacy/`, a "Topics and
-  For you" section; the library sentence now also says the metadata ranks For you), the redesign draft
-  (`web/site-next/privacy/`, Your library), and Settings › Privacy & data in the apps (`PrivacyView`) and the browser
+- **Where the notice appears** (agent placement, reversible): gradstep.ai/privacy (canonical source `web/site/privacy/`)
+  and Settings › Privacy & data in the apps (`PrivacyView`) and the browser
   (`PrivacyData`), as a "Topics and For you" section. The Library topics ⓘ already says topics are worked out on the
-  device from a public map, so it is unchanged.
+  device from a public map, so it is unchanged. The October 25 website placement used "Topics and For you" on the
+  original page and "Your library" in the redesign; those website sources were consolidated on October 27 and the
+  separate draft directory is retired.
 - **Readiness fixes before the flip** (agent decisions, reversible; measured on staging read-only):
   - Migration 0156: For you's similar tier sorted both fingerprints of every compared pair before grouping, which
     spilled past staging's 3.5 MB work_mem. At the 300-paper library cap that part took 1.28–3.8 s (70 papers:

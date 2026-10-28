@@ -1,5 +1,14 @@
 # Implementation status
 
+## Gradstep landing page — 2026-10-27 (published)
+
+The owner-authorized founder-copy redesign is live at [gradstep.ai](https://gradstep.ai/), Cloudflare Pages
+deployment `e631ca58`. `web/site/` is now the sole source; the duplicate draft is retired. Privacy copy is reconciled
+with current AI routes and service behavior. All 22 public file hashes/types and three app redirects pass live
+readback; the existing security headers and Apple association are preserved. Fast checks pass, including 734
+browser unit tests. [Deployment and layout evidence](proposals/LANDING_PAGE.md#current-revision--founder-copy-2026-10-27).
+This is the marketing website only; the private beta and native model-pack release state are unchanged.
+
 ## Core ML model encryption — 2026-10-27 (setup verified; complete pack blocked)
 
 Apple keys are generated for the existing signing team and stored privately outside the repo. Builds now require
@@ -21,8 +30,9 @@ pack with the reference carrier preserve all 81 bundle/trace/asset files byte-fo
 
 The owner's requested [end-to-end walkthrough](architecture/DEVICE_PDF_ROUTE.md#end-to-end-walkthrough--updated-2026-10-27)
 now covers acquisition, local inference, formula gates, PDF locations, storage, encryption and AI-context boundaries.
-The same document records the platform blocker and canonical evidence. No release, NAS access or physical-phone
-testing occurred; first-use/offline behavior on iOS and Catalyst remains unverified.
+The same document records the platform blocker and canonical evidence. No native app/model-pack release, NAS access
+or physical-phone testing occurred; first-use/offline behavior on iOS and Catalyst remains unverified. Website
+publication is a separate task and does not qualify or release the encrypted model pack.
 
 ## Native PDF tagger recovery — 2026-10-27 (local, not released)
 
@@ -508,9 +518,10 @@ The owner approved the interest index's privacy notice and serving it to `all` (
 branch, for the lead to review and run (steps in INTEREST_INDEX.md "Serving to all"):
 
 - **Notice:**
-  - The approved text, word for word, as a "Topics and For you" section on gradstep.ai/privacy (`web/site/privacy/`).
-    The library sentence now adds "and to rank the Feed's For you list".
-  - The redesign draft (`web/site-next/privacy/`).
+  - At this October 25 checkpoint, the approved text appeared word for word in the original page's "Topics and For
+    you" section and the redesign's "Your library" section. The original library sentence added "and to rank the Feed's
+    For you list". Both website sources were consolidated into `web/site/privacy/` on October 27; the separate draft
+    directory is retired. This historical entry does not establish the later publication or interest-serving status.
   - Settings › Privacy & data in the apps (`PrivacyView`) and the browser (`PrivacyData`; the owner-58 journey's
     heading list updated).
 - **0156:** For you's similar tier computes each pair's cosine before grouping. At the 300-paper library cap, its CTEs

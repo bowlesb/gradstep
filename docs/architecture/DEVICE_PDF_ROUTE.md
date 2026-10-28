@@ -195,7 +195,8 @@ The explicit-cache recognizer loads encrypted on CPU and GPU, but was rejected: 
 **4,625,039,360 bytes versus 792,608,768 baseline (5.835×)**. It was stopped before a completed quality comparison or
 warmed timed trial. This conclusively fails the less-than-2× memory gate; do not report a measured timing ratio or
 token parity for that candidate. The original four-asset configuration (including the protected reference carrier)
-is retained in the builder. Its actual signed encrypted qualification fails, so **the release path remains blocked**.
+is retained in the builder. Its actual signed encrypted qualification fails, so **the native model-pack release path
+remains blocked**. This does not block publication of the separate marketing website.
 No plaintext substitution or recognizer downgrade qualifies. Existing local development readings remain usable.
 
 Evidence stays in `.artifacts/device-pdf-development/encryption/`: `verification.json` is the failed complete-pack
@@ -206,7 +207,7 @@ qualification, `actual-proof/carrier-load.json` proves exact reference recovery,
 platform finding using synthetic models and private key/signing parameters; it needs no scientific PDF or trained
 weights. Next research may return only new per-token cache slices instead of repeatedly emitting the entire cache,
 but that proposal has no quality, memory or latency qualification yet.
-No release or physical-phone test has occurred; first-use key acquisition and cached offline use need explicit
+No native app/model-pack release or physical-phone test has occurred; first-use key acquisition and cached offline use need explicit
 configuration-specific evidence. Follow Apple's [key generation](https://developer.apple.com/documentation/coreml/generating-a-model-encryption-key)
 and [encryption/loading](https://developer.apple.com/documentation/coreml/encrypting-a-model-in-your-app) workflows.
 

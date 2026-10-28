@@ -102,10 +102,11 @@ the reserved local families; acquire additional owner-device PDFs only to fill a
 
 ## Span completeness
 
-This work is isolated on `codex/pdf-span-completeness`, starting at `c0be647b`. Mac evidence is under the main
-checkout's `.artifacts/device-pdf-development/spans/`; desktop training evidence is under the same relative path in
-`/home/ben/science-reader-training`. The desktop source worktree is `/home/ben/science-reader-pdf-span-completeness`.
-Historical checkouts, NAS data, app model packs and the physical phone were not changed.
+The research implementation was merged into `main` as `acd565ce`, based on `c0be647b`; its temporary source
+worktrees are retired. Continue from this repository's `training/device_pdf/` source. Mac evidence remains under
+the main checkout's `.artifacts/device-pdf-development/spans/`; desktop training evidence uses the same relative
+path under `/home/ben/science-reader-training`. Historical run paths in frozen manifests remain provenance, not
+active worktree instructions. Historical checkouts, NAS data, app model packs and the physical phone were not changed.
 
 ### Measurement and rejected decoder
 

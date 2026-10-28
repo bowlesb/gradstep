@@ -1,5 +1,10 @@
 # Agent handoff
 
+**Landing page, 2026-10-27:** published at `https://gradstep.ai` as Pages deployment `e631ca58`.
+Use `web/site/`; the duplicate redesign folder is retired. [Landing record](proposals/LANDING_PAGE.md) contains
+verification and privacy corrections. Both reading PDFs are under `output/pdf/`. Website publication does not
+resolve the native model-encryption blocker below.
+
 **Current on-device PDF work, 2026-10-26/27:** start with
 [training/device_pdf/README.md](../training/device_pdf/README.md), the single current progress log and ranked backlog.
 It summarizes the older experiments so they need not be rediscovered. Core training is in this repo; GPU work uses
@@ -13,9 +18,13 @@ real inputs recover under injected persistent failure with zero 0.65-threshold c
 The 31 focused Swift checks, `npm test` and two fresh native imports / 22 pages pass. Those imports needed zero
 recoveries and preserve text, equation decisions and PDF places; they are not a whole-import reliability estimate.
 The earlier opaque read-stage error remains unattributed. Model weights remain v5b-journal / layout-v5 / TexTeller-v4;
-the pack adds the hash-bound reference implementation. No release or physical-phone verification occurred.
-Next priority is upstream span completeness on fresh reserved development families, not further tuning on these
-revealed journals. Evidence is in `.artifacts/device-pdf-development`; use `crops/scored` and `protection/final`,
+the pack adds the hash-bound reference implementation. No native app/model-pack release or physical-phone verification occurred.
+The subsequent span study is complete and merged as `acd565ce`: expanded labels and a whole-expression objective
+improved completeness on the 468-expression development benchmark, but both failed original-corpus recall preservation.
+Production weights remain unchanged and the final reserved cohort is unscored. Next, diagnose those retention losses;
+do not repeat or widen the rejected experiment. Apple model-encryption setup is merged as `0eb82b00`, but complete
+encrypted-pack qualification remains blocked; website publication is separate. The current log links the exact gates.
+Evidence is in `.artifacts/device-pdf-development`; use `crops/scored` and `protection/final`,
 not superseded attempts; `reliability/native-check.json` and `reliability/reference/policy-check.json` are the current
 runtime gates. Do not repeat the known-negative FP32, layout or recognizer runs summarized in the log.
 Earlier dated reviews below remain historical evidence; do not create another competing current PDF handoff.

@@ -1,4 +1,4 @@
-# gradstep.ai landing page (proposal, 2026-10-15)
+# gradstep.ai landing page — published 2026-10-27
 
 Owner: "prepare a nicely designed landing page for Gradstep Ai … well defined, not over done, not Ai generated,
 minimal but with useful info and a light marketing pitch and some impressive visuals. Take into account industry
@@ -8,8 +8,9 @@ things open to discuss … And the importance of augmenting human understanding 
 
 ## Current revision — founder copy, 2026-10-27
 
-**Status:** the existing complete landing draft in `web/site-next/` now incorporates the founder's motivation and
-five requested themes. This revision is local and unpublished; the live placeholder in `web/site/` is unchanged.
+**Status:** published at [gradstep.ai](https://gradstep.ai/) on the owner's explicit request to deploy and merge.
+`web/site/` is the single maintained source; the separate `web/site-next/` draft directory is retired. The page
+incorporates the founder's motivation and five requested themes.
 The existing layout, real product screenshots, calls to action, links and light/dark behavior are retained.
 The page remains static HTML/CSS with no scripts, web fonts or third-party requests.
 
@@ -30,11 +31,32 @@ rolled-out interest map, provider zero retention or encrypted shipping model wei
 1440 px desktop, 390 px phone and 320 px narrow phone, light/dark themes, image loading, local anchors, keyboard
 access to the skip link and horizontal overflow. All pass with no page errors, missing assets or third-party
 requests. Desktop/mobile screenshots were visually reviewed. Evidence is in
-`.artifacts/landing-founder-20261027/` in the main checkout; no public preview was published for this revision.
+`.artifacts/landing-founder-20261027/` in the main checkout. The ten layout checks are reused for unchanged
+HTML/CSS/images; the reconciled privacy page was checked for markup/anchors and visually in Safari. Fresh fast
+checks pass, including 80 browser files / 734 tests (the browser step was rerun after linking the worktree's
+existing dependencies).
 
-Publishing remains a separate task. The copy does not change the beta-access mechanism or claim a new release.
-For deployment, use the existing site workflow after reconciling the final draft and privacy policy; this revision
-does not copy files into the live site or invoke that workflow.
+**Deployment:** existing Cloudflare Pages project `gradstep-site`, deployment `e631ca58`
+([deployment URL](https://e631ca58.gradstep-site.pages.dev)); verified at 2026-10-28T04:34:54.884Z.
+All 22 public files, including both HTML pages, CSS, images and Apple's app association, match the source hashes
+on the custom domain, have their expected MIME types and retain the site security headers. Three existing `/app`
+redirects still lead to `app.gradstep.ai`. `site-deployment.json` and `deploy-final.log` in the evidence directory
+record the exact file manifest and readbacks. The index SHA-256 remains
+`a4167915cf4929284e5e0cc8ae9dde3ce3403e9fb280337edf527244c8035006`.
+
+The initial `49e1322a` deployment revealed Cloudflare email obfuscation rewriting the HTML and injecting a decoder.
+HTML-only `Cache-Control: no-cache, no-transform` headers preserve the direct mailto links and static page; final
+readback is byte-identical. See [Cloudflare's documented no-transform behavior](https://developers.cloudflare.com/cache/concepts/cache-control/).
+No account-level setting, app/backend release, new hosting or paid resource was involved.
+
+The live privacy notice now matches the current OpenRouter/provider routes, service activity and deletion
+behavior. Unsupported backup-expiry wording was removed; local PDF handling, provider-retention caveats and the
+owner-approved Topics/For you wording remain. This publication does not flip interest-index serving or release
+the native app/model pack. Beta access remains the existing email invitation.
+
+The reading editions are `output/pdf/gradstep-landing-page-copy.pdf` (three pages) and
+`output/pdf/gradstep-on-device-reader-guide.pdf` (six pages). They are local deliverables, not website uploads.
+The runtime guide and training progress log remain the canonical technical sources.
 
 The original proposal below is retained as historical design rationale. Its headlines, provider details, open
 questions and privacy audit describe the October 15 draft, not the current copy or deployment status.
@@ -143,9 +165,9 @@ background also showed only its first paragraph a few seconds after streaming fi
 **Positioning by contrast** (no competitor named on the page): they make papers faster to skip; Gradstep makes them
 easier to understand. Every answer is anchored to the source; the reader does the understanding.
 
-## Open for the owner
+## Original owner questions (historical, 2026-10-15)
 
-1. **Privacy page (blocking).** `web/site/privacy/` still describes the old design: servers fetching papers and
+1. **Privacy page (resolved before publication on 2026-10-27; original concern follows).** `web/site/privacy/` still describes the old design: servers fetching papers and
    converting them with Mathpix, uploads converted privately, iPhone and iPad only. It doesn't mention episode
    providers (DeepSeek for scripts, Google for voices) or the browser and Mac. The landing page's "never uploaded"
    contradicts it. Update it before this page goes live.
@@ -166,7 +188,9 @@ easier to understand. Every answer is anchored to the source; the reader does th
 
 ## Privacy page draft
 
-**Draft:** `web/site-next/privacy/index.html`, in the new site's style; not deployed. Every statement on it is
+**Historical draft:** the October 15 redesign privacy draft is retained in Git history before the October 27
+promotion. Current maintained and published source: `web/site/privacy/index.html`. The following audit describes
+that earlier draft, including statements subsequently corrected; it is not the current privacy contract. Every statement on it is
 checked below against code, migrations, staging configuration or current docs. Anything that couldn't be verified is
 left off the page and listed under "Owner to confirm". The statements describe the staging configuration the beta uses
 today (`infra/staging.json`); a production environment needs the same check before this page applies to it.
