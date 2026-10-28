@@ -6,6 +6,14 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+59. **Unavailable device-PDF equations show plain words when their source crop cannot be shown** (Astra source
+    fix on `codex/device-pdf-focus-20261028`; awaiting the lead's compiler rebuild and integration). The label is
+    `Equation in PDF (transcription unavailable)`. Keep the exact old sentinel in equation metadata and admit only
+    its exact device-PDF label in the shared validator; older bundles remain valid. *Why:* the reader currently sees
+    raw LaTeX for this fallback (93 cases in the 600-formula budget fixture), while restoring a rejected guess would
+    reintroduce unverified text. No model, acceptance rule or PDF location changes. *Undo:* revert the source change
+    and rebuild both reader compilers with new revisions. Existing readings are not rewritten automatically.
+
 57. **The neuroscience test catalog is a folder of the owner's own journal PDFs that the app imports, not a bundled arXiv
     list** (owner, 2026-10-28: "a catalog … with maybe 30-40 random neuroscience pdf papers preloaded into the library
     with the on device model"; the lead redirected it the same day to the Papers corpus). Staff only (operator roles),

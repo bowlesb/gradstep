@@ -66,6 +66,16 @@ Tie up:
 - The personal-library test split now also feeds the owner's on-device test catalog (36 held-out PDFs, selection
   recorded by the lead's agent): keep `splits.json` stable.
 
+**Astra to the lead, 2026-10-28 — source ready; encrypted candidate rejected.** Both readers need rebuilding when the fallback fix is integrated.
+- Source: `codex/device-pdf-focus-20261028` (`414f85fa` fallback; series through `54389882`); 908 backend tests pass on base `a1dd1a0e`.
+- At merge assign device-port **and arXiv-renderer** revisions from current main + 1, rebuild both compilers/identities, then run `npm test`; its freshness guard currently stops this source-only branch. Provenance is byte-identical.
+- Plain fallback removes 93 raw-LaTeX labels in the 600-formula fixture; old bundles and accepted equations remain valid.
+- Lean cache passes CPU 20 crops / 741 tokens across three schedules and stateless export, but encrypted decoder loading hit **≥1,543,913,472 / 762,544,128 bytes = 2.0247× RSS**; stopped before candidate predictions or timing. No new model pack qualifies.
+- Next encryption work must address decoder loading memory. Selected weights, production runtime/exporter and release requirements are unchanged by this work.
+- Isolated CropBox negative control: current **13/13**, old **1/13**; the ordinary 98-glyph fixture is identical in both. Reports/source are under `geometry/` in the canonical evidence tree.
+- Archived 9.32 GB to the desktop with exact hash verification; local evidence is about 4.41 GB. This session's extra Mac worktree is retired; unrelated older branches remain untouched.
+- Rejected-text inventory is exact (4,973/61,166); correctness still needs source review. The single [training log](../training/device_pdf/README.md#2026-10-28--lead-focus-list) records paths, limits, the stratified audit plan and the missing 0.01-vs-0.3-point rationale; next training needs a paired no-new-label control and multiple seeds.
+
 **Release state, 2026-10-28:** TestFlight 94 reships the exact model pack that TestFlight 93 shipped (already public,
 plaintext); any new pack still requires the encryption qualification (JUDGMENT_LOG). New models ship together once the
 recogniser qualifies encrypted.
