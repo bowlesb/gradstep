@@ -56,6 +56,8 @@ test('TikZ text badges inside math retain every label without source SVG or CSS'
  assert.equal(checked.index.equations[0].latex,'a in actions');
 });
 
+// Revision 29: such a formula shows its LaTeX (`reader-math-fallback`) instead of refusing the paper; nothing of the
+// picture reaches the page, and its label is not passed off as the formula.
 test('arbitrary vector math is not silently reduced to its text label',()=>{
  const bad=[badge.replace(/d="[^"]+"/,'d="M 0 0 L 20 0 L 10 10 Z"'),
   badge.replace('</g>','<path d="M 1 1 L 5 5"/></g>'),
@@ -64,7 +66,14 @@ test('arbitrary vector math is not silently reduced to its text label',()=>{
   badge.replace('Navigate','<img src="https://example.test/x"/>'),
   badge.replace('Navigate','<script src="https://example.test/x"></script>Navigate'),
   badge.replace('<svg ','<svg onload="bad()" ')];
- for(const svg of bad)assert.throws(()=>build(source.replace(math,`<math alttext="unknown"><mtext>${svg}</mtext></math>`)),/arxiv_math_element/);
+ for(const svg of bad){
+  const bundle=build(source.replace(math,`<math alttext="unknown"><mtext>${svg}</mtext></math>`));
+  const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+  const html=new TextDecoder().decode(bundle.members.get('index.html'));
+  assert.match(html,/<span class="reader-equation reader-inline reader-math-fallback" data-latex="unknown"[^>]*>\\\(unknown\\\)<\/span>/);
+  assert.ok(!/<svg|<path|<script|<text|onload|example\.test|Navigate|extra meaning/.test(html));
+  assert.equal(checked.index.equations[0].latex,'unknown');
+ }
 });
 
 test('an algorithm with SVG math badges remains a text listing, not an empty image figure',()=>{
@@ -105,11 +114,16 @@ test('assets stay in the exact official source revision and never become PDF fet
  assert.throws(()=>arxivHTMLURL('2601.01234',0));
 });
 
-test('missing images, duplicate IDs, missing TeX and unresolved references fail preparation',()=>{
- for(const text of [source.replace('id="p1"','id="S1"'),
-  source.replace('href="#bib1"','href="#missing"'),source.replace(math,'<math><mi>x</mi></math>')])assert.throws(()=>build(text));
+test('missing images and duplicate IDs fail preparation; missing TeX and unresolved references degrade (revision 29)',()=>{
+ assert.throws(()=>build(source.replace('id="p1"','id="S1"')));
  assert.throws(()=>composeArxivReader({source:utf8(source),sourceID:'2601.01234',revision:2,images:new Map()}));
  assert.throws(()=>convertArxivHTML('<html>Challenge page</html>',url,()=>{throw Error('no image expected')}));
+ // A reference to nothing on the page reads as its words; a formula without TeX takes its LaTeX from its MathML.
+ const unlinked=build(source.replace('href="#bib1"','href="#missing"'));
+ const html=new TextDecoder().decode(unlinked.members.get('index.html'));
+ assert.match(html,/; see \[1\]\./);
+ const untexed=validateReaderBundle(...(b=>[b.manifestBytes,b.members,b.manifestSHA256] as const)(build(source.replace(math,'<math><mi>x</mi></math>'))));
+ assert.equal(untexed.index.equations[0].latex,'x');
 });
 
 test('LaTeXML conversion-error markers are dropped and counted, and the paper still reads; too many refuse it',()=>{
@@ -336,9 +350,12 @@ test('a caption-only figure after a lone graphic paragraph reads as the figure t
  assert.ok(!kinds.includes('table')||kinds.filter(k=>k==='table').length===1,'the caption is not a table block');
 });
 
-test('unsafe MathML and inconsistent TeX are rejected rather than silently losing equations',()=>{
- for(const replacement of [math.replace('>x^2</annotation>','>x^3</annotation>'),
-  math.replace('<msup>','<maction>').replace('</msup>','</maction>')])assert.throws(()=>build(source.replace(math,replacement)));
+test('inconsistent TeX is rejected; MathML outside the vocabulary shows its TeX rather than silently losing the equation',()=>{
+ assert.throws(()=>build(source.replace(math,math.replace('>x^2</annotation>','>x^3</annotation>'))),/arxiv_math_mismatch/);
+ // Revision 29: a formula the reader can't draw shows its LaTeX; the paper opens.
+ const html=new TextDecoder().decode(build(source.replace(math,math.replace('<msup>','<maction>').replace('</msup>','</maction>'))).members.get('index.html'));
+ assert.match(html,/<span class="reader-equation reader-inline reader-math-fallback" data-latex="x\^2"[^>]*>\\\(x\^2\\\)<\/span>/);
+ assert.doesNotMatch(html,/maction/);
 });
 
 test('math styling or attributes outside the allow-list are left out, never refuse the paper (2606.05868 on build 55)',()=>{

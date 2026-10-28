@@ -109,7 +109,17 @@ function checks(paper, out, html) {
   } else {
     const text = authorsBlock.text;
     if (paper.authors[0] && !fold(text).includes(family(paper.authors[0]))) warn('authors_first', `first author "${paper.authors[0]}" not in "${text.slice(0, 80)}"`);
-    if (/footnotemark|affiliation:|thanks:|\S+@\S+\.\S+/i.test(text)) fail('authors_clean', `markup leaked: ${JSON.stringify(text.slice(0, 120))}`);
+    // The names (what precedes the affiliation and note lines) hold no e-mail or web address; the affiliation lines
+    // keep a contact line the paper set after its abstract (revisions 20 and 22, 2610.22353v1), so an address there is
+    // the paper's own. Anywhere in the header: no LaTeXML labels, TeX the paper typed as text ("$ˆ1$", the tie "˜") or
+    // the pieces of an address whose names were links left out ("{, }@csail.mit.edu"; revision 29, 2610.37619v1).
+    const namesHTML = authorsHTML.split(/<span class="reader-(?:affiliations|notes)"/)[0];
+    const namesText = namesHTML.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&');
+    if (/\S+@\S+\.\S+|https?:\/\//i.test(namesText)) fail('authors_clean', `address in the names: ${JSON.stringify(namesText.slice(0, 120))}`);
+    // One name's marks are one mark list; marks side by side are other names' marks run together ("Zack Yu1*,4,11*411":
+    // revision 28's library-name rule took every mark of a line of names, 2610.37651v1 and 11 cached papers).
+    if (/<\/sup>\s*<sup>/.test(namesHTML)) fail('authors_marks', `marks run together: ${JSON.stringify(namesText.slice(0, 120))}`);
+    if (/footnotemark|affiliation:|thanks:|\$\s*[\^ˆ]|˜|[{,]\s*\}@/i.test(text)) fail('authors_clean', `markup leaked: ${JSON.stringify(text.slice(0, 120))}`);
     if (/<sup><\/sup>|<sup>[,\s]*<\/sup>/.test(authorsHTML)) fail('authors_marks', 'an empty mark');
     if (/(^|\s)[\[\]{}()|]+(\s|$)/.test(text.replace(/·/g, ' '))) fail('authors_punctuation', `stray punctuation: ${JSON.stringify(text.slice(0, 120))}`);
     if (text.length > 2500) warn('authors_length', `${text.length} characters`);

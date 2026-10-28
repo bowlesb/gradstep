@@ -2,11 +2,22 @@
 // that every `math` element of the paper is either rendered or deliberately left out with what carried it.
 import { el, elements, isMathToken, MATH_ELEMENTS, mathAttributeIsSafe, normalizeSpace, textContent, type DomNode, type OutNode } from '../html.ts';
 import { LIMITS } from '../profile.ts';
-import { boundedText, byteLength, check, CONTROL } from '../util.ts';
+import { boundedText, byteLength, check, CONTROL, ReaderRenderError } from '../util.ts';
 import { bind, children, type ArxivContext, type Child } from './context.ts';
 import { mathBadgeText } from './math-badge.ts';
 import { applyMathVariant } from '../mathvariant.ts';
 import { readerAccent } from '../accents.ts';
+
+// HTML phrasing LaTeXML leaves inside a formula's text: a citation in `\text{…}` (revision 29, 2610.37645v1's display
+// "Attention (Vaswani et al., 2017): O = softmax(QKᵀ+M)V", whose `cite` refused the paper `arxiv_math_element` on the
+// fresh-paper sweep). Its words are the text of the token around it, or a text token of their own.
+const MATH_PHRASING = new Set(['cite', 'em', 'i', 'b', 'strong', 'u', 's', 'small', 'big', 'tt', 'code', 'q', 'abbr', 'var',
+  'kbd', 'samp', 'mark', 'font', 'sub', 'sup']);
+/** Whether a node sits inside a MathML token (`mi`, `mo`, `mn`, `mtext`, `ms`), past any HTML wrappers. */
+function inToken(n: DomNode): boolean {
+  for (let p = n.parent; p; p = p.parent) if (p.type === 'tag' && (MATH_ELEMENTS.has(p.name) || p.name === 'semantics')) return isMathToken(p.name);
+  return false;
+}
 
 /** LaTeXML's presentation MathML in the reader's vocabulary: annotations and links dropped, attributes allow-listed. */
 export function mathNode(n: DomNode): Child[] {
@@ -14,6 +25,10 @@ export function mathNode(n: DomNode): Child[] {
   if (n.name === 'annotation' || n.name === 'annotation-xml') return [];
   if (n.name === 'svg') return [mathBadgeText(n)];
   if (n.name === 'a' || n.name === 'span') return children(n).flatMap(mathNode);
+  if (MATH_PHRASING.has(n.name)) {
+    const words = children(n).flatMap(mathNode);
+    return words.length && !inToken(n) && words.every(w => typeof w === 'string') ? [el('mtext', {}, words)] : words;
+  }
   if (n.name === 'semantics') {
     const presentation = children(n).filter(c => c.type === 'tag' && !['annotation', 'annotation-xml'].includes(c.name));
     check(presentation.length === 1, 'arxiv_math_semantics');
@@ -121,28 +136,86 @@ export function mathAsText(n: DomNode): Child[] | null {
   return out && out.some(part => typeof part !== 'string' || part.trim()) ? out : null;
 }
 
-/** One formula: its LaTeX source in the index, its MathML in an equation span (forced display in an equation block). */
+/** The LaTeX LaTeXML wrote for a formula: its alttext, else its one TeX annotation ('' when it wrote none). */
+function givenLatex(n: DomNode, annotations: DomNode[]): string {
+  return n.attribs.alttext?.trim() ? n.attribs.alttext : annotations.length === 1 ? textContent(annotations[0]) : '';
+}
+const texAnnotations = (n: DomNode) => elements(n, c => c.name === 'annotation' && c.attribs.encoding === 'application/x-tex');
+
+/** A formula's LaTeX read back from its MathML, for a formula LaTeXML wrote without any (revision 29, 2610.37481v1's
+ * boxed "15" in Table 4: no alttext and no annotation, which refused the paper `arxiv_math_source`). Tokens, rows,
+ * scripts, fractions, roots, under- and overscripts; any other element reads as the LaTeX of its children. The index
+ * needs a LaTeX for every equation; the reader still draws the MathML. */
+export function latexFromMathML(n: DomNode): string {
+  const parts = (c: DomNode) => children(c).filter(x => x.type === 'tag' && !['annotation', 'annotation-xml'].includes(x.name)).map(read);
+  const group = (s = '') => [...s].length === 1 ? s : `{${s}}`;
+  function read(c: DomNode): string {
+    if (c.type !== 'tag') return '';
+    const r = parts(c);
+    switch (c.name) {
+      case 'mi': case 'mn': case 'mo': case 'ms': return normalizeSpace(textContent(c));
+      case 'mtext': { const words = normalizeSpace(textContent(c)); return words ? `\\text{${words}}` : ''; }
+      case 'mspace': return '\\ ';
+      case 'msub': return `${group(r[0])}_${group(r[1])}`;
+      case 'msup': return `${group(r[0])}^${group(r[1])}`;
+      case 'msubsup': return `${group(r[0])}_${group(r[1])}^${group(r[2])}`;
+      case 'mfrac': return `\\frac{${r[0] ?? ''}}{${r[1] ?? ''}}`;
+      case 'msqrt': return `\\sqrt{${r.join(' ')}}`;
+      case 'mroot': return `\\sqrt[${r[1] ?? ''}]{${r[0] ?? ''}}`;
+      case 'munder': return `\\underset{${r[1] ?? ''}}{${r[0] ?? ''}}`;
+      case 'mover': return `\\overset{${r[1] ?? ''}}{${r[0] ?? ''}}`;
+      case 'munderover': return `\\underset{${r[1] ?? ''}}{\\overset{${r[2] ?? ''}}{${r[0] ?? ''}}}`;
+      default: return r.filter(Boolean).join(' ');
+    }
+  }
+  return normalizeSpace(read(n));
+}
+
+// Why a formula's MathML can't be drawn in the reader's vocabulary (an element outside it, a picture in a formula that
+// isn't a text badge, a `semantics` without one presentation): the formula then shows its LaTeX, never refusing the paper
+// (revision 29; a refusal is a first-open failure).
+const UNDRAWN = new Set(['arxiv_math_element', 'arxiv_math_semantics']);
+/** A formula's MathML in the reader's vocabulary, or null when the reader can't draw it. */
+export function drawnMath(n: DomNode): Child[] | null {
+  try {
+    return children(n).flatMap(mathNode);
+  } catch (error) {
+    if (error instanceof ReaderRenderError && UNDRAWN.has(error.code)) return null;
+    throw error;
+  }
+}
+
+/** One formula: its LaTeX source in the index, its MathML in an equation span (forced display in an equation block).
+ * A formula the reader can't draw shows its LaTeX (`reader-math-fallback`, the shared vocabulary's text form). */
 export function equation(cx: ArxivContext, n: DomNode, owner: string, forceDisplay = false): OutNode {
   check(!cx.usedMath.has(n), 'arxiv_math_duplicate'); cx.usedMath.add(n);
-  const annotations = elements(n, c => c.name === 'annotation' && c.attribs.encoding === 'application/x-tex');
-  const latex = boundedText(n.attribs.alttext ?? (annotations.length === 1 ? textContent(annotations[0]) : ''), LIMITS.textBytes, 'arxiv_math_source');
+  const annotations = texAnnotations(n), given = givenLatex(n, annotations);
+  const latex = boundedText(given.trim() ? given : latexFromMathML(n), LIMITS.textBytes, 'arxiv_math_source');
   check(latex.trim().length > 0 && cx.equations.length < LIMITS.equations, 'arxiv_math_source');
-  if (annotations.length) check(annotations.length === 1 && normalizeSpace(textContent(annotations[0])) === normalizeSpace(latex), 'arxiv_math_mismatch');
+  if (annotations.length && given.trim()) check(annotations.length === 1 && normalizeSpace(textContent(annotations[0])) === normalizeSpace(latex), 'arxiv_math_mismatch');
   const display = forceDisplay || n.attribs.display === 'block';
   const id = `e-${cx.digest}-${cx.equations.length + 1}`; bind(cx, n, id);
   const form = /^\s*\\begin\{(?:equation\*?|align\*?|gather\*?|multline\*?)\}/.test(latex) ? 'environment' : 'body';
   check(form !== 'environment' || display, 'arxiv_math_source');
   cx.equations.push({ id, block_id: owner, latex, display, source_form: form });
-  const math = el('math', display ? { display: 'block' } : {}, children(n).flatMap(mathNode));
-  check(math.children.length > 0, 'arxiv_math_empty');
-  return el('span', { id, 'data-reader-equation': id, 'data-latex': latex,
-    class: `reader-equation ${display ? 'reader-display' : 'reader-inline'}` }, [math]);
+  const kind = `reader-equation ${display ? 'reader-display' : 'reader-inline'}`;
+  const body = drawnMath(n);
+  if (!body?.length) return el('span', { id, 'data-reader-equation': id, 'data-latex': latex, class: `${kind} reader-math-fallback` }, [display ? latex : `\\(${latex}\\)`]);
+  return el('span', { id, 'data-reader-equation': id, 'data-latex': latex, class: kind }, [el('math', display ? { display: 'block' } : {}, body)]);
 }
 
-/** A formula's LaTeX as `equation` reads it, or null where `equation` would refuse it. */
+/** An equation's number beside it: inside its span, or just after it when the formula shows as its LaTeX (a fallback
+ * span holds only its LaTeX). */
+export function numbered(span: OutNode, tag: string): Child[] {
+  if (span.attribs.class.split(' ').includes('reader-math-fallback')) return [span, ' ', tag];
+  span.attribs.class += ' reader-tagged';
+  span.children.push(el('span', { class: 'reader-tag' }, [tag]));
+  return [span];
+}
+
+/** A formula's LaTeX as `equation` reads it, or null where `equation` would refuse it or read it back from its MathML. */
 export function mathLatex(n: DomNode): string | null {
-  const annotations = elements(n, c => c.name === 'annotation' && c.attribs.encoding === 'application/x-tex');
-  const latex = n.attribs.alttext ?? (annotations.length === 1 ? textContent(annotations[0]) : '');
+  const annotations = texAnnotations(n), latex = givenLatex(n, annotations);
   if (!latex.trim() || CONTROL.test(latex) || byteLength(latex) > LIMITS.textBytes) return null;
   if (annotations.length && !(annotations.length === 1 && normalizeSpace(textContent(annotations[0])) === normalizeSpace(latex))) return null;
   return latex;

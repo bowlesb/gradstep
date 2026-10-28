@@ -37,6 +37,21 @@ quoted. Before the fix the same case ended `denied`/`operation_ceiling` and `pro
   `node scripts/chat-live-smoke.mjs --paper-concept --profile=gemini-medium-standard` (about $0.01 a run) until Flash is
   silent once, and read back the operation (a `carried` event, Haiku `succeeded`, credits ≤ the quote).
 
+## Reader revision 29 — the sweep's failures, 2026-10-28 UTC (branch; not yet in a build)
+
+The five failures of the 2026-10-28 fresh-paper sweep (revision 28 below) are fixed by degrading instead of refusing
+([HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md#sweep-failures-refusals-degrade-author-lines-repaired-revision-29-2026-10-28-not-yet-released),
+JUDGMENT_LOG 58): a citation inside a formula is words in it (2610.37645v1); a formula without LaTeX takes it from its
+MathML (2610.37481v1); a formula the reader can't draw shows its LaTeX; a link to an id the HTML lacks goes to its
+container or reads as words (2610.37633v1); the library-name rule no longer swallows names carrying their own marks
+(2610.37651v1, and the catalog headers of 19 more cached papers); a `\thanks` reads its TeX-typed marks, affiliations,
+e-mail and project-page lines cleanly (2610.37619v1, 2407.04620v1). Cached-source replay against revision 28: 229 papers,
+31 change (the 3 refusals open, 28 author headers, each reviewed), none newly refused; `npm test` passes; fresh-paper
+sweep (`--recent=40`, 30 papers): no failures. Device path: four of the five prepare with every image. **Not fixed:**
+2610.37633v1 still fails on a device, now over its images' size (48 MB of PNG against the hosts' 40 MiB per-paper
+download budget, and the compiler's 32 MiB input check), as 2312.14235v1 does; a proposal (over-budget images arrive
+missing and become figure notes) needs both hosts and the Simulator.
+
 ## Reader revision 28 — figure panels, 2026-10-28 UTC (branch; not yet in a build)
 
 A figure whose pictures LaTeXML set apart from their sub-captions (a row of pictures, then caption-only sub-figures:
@@ -45,7 +60,7 @@ panels, each picture with its caption; before, the pictures were left out as gra
 captions ([HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md#figure-panels-set-apart-from-their-captions-revision-28-2026-10-28-not-yet-released),
 JUDGMENT_LOG 54). 243 cached sources against revision 27: 4 papers change (61 pictures in 7 figures), none newly
 refused; `npm test` passes; the four papers prepare on the device path with every picture. Fresh-paper sweep, 30
-papers: 5 failures, each identical under revision 27 and so not from this change, still to triage: refusals
+papers: 5 failures, each identical under revision 27 and so not from this change, triaged in revision 29 above: refusals
 `arxiv_math_element` (2610.37645v1), `arxiv_math_source` (2610.37481v1), `arxiv_unresolved_fragment` (2610.37633v1),
 and author lines with leaked marks (2610.37651v1 "Zack Yu1*,4,11*411", 2610.37619v1 "Daniela Rus† https://t…").
 Remaining picture losses inside figures: grids with row or column headings and table floats with pictures in cells

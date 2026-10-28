@@ -15,7 +15,7 @@ import { classes, el, elements, normalizeSpace, textContent, type DomNode, type 
 import { LIMITS } from '../profile.ts';
 import { byteLength, CONTROL } from '../util.ts';
 import { bind, children, has, type ArxivContext, type Child } from './context.ts';
-import { equation, joinedEquation, mathLatex, mathNode } from './math.ts';
+import { drawnMath, equation, joinedEquation, mathLatex, mathNode, numbered as withNumber } from './math.ts';
 
 type Align = 'left' | 'right' | 'center';
 type Piece = { math: DomNode } | { text: string; node: DomNode | null };
@@ -162,17 +162,18 @@ export function equationTable(cx: ArxivContext, n: DomNode, owner: string): Chil
   if (!aligned && rows.filter(r => r.tag).length < 2) return null;
   const numbered = groups(rows);
   if (!aligned) {
-    const parts: OutNode[] = [];
+    const parts: Child[] = [];
     for (const group of numbered) {
       const spans = formulas(group.rows).map(m => equation(cx, m, owner, true));
-      if (spans.length && group.tags.length) addTag(spans[spans.length - 1], group.tags);
-      parts.push(...spans);
+      const last = spans.pop();
+      parts.push(...spans, ...(last ? group.tags.length ? withNumber(last, group.tags.join(' ')) : [last] : []));
     }
     return parts;
   }
-  // A formula `equation` would refuse keeps the reading it had (and its refusal).
+  // A formula `equation` would read otherwise (its LaTeX read back from its MathML, or shown as its LaTeX because the
+  // reader can't draw it) keeps the reading it had: a line per formula.
   const latexOf = new Map<DomNode, string>();
-  for (const m of maths) { const latex = mathLatex(m); if (latex === null) return null; latexOf.set(m, latex); }
+  for (const m of maths) { const latex = mathLatex(m); if (latex === null || drawnMath(m) === null) return null; latexOf.set(m, latex); }
   const aligns = columnAligns(rows);
   const latexes = numbered.map(g => groupLatex(g.rows, aligns, latexOf));
   if (latexes.some(l => !l.trim() || CONTROL.test(l) || byteLength(l) > LIMITS.textBytes)) return null;
