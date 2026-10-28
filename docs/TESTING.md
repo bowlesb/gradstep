@@ -175,6 +175,19 @@ cannot certify downloading or persistence. Scope, cancellation, wrong revision, 
 ambiguous and no-text cases remain separate assertions. Record all native results and limits in
 [READER_PDF_PEEK.md](architecture/READER_PDF_PEEK.md); desktop corpus evidence is not Apple performance evidence.
 
+## Sweep failures degrade; author lines (reader revision 29) — October 28
+
+Fast (in `npm test`): `tests/backend/arxiv-sweep-fixes.test.ts` (a citation inside a formula, a formula outside the
+reader's MathML shown as its LaTeX with its number, a formula without LaTeX, back-references to ids the HTML lacks, names
+with their own marks with the library's names, a `\thanks` of TeX marks, affiliations, split e-mail addresses and a
+project page, a parbox of marked affiliations; all fail on revision 28) and the refusal tests in `arxiv-html.test.ts`.
+Slow, opt-in: the cached-source replay against revision 28 (`node scripts/arxiv-converter-equivalence.mjs
+--rev=65545895 --ignore-ids`), the fresh-paper sweep (its author checks now fail on marks run together in the names, an
+address in the names, and TeX or address pieces anywhere in the header), `node scripts/reader-device-compile.mjs
+--ids=2610.37645v1,2610.37481v1,2610.37651v1,2610.37619v1`. The browser compiler journey (`e2e/arxiv-compiler.spec.ts`)
+now expects the `maction` source to open with a fallback formula; not rerun (slow). Screenshots: Playwright WebKit at 393
+pt of each page compiled by revisions 28 and 29 with the sweep's catalog metadata, under `.artifacts/reader-sweep-fixes/`.
+
 ## Figure panels set apart from their captions (reader revision 28) — October 28
 
 Fast (in `npm test`): `tests/backend/arxiv-figure-panels.test.ts` (2610.20608v1's row of pictures over caption-only

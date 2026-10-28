@@ -6,6 +6,27 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+56. **What refused a paper on the fresh-paper sweep degrades instead, and the author block's readings that go with it**
+    (reader revision 29; lead's rule: "a refusal is a first-open failure — degrade, don't refuse; never show leaked
+    markup"). Calls beyond the direct fixes: (a) **any formula the reader can't draw shows its LaTeX** (the validators'
+    existing `reader-math-fallback` text form), including a picture in a formula that isn't a DocPilot text badge, which
+    refused the paper since build 65; nothing of the picture reaches the page either way. A TeX annotation that disagrees
+    with the alttext still refuses (a damaged source). (b) **A link to an id the HTML lacks goes to the element LaTeXML
+    named it after** ("S6.F5.2" → Figure 5, LaTeXML ids name their container) rather than only becoming words; words only
+    when nothing holds it. (c) **In a `\thanks`, a contact line its left-out e-mail addresses emptied goes** ("E-mail:",
+    "Correspondence to:"), "Corresponding author: …" stays; numbered lines join the affiliations; a link stays in the
+    note's words; a note left with nothing marks no name (an empty `\footnotemark` still does). E-mails stay left out of
+    LaTeXML's author block as before, and the contact paragraph after an abstract stays whole in the affiliation lines
+    (revisions 20/22), so (d) **the sweep's e-mail check now applies to the names only**, and new checks fail on marks run
+    together, TeX typed as text and address pieces anywhere in the header. Of 229 cached papers 31 change, none newly
+    refused; 28 author headers reviewed one by one (mostly catalog headers that had garbled marks or names read as
+    affiliations). *Why:* each is the most faithful reading of what LaTeXML wrote; a refusal costs the reader the paper.
+    *Undo:* (a) `drawnMath` returning null back to throwing in `arxiv/math.ts`; (b) drop the two fallbacks in
+    `arxiv/finish.ts` `linkTarget`; (c) `noteLines` in `arxiv/authors.ts`; (d) the checks in `scripts/reader-sweep.mjs`;
+    then bump the revision. *Not taken:* 2610.37633v1's 48 MB of images still exceed the hosts' 40 MiB per-paper budget;
+    letting such a paper open with its last images as notes changes both hosts and needs the Simulator (proposal in
+    HTML_FIRST_READER.md).
+
 55. **After a silent model, the fallback's admission moves the silent attempt's ceiling out of the reader's hold into
     Gradstep's own room** (migration 0163; local, not applied or deployed). Staging, 14:12 and 14:14 UTC: a paper
     explainer on Flash was silent 25 s, "Switching to Claude Haiku 5.5…" showed, then Haiku was `denied`

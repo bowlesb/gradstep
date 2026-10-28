@@ -69,6 +69,76 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
+### Sweep failures: refusals degrade, author lines repaired (revision 29, 2026-10-28; not yet released)
+
+The fresh-paper sweep of 2026-10-28 (30 papers, revision 28) had five failures, each identical under revision 27. A
+refusal is a first-open failure, so each construct now degrades to the best faithful reading (JUDGMENT_LOG 56).
+
+- **2610.37645v1, `arxiv_math_element`.** A display reads "\text{\color{gray}{Attention} \citep{vaswani2017attention}:}
+  \quad O = softmax(QKᵀ+M)V": LaTeXML put the citation's HTML (`cite` holding an `a`) inside an `mtext`, and `mathNode`
+  admits only MathML. HTML phrasing inside a formula (`cite`, `em`, `b`, `small`, `sub`, …) is now its words, as text of
+  the token around it or a text token of its own (`arxiv/math.ts` `MATH_PHRASING`): "Attention (Vaswani et al.,
+  2017): O = …". The citation is not a link there (MathML holds no links). 1 cached paper (6 citations in its formulas) has the construct.
+- **Any formula the reader can't draw** (an element outside its MathML vocabulary, a picture in a formula that isn't a
+  text badge, a `semantics` without one presentation, an empty presentation) shows its LaTeX in the shared
+  `reader-math-fallback` form (the validators' text representation: the LaTeX for a display, `\(…\)` inline) instead of
+  refusing the paper; an equation number follows it as text (`drawnMath`, `numbered`). An aligned group holding such a
+  formula reads a line per formula. No cached paper takes this path today. The test that refused DocPilot-style SVG
+  badges which aren't badges (`arxiv-html.test.ts`) now checks the fallback: nothing of the picture reaches the page and
+  its label is not passed off as the formula. A TeX annotation disagreeing with the alttext still refuses
+  (`arxiv_math_mismatch`): that is a damaged source, not a reading choice.
+- **2610.37481v1, `arxiv_math_source`.** Table 4's boxed answer `\fbox{$15$}` is a block `math` with neither alttext nor
+  a TeX annotation. Its LaTeX is now read back from its MathML (`latexFromMathML`: tokens, rows, scripts, fractions,
+  roots, under/over; `\text{}` for `mtext`): "15". The MathML is drawn as before. 1 cached paper (1 formula).
+- **2610.37633v1, `arxiv_unresolved_fragment`.** The bibliography's back-references ("Cited by: §1, …, Figure 5, Table
+  1") point at `S6.F5.2` and `S6.T1.2`, ids the HTML never wrote (the citations inside those captions). A link to an id
+  the page doesn't hold now goes to the nearest bound element around the target when the target exists, else to the
+  element LaTeXML named it after (its id without its last parts: `S6.F5`, Figure 5); a link to nothing reads as its
+  words (`arxiv/finish.ts` `linkTarget`, `unwrapLinks`). 1 cached paper (2 links).
+- **2610.37651v1, author line "Zack Yu1*,4,11*411".** One creator holds every name with its own marks ("Zack Yu¹*, Nicholas
+  Lee¹*, Minjae Lee⁴ …"). With the library's names (the app always passes them), the rule for a name run together with its
+  affiliations (2610.10478) matched "Zack Yu" at the start, took every mark of the line as his and made the other names
+  an affiliation line. It no longer fires when marks sit between words; the line splits into names as without the library.
+  Siblings: the catalog headers of 19 more cached papers (11 with marks run together, as `</sup><sup>` in the names; 8
+  with the other names read as an affiliation: ViT 2010.11929v2, WorldCast 2610.20731v2, 2610.09823v1, …), all now as the
+  HTML-only reading or better. The sweep now fails on marks run together in the names (`authors_marks`).
+- **2610.37619v1, "Daniela Rus† https://t…".** Four `\thanks` on the last author: "$ˆ1$ Massachusetts Institute of
+  Technology …" lines (TeX the author typed, which LaTeXML left as text, `^` as "ˆ"), "E-mail: {<a>delpreto</a>,
+  <a>rus</a>}@csail.mit.edu; …" (the mailto links left out, so "{, }@csail.mit.edu;" stayed: the e-mail rule ran on each
+  piece before they were joined), and "Project website and video: <a>…</a>" (the address moved to its own line, leaving the
+  label). Now: a TeX-typed mark is the mark (`texMarks`: `$^1$`, `$ˆ{2}$`, `$^\dagger$`) and the tie "˜" a space; in a note,
+  a line of numbered marks joins the affiliations, a contact line its left-out addresses emptied goes ("E-mail:",
+  "Correspondence to:"; "Corresponding author: …" says who and stays), a link stays in its words, a symbol mark after
+  words starts a line; addresses are removed after the pieces join (`tidy`); a note left with nothing marks no name. The
+  header reads the names, the four affiliations, then "*These authors contributed equally… Corresponding author: Joseph
+  DelPreto." and "Project website and video: https://tennis-vision.csail.mit.edu". Sibling: 2407.04620v1 (TTT: "˜$ˆ†$ Joint
+  advising", "˜˜˜ $ˆ1$ Stanford University. ˜$ˆ2$ UC San Diego …", "Correspondence to:,,.", "Code available in and."); and
+  e-mail-only notes that left "Correspondence to." or a mark pointing at nothing (2404.19756v1, 2406.02528v1/v7,
+  2610.06903v1). The sweep now fails on TeX typed as text or address pieces anywhere in the header; e-mails count only in
+  the names, since the contact paragraph after an abstract joins the affiliation lines whole (revisions 20 and 22).
+- Found on the way: a parbox whose later paragraphs are marked affiliations (2610.13166v1: names, then "¹University of
+  Science and Technology of China", one paragraph each) read as one run in which the institutions were names; each
+  paragraph is now a line (also 2610.31650v1).
+
+Evidence: `tests/backend/arxiv-sweep-fixes.test.ts` (one test per construct on LaTeXML's reduced markup; all seven fail on
+revision 28) and the updated refusal tests in `arxiv-html.test.ts`; `npm test` passes. Replay of every cached source against
+revision 28 (`arxiv-converter-equivalence.mjs --rev=65545895 --ignore-ids`: 243 sources, 474 runs, 48 differ; by paper, 229
+papers, 466 runs): 31 papers change, none newly refused, no output changes outside the 3 formerly refused papers and 28
+author headers, each reviewed; the 8 refusals left are identical (1412.6980v9 is a pointer to the PDF; 6 papers without an
+`h1` refuse `arxiv_title` only when compiled without the catalog title, which the apps always pass). Fresh-paper sweep
+(`--recent=40`, 30 papers, the same listing as the morning's): no failures, one existing warning (Honeycomb-Surfels' 708
+dropped commands). Device path (`reader-device-compile.mjs`, headless Chromium): 2610.37645v1, 2610.37481v1, 2610.37651v1
+and 2610.37619v1 prepare with every image. Screenshots (Playwright WebKit, 393 pt, light and dark, before and after):
+`.artifacts/reader-sweep-fixes/`.
+
+**Still not opening: 2610.37633v1 on a device.** Its HTML now converts, but its 16 images are 48 MB of PNG (up to 8.4 MB
+each), over the hosts' per-paper download budget (40 MiB: `ArxivAcquisitionPolicy.totalBytes` in the app,
+`ARXIV_LIMITS.totalBytes` in the browser), so acquisition stops with "too large", and the compiler's own input check
+(`device-compiler.ts`: source plus downloaded images ≤ 32 MiB, before any image is redrawn) refuses `bundle_limit`. The
+reader showed the PDF screen before (for the fragment) and still does. 2312.14235v1 (≈ 90 MB of images) is the same class.
+Proposal, not built (it changes both hosts and needs the Simulator): an image past the budget arrives `missing`, so its
+figure says the PDF has it, and the compiler counts the redrawn images' bytes rather than the downloads'.
+
 ### Figure panels set apart from their captions (revision 28, 2026-10-28; not yet released)
 
 Agent report: 2610.20608v1's Figure 2 showed only "(a) Strong correlation of gFID and CKNNA", "(b) …", "(c) …" and its
