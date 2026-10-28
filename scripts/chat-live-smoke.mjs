@@ -475,7 +475,8 @@ try {
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
     if (failure || !done) throw new Error(`Chat did not complete: ${failure?.code ?? 'missing_done'}`);
     if (STUDY && /study_state|<study/i.test(answer)) throw new Error('The tutor\'s hidden notes reached the answer text');
-    if (explainerAction) {
+    // The Go deeper turn reuses the explainer's request but returns a concept, checked below.
+    if (explainerAction && !conceptQuote) {
       const x = pe.explainer;
       log(`explainer stream: reading ${pe.reading ?? '-'} s, count ${pe.count ? `${pe.count[1]} at ${pe.count[0]}` : '-'}, summary ${pe.summary ?? '-'} s, entries [${pe.items.join(' ')}], final ${pe.final ?? '-'} s; streamed = final entries: ${pe.streamed && x ? JSON.stringify(pe.streamed) === JSON.stringify([...x.background, ...x.ideas]) : 'n/a'}`);
       if (x) {
