@@ -184,8 +184,8 @@ card, the same cards in Chat".
 
 Owner, TestFlight 93 (iPhone, 19:51 UTC): *"The space at the top isn't that well used. I think we can improve this by
 having an option for users to request more elaboration on each concept, and then another screen in front. Then when we
-swipe away we get the entire overview behind etc."* Decision: [JUDGMENT_LOG](../JUDGMENT_LOG.md) 27 (and 32–36 for the
-calls made building it).
+swipe away we get the entire overview behind etc."* Decision: [JUDGMENT_LOG](../JUDGMENT_LOG.md) 27 (and, for the
+calls made building it: 44–51).
 
 - **The overview.** Each Key concept has **Go deeper ›** beside its ¶ links (under them when they don't fit), once the
   explainer is whole. A concept already deepened carries a small check and VoiceOver's "Explained". The header moved into

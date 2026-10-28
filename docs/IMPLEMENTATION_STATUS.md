@@ -1,5 +1,18 @@
 # Implementation status
 
+## Paper AI Explainer: Go deeper on a key concept — 2026-10-28 (local; not deployed or released)
+
+Owner, TestFlight 93: more elaboration on each concept "and then another screen in front", and better use of the space
+at the top (JUDGMENT_LOG 27, 44–51; [CHAT.md](architecture/CHAT.md#go-deeper-on-a-key-concept--2026-10-25-server-and-apps-local-not-deployed)).
+Server action `paper_concept` (chat function; no migration) and the apps: Go deeper › on each Key concept opens its card
+in front (streamed; kept with the explainer, so reopening is free; a quiet mark), ¶ links with Back, Ask about this,
+Your AI usage's Concept explainer; the explainer's header is one row in the sheet's bar. Evidence: backend tests
+(validation, checks, streaming at every split, cache prefix, settlement, Gemini effort, the Haiku fallback at the view
+deadline), Core and app unit tests (request, checks, bar, storage and reopening without a request), the iPhone journey
+`StudyExplainerJourneyTests/testGoDeeperOpensTheConceptInFrontAndTheOverviewStaysBehind` on the fixture backend, and a
+paid DPO probe ($0.0455). **To ship:** deploy the chat function, then a build. Older builds and the browser never send
+the action. Not built: the browser, and concepts in Download your assets.
+
 ## Interest index serves every reader — 2026-10-28 UTC
 
 `interest_policy.serving` moved from `staff` to `all` at 13:54 UTC through `worker_interest_set_policy(null, 'all')`,
