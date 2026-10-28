@@ -4,6 +4,26 @@ Owner, 2026-10-25: "Just make a good judgment and keep a log." Calls the lead or
 newest first. Each says what was decided, why, and how to undo it. Formal entries stay in [DECISIONS.md](DECISIONS.md);
 this is the one place to skim and overrule. Say "undo N" (or describe the change) to reverse any of them.
 
+## 2026-10-28
+
+54. **Pictures set apart from their captions or labels read as panels, each picture above its own caption** (reader
+    revision 28; agent report on 2610.20608v1, whose Figure 2 showed only "(a)", "(b)", "(c)" and its caption while the
+    closing note counted its three plots as left-out graphics). LaTeXML wrote the plots as one paragraph and the
+    sub-figures as captions alone; the flow read that paragraph as text, where a graphic is left out. Now such a figure
+    is one figure and the i-th picture joins the i-th caption (after it when the captions come first; page order when
+    the counts differ). The same reading for the tabular form, a row of pictures with a row of labels under or over it
+    (Batch Normalization's Figure 1 had read as a table of "(a) | (b) Without BN | (c) With BN"). Of 243 cached sources
+    4 papers change (61 pictures in 7 figures now show), none newly refused; left-out graphics in the closing notes of
+    the 219 papers that compile, 2,730 → 2,669.
+    *Why:* the panels' own captions, under their pictures, are how every other sub-figure reads (revision 12) and how
+    the figure viewer finds parts. *Cost:* 2610.09823v1's three galleries now carry 48 more photos (bundle 9.2 → 26.1
+    MiB; preparing it took 25 s instead of 1.7 s in WebKit on a Mac, since 71 images exceed the per-image pixel share and
+    are redrawn as PNG), and past the 16-picture figure limit a label stays as words without its picture. *Undo:* drop
+    the `panelsApart`/`labelledPanels` branch in `arxiv/flow.ts` and bump the revision. *Not taken:* grids with row or
+    column headings (18 figures, 588 pictures in 5 cached papers, and 28 table floats with 613 pictures in cells) still
+    read as tables without their pictures; showing them needs pictures inside reader tables in all three validators, a
+    separate proposal.
+
 ## 2026-10-25
 
 43. **A figure printed before the Introduction reads after the paragraph that first cites it** (owner, TestFlight 92,

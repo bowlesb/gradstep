@@ -69,6 +69,57 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
+### Figure panels set apart from their captions (revision 28, 2026-10-28; not yet released)
+
+Agent report: 2610.20608v1's Figure 2 showed only "(a) Strong correlation of gFID and CKNNA", "(b) …", "(c) …" and its
+caption, and the paper's closing note counted its three plots as left-out graphics (before revision 27 too). The source
+draws the three plots in one row and captions them in the next. LaTeXML wrote a flex figure: one
+`p.ltx_figure_panel` holding the pictures (a PNG `img` and two `object type="image/svg+xml"`, each in a raised
+`span.ltx_text`), a flex break, three sub-figures (`figure.ltx_figure_panel`) holding only their `figcaption`, then the
+figure's caption. The panel rule (revision 12, `imagePanels`) wants every sub-figure to hold its picture, so the figure
+took the compound route, every child its own block: the paragraph of pictures became a paragraph, where a graphic
+outside a figure is left out and counted (the rule for logos in running text), then three caption paragraphs. The
+pictures were never planned or fetched; the SVG `object`s, their sizes and paths, and revision 25's SVG `<image>`
+inspection played no part. Figure 8 of the same paper has the same shape.
+
+- **Pictures apart from caption-only sub-figures** (`panelsApart`, `arxiv/figures.ts`): a figure with one caption of
+  its own whose sub-figures each hold only a caption, and whose pictures sit outside them in layout without words
+  (paragraphs, spans, flex cells, links), is one figure. The i-th picture joins the i-th sub-figure, above its caption
+  when the pictures come first, below it when the captions do; the figure then reads as panels do (picture, its
+  caption, …, the figure's caption), the shape the figure viewer reads parts from. When the counts differ, the
+  pictures and captions keep page order inside the one figure. A picture with words beside it (a legend) or any other
+  content keeps the old reading.
+- **The tabular form** (`labelledPanels`): a figure float (not a table float) whose one tabular holds rows of single
+  pictures and rows of words, each words row next to a row of as many pictures, with no spanning cells and nothing else
+  besides its caption: each picture with its label, under it, or over it when the words row comes first. Batch
+  Normalization's Figure 1 (1502.03167v3: three plots, then "(a)", "(b) Without BN", "(c) With BN") had read as a
+  table of three labels; 2610.09823v1's galleries (rows of four photos, each with a row of names) and 2610.31644v1's
+  Figure 10 (names over pictures) read the same way.
+- Every source id inside such a figure (the row of pictures, a table cell) resolves to the figure block. Past the
+  16-picture figure limit the first pictures show and a label whose picture is left out stays as words (2610.09823v1:
+  16 of 24 photos with their names, then 8 names).
+- Unchanged: a grid with row or column headings (a method per row, a scene per column) still reads as a table of its
+  words with the pictures left out and counted: 18 figures with 588 pictures in 5 cached papers (2610.31644v1 Figures
+  5, 6, 12–18; 2012.03912v1; 2610.19847v1 Figure 3; 2610.20584v1 Figure 10; 2610.22371v1 Figures 6–8), and 28 table
+  floats with pictures in cells (613, in 10 papers, mostly icons and thumbnails). Showing them needs pictures inside
+  reader tables, a vocabulary change for the three validators (validate.ts, ReaderBundle.swift, apps/web bundle.ts),
+  left for a proposal. Also unchanged: the 16-picture figure limit (2610.20608v1's Figures 10–13, 72 small pictures
+  each).
+
+Evidence: `tests/backend/arxiv-figure-panels.test.ts` (both layouts, captions over pictures, counts that differ, a
+panel the device couldn't prepare, labels over and under, the grid, table float and uneven rows that stay tables, a
+composed bundle the shared validator admits); they fail on revision 27's flow. All 243 cached sources replayed against
+revision 27: 4 papers change (61 pictures in 7 figures: 2610.20608v1 Figures 2 and 8, 1502.03167v3 Figure 1,
+2610.09823v1 Figures 1, 10 and 11, 2610.31644v1 Figure 10), nothing else differs, none newly refused; the closing
+notes of the 219 sweep and corpus papers that compile count 2,669 left-out graphics in 74 papers (2,730 in 75 before). The
+reported layout itself occurs only in 2610.20608v1 among them. Device compile (`reader-device-compile.mjs`, headless
+Chromium and WebKit): the four papers prepare with every picture and no note. 2610.09823v1 now carries 71 images
+(26.1 MiB, 9.2 before); 71 images exceed the per-image share of the 64-million-pixel budget, so each is redrawn as PNG
+and preparing it takes 25 s in WebKit on a Mac (1.7 s before), likely about a minute on a phone, within the 90 s guard.
+Fresh-paper sweep (30 papers, 2026-10-28): 5 failures, each identical under revision 27 (not this change; see
+IMPLEMENTATION_STATUS.md). Playwright WebKit screenshots at iPhone width, before and after, light and dark:
+`.artifacts/figure-panels/` (Figure 2, Figure 8, Batch Normalization's Figure 1).
+
 ### Floats before the first section (revision 27, 2026-10-25; not yet released)
 
 TestFlight 92 feedback for WorldCast (2610.20731v2): "Is the Figure displayed in the right place". LaTeXML keeps a

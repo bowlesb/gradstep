@@ -45,9 +45,11 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * aligned group (align, alignat, eqnarray) is one display per number with its relations aligned, not a centred line per
  * cell, and accents are drawn over their letter in WebKit, 2610.27450v1 equations (2) and (3) on TestFlight 92; revision
  * 27: a float written before the first section that the first section cites reads after the paragraph citing it, not
- * between the abstract and the Introduction, 2610.20731v2 on TestFlight 92), so a device re-prepares papers it compiled
- * with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 27;
+ * between the abstract and the Introduction, 2610.20731v2 on TestFlight 92; revision 28: pictures set apart from their
+ * sub-captions (a row of pictures, then caption-only sub-figures) or from their labels (a tabular's next row) read as
+ * panels with their captions instead of being left out as graphics in text, 2610.20608v1's Figures 2 and 8 and Batch
+ * Normalization's Figure 1), so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 28;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

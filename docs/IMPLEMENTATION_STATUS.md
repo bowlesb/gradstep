@@ -1,5 +1,19 @@
 # Implementation status
 
+## Reader revision 28 — figure panels, 2026-10-28 UTC (branch; not yet in a build)
+
+A figure whose pictures LaTeXML set apart from their sub-captions (a row of pictures, then caption-only sub-figures:
+2610.20608v1's Figures 2 and 8) or from their labels (a tabular's next row: Batch Normalization's Figure 1) reads as
+panels, each picture with its caption; before, the pictures were left out as graphics in text and the figure read as its
+captions ([HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md#figure-panels-set-apart-from-their-captions-revision-28-2026-10-28-not-yet-released),
+JUDGMENT_LOG 54). 243 cached sources against revision 27: 4 papers change (61 pictures in 7 figures), none newly
+refused; `npm test` passes; the four papers prepare on the device path with every picture. Fresh-paper sweep, 30
+papers: 5 failures, each identical under revision 27 and so not from this change, still to triage: refusals
+`arxiv_math_element` (2610.37645v1), `arxiv_math_source` (2610.37481v1), `arxiv_unresolved_fragment` (2610.37633v1),
+and author lines with leaked marks (2610.37651v1 "Zack Yu1*,4,11*411", 2610.37619v1 "Daniela Rus† https://t…").
+Remaining picture losses inside figures: grids with row or column headings and table floats with pictures in cells
+(need pictures in reader tables).
+
 ## Interest index serves every reader — 2026-10-28 UTC
 
 `interest_policy.serving` moved from `staff` to `all` at 13:54 UTC through `worker_interest_set_policy(null, 'all')`,

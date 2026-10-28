@@ -6,7 +6,7 @@ import { authorsBlock } from './authors.ts';
 import { equation } from './math.ts';
 import { equationTable } from './align.ts';
 import { inline } from './inline.ts';
-import { imageFigure } from './figures.ts';
+import { imageFigure, labelledPanels, panelFigure, panelsApart } from './figures.ts';
 import { minipageCaption, table, tableContents, tableGroupCaption } from './tables.ts';
 import { templatePreamble } from './front-matter.ts';
 
@@ -47,6 +47,7 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
     // not turn the entire listing into an image figure with no actual image (DocPilot Algorithm 1).
     const images = elements(n, c => ['img','object','svg'].includes(c.name) && !insideMath(c));
     const captions = children(n).filter(c => c.name === 'figcaption');
+    let panels: DomNode | null = null;
     if (captions.length > 1 && !tables.length && !elements(n, c => c !== n && c.name === 'figure').length) {
       // LaTeXML can put several complete numbered figures in one container.
       // Keep each image group with its following caption, in source order.
@@ -69,6 +70,11 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
       // figure, its panels in order with their own captions under them, the figure's caption last. A reference to a
       // panel opens the figure.
       output = [imageFigure(cx, n)];
+    } else if ((panels = panelsApart(n) ?? labelledPanels(n))) {
+      // Pictures set apart from their captions (a row of pictures, then caption-only sub-figures: 2610.20608v1's Figure
+      // 2) or from their labels (a tabular's next row: Batch Normalization's Figure 1) were left out as graphics in text:
+      // one figure, each picture with its caption (figures.ts).
+      output = [panelFigure(cx, n, panels)];
     } else if (elements(n, c => c !== n && c.name === 'figure').length || (tables.length && images.length)) {
       // Compound figures keep their panel order and captions as separate,
       // non-nested reader blocks. A reference to the group opens its first panel.

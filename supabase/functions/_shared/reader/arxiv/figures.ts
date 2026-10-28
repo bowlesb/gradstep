@@ -1,8 +1,8 @@
 // Figures (arXiv converter component): figure blocks with their images, legends and captions.
-import { el, elements, normalizeSpace, outText, textContent, type DomNode, type OutNode } from '../html.ts';
+import { el, elements, normalizeSpace, outText, textContent, walk, type DomNode, type OutNode } from '../html.ts';
 import { LIMITS } from '../profile.ts';
 import { boundedText, check, excerpt } from '../util.ts';
-import { active, bind, block, children, loneImage, type ArxivContext, type Child } from './context.ts';
+import { active, bind, block, children, has, loneImage, type ArxivContext, type Child } from './context.ts';
 import { inline } from './inline.ts';
 import { arxivAssetURL } from './urls.ts';
 
@@ -102,6 +102,103 @@ export function imageFigure(cx: ArxivContext, n: DomNode): OutNode {
   }, {});
   const id = figure.attribs.id;
   return cx.figureImages.get(id)!.length === 0 && (cx.unshownImages.get(id) ?? 0) > 0 ? unshownFigure(cx, figure) : figure;
+}
+
+const isGraphic = (c: DomNode) => c.type === 'tag' && ['img', 'object', 'svg'].includes(c.name);
+/** A node's words, without what its graphics draw (a picture's labels); math counts as words. */
+const wordsOf = (c: DomNode): string => c.type === 'text' ? c.data : c.type !== 'tag' || isGraphic(c) ? '' : children(c).map(wordsOf).join('');
+/** The graphics in a node that no other graphic or math holds. */
+const ownGraphics = (root: DomNode) => elements(root, c => {
+  if (!isGraphic(c)) return false;
+  for (let a = c.parent; a && a !== root; a = a.parent) if (isGraphic(a) || a.name === 'math') return false;
+  return true;
+});
+const oneCaption = (n: DomNode) => children(n).filter(c => c.name === 'figcaption').length === 1;
+
+/** Pictures LaTeXML set apart from their sub-captions (2610.20608v1's Figures 2 and 8: the source draws three plots in
+ * one row and captions them in the next, so the figure holds a paragraph of pictures, then sub-figures holding only "(a)
+ * …", "(b) …", "(c) …"). The flow read that paragraph as text, where a graphic is left out and counted, and the figure as
+ * its captions: no picture showed. Returns the figure as panels (imageFigure reads each in place): the i-th picture in
+ * the i-th caption's panel, before the caption when the pictures come first, after it when the captions do; pictures and
+ * captions that don't pair one to one stay in page order. Null for any other figure, which reads as before. */
+export function panelsApart(n: DomNode): DomNode | null {
+  if (!oneCaption(n)) return null;
+  // The figure's pictures, panels and caption in page order, through the wordless layout around them.
+  const items: DomNode[] = [];
+  let other = false;
+  const collect = (c: DomNode) => {
+    if (c.type === 'text') { if (c.data.trim()) other = true; return; }
+    if (c.type !== 'tag' || active.has(c.name) || c.name === 'br') return;
+    if (c.name === 'figure' || c.name === 'figcaption' || isGraphic(c)) { items.push(c); return; }
+    // A table, math, a list or any other content: not this layout.
+    if (!['div', 'p', 'span', 'a'].includes(c.name)) { other = true; return; }
+    children(c).forEach(collect);
+  };
+  children(n).forEach(collect);
+  const pictures = items.filter(isGraphic), panels = items.filter(c => c.name === 'figure');
+  const captionOnly = (panel: DomNode) => children(panel).some(c => c.name === 'figcaption')
+    && children(panel).every(c => c.type === 'comment' || (c.type === 'text' ? !c.data.trim() : c.name === 'figcaption'));
+  // A drawing right under the figure would read as a legend symbol beside its words (imageFigure): not this layout.
+  if (other || !pictures.length || !panels.length || !panels.every(captionOnly) || pictures.some(p => p.name === 'svg' && p.parent === n)) return null;
+  if (pictures.length !== panels.length) return { ...n, children: items };
+  const picturesFirst = items.indexOf(pictures[0]) < items.indexOf(panels[0]);
+  return { ...n, children: items.filter(c => !isGraphic(c)).map(c => {
+    const at = panels.indexOf(c);
+    return at < 0 ? c : { ...c, children: picturesFirst ? [pictures[at], ...children(c)] : [...children(c), pictures[at]] };
+  }) };
+}
+
+/** Panels in a tabular with their labels in the next row (Batch Normalization's Figure 1, 1502.03167v3: three plots,
+ * then "(a)", "(b) Without BN", "(c) With BN"; 2610.09823v1's galleries: rows of four pictures, each with a row of names
+ * under it). The labels made the tabular a table of words, where a graphic is left out: the figure read as a table of
+ * labels. Returns the figure as panels, each picture with its label (under it, or over it when the labels' row comes
+ * first). Only a figure whose one tabular holds rows of single pictures and rows of words, each words row beside a row of
+ * as many pictures; a grid with row or column headings (a comparison of methods) stays a table. */
+export function labelledPanels(n: DomNode): DomNode | null {
+  if (has(n, 'ltx_table') || !oneCaption(n)) return null;
+  const tables = elements(n, c => c.name === 'table');
+  if (tables.length !== 1 || elements(n, c => c !== n && c.name === 'figure').length) return null;
+  const grid = tables[0];
+  // Nothing but the tabular and the caption: no words, math or graphics around them.
+  const outside = (c: DomNode): boolean => c === grid || c.name === 'figcaption' ? false
+    : c.type === 'text' ? c.data.trim().length > 0 : c.type === 'tag' && (isGraphic(c) || c.name === 'math' || children(c).some(outside));
+  if (children(n).some(outside)) return null;
+  type Row = { pictures: DomNode[] } | { labels: DomNode[] };
+  const rows: (Row | null)[] = elements(grid, c => c.name === 'tr').map(row => {
+    const cells = children(row).filter(c => c.name === 'td' || c.name === 'th');
+    if (!cells.length || cells.some(c => (c.attribs.colspan ?? '1') !== '1' || (c.attribs.rowspan ?? '1') !== '1')) return null;
+    const pictures = cells.map(ownGraphics), said = cells.map(c => normalizeSpace(wordsOf(c)).length > 0);
+    if (pictures.every((p, i) => p.length === 1 && !said[i])) return { pictures: pictures.map(p => p[0]) };
+    if (pictures.every((p, i) => p.length === 0 && said[i])) return { labels: cells };
+    return null;
+  });
+  if (rows.some(r => !r) || !rows.some(r => r && 'labels' in r)) return null;
+  // A panel: the picture and its label as a caption (the cell's own content), in the order the page sets them.
+  const panel = (picture: DomNode, cell: DomNode, labelFirst: boolean): DomNode => {
+    const caption: DomNode = { ...cell, name: 'figcaption', attribs: {} };
+    return { type: 'tag', name: 'figure', data: '', attribs: {}, parent: n, children: labelFirst ? [caption, picture] : [picture, caption] };
+  };
+  const panels: DomNode[] = [];
+  for (let i = 0; i < rows.length;) {
+    const row = rows[i]!, next = rows[i + 1];
+    if ('pictures' in row && next && 'labels' in next && next.labels.length === row.pictures.length) {
+      row.pictures.forEach((p, j) => panels.push(panel(p, next.labels[j], false))); i += 2;
+    } else if ('labels' in row && next && 'pictures' in next && next.pictures.length === row.labels.length) {
+      next.pictures.forEach((p, j) => panels.push(panel(p, row.labels[j], true))); i += 2;
+    } else if ('pictures' in row) { panels.push(...row.pictures); i += 1; }
+    else return null;
+  }
+  // The caption keeps its place (over or under the panels).
+  return { ...n, children: children(n).flatMap(c => c.name === 'figcaption' ? [c] : elements(c, x => x === grid).length ? panels : []) };
+}
+
+/** A figure read through `panelsApart` or `labelledPanels`: one figure block, and every source id in it (the row of
+ * pictures, a table cell) resolves to it, so a link to any part of the figure opens it. */
+export function panelFigure(cx: ArxivContext, n: DomNode, panels: DomNode): OutNode {
+  const figure = imageFigure(cx, panels);
+  const id = figure.attribs.id;
+  walk(n, c => { if (c.name !== 'math' && c.attribs?.id && !cx.aliases.has(c.attribs.id)) bind(cx, c, id); });
+  return figure;
 }
 
 /** A figure none of whose images this device could prepare reads as its caption, opened by a note that the PDF has it
