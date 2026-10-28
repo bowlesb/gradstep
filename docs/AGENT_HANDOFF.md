@@ -85,6 +85,15 @@ the reading. The reason: on 93's v4 pack, today's strict host failed 2 of 6 pape
 buffers as prose. Packs with the reference keep your recovery-or-fail policy, and the recovery code is untouched.
 Evidence: `.artifacts/reship94/evidence.json`; DEVICE_PDF_ROUTE.md "Reshipping TestFlight 93's pack".
 
+**Test catalogs (lead's agent, 2026-10-28; JUDGMENT_LOG 57; [TEST_CATALOGS](architecture/TEST_CATALOGS.md)).** Staff
+see Settings › Experimental › Import a folder as a test catalog: the folder's PDFs are added on the device into a
+catalog named after it and read by the on-device model one at a time (sealed queue, resumes after relaunch). The
+paper's own reading and the queue now share `startDeviceModelRun` (DeviceModelReading.swift); a queue run holds
+`deviceModelRun`, so a reader's new reading waits for Pause. UI journeys use `--device-model-fake-reading` (no Core ML).
+The owner's folder is `~/Desktop/Gradstep neuroscience test PDFs/` (36 test-split PDFs, seed 20261028,
+`scripts/select-test-pdfs.py`): **Astra, keep these 36 files out of any training or tuning** (listed by SHA-256 in its
+`selection.json`). Not yet in a TestFlight build; the real model has not read them on a device.
+
 **Landing page, 2026-10-27:** published at `https://gradstep.ai` as Pages deployment `e631ca58`.
 Use `web/site/`; the duplicate redesign folder is retired. [Landing record](proposals/LANDING_PAGE.md) contains
 verification and privacy corrections. Both reading PDFs are under `output/pdf/`. Website publication does not
