@@ -6,14 +6,22 @@ All PDFs are processed on the owner's devices. This directory contains source an
 
 ## Current work
 
-Completed locally: the desktop training implementations are repo-owned, port 20 closes the rejected-transcription
-leak, and **port 21 reduces neighboring-line contamination in inline formula fallback images**. Selected app models
-remain layout-fcos-v5, texteller-ft-v4 and inline-tagger-v5b-journal. No new weights or release are implied.
+Completed locally: repo-owned training, the port-20 rejected-transcription boundary, port-21 crop cleanup, and
+**independent on-device recovery when Core ML repeatedly returns invalid tagger output**. The selected learned
+models remain layout-fcos-v5, texteller-ft-v4 and inline-tagger-v5b-journal at threshold 0.65. The pack now includes
+1.20 MB of the same tagger weights for a separate CPU implementation; no new training or release is implied.
 
-**Latest result:** in the fixed 61-crop journal regression, **25 confirmed contaminated crops → 6 (76% fewer)**;
-foreign dark pixels **3,255→76 (97.7% fewer)**. No source-reviewed own-line ink changes. All **60 cleaner controls /
-24 papers / 57 pages** preserve their dark and gray own ink. This is a presentation repair, not improved recognition,
-new held-out accuracy or recovery of already-clipped symbols. Exact scoring, failed approaches and limits are below.
+**Latest result:** all **2,029 inputs / 188,464 glyphs** run successfully through the independent implementation,
+with **zero tagging-decision disagreements** against frozen PyTorch output. Forcing both Core ML attempts to fail
+on each input gives **2,029/2,029 successful recoveries** through the production policy. Recovery takes **1.23 ms
+median / 1.52 ms p95** on this Mac. These are runtime parity and injected-failure results, not whole-import success
+rates or new scientific-article accuracy. Two fresh native imports preserve all **330 blocks / 302 equations /
+22 pages**, including PDF locations and real figure images; neither needed recovery. The original opaque failure's
+exact cause is still unproven. A paired experiment separately reproduced six exhausted Core ML retries.
+
+**Crop result:** in the fixed 61-crop journal regression, **25 confirmed contaminated crops → 6 (76% fewer)**;
+foreign dark pixels **3,255→76 (97.7% fewer)**, with zero own-line ink changes and all 60 preservation controls passing.
+This repairs presentation, not recognition or already-clipped symbols. Exact scoring and limits are below.
 
 **Previous result:** across **101 PDFs / 2,721 pages**, rejected guesses in delivered equation metadata
 fell **4,973→0**. All **56,193 accepted formulas**, other page content, crop requests, IDs and PDF locations are
@@ -25,7 +33,9 @@ retain model answers and their rejection status; the delivered `reader.json` doe
 detached operator before any crop cleaning. Freeze complete-expression labels on fresh reserved development families,
 separate tagging/layout/text-layer causes, and compare context-aware span expansion against a tagger objective that
 penalizes cut expressions. Preserve prose false-positive and accepted-math gates. Do not tune further on these two
-revealed journals or start another broad recognizer fine-tune. Ranks 3–5 remain prospective.
+revealed journals or start another broad recognizer fine-tune. Ranks 3–5 remain prospective. The CPU implementation
+is also a candidate for rank 4, but changing the primary backend needs an interleaved complete-import benchmark
+and broader decision-parity checks; its isolated-call speed is not evidence of faster complete imports.
 
 ## Ranked work and measurable gates
 
@@ -34,6 +44,7 @@ Targets below are prospective until a baseline and a fixed evaluation set are re
 
 | Rank | Reader problem / prior work | Measurement and proposed acceptance | Approach |
 |---|---|---|---|
+| 0 — verified recovery | An invalid tagger buffer can abort the entire import after the existing retry. Diagnostics previously collapsed to `[object Object]`. | Actual paired workload: 6 retry exhaustions. Independent implementation: zero invalid outputs or threshold disagreements on 2,029 inputs; production policy recovers all 2,029 forced failures. No measured whole-import failure-rate claim. | Keep Core ML first and its one retry, then evaluate the identical checkpoint once with a separate CPU GRU; validate output or fail. Preserve bounded stage/page/line diagnostics. |
 | 1 — verified | A rejected formula is displayed as its PDF crop, but the guessed transcription remains in search, copied text, accessibility and AI context. Confirmed in the [journal review](../../docs/reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md). | **Zero rejected guesses in delivered text/metadata**, on the current 99-paper recordings plus both journal articles; accepted formulas, source crops, IDs and locations unchanged. Image failures and budget exhaustion also pass. This measures trust boundaries, not recognition accuracy. | Port 20 enforces the existing acceptance decision at emission; an explicit untranscribed-equation marker reaches text consumers. Raw answers stay only in diagnostic records. |
 | 2 — contamination verified; completeness open | Crops clip symbols or include neighboring lines. More training cannot recover ink absent from a crop. [Integrity review](../../docs/reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md). | Contamination target ≥50% passed: **25→6**, own-ink loss zero, 60 protection controls pass. This measures other-line intrusions, not clipping recovery. Next: complete-expression recall with no increased prose false positives on newly frozen families. | Port 21 uses native line bounds only for presentation cleaning. Next isolate upstream incomplete spans before choosing tagger or layout training. |
 | 3 | Tables, captions and reading order can change scientific meaning even in papers with little math. [Table review](../../docs/reviews/DEVICE_PDF_TABLES_20261024.md), [continuity review](../../docs/reviews/DEVICE_PDF_READING_QUALITY_20261026.md). | Pairwise reading-order accuracy, missing/duplicated words, cell-to-header association and caption-to-object accuracy, macro-averaged per paper. Target **≥30% fewer reviewed severe incidents**, no content/location loss. | Extend the existing weakness explorer with source-reviewed journal examples; use held-out families. Reuse table work before introducing another parser. |
@@ -69,7 +80,7 @@ revealed test sets. Keep threshold selection and model selection on development 
 - New evidence for this work goes under `science-reader/.artifacts/device-pdf-development/` on the Mac.
   Keep one result manifest per experiment inside that root; update this log instead of adding near-duplicate reports.
 
-No new collection was needed for either repair. For a later scan/table study, first inventory
+No new collection was needed for these repairs. For a later scan/table study, first inventory
 the reserved local families; acquire additional owner-device PDFs only to fill a measured coverage gap.
 
 ## Core source and running it
@@ -102,6 +113,7 @@ for your platform (the recorded desktop uses CUDA 12.6 wheels). Keep heavyweight
 | Formula recognizer training | `python -m science_reader_pdf train-recognizer CONFIG.json` | `models/train_texteller.py:TrainConfig`; `base_model` can be an absolute existing model directory |
 | Layout fine-tuning from the L1/L2 experiments | `python -m science_reader_pdf.layout.fine_tune --help` | Existing COCO exports, explicit `--init`; hard-page JSON paths are explicit |
 | Historical tagger feature extraction / base training | `python -m science_reader_pdf.tagger.extract N WORKERS`, `python -m science_reader_pdf.tagger.train run NAME` | Existing instrumented source PDFs; set a **new** tagger root for extraction |
+| Independent CPU tagger export | `scripts/device-pdf-models/export_tagger_reference.py` | Explicit trusted checkpoint and exact app vocabulary, both pinned by SHA-256; unchanged weights, native parity required |
 | Core ML exports | `scripts/device-pdf-models/export_texteller.py`, `papers_export_tagger.py`; `models/coreml_layout.py:export` | Existing checkpoint; Core ML numerical/reader verification still required on Mac |
 
 The historical v5 base trainer retains its original padded/truncated batches for reproducibility. New adaptation
@@ -134,6 +146,11 @@ prediction and optimizer smoke evidence. Raw data and weights remain at the olde
 
 | Evidence | What it establishes |
 |---|---|
+| `reliability/manifest.json` | Single summary of frozen plans, identities, final source revision, report hashes and integration/pack verification. |
+| `reliability/buffer-probe/`, `reliability/paired/` | Three buffer readers agree on the reproduced all-zero result. 81,160 primary native calls compare FP16/FP32, quiet and under CPU load; 22/18 invalid primaries and 3/3 retry exhaustions. No established FP32 reliability gain. Raw attempts retained. |
+| `reliability/reference/native-score.json`, `reliability/reference/policy-check.json` | Actual CPU parity on 2,029 inputs; zero invalid outputs or threshold flips. The latter forces two invalid buffers for every input through the production helper and recovers all 2,029. Existing journal score stays 99/104 complete statistics, 0/103 prose controls (`reliability/reference/statistics-score.json`). |
+| `reliability/native-check.json` | Two fresh native conversions, no JIT: 22 pages, 330 blocks, 302 equations; no content/gate/location/real-figure changes, recognition failures or replay misses. No recovery was needed; this checks healthy-path conservation. |
+| `reliability/recovery-tests.log`, `reliability/fast-tests.log`, `reliability/reference/ios-typecheck.log` | 31 focused release Swift tests (including full private recovery corpus), all 10 `npm test` stages, and arm64 iOS 18 Simulator typecheck of the CPU helper pass. Typecheck is not a Simulator journey or physical-device test. |
 | `source-parity.json` | On the RTX 3090: 61,589 real glyphs / 1,185 items load identically; tagger logits are exact at lengths 2/17/64/399/400; four real crop preprocessed tensors, recognizer answers/confidences and one layout page's 300 detections match the original source. This is relocation parity, not accuracy. |
 | `workflow-check.json` | Repo prediction CLI matches all 1,487 recorded journal inputs / 138,439 glyphs exactly. The repo trainer completes 12 optimizer steps with finite, changed weights. Smoke weights are not promoted. |
 | Desktop `original-eval-smoke.json` | Complete-window evaluation CLI covers all 102,351 glyphs in one existing development paper; this smoke score is not a new model quality estimate. |
@@ -206,7 +223,87 @@ Their colored-source oracle is a proxy; geometry, native raster registration and
 Synthetic tests additionally protect fractions/radicals/integrals. No claim covers scans, rotated text or display
 formula improvements: those retain legacy cleaning. Existing readings require explicit regeneration.
 
+### Reproducing native reliability checks
+
+`reliability/manifest.json` binds the reports and source; `plan.json` and `recovery-plan.json` preserve the gates
+chosen before their results. Use a fresh output directory for repeated experiments. Private inputs and trained
+weights stay outside Git. The committed tiny H=2 fixture is synthetic and tests the GRU equations separately.
+
+```sh
+EVIDENCE=/Users/benbowlwes/science-reader/.artifacts/device-pdf-development
+DEVICE_PDF_RECOVERY_CORPUS="$EVIDENCE/reliability/recovery-corpus.json" \
+  swift test -c release --package-path apps/apple/ScienceReaderCore \
+  --filter 'DevicePDF(Error|Host|ReferenceTagger|ReferenceRecoveryCorpus)Tests'
+DevicePDFRouteTool --tag-reference-inputs /absolute/path/to/inputs.json \
+  --reference-manifest /absolute/path/to/tagger-reference.json \
+  --reference-weights /absolute/path/to/tagger-reference.bin --out /new/path/predictions.json
+```
+
+The opt-in corpus configuration names `inputs`, `gold` (frozen PyTorch), `manifest`, `weights` and `report` paths.
+Copy that configuration and change `report` when preserving an earlier result. Without the environment variable,
+the private corpus case explicitly skips; the remaining focused cases need no private data. The selected reference
+export is `~/gradstep-mac/inline-tagger-v5b-journal-reference/`. For a new export:
+
+```sh
+python scripts/device-pdf-models/export_tagger_reference.py \
+  --checkpoint /trusted/path/step-10000.pt --checkpoint-sha256 EXPECTED_CHECKPOINT_SHA256 \
+  --vocab apps/apple/DeviceModels/tagger-vocab.json --vocabulary-sha256 EXPECTED_APP_VOCAB_SHA256 \
+  --out /new/path/reference-export
+```
+
+Selected checkpoint SHA: `d705b191ddd7eb33cc36cbf8e47e71c1363e5389fb41dbea3936720858188d0c`; exact app vocabulary:
+`02887629cd17b6d51699310b0d201a9f7a301731a1314858b85e75aed3a79e77`. The raw Python export's differently formatted
+vocabulary has a different hash; do not substitute it. Binary SHA:
+`54c00488b893fbc7e9cf5e305e50a8c7ed9b9a8503c73a4e62374dcaf79b9eb7`.
+`scripts/device-models.mjs` verifies the reference and Core ML export name the same checkpoint, checks the lock and
+exact app vocabulary, and builds the local pack. Never use `--update-lock` to bypass an unexplained mismatch.
+
+For paired Core ML experiments, compile `scripts/device-pdf-models/audit_tagger_runtime.swift` with
+`swiftc -O`, then pass the positional arguments `BASELINE.mlmodelc CANDIDATE.mlmodelc INPUTS.json REFERENCE.json
+OUTDIR`, followed by `--passes 10 --warmup 16 --phase quiet` (or `cpu-load`). `papers_export_tagger.py --precision float32` is available
+for reproducing the rejected candidate; default FP16 and the selected primary model remain unchanged. Runtime
+failure measurements do not estimate complete-import failure rates without a separately designed paper-level run.
+
 ## Progress log
+
+### 2026-10-27 — native runtime recovery verified
+
+- Prioritized the unresolved import failure before span training. Existing code already serialized tagger/recognizer
+  predictions and retried invalid tagger buffers once. Prior failures included all-zero and partially zero output;
+  repeating those mitigations would not address exhausted retries.
+- Fixed definite diagnostic defects: Swift stringified the compiler's bounded `{code, detail}` as `[object Object]`,
+  and `try?` discarded the tagger error. The bridge now retains bounded own string fields without invoking getters,
+  records deterministic numeric page/line/glyph counts and whitelisted reasons, and leaves UI error codes stable.
+  It never includes input text, paths, arbitrary native error descriptions or logits in these details.
+- Rejected stale-stride diagnosis: 798 fresh allocations were dense; all three readers agreed on one all-zero
+  result among 6,090 sequential predictions, with no stride changes or out-of-bounds reads. That result came from
+  model output, and the existing retry recovered it. This did not identify the original opaque import's cause.
+- Tested identical-weight FP32 Core ML before promoting anything. `plan.json` froze 20,290 primary calls per
+  precision in each quiet/two-worker CPU-load phase, using the existing 2,029-input PyTorch reference. Across
+  **40,580 calls per precision**, FP16 had 22 invalid primaries and FP32 18; **each exhausted its retry three times**.
+  Paired exact p=0.618: no established reliability improvement. FP32 removed two unique false-math threshold
+  disagreements and was modestly faster, but is **not selected** as the reliability fix. Prewarming alone is also
+  unsupported: failures occurred after early calls. The workers were stopped; raw attempts remain under `paired/`.
+- Froze `recovery-plan.json`, then added an independent Accelerate CPU implementation of the same two-layer
+  bidirectional GRU. Healthy Core ML results and the existing single retry remain unchanged. Only two invalid
+  buffers trigger one independent evaluation; invalid recovery still fails. Thrown Core ML errors still propagate.
+  Finite but incorrect logits that pass the existing guard do not trigger recovery.
+  No placeholder prose logits, new weights, changed threshold or silent math removal. A local counter records use.
+- SHA-bound manifest, exact app vocabulary and binary bind recovery to the selected Core ML checkpoint. Loader
+  rejects wrong shapes, overlapping/missing tensors, nonfinite weights and invalid inputs. Old packs without this
+  optional reference retain their prior behavior. New packs add 1,196,996 binary bytes and reference provenance.
+- Native parity passes all 2,029 inputs / 188,464 glyphs (102,290 own glyphs): zero invalid outputs or threshold
+  disagreements. Mean/max absolute logit error is 0.000347/0.010852, so this is not bit-identical inference. All
+  six observed exhausted-retry events (five unique inputs) produce valid matching decisions independently.
+  Median/p95 recovery is 1.23/1.52 ms; weights load in 7.8 ms on this Mac, not a phone performance claim.
+- Production-policy fault injection makes 4,058 invalid Core ML calls and recovers every one of the 2,029 inputs,
+  with zero threshold disagreements. The previously selected journal test remains 99/104 complete statistics and
+  0/103 prose false positives. This is conservation on prior-used data, not new held-out semantic accuracy.
+- Final gates: 31 focused release Swift tests, routine fast gate, CPU helper's iOS Simulator typecheck, and two
+  fresh whole-article native imports pass. Across 22 pages, text, 302 equation decisions, PDF places and real figure
+  bytes match prior results; 2,287 recorded tag arrays are unchanged. Both imports used zero recoveries, so they
+  establish healthy-path conservation only. The original opaque failure remains unattributed; the measured invalid
+  buffer class is now recoverable. No server work, NAS, physical phone, interaction change or release.
 
 ### 2026-10-27 — neighboring-line crop cleanup (port 21)
 

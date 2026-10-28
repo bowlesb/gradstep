@@ -1,5 +1,21 @@
 # Implementation status
 
+## Native PDF tagger recovery — 2026-10-27 (local, not released)
+
+The selected v5b-journal Core ML model remains the normal path. Two invalid output buffers now trigger one
+independent float32 CPU evaluation of the same frozen weights. Invalid recovery output and thrown model errors
+still fail. The pack binds reference weights to the checkpoint, Core ML package and exact vocabulary; older
+packs retain their existing behavior. Local diagnostics retain bounded failure details and a recovery count.
+
+The paired precision experiment recorded **six actual retry exhaustions**, three each for FP16/FP32 across
+40,580 primary calls per arm; FP32 did not establish a reliability gain. Fault injection through the production
+policy recovers **2,029/2,029** real inputs / 188,464 glyphs with **zero 0.65-threshold decision changes** versus
+frozen PyTorch. All 31 focused Swift tests and `npm test` pass. Two fresh no-JIT native imports verify 22 pages,
+330 blocks and 302 equations with unchanged content, decisions, source locations and real figure bytes; neither
+needed recovery. These are policy and conservation checks, not a measured whole-import success rate. The earlier
+opaque error remains unattributed. Evidence and remaining work stay in the
+[single development log](../training/device_pdf/README.md). No release or physical-phone testing occurred.
+
 ## Inline PDF crop cleanup — 2026-10-27 (port 21; local, not released)
 
 Native upright inline fallback images preserve their own line while removing fragments above/below it. The fixed
@@ -11,7 +27,8 @@ All 101 recorded PDFs / 2,721 pages conserve recognition, reader content and PDF
 tests and no-JIT replay pass. Fresh 11-page Core ML conversion produces 54 fallback images exactly matching the
 pixel audit, with unchanged reader index and source provenance (unique image count decreases through deduplication).
 One prior fresh read-stage conversion failed opaquely; diagnostic and unmodified reruns passed, but its cause is
-unresolved. Evidence, failed approaches, limitations and the next completeness task live in the
+unproven; the native recovery follow-up above addresses separately reproduced invalid buffers. Evidence, failed
+approaches, limitations and the next completeness task live in the
 [single development log](../training/device_pdf/README.md). No release or automatic regeneration of saved readings.
 
 ## Shared PDF training and trustworthy formula metadata — 2026-10-26/27 (port 20; local, not released)

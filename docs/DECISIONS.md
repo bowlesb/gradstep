@@ -30,8 +30,22 @@ neighboring-line ink. Recognition crops, gates, text and PDF source regions stay
 uncertain vertical bounds, displays, OCR and rotations retain legacy cleaning. On the fixed journal regression,
 25 confirmed intrusions fall to 6 (76% fewer), with zero own-line ink changes; 60 source-label preservation controls
 also pass. The 101-PDF conservation gate, fast tests, 16 Swift tests and fresh native conversion pass. One earlier
-native read-stage error was not reproduced and remains unresolved in the log. This is a local presentation repair,
-not clipping recovery, general model accuracy or a release. Continue from the same development entry point.
+native read-stage error remains unattributed; the subsequent runtime recovery work is recorded below. This is a
+local presentation repair, not clipping recovery, general model accuracy or a release. Continue from the same
+development entry point.
+
+**Native reliability follow-up, 2026-10-27:** keep the selected v5b-journal weights, threshold and valid Core ML
+path. After two invalid tagger buffers, evaluate the identical checkpoint once with an independent float32 CPU
+implementation; validate that output or fail. Thrown predictions still fail, and older packs without reference
+weights retain the two-attempt policy. Bind the reference to the checkpoint, selected Core ML package and exact
+app vocabulary. Preserve bounded failure details and count successful recoveries locally.
+
+**Verified:** the paired quiet/load experiment recorded six retry exhaustions, three per precision across
+40,580 primary calls per arm; FP32 showed no reliability gain. Injecting two invalid buffers for each of 2,029
+real inputs recovered all inputs with zero decisions changed against frozen PyTorch at 0.65. The 31 focused
+Swift checks, `npm test` and two fresh native articles (22 pages) pass; those imports needed zero recoveries and
+preserve reader content and PDF places. Injection verifies the recovery policy, not a whole-import failure rate;
+the original opaque error's cause remains unproven. No release or physical-phone verification occurred.
 
 ## Private Papers corpus model development (owner direction, 2026-10-26; locally verified, not released)
 

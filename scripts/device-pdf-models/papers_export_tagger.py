@@ -13,6 +13,8 @@ p = argparse.ArgumentParser()
 p.add_argument('--checkpoint', type=Path, required=True)
 p.add_argument('--vocab', type=Path, required=True)
 p.add_argument('--threshold', type=float, required=True)
+p.add_argument('--precision', choices=('float16', 'float32'), default='float16',
+               help='Core ML compute precision; weights and the input interface remain unchanged')
 p.add_argument('--out', type=Path, required=True)
 a = p.parse_args()
 assert 0 < a.threshold < 1
@@ -36,14 +38,19 @@ ml = ct.convert(traced, inputs=[
     ct.TensorType(name='x', shape=(1, dim, ck['n_feats']), dtype=np.float32),
     *[ct.TensorType(name=name, shape=(1, dim), dtype=np.int32) for name in ['font', 'cls', 'char']]],
     outputs=[ct.TensorType(name='logits')], convert_to='mlprogram',
-    compute_precision=ct.precision.FLOAT16, minimum_deployment_target=ct.target.iOS18)
+    compute_precision={'float16': ct.precision.FLOAT16, 'float32': ct.precision.FLOAT32}[a.precision],
+    minimum_deployment_target=ct.target.iOS18)
 ml.save(str(a.out/'tagger.mlpackage'))
 (a.out/'vocab.json').write_text(json.dumps(vocab, indent=1)+'\n')
-metadata = {'kind': 'inline-tagger', 'source_files_sha256': source_identity(), 'checkpoint_sha256': hashlib.sha256(a.checkpoint.read_bytes()).hexdigest(),
+sources = source_identity()
+# Bind the actual exporter even when it is staged outside the source checkout for a remote conversion.
+sources['scripts/device-pdf-models/papers_export_tagger.py'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+metadata = {'kind': 'inline-tagger', 'source_files_sha256': sources, 'checkpoint_sha256': hashlib.sha256(a.checkpoint.read_bytes()).hexdigest(),
+            'input_vocabulary_sha256': hashlib.sha256(a.vocab.read_bytes()).hexdigest(),
             'training_source_sha256': hashlib.sha256(Path(T.__file__).read_bytes()).hexdigest(),
             'threshold': a.threshold, 'context': ck['context'], 'features': ck['n_feats'], 'hidden': ck['hidden'],
             'torch_version': torch.__version__, 'coremltools_version': ct.__version__,
-            'precision': 'float16', 'deployment_target': 'iOS18', 'max_len': vocab['max_len'],
+            'precision': a.precision, 'deployment_target': 'iOS18', 'max_len': vocab['max_len'],
             'validation': 'Not validated by this export; requires actual Core ML parity and native conversion.'}
 (a.out/'export.json').write_text(json.dumps(metadata, indent=2)+'\n')
 print(json.dumps(metadata))

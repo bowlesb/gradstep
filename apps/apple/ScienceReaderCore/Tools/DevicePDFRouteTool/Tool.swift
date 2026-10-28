@@ -3,6 +3,7 @@ import ScienceReaderCore
 import CoreML
 import ImageIO
 import JavaScriptCore
+import CryptoKit
 
 /// Page crops for the weakness report: `[{pdf, page (0-based), rect: [x0, y0, x1, y1] (points, top-left origin), dpi, out,
 /// boxes?: [[x0, y0, x1, y1, "#rrggbb"]] (points)}]`. Pages are rendered by `DevicePDFRaster.render` (font smoothing off,
@@ -112,6 +113,32 @@ struct Tool {
                 try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]).write(to: URL(fileURLWithPath: job.out), options: .atomic)
                 print("audited \(index + 1)/\(jobs.count)")
             }
+            return
+        }
+        // Independent CPU reference, exact input lengths and the same checkpoint; no Core ML or PDF acquisition.
+        if let inputsPath = option("--tag-reference-inputs"), let manifestPath = option("--reference-manifest"),
+           let weightsPath = option("--reference-weights"), let outPath = option("--out") {
+            struct TagInput: Decodable { let x: [Float]; let font: [Int32]; let cls: [Int32]; let char: [Int32] }
+            let data = try Data(contentsOf: URL(fileURLWithPath: inputsPath))
+            let inputs = try JSONDecoder().decode([TagInput].self, from: data)
+            let started = Date()
+            let loaded = try DevicePDFReferenceTagger(manifest: URL(fileURLWithPath: manifestPath), weights: URL(fileURLWithPath: weightsPath))
+            let loadSeconds = Date().timeIntervalSince(started)
+            var timings: [Double] = []
+            let outputs = try inputs.map { input in
+                let began = DispatchTime.now().uptimeNanoseconds
+                let values = try loaded.tag(x: input.x, font: input.font, cls: input.cls, char: input.char)
+                timings.append(Double(DispatchTime.now().uptimeNanoseconds - began) / 1e6)
+                return values
+            }
+            let result: [String: Any] = ["logits": outputs, "features": loaded.featureCount,
+                "checkpoint_sha256": loaded.checkpointSHA256, "binary_sha256": loaded.binarySHA256,
+                "vocabulary_sha256": loaded.vocabularySHA256,
+                "inputs_sha256": SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                "elapsed_seconds": Date().timeIntervalSince(started), "load_seconds": loadSeconds,
+                "timings_ms": timings, "started_utc": ISO8601DateFormatter().string(from: started)]
+            try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]).write(to: URL(fileURLWithPath: outPath), options: .atomic)
+            print("reference tagged \(inputs.count) exact-length inputs with \(loaded.featureCount) features")
             return
         }
         // Actual Core ML outputs for offline parity checks and filling newly requested tagger windows in a replay.

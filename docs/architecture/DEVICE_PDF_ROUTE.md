@@ -8,6 +8,32 @@ kit** (`/home/ben/mathpix/docs/DEVICE_ROUTE_SPEC.md`, converter 0.1.0; layout `l
 implements it as an **experiment beside the arXiv HTML reader**, never in its place: the HTML reader stays the
 first-class path (owner direction, 2026-10-13), the PDF never leaves the device, and nothing here touches the server.
 
+## Native tagger recovery — 2026-10-27 (locally verified, not released)
+
+`DevicePDFModels` keeps the selected FP16 Core ML tagger and its existing two-attempt guard: wrong-length,
+non-finite, entirely zero or eight consecutive exact-zero logits are invalid. After both buffers fail, a pack
+with reference weights calls `DevicePDFReferenceTagger` once. It evaluates the same embeddings, projection,
+two-layer bidirectional GRU and output layer in float32 on the CPU using Accelerate, at the exact input length.
+The same output guard applies; failure remains explicit. A thrown Core ML prediction bypasses recovery, and a
+valid first or second result is unchanged. Immutable weights and per-call recurrent state allow independent
+workers; successful recoveries use a locked counter, reported as `tagger_reference_recoveries` in local summaries.
+
+`export_tagger_reference.py` exports only the expected finite float32 tensors from the pinned checkpoint. The
+loader checks dimensions, contiguous offsets, byte limits and binary digest before accepting them. The optional
+pack reference binds its manifest, selected Core ML package and exact serialized app vocabulary; the pack builder
+also checks the Core ML export's checkpoint against the reference checkpoint. Older packs without the reference
+retain their previous retry-and-fail behavior. The added binary is 1,196,996 bytes; no new weights were trained.
+The host now retains the compiler's bounded own-string error detail and source-order tagger failure dimensions,
+without arbitrary model descriptions, paths, glyph text or logits; the existing user-facing error code is unchanged.
+
+Quiet/load pairing found six actual retry exhaustions: three per precision over 40,580 primary calls per arm.
+FP32 was not a reliability fix. All 2,029 real inputs recover through injected persistent-invalid output with
+zero threshold decisions changed against frozen PyTorch at 0.65; 31 focused tests and `npm test` pass. Two fresh
+no-JIT native articles preserve 22 pages of reader output and PDF correspondence, with zero recoveries needed.
+This establishes recovery-policy parity and healthy-path conservation, not a whole-import failure rate or the
+cause of the earlier opaque import error. See the [current log](../../training/device_pdf/README.md) for evidence.
+The compiler remains port 21; there was no release, migration or physical-phone verification.
+
 ## Training ownership and transcription boundary — port 20, 2026-10-26/27 (locally verified)
 
 The core training code is now in this repository. Start at [training/device_pdf](../../training/device_pdf/README.md)
@@ -33,7 +59,8 @@ Glyph positions now use the displayed CropBox normalized to zero, with rotation,
 The prior absolute MediaBox offsets shifted glyphs and formula crops in publisher PDFs. Wholly off-crop glyphs
 are excluded. Unit raster checks cover shifted boxes and four rotations; ordinary zero-origin fixtures are exact.
 The tagger's bounded retry also catches partially zero buffers (eight consecutive exact zero logits), following
-an observed 32-valid/35-zero output in the native audit. Isolated zeros remain valid; repeated invalid output fails.
+an observed 32-valid/35-zero output in the native audit. Isolated zeros remain valid; persistent invalid output
+now uses the independent same-checkpoint recovery above when the pack supplies it.
 
 ## Complete inline spans — 2026-10-26 (port 17 foundation, locally verified)
 
@@ -46,7 +73,8 @@ Context comes only from the same layout region; table-cell lines remain independ
 400-glyph windows with adjacent context and its original geometry. Every own glyph contributes exactly one logit;
 context logits are discarded, and spans form after stitching, so neither a line tail nor a crossing equation is
 silently cut. The Swift host checks ten-feature v4 / twelve-feature v5 vocabulary compatibility against the model.
-Invalid tagger output (wrong length, non-finite or entirely zero) retries once, then fails explicitly.
+Invalid tagger output retries once; the current pack then uses the bounded reference recovery above, while older
+packs fail explicitly.
 
 `scripts/device-models.mjs` pins the threshold in `device-models.lock.json` and the downloaded pack vocabulary.
 The selected package digest and every generated pack file are verified. Existing downloaded readings are not

@@ -1,5 +1,6 @@
 import Accelerate
 import CoreML
+import CryptoKit
 import Foundation
 
 /// The three exported models of the device route (docs/architecture/DEVICE_PDF_ROUTE.md) and their contracts, from
@@ -18,7 +19,15 @@ public struct DevicePDFModelConfiguration: Decodable, Sendable {
         enum CodingKeys: String, CodingKey { case model, classes, thresholds; case nmsIoU = "nms_iou"; case maxDetections = "max_detections"
             case canvasWidth = "canvas_width"; case canvasHeight = "canvas_height" }
     }
-    public struct Tagger: Decodable, Sendable { public let model: Model; public let vocabulary: String }
+    public struct Tagger: Decodable, Sendable {
+        public struct Reference: Decodable, Sendable {
+            public let manifest: String, weights: String, manifestSHA256: String, coreMLSHA256: String
+            enum CodingKeys: String, CodingKey { case manifest, weights; case manifestSHA256 = "manifest_sha256", coreMLSHA256 = "coreml_sha256" }
+        }
+        public let model: Model; public let vocabulary: String
+        /// Optional in older packs. The same checkpoint evaluated independently after persistent invalid Core ML output.
+        public let reference: Reference?
+    }
     public struct Recogniser: Decodable, Sendable {
         public let encoder: Model, decoder: Model
         public let bos: Int, eos: Int, maxLength: Int, imageSize: Int
@@ -53,6 +62,10 @@ public final class DevicePDFModels: @unchecked Sendable {
     public static let taggerInstances = 4
     /// v4 has ten features; the context-aware model adds two flags. Validated against its own vocabulary on load.
     public let taggerFeatures: Int
+    private let referenceTagger: DevicePDFReferenceTagger?
+    private let recoveryLock = NSLock()
+    private var referenceRecoveries = 0
+    public var taggerReferenceRecoveries: Int { recoveryLock.lock(); defer { recoveryLock.unlock() }; return referenceRecoveries }
     /// The tagger (CPU) and the recogniser (GPU) never predict at the same time: under load, tagger predictions made
     /// while a recogniser prediction ran gave different logits for the same line, so the same PDF read differently
     /// (2026-10-21, docs/reviews/DEVICE_PDF_ROUTE_20261021.md). Held per tagged page and per recogniser call.
@@ -97,6 +110,18 @@ public final class DevicePDFModels: @unchecked Sendable {
         taggerFeatures = try Self.validateTaggerShape(modelWidth: taggers[0].modelDescription.inputDescriptionsByName["x"]?.multiArrayConstraint?.shape.last?.intValue,
                                                      context: tagger["context"] as? Int ?? 0, maximum: tagger["max_len"] as? Int)
         taggerVocabulary = tagger
+        if let reference = configuration.tagger.reference {
+            guard DevicePDFModelPack.isSafe(reference.manifest), DevicePDFModelPack.isSafe(reference.weights),
+                  reference.coreMLSHA256 == configuration.tagger.model.weightsSHA256 else { throw DevicePDFModelError.unusable("tagger reference identity") }
+            let manifest = directory.appendingPathComponent(reference.manifest)
+            guard let size = try manifest.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 65_536 else { throw DevicePDFModelError.unusable("tagger reference manifest") }
+            let digest = SHA256.hash(data: try Data(contentsOf: manifest)).map { String(format: "%02x", $0) }.joined()
+            guard digest == reference.manifestSHA256 else { throw DevicePDFModelError.unusable("tagger reference manifest") }
+            let loaded = try DevicePDFReferenceTagger(manifest: manifest, weights: directory.appendingPathComponent(reference.weights))
+            let vocabularyDigest = SHA256.hash(data: vocabulary).map { String(format: "%02x", $0) }.joined()
+            guard loaded.featureCount == taggerFeatures, loaded.vocabularySHA256 == vocabularyDigest else { throw DevicePDFModelError.unusable("tagger reference vocabulary") }
+            referenceTagger = loaded
+        } else { referenceTagger = nil }
         // The stateful decoder does not load everywhere (the Neural Engine on the Mac; the iOS Simulator): the asked
         // units first, then the CPU alone, then none.
         var loaded: (MLModel, MLModel)?, issue: String?
@@ -115,10 +140,12 @@ public final class DevicePDFModels: @unchecked Sendable {
 
     /// The provenance rows the converter writes (role, id, weights digest).
     public var provenance: [[String: String]] {
-        [["role": "layout", "id": configuration.layout.model.id, "sha256": configuration.layout.model.weightsSHA256],
+        var rows = [["role": "layout", "id": configuration.layout.model.id, "sha256": configuration.layout.model.weightsSHA256],
          ["role": "equations-encoder", "id": configuration.recogniser.encoder.id, "sha256": configuration.recogniser.encoder.weightsSHA256],
          ["role": "equations-decoder", "id": configuration.recogniser.decoder.id, "sha256": configuration.recogniser.decoder.weightsSHA256],
          ["role": "inline-tagger", "id": configuration.tagger.model.id, "sha256": configuration.tagger.model.weightsSHA256]]
+        if let referenceTagger { rows.append(["role": "inline-tagger-reference", "id": "device-pdf-tagger-reference-v1", "sha256": referenceTagger.binarySHA256]) }
+        return rows
     }
 
     // MARK: Layout
@@ -198,22 +225,40 @@ public final class DevicePDFModels: @unchecked Sendable {
         let input = try MLDictionaryFeatureProvider(dictionary: ["x": xs, "font": try ints(font), "cls": try ints(cls), "char": try ints(char)])
         // A flexible-shape Core ML prediction can occasionally return an entirely or partially zero buffer under load
         // (observed on the Mac corpus). That silently classifies affected glyphs as prose. Retry on this thread's instance;
-        // another instance may be in use by a different tagging worker. Persistent invalid output is an explicit failure.
-        return try Self.readTaggerOutput(count: t) {
+        // another instance may be in use by a different tagging worker. Persistent invalid output uses the independent
+        // same-checkpoint reference when available, otherwise it is an explicit failure.
+        let recovery: (() throws -> [Float])? = referenceTagger.map { reference in
+            { [self] in
+                let values = try reference.tag(x: x, font: font, cls: cls, char: char)
+                if Self.validTaggerOutput(values, count: t) { recoveryLock.lock(); referenceRecoveries += 1; recoveryLock.unlock() }
+                return values
+            }
+        }
+        return try Self.readTaggerOutput(count: t, recovery: recovery) {
             guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { return [] }
             return Self.floats(logits)
         }
     }
 
-    static func readTaggerOutput(count: Int, prediction: () throws -> [Float]) throws -> [Float] {
+    static func validTaggerOutput(_ values: [Float], count: Int) -> Bool {
+        var zeros = 0, longest = 0
+        for value in values { zeros = value == 0 ? zeros + 1 : 0; longest = max(longest, zeros) }
+        return values.count == count && values.allSatisfy(\.isFinite) && values.contains(where: { $0 != 0 }) && longest < 8
+    }
+
+    static func readTaggerOutput(count: Int, recovery: (() throws -> [Float])? = nil, prediction: () throws -> [Float]) throws -> [Float] {
         for _ in 0..<2 {
             let values = try prediction()
             // One journal audit returned 32 valid logits followed by 35 exact zeros; repeating the same input returned
             // ordinary negative logits throughout. A run of eight exact zeros is not a credible learned sequence.
             // Isolated zero logits remain valid. Reject a partial empty buffer as well as a wholly empty one.
-            var zeros = 0, longest = 0
-            for value in values { zeros = value == 0 ? zeros + 1 : 0; longest = max(longest, zeros) }
-            if values.count == count && values.allSatisfy(\.isFinite) && values.contains(where: { $0 != 0 }) && longest < 8 { return values }
+            if validTaggerOutput(values, count: count) { return values }
+        }
+        // The independent implementation uses the identical trained weights, never synthesized prose logits.
+        // It runs at most once, only after both Core ML results were invalid. Model exceptions still propagate.
+        if let recovery {
+            let values = try recovery()
+            if validTaggerOutput(values, count: count) { return values }
         }
         throw DevicePDFModelError.unusable("tagger output")
     }

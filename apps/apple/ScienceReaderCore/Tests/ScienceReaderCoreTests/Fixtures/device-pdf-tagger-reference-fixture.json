@@ -1,0 +1,196 @@
+{
+  "binary_file": "tagger-reference.bin",
+  "binary_sha256": "0789496fc75e09d2d390b8fc324e76b39a92fce6d1fe89fe6a5ac338066709dc",
+  "byte_order": "little",
+  "checkpoint_sha256": "0789496fc75e09d2d390b8fc324e76b39a92fce6d1fe89fe6a5ac338066709dc",
+  "context": 24,
+  "fixture": "Deterministic synthetic weights, not a trained model. Parameter i: sin(arange*.17+(i+1)*.37)*.18; sorted parameter names.",
+  "format": "device-pdf-tagger-reference-v1",
+  "gru_gate_order": [
+    "reset",
+    "update",
+    "new"
+  ],
+  "hidden": 2,
+  "max_len": 400,
+  "n_features": 12,
+  "offset_unit": "float32_elements",
+  "scalar_type": "float32",
+  "tensors": {
+    "ch.weight": {
+      "count": 8192,
+      "offset": 0,
+      "shape": [
+        512,
+        16
+      ]
+    },
+    "cls.weight": {
+      "count": 80,
+      "offset": 8192,
+      "shape": [
+        10,
+        8
+      ]
+    },
+    "font.weight": {
+      "count": 6144,
+      "offset": 8272,
+      "shape": [
+        256,
+        24
+      ]
+    },
+    "gru.bias_hh_l0": {
+      "count": 6,
+      "offset": 14416,
+      "shape": [
+        6
+      ]
+    },
+    "gru.bias_hh_l0_reverse": {
+      "count": 6,
+      "offset": 14422,
+      "shape": [
+        6
+      ]
+    },
+    "gru.bias_hh_l1": {
+      "count": 6,
+      "offset": 14428,
+      "shape": [
+        6
+      ]
+    },
+    "gru.bias_hh_l1_reverse": {
+      "count": 6,
+      "offset": 14434,
+      "shape": [
+        6
+      ]
+    },
+    "gru.bias_ih_l0": {
+      "count": 6,
+      "offset": 14440,
+      "shape": [
+        6
+      ]
+    },
+    "gru.bias_ih_l0_reverse": {
+      "count": 6,
+      "offset": 14446,
+      "shape": [
+        6
+      ]
+    },
+    "gru.bias_ih_l1": {
+      "count": 6,
+      "offset": 14452,
+      "shape": [
+        6
+      ]
+    },
+    "gru.bias_ih_l1_reverse": {
+      "count": 6,
+      "offset": 14458,
+      "shape": [
+        6
+      ]
+    },
+    "gru.weight_hh_l0": {
+      "count": 12,
+      "offset": 14464,
+      "shape": [
+        6,
+        2
+      ]
+    },
+    "gru.weight_hh_l0_reverse": {
+      "count": 12,
+      "offset": 14476,
+      "shape": [
+        6,
+        2
+      ]
+    },
+    "gru.weight_hh_l1": {
+      "count": 12,
+      "offset": 14488,
+      "shape": [
+        6,
+        2
+      ]
+    },
+    "gru.weight_hh_l1_reverse": {
+      "count": 12,
+      "offset": 14500,
+      "shape": [
+        6,
+        2
+      ]
+    },
+    "gru.weight_ih_l0": {
+      "count": 12,
+      "offset": 14512,
+      "shape": [
+        6,
+        2
+      ]
+    },
+    "gru.weight_ih_l0_reverse": {
+      "count": 12,
+      "offset": 14524,
+      "shape": [
+        6,
+        2
+      ]
+    },
+    "gru.weight_ih_l1": {
+      "count": 24,
+      "offset": 14536,
+      "shape": [
+        6,
+        4
+      ]
+    },
+    "gru.weight_ih_l1_reverse": {
+      "count": 24,
+      "offset": 14560,
+      "shape": [
+        6,
+        4
+      ]
+    },
+    "inp.bias": {
+      "count": 2,
+      "offset": 14584,
+      "shape": [
+        2
+      ]
+    },
+    "inp.weight": {
+      "count": 120,
+      "offset": 14586,
+      "shape": [
+        2,
+        60
+      ]
+    },
+    "out.bias": {
+      "count": 1,
+      "offset": 14706,
+      "shape": [
+        1
+      ]
+    },
+    "out.weight": {
+      "count": 4,
+      "offset": 14707,
+      "shape": [
+        1,
+        4
+      ]
+    }
+  },
+  "vocabulary_sha256": "02887629cd17b6d51699310b0d201a9f7a301731a1314858b85e75aed3a79e77"
+}

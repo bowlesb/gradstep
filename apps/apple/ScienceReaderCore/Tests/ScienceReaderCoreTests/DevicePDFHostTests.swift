@@ -9,6 +9,33 @@ import XCTest
 /// recogniser 20/20 on 2026-10-15).
 @available(macOS 15.0, iOS 18.0, *)
 final class DevicePDFHostTests: XCTestCase {
+    func testIndependentTaggerRecoveryRunsOnlyAfterTwoInvalidBuffers() throws {
+        for sequence in [[[-2.0, 0, 3]], [[0, 0, 0], [-2, 0, 3]], [[0, 0, 0], [0, 0, 0]]] {
+            var calls = 0, recoveries = 0
+            let result = try DevicePDFModels.readTaggerOutput(count: 3, recovery: {
+                recoveries += 1; return [-2, 0, 3]
+            }) {
+                let row = sequence[min(calls, sequence.count - 1)].map(Float.init); calls += 1; return row
+            }
+            XCTAssertEqual(result, [-2, 0, 3])
+            XCTAssertEqual(calls, sequence.count)
+            XCTAssertEqual(recoveries, sequence.last == [0, 0, 0] ? 1 : 0)
+        }
+    }
+
+    func testInvalidReferenceOrThrownPredictionStillFailsWithinTheBound() {
+        var calls = 0, recoveries = 0
+        XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: 3, recovery: {
+            recoveries += 1; return [0, 0, 0]
+        }) { calls += 1; return [0, 0, 0] })
+        XCTAssertEqual(calls, 2); XCTAssertEqual(recoveries, 1)
+        calls = 0; recoveries = 0
+        XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: 3, recovery: {
+            recoveries += 1; return [-2, 0, 3]
+        }) { calls += 1; throw DevicePDFModelError.unusable("prediction") })
+        XCTAssertEqual(calls, 1); XCTAssertEqual(recoveries, 0, "recovery does not hide arbitrary model exceptions")
+    }
+
     func testPartiallyEmptyTaggerOutputRetriesAndFailsExplicitly() throws {
         let valid = (0..<67).map { Float($0) * 0.01 - 10 }
         let partial = Array(valid.prefix(32)) + [Float](repeating: 0, count: 35)

@@ -16,6 +16,14 @@
    "export": "texteller-ft-v4-mf8-int8-l512",
    "package": "recogniser.mlpackage",
    "sha256": "636c81fb98f3480189bc229cc3cf114db148b5c3bcb88fe17b20cf7a8d79b403"
+  },
+  "tagger_reference": {
+   "export": "inline-tagger-v5b-journal-reference",
+   "manifest": "tagger-reference.json",
+   "weights": "tagger-reference.bin",
+   "sha256": "2b09f7baaf2340dd7987e5300088a86579f734039fba66d7c6ef610d61c9497f",
+   "binary_sha256": "54c00488b893fbc7e9cf5e305e50a8c7ed9b9a8503c73a4e62374dcaf79b9eb7",
+   "checkpoint_sha256": "d705b191ddd7eb33cc36cbf8e47e71c1363e5389fb41dbea3936720858188d0c"
   }
  }
 }

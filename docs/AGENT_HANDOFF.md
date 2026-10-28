@@ -6,11 +6,18 @@ It summarizes the older experiments so they need not be rediscovered. Core train
 `192.168.1.32:/home/ben/science-reader-training`, separate from the older dirty checkout. Port 20 removes 4,973 rejected
 transcription exposures; port 21 reduces confirmed neighboring-line intrusions **25→6** in 61 journal crops, with
 zero own-ink changes and all 60 cleaner controls passing. Both preserve recognition and source locations across
-101 recorded PDFs. Fresh native conversion verifies the actual images; one earlier opaque read-stage failure is
-logged as unresolved despite successful reruns. Model weights remain v5b-journal / layout-v5 / TexTeller-v4.
+101 recorded PDFs. Native reliability now adds one independent CPU evaluation of the same tagger weights after
+two invalid Core ML buffers; valid outputs and thrown-model-error behavior are unchanged. The paired quiet/load
+experiment recorded six retry exhaustions, three each for FP16/FP32; FP32 showed no reliability gain. All 2,029
+real inputs recover under injected persistent failure with zero 0.65-threshold changes versus frozen PyTorch.
+The 31 focused Swift checks, `npm test` and two fresh native imports / 22 pages pass. Those imports needed zero
+recoveries and preserve text, equation decisions and PDF places; they are not a whole-import reliability estimate.
+The earlier opaque read-stage error remains unattributed. Model weights remain v5b-journal / layout-v5 / TexTeller-v4;
+the pack adds the hash-bound reference implementation. No release or physical-phone verification occurred.
 Next priority is upstream span completeness on fresh reserved development families, not further tuning on these
 revealed journals. Evidence is in `.artifacts/device-pdf-development`; use `crops/scored` and `protection/final`,
-not superseded attempts. Do not repeat the known-negative layout/recognizer runs summarized in the log.
+not superseded attempts; `reliability/native-check.json` and `reliability/reference/policy-check.json` are the current
+runtime gates. Do not repeat the known-negative FP32, layout or recognizer runs summarized in the log.
 Earlier dated reviews below remain historical evidence; do not create another competing current PDF handoff.
 
 **Earlier checkpoint, 2026-10-26: PDF preview merged as a standalone commit.** At the owner's request the two

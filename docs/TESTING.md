@@ -1,5 +1,28 @@
 # Fast and slow tests
 
+## Native PDF tagger recovery — October 27
+
+Routine project gate: `npm test`. Focused native checks, from `apps/apple/ScienceReaderCore`:
+`swift test -c release --filter 'DevicePDFErrorTests|DevicePDFHostTests|DevicePDFReferenceTaggerTests'`.
+They cover bounded first-error extraction, unchanged successful predictions, at most two Core ML calls and one
+reference call, propagated model exceptions, GRU parity, invalid manifests/weights and input bounds.
+
+The private corpus gate is opt-in: set `DEVICE_PDF_RECOVERY_CORPUS` to the canonical
+`.artifacts/device-pdf-development/reliability/recovery-corpus.json` and add
+`DevicePDFReferenceRecoveryCorpusTests` to the filter. Its SHA-bound inputs, checkpoint and PyTorch logits are
+listed there. It injects two invalid outputs through the production recovery policy for every real input and
+runs the actual reference weights; require exact call counts and zero own-glyph decision changes at 0.65.
+Recorded result: 31 focused tests including this gate pass, **2,029/2,029 recoveries**, 188,464 glyphs and zero
+own/all-glyph decision differences. This is fault injection, not an observed import failure rate.
+
+For host/model changes, reuse or rerun the affected evidence in `reliability/`: paired quiet/load Core ML logs
+record six real retry exhaustions (three per precision; FP32 showed no reliability gain), while `native-check.json`
+verifies two fresh no-JIT imports / 22 pages with zero recoveries, no replay misses and unchanged reading/source
+locations. Gulliver's older record is recomposed with current port 21 before comparing delivered metadata; only
+synthetic figure asset hashes are normalized in replay, with real figure bytes checked separately. Keep the
+earlier opaque error unattributed. No physical-phone result or release is implied; details stay in the
+[single development log](../training/device_pdf/README.md).
+
 ## Native inline crop cleanup — port 21
 
 Routine `npm test` includes the crop-band eligibility, detached-script, punctuation and composed-accent regressions
@@ -13,7 +36,8 @@ fixed failure or silently drop gray/unaligned oracle controls. Keep the known-ca
 Final local evidence: fast gate, 16 Swift checks, zero replay misses, 61/61 baseline images reproduced exactly,
 60/60 preservation controls, no-JIT converter replay and complete native 11-page conversion. The latter's 54 image
 assets exactly match the native scorer; text and source locations match port 20. An earlier native read-stage
-failure remains unresolved; successful reruns are not a reliability benchmark. No physical-phone testing occurred.
+failure remains unattributed; the separate recovery checks above do not prove its cause. Successful reruns are
+not a reliability benchmark. No physical-phone testing occurred.
 
 ## PDF training source and rejected transcriptions — port 20
 
