@@ -1,6 +1,6 @@
 // The logical blocks in this reader's vocabulary (html.ts, html-validate.ts with the device-pdf extension), the
 // formula images and figure crops within the bundle's budget, and the reference's index (`trace`) completed.
-// Degrade, never refuse: past the image budget a formula shows its LaTeX as text and a figure is scaled down or
+// Degrade, never refuse: past the image budget an untranscribed formula points to the PDF and a figure is scaled down or
 // shown by its caption; past the equation limit a formula is its own characters. Every degradation is counted.
 import { el, outText, normalizeSpace, type OutNode } from '../html.ts';
 import { LIMITS } from '../profile.ts';
@@ -9,6 +9,7 @@ import { pyRound } from './geometry.ts';
 import { MARKER, type LogicalBlock, type Place, type Reading } from './convert.ts';
 import { CROP_SCALE, DPI, PLACEHOLDER, type DevicePDFHost, type Formula, type ImageRequest } from './types.ts';
 import { decodeBase64 } from './base64.ts';
+import { floatsNearMentions } from './floats.ts';
 import type { ReaderIndex } from '../render.ts';
 
 type Child = OutNode | string;
@@ -30,6 +31,10 @@ export interface Emitted {
 const MAX_IMAGES = 507, FIGURE_PIXELS = 48_000_000, IMAGE_BYTES = 24 * 1024 * 1024;
 const STYLE_NUMBER = (v: number) => { const n = Math.min(999, Math.max(0, v)); return String(pyRound(n, 3)); };
 const cleanText = (text: string) => text.replaceAll(PLACEHOLDER, '').replace(/[\t\n\r]/g, ' ').replace(new RegExp(CONTROL.source, 'g'), '');
+// The acceptance gate covers every delivered representation. A source crop does not make its rejected
+// recognizer guess safe for copy/search, screen readers or AI context. Raw answers remain only in the trace.
+export const UNTRANSCRIBED_TEXT = 'Equation in PDF (transcription unavailable)';
+export const UNTRANSCRIBED_LATEX = `\\text{${UNTRANSCRIBED_TEXT}}`;
 
 export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: string): Emitted {
   const { prefix, formulas } = reading;
@@ -95,7 +100,8 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
       Math.trunc((b[2] + pad) * CROP_SCALE + 0.999), Math.trunc((b[3] + pad) * CROP_SCALE + 0.999)];
     if (rect[2] <= rect[0] || rect[3] <= rect[1]) continue;
     const em = (f.fontSize > 0 ? f.fontSize : 10) * CROP_SCALE;
-    const placed = fetchPlaced({ page: f.page, dpi: 72 * CROP_SCALE, rect, clean: { em: pyRound(em, 2), margin: Math.round(em * (f.display ? 0.25 : 0.12)) } });
+    const placed = fetchPlaced({ page: f.page, dpi: 72 * CROP_SCALE, rect, clean: { em: pyRound(em, 2), margin: Math.round(em * (f.display ? 0.25 : 0.12)),
+      ...(f.imageContentBox ? { content: f.imageContentBox.map(v => v * CROP_SCALE) as [number, number, number, number] } : {}) } });
     if (placed) formulaImages.set(id, placed);
   }
 
@@ -124,7 +130,8 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     blocks.push({ id, kind, node });
     return node;
   };
-  const latexOf = (f: Formula) => excerpt(cleanText(f.latex || '\\text{?}'), 4000) || '\\text{?}';
+  const latexOf = (f: Formula) => f.rendered && f.mathml
+    ? excerpt(cleanText(f.latex || '\\text{?}'), 4000) || '\\text{?}' : UNTRANSCRIBED_LATEX;
   const equation = (f: Formula, owner: () => string): Child => {
     if (equations.length >= LIMITS.equations) { degraded.equationLimit += 1; return cleanText(f.glyphText); }
     const latex = latexOf(f);
@@ -145,7 +152,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
       const shift = -(below / fs + 0.22);
       const style = f.display ? `width:${STYLE_NUMBER(width / fs)}em`
         : `height:${STYLE_NUMBER(height / fs)}em;vertical-align:${shift < 0 ? '-' : ''}${STYLE_NUMBER(Math.abs(shift))}em`;
-      children = [el('img', { src: image.path, width: String(image.width), height: String(image.height), alt: excerpt(latex, 200).trim() || 'equation', style })];
+      children = [el('img', { src: image.path, width: String(image.width), height: String(image.height), alt: UNTRANSCRIBED_TEXT, style })];
     } else {
       names.push('reader-math-fallback'); degraded.formulaText += 1;
       children = [f.display ? latex : `\\(${latex}\\)`];
@@ -281,11 +288,15 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   const title = excerpt(normalizeSpace(outText(h1)), LIMITS.headingBytes);
   const headings = blocks.filter(b => b.kind === 'heading' && b.node !== h1).map(b => ({ id: b.id, level: Number(b.node.name.slice(1)),
     title: excerpt(normalizeSpace(outText(b.node)), LIMITS.headingBytes) })).filter(h => h.title.length > 0);
-  // Blocks in document order (the fallback title first), as the DOM has them.
-  const order = new Map<OutNode, number>(); let n = 0;
-  const walk = (node: OutNode) => { order.set(node, n++); for (const c of node.children) if (typeof c !== 'string') walk(c); };
+  // A float printed before the first section reads after the paragraph that first names it (port revision 15, floats.ts).
+  const moved = floatsNearMentions(top);
+  // Blocks in document order (the fallback title first), as the DOM has them; equations and figures too after a move.
+  const order = new Map<OutNode, number>(), idOrder = new Map<string, number>(); let n = 0;
+  const walk = (node: OutNode) => { if (node.attribs.id) idOrder.set(node.attribs.id, n); order.set(node, n++); for (const c of node.children) if (typeof c !== 'string') walk(c); };
   top.forEach(walk);
   blocks.sort((a, b) => order.get(a.node)! - order.get(b.node)!);
+  const placeOf = (id: string) => idOrder.get(id) ?? Number.MAX_SAFE_INTEGER;
+  if (moved) { equations.sort((a, b) => placeOf(a.id) - placeOf(b.id)); figures.sort((a, b) => placeOf(a.id) - placeOf(b.id)); }
   const index: ReaderIndex = { format: 'reader-index-v1', title, headings, equations, figures,
     blocks: blocks.map(b => ({ id: b.id, kind: b.kind, text: excerpt(normalizeSpace(outText(b.node)), LIMITS.textBytes) })) };
   return { top, index, images, figureRegions, blockRegions, degraded };

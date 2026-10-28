@@ -11,6 +11,7 @@ import { cellSpanOk, tableCells } from '../../supabase/functions/_shared/reader/
 import { charClass, fontFamily, spansOf, tagInput } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
 import { confidence, renderMath } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
 import { composeDevicePDFReader } from '../../supabase/functions/_shared/reader/device-pdf/bundle.ts';
+import { UNTRANSCRIBED_LATEX } from '../../supabase/functions/_shared/reader/device-pdf/emit.ts';
 import { decodeBase64, encodeBase64 } from '../../supabase/functions/_shared/reader/device-pdf/base64.ts';
 import { validateHTML } from '../../supabase/functions/_shared/reader/html-validate.ts';
 import { htmlPrefix, HTML_SUFFIX } from '../../supabase/functions/_shared/reader/html.ts';
@@ -211,7 +212,7 @@ test('the gate: lowest token for inline, second lowest for display; Temml must r
   assert.deepEqual(recogniserRect([10, 10, 20.2, 15], 150 / 72, 1275, 1650), [19, 19, 44, 33]);
 });
 
-test('degrade, never refuse: without images formulas are LaTeX text and figures their captions', () => {
+test('degrade, never refuse: without images untranscribed formulas point to the PDF and figures keep captions', () => {
   const pages = syntheticPaper();
   const bundle = composeDevicePDFReader(input(pages.length), host(pages, { failImages: true }));
   const text = decoder.decode(bundle.members.get('index.html')!);
@@ -223,7 +224,7 @@ test('degrade, never refuse: without images formulas are LaTeX text and figures 
   assert.deepEqual((failed.summary as { warnings: string[] }).warnings.slice(0, 1), ['equations: Error']);
 });
 
-test('the image budget: past 507 images formulas fall back to their LaTeX and the bundle still validates', () => {
+test('the image budget: past 507 images rejected guesses never become formula text', () => {
   // One page, 600 inline formulas the gate refuses (every crop read with a confidence of 0.1).
   const rows: G[] = [];
   for (let i = 0; i < 60; i++) rows.push(...line(Array.from({ length: 10 }, (_, k) => `$${'v'.repeat(1 + ((i + k) % 5))}$`).join(' and '), 10, 40 + i * 12, 6));
@@ -235,6 +236,10 @@ test('the image budget: past 507 images formulas fall back to their LaTeX and th
   assert.ok(manifest.members.length <= 512);
   const s = bundle.summary as { degraded: { formulaText: number }; equations: number };
   assert.equal(s.equations, 600); assert.ok(s.degraded.formulaText >= 90, `${s.degraded.formulaText} fell back`);
+  const index = JSON.parse(decoder.decode(bundle.members.get('reader.json')!));
+  assert.ok(index.equations.every((e: { latex: string }) => e.latex === UNTRANSCRIBED_LATEX));
+  assert.ok(index.blocks.every((b: { text: string }) => !/\bq\b/.test(b.text)));
+  assert.doesNotMatch(decoder.decode(bundle.members.get('index.html')!), /data-latex="q"|alt="q"|>q</);
 });
 
 test('a math-image representation outside its renderer, or with a free style, is refused', () => {

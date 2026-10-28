@@ -35,12 +35,30 @@ extension XCUIApplication {
     var paperSelectionMenuShown: Bool { editMenuItem("Explain in Chat").exists }
 }
 
-/// The app's places in either shape (docs/DESIGN.md › Tall and Wide). The iPhone and the upright iPad have the places
-/// capsule and its `tab.*` buttons at the bottom. The iPad sideways (Wide, owner 2026-10-23) has the places menu
-/// (`places.menu`) in the window's top-right corner, whose rows keep the `tab.*` identifiers; there Chat is the general chat
-/// and a paper's chat sits beside its paper. The Mac's places are the window toolbar's group, which accessibility reports
-/// as check boxes.
+/// The app's places in either shape (docs/DESIGN.md › Tall and Wide). Tall has the bar at the bottom: on iPhone and narrow
+/// windows Library · Paper · Chat · More (`tab.more`), whose list holds Feed, Snippets and Settings as rows with the same
+/// `tab.*` identifiers; on an iPad upright all six places. 🔍 (`tab.search`) sits beside the bar (owner, 2026-10-25). The iPad
+/// sideways (Wide, owner 2026-10-23) has the places menu (`places.menu`) in the window's top-left corner, whose rows keep
+/// the `tab.*` identifiers, with 🔍 beside it; there Chat is the general chat and a paper's chat sits beside its paper. The
+/// Mac's places are the window toolbar's group, which accessibility reports as check boxes.
 extension XCUIApplication {
+    /// Tall's bar is showing (iPhone, an iPad upright): its Library item, which every Tall bar has.
+    var tallBar: XCUIElement { buttons["tab.library"] }
+
+    /// The compact bar's More (iPhone, narrow windows); absent where every place shows.
+    var moreItem: XCUIElement { buttons["tab.more"] }
+
+    /// The More list's row for a place under More (Feed, Snippets, Settings): More is tapped first, which always opens its
+    /// list (a second tap from Feed or Snippets returns to it).
+    @discardableResult
+    func openFromMore(_ place: String, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        XCTAssertTrue(moreItem.waitForExistence(timeout: 5), "The bar has More", file: file, line: line)
+        moreItem.tap()
+        let row = descendants(matching: .any)["tab.\(place)"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "More lists \(place)", file: file, line: line)
+        return row
+    }
+
     /// The Wide shape on iPad (the places menu), or the Mac.
     var wideShape: Bool {
         #if targetEnvironment(macCatalyst)
@@ -53,13 +71,16 @@ extension XCUIApplication {
     /// The places menu (iPad Wide).
     var placesMenu: XCUIElement { buttons["places.menu"] }
 
-    /// A place's `tab.*` control: the capsule's button in Tall; in Wide, the places menu's row (the menu is opened first).
+    /// A place's `tab.*` control: the bar's button in Tall, or More's row for a place under More (More is opened first);
+    /// in Wide, the places menu's row (the menu is opened first).
     func placeItem(_ place: String) -> XCUIElement {
         let item = descendants(matching: .any)["tab.\(place)"].firstMatch
         #if !targetEnvironment(macCatalyst)
         if !item.exists, placesMenu.exists {
             placesMenu.tap()
             _ = item.waitForExistence(timeout: 3)
+        } else if !item.exists, moreItem.exists, ["feed", "notes", "settings"].contains(place) {
+            return openFromMore(place)
         }
         #endif
         return item
@@ -86,8 +107,8 @@ extension XCUIApplication {
     }
 
     func show(_ place: String) {
-        // Settings: the iPad's sixth place (its bar upright, its places menu sideways; owner, 2026-10-24); the last section
-        // of every ⋯ menu on iPhone and the Mac (owner, 2026-10-20).
+        // Settings: the iPad's sixth place (its bar upright, its places menu sideways; owner, 2026-10-24); More's third row
+        // on iPhone (owner, 2026-10-25); the last section of every ⋯ menu on the Mac.
         if place == "settings" {
             openSettingsFromMenu()
             return
@@ -149,8 +170,8 @@ extension XCUIApplication {
             ?? buttons.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
     }
 
-    /// Settings over the current screen: on iPad its place (the bar's last item upright, the places menu's last row
-    /// sideways; in no ⋯ menu, owner 2026-10-24), elsewhere the ⋯ menu's last section.
+    /// Settings: on iPad its place (the bar's last item upright, the places menu's last row sideways; in no ⋯ menu, owner
+    /// 2026-10-24), on iPhone More's third row (owner, 2026-10-25: over the More list), on the Mac the ⋯ menu's last section.
     func openSettingsFromMenu(file: StaticString = #filePath, line: UInt = #line) {
         let tab = buttons["tab.settings"]
         if tab.exists && tab.isHittable { tab.tap(); return }
@@ -160,6 +181,10 @@ extension XCUIApplication {
             let settings = descendants(matching: .any)["tab.settings"].firstMatch
             XCTAssertTrue(settings.waitForExistence(timeout: 5), "Settings is in the places menu", file: file, line: line)
             settings.tap()
+            return
+        }
+        if moreItem.exists && moreItem.isHittable {
+            openFromMore("settings", file: file, line: line).tap()
             return
         }
         let options = screenOptions

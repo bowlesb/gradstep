@@ -199,7 +199,9 @@ Text-only entries need no blob. Blobs are fetched on demand (thumbnail first) an
 
 **Navigation.** iPhone: Feed · Library · Paper · Chat · **Notes**; Settings is the last section of every top-right ⋯ menu
 (Feed, Library, Paper, Chat, Notes) and opens the existing Settings as a sheet that returns to where you were. iPad,
-Mac and browser add Notes to their existing destination lists; Mac keeps ⌘, for Settings.
+Mac and browser add Notes to their existing destination lists; Mac keeps ⌘, for Settings. *Since 2026-10-25 (apps,
+not yet in a build): on iPhone Snippets and Settings are rows of More (Library · Paper · Chat · More, with 🔍), and no
+iPhone or iPad ⋯ has Settings; only the Mac's do. DESIGN.md › Tall and Wide › The bar, More and 🔍.*
 
 **Capture entry points (v1).** Paper ⋯ › Draw snippet; selection menu › Add to note (quote); figure, table and
 equation pages › Add to note (whole item, then optional adjust). Native HTML reader: `WKWebView.takeSnapshot` of the

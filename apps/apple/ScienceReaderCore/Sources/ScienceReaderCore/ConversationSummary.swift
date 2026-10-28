@@ -167,7 +167,7 @@ public enum ChatPreview {
         "in": "∈", "to": "→", "rightarrow": "→", "leftarrow": "←", "mid": "|", "ldots": "…", "cdots": "⋯",
     ]
 
-    private static func stripMarkdown(_ text: String) -> String {
+    static func stripMarkdown(_ text: String) -> String {
         var result = text
         for marker in ["**", "__", "`"] { result = result.replacingOccurrences(of: marker, with: "") }
         // Single-asterisk emphasis, but not a lone multiplication sign between spaces.

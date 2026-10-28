@@ -139,8 +139,8 @@ fixed commitment. The reader pays 1 credit ($0.005) per request that adds papers
    suite, whose `config.edge-functions` now expects `recommend`.
 2. **Admin.** `node scripts/deploy-web.mjs admin` (Costs names "Recommendations"; Health shows the request counts).
 3. **Browser.** `node scripts/deploy-web.mjs app` (the menus and the dialog).
-   The privacy draft (`web/site-next/privacy/`) gains one paragraph on what recommendations send; republish it with
-   `node scripts/deploy-web.mjs site` when the site is next published.
+   The privacy paragraph on what recommendations send is maintained in `web/site/privacy/` (the separate draft
+   was consolidated here on October 27); publish it with `node scripts/deploy-web.mjs site` when the site is published.
 4. **Native.** The next TestFlight build (iPhone/iPad and Mac) after the mandatory fresh import gate
    (docs/TESTING.md); the menus appear only in builds that carry them, and older builds are unaffected.
 5. **The one paid live check (estimated ~$0.001, budgeted $0.01):**

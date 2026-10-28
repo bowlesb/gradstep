@@ -93,7 +93,8 @@ function assemble(input: DevicePDFInput, host: DevicePDFHost, reading: Reading, 
   check(htmlBytes.length <= LIMITS.htmlBytes, 'html_limit');
   validateHTML(htmlBytes, index, new Map([...emitted.images.values()].map(i => [i.path, { width: i.width, height: i.height }])), false, true);
 
-  // The reference's index completed: each equation's reading, gate and source region.
+  // Diagnostic trace only (not a bundle member): raw recognition, gate and source region. Its `latex` is
+  // deliberately available for model scoring even when `rendered` is false; reader.json uses the safe emission.
   const formulas = reading.formulas;
   for (const row of reading.trace.equations) {
     const f = formulas.get(row.id as string)!;
@@ -111,7 +112,7 @@ function assemble(input: DevicePDFInput, host: DevicePDFHost, reading: Reading, 
   };
   const warnings = [...reading.warnings];
   const d = emitted.degraded;
-  if (d.formulaText) warnings.push(`${d.formulaText} formulas shown as LaTeX text (image budget)`);
+  if (d.formulaText) warnings.push(`${d.formulaText} formulas refer to the PDF (image budget or crop failure)`);
   if (d.figuresScaled) warnings.push(`${d.figuresScaled} figures scaled down (image budget)`);
   if (d.figuresOmitted) warnings.push(`${d.figuresOmitted} figures shown by their captions (image budget or crop failure)`);
   if (d.equationLimit) warnings.push(`${d.equationLimit} formulas past the equation limit shown as text`);

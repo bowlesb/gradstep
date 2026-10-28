@@ -9,11 +9,11 @@ import { readerAccents } from '../accents.ts';
 
 /** verifyGlyphs: the lowest confidence a recognition whose glyphs the PDF's text layer confirms is typeset at. */
 export const VERIFY_FLOOR = 0.5;
-import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure, venueNotice } from './structure.ts';
+import { furniture, isFrontMatter, isFurniture, longMarginGlyphs, marginGlyphLines, structure, venueNotice } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell, type TableOptions } from './tables.ts';
-import { aliasFont, aliasText, fontFamily, spansOf, tagInput } from './tagger.ts';
+import { aliasFont, aliasText, fontFamily, spansOf, tagWindows } from './tagger.ts';
 import { mathRuns, mathStyle, transcribe } from './transcribe.ts';
-import { BLOCK_TEXT_CHUNK, CROP_MARGIN, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
+import { BLOCK_TEXT_CHUNK, CROP_MARGIN, CROP_SCALE, LINE_GAP, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region,
   type TaggerVocabulary } from './types.ts';
 
@@ -101,14 +101,26 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   // The text layer and the layout of every page first: running heads are known only from the whole document.
   const pages: Page[] = [];
   for (let p = 0; p < nPages; p++) { cancelled(); pages.push(readPage(host.page(p), input.fontAliases ? input.tagger : undefined)); host.progress?.('layout', p + 1, nPages); }
-  if (input.accents) for (const page of pages) composeAccents(page.glyphs);
+  const composedAccentGlyphs = pages.map(page => {
+    if (!input.accents) return [];
+    const before = page.glyphs.slice();
+    composeAccents(page.glyphs);
+    // Composition replaces only the base and emptied accent. Retain both original boxes for image-hint safety;
+    // their text, geometry and subsequent reading stay exactly as composeAccents already produces them.
+    return page.glyphs.filter((g, i) => g !== before[i]);
+  });
   if (input.wordGaps) useWordGaps(typicalGap(pages));
   // compounds: the paper's own words decide whether a hyphen at a line's end is the word's or TeX's.
-  useCompounds(input.compounds ? hyphenatedPairs(pages.flatMap(page => linesOf(page.glyphs.filter(visible)).map(l => lineText(l, [])[0]))) : null);
+  const documentLines = pages.flatMap(page => linesOf(page.glyphs.filter(visible)).map(l => lineText(l, [])[0]));
+  useCompounds(input.compounds ? hyphenatedPairs(documentLines) : null);
+  const documentWords = new Set(documentLines.flatMap(t => t.toLowerCase().match(/\p{L}+(?:-\p{L}+)*/gu) ?? []));
   const known = furniture(pages.map(page => ({ glyphs: page.glyphs, height: page.height })));
   // Pages the host read by text recognition (its text layer missing or unreadable; DevicePDFOCR.swift).
   const recognisedPages = pages.filter(page => page.glyphs.length && page.glyphs.every(g => g.font === OCR_FONT)).length;
   const s = DPI / 72;
+  const longHeads = longMarginGlyphs(pages.map(page => ({ ...page, protected: page.detections
+    .filter(d => ['figure', 'table', 'caption', 'display', 'listing'].includes(d.cls))
+    .map(d => d.box.map(v => v / page.scale / s) as Box) })));
   const blocks: LogicalBlock[] = [];
   const formulas = new Map<string, Formula>();
   const committed: string[] = [];
@@ -136,7 +148,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   let title = '', inReferences = false, refs: string[] = [];
   /** References read without a heading (bibliography): they end at the first region that is not an entry. */
   let headless = false;
-  let para: { marked: Marked; text: string; formulas: Formula[]; role: '' | 'abstract' }[] = [];
+  let para: { marked: Marked; text: string; formulas: Formula[]; role: '' | 'abstract'; endSize: number; endLine: string; crossPage?: boolean }[] = [];
   let nGlyphs = 0, nUnowned = 0, recognitionFailures = 0;
   // Places (Show in PDF): the region being read, and those of the paragraph, entries and notes still open.
   const places = new Map<LogicalBlock, Place[]>(), referencePlaces = new Map<LogicalBlock, Place[][]>();
@@ -157,9 +169,26 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     for (const x of para) for (const f of x.formulas) commit(f, bid, 'body');
     para = []; paraPlaces = [];
   };
-  const continues = (text: string, cls: string, prevCls: string): boolean => {
+  const continues = (text: string, cls: string, prevCls: string, startSize: number, startLine: string): boolean => {
     if (!para.length || cls !== 'paragraph' || prevCls !== 'paragraph') return false;
-    const last = para[para.length - 1].text.trimEnd();
+    const previous = para[para.length - 1];
+    let last = previous.text.trimEnd();
+    if (here && paraPlaces[paraPlaces.length - 1]?.[0] !== here[0]) {
+      // A small footer/caption is not the body paragraph continued on the next page. Compare the
+      // boundary lines, not a region's median: a DOI line can be appended to an otherwise body-sized region.
+      if (!(startSize > 0 && previous.endSize > 0) || Math.max(startSize, previous.endSize) > 1.1 * Math.min(startSize, previous.endSize)) return false;
+      const proseWords = (t: string) => t.match(/\p{L}{2,}/gu)?.length ?? 0;
+      if (proseWords(last) < 3 || proseWords(text) < 3 || !proseWords(previous.endLine) || !proseWords(startLine)) return false;
+      // A missing/misordered region can put "two-" next to "with" or "requir-" next to "aging".
+      // Join a broken word only with independent evidence elsewhere in this PDF; unique words stay split.
+      if (last.endsWith('-')) {
+        const left = /(\p{L}+)-$/u.exec(last)?.[1].toLowerCase(), right = /^(\p{L}+)/u.exec(text)?.[1].toLowerCase();
+        if (!left || !right || !(documentWords.has(left + right) || (input.compounds && documentWords.has(`${left}-${right}`)))) return false;
+      }
+      // A closing citation, quoted term or gene name can end a page mid-sentence. A full stop before
+      // its closing punctuation still ends the sentence. Keep the existing same-page rule unchanged.
+      last = last.replace(/[”’"')\]]+$/u, '');
+    }
     return !!last && !'.!?:;”’)]'.includes([...last].pop()!) && /^[a-zα-ω(￼]/.test(text);
   };
   const flushRefs = () => {
@@ -179,12 +208,27 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     });
     refs = []; refPlaces = [];
   };
-  const makeFormula = (gl: Glyph[], page: number, display: boolean, fontSize: number, box?: Box): Formula => {
+  const makeFormula = (gl: Glyph[], page: number, display: boolean, fontSize: number, box?: Box, line?: Glyph[]): Formula => {
     const bx = box ?? union(gl);
     const shown = gl.filter(visible);
     const f: Formula = { id: equationID(), display, page, box: bx, fontSize: fontSize > 0 ? fontSize : 10,
       baseline: display ? undefined : Math.max(...shown.map(g => g.bottom)) - bx[1],
       glyphText: byX(gl).map(g => g.text).join(''), latex: '', confidence: 0, recognised: false, rendered: false };
+    if (!display && shown.length && shown.every(g => g.upright && g.font !== OCR_FONT)) {
+      // A tagger can miss a detached script/prime. Preserve the full crop width and every same-line glyph's
+      // vertical extent, even when it was not tagged. Only remove other-line ink, never same-line punctuation.
+      // If a protected glyph extends vertically past the crop, abstain to legacy cleaning.
+      const near = (line ?? gl).filter(g => visible(g) && g.x1 > bx[0] - 2 && g.x0 < bx[2] + 2 && g.bottom > bx[1] - 2 && g.top < bx[3] + 2);
+      const content = union([...shown, ...near]);
+      // An emptied accent can extend beyond its base or belong to another line. Check its original page box,
+      // including emit.ts's integer-pixel crop fringe, and abstain rather than delete ink omitted from the composed bounds.
+      const crop = [Math.trunc(Math.max(0, bx[0] - 2) * CROP_SCALE), Math.trunc(Math.max(0, bx[1] - 2) * CROP_SCALE),
+        Math.trunc((bx[2] + 2) * CROP_SCALE + 0.999), Math.trunc((bx[3] + 2) * CROP_SCALE + 0.999)];
+      const composedInCrop = composedAccentGlyphs[page].some(g => g.x1 * CROP_SCALE > crop[0] && g.x0 * CROP_SCALE < crop[2] &&
+        g.bottom * CROP_SCALE > crop[1] && g.top * CROP_SCALE < crop[3]);
+      if (!composedInCrop && content[1] >= Math.max(0, bx[1] - 2) && content[3] <= bx[3] + 2 &&
+        near.every(g => g.upright && g.font !== OCR_FONT)) f.imageContentBox = [Math.max(0, bx[0] - 2), content[1], bx[2] + 2, content[3]];
+    }
     // A simple inline formula is written from the text layer and never reaches the recogniser (transcribe.ts).
     const tex = !display && input.transcribe ? transcribe(gl, fontSize) : null;
     if (tex) Object.assign(f, { latex: tex, probs: [], recognised: true, confidence: 1, transcribed: true });
@@ -196,6 +240,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const firstOfSignature = new Map<string, Formula>();
   const copies: [Formula, Formula][] = [];
 
+  let prevCls = '';
   const recognisePending = () => {
     const readable: { f: Formula; rect: [number, number, number, number] }[] = [];
     for (const f of pendingRecognition) {
@@ -228,6 +273,9 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
 
   for (let p = 0; p < nPages; p++) {
     cancelled();
+    // A page break does not end an unfinished paragraph. Keep its class over the boundary, but never
+    // bridge an intervening page without paragraph text (a scan, blank page or full-page float).
+    if (paraPlaces[paraPlaces.length - 1]?.[0] !== p - 1) prevCls = '';
     const page = pages[p];
     const heads = new Set(marginGlyphLines(page.glyphs, page.height).filter(([text]) => known.has(text)).flatMap(([, ln]) => ln));
     // The venue's notice on the first page (proceedings line, copyright, open-access watermark) is not the paper's text.
@@ -258,6 +306,12 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     let owner = growLines(glyphs, assign(glyphs, readers));
     if (input.lineOwners) owner = lineOwners(glyphs, owner);
     for (const r of ordered) if (r.cls === 'authors') { const parts = new Set(r.parts); owner = owner.map(o => o && parts.has(o) ? r : o); }
+    // Establish layout order and ownership first. Removing a running line before orphan-region
+    // construction can reorder overlapping bibliography boxes. Only its text is removed here.
+    if (longHeads[p].size) {
+      const retained = glyphs.map((g, i) => longHeads[p].has(g) ? -1 : i).filter(i => i >= 0);
+      glyphs = retained.map(i => glyphs[i]); owner = retained.map(i => owner[i]);
+    }
     nGlyphs += glyphs.length; nUnowned += owner.filter(o => o === null).length;
     const owned = (r: Region) => glyphs.filter((_, i) => owner[i] === r);
 
@@ -270,9 +324,13 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       return cellCache.get(r)!;
     };
     const candidates: Glyph[][] = [];
+    const neighbours = new Map<Glyph[], [Glyph[] | null, Glyph[] | null]>();
+    const regionLines = (lines: Glyph[][]) => lines.forEach((l, i) => {
+      if (l.length >= 2) { candidates.push(l); neighbours.set(l, [lines[i - 1] ?? null, lines[i + 1] ?? null]); }
+    });
     for (const r of ordered) {
-      if (TAGGED.has(r.cls)) candidates.push(...linesFor(r).filter(l => l.length >= 2));
-      if (input.captionMath) for (const c of r.captions ?? []) candidates.push(...linesFor(c).filter(l => l.length >= 2));
+      if (TAGGED.has(r.cls)) regionLines(linesFor(r));
+      if (input.captionMath) for (const c of r.captions ?? []) regionLines(linesFor(c));
       if (r.cls === 'table') {
         const body = owned(r).filter(visible), cells = cellsFor(r);
         if (cells && cells.reduce((n, row) => n + row.reduce((m, [gl]) => m + gl.length, 0), 0) >= TABLE_PLACED * body.length) {
@@ -283,13 +341,19 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const spanCache = new Map<Glyph[], [number, number][]>();
     const unique = [...new Set(candidates)];
     if (unique.length) {
-      const logits = host.tag(unique.map(l => tagInput(l, input.tagger)));
-      check(Array.isArray(logits) && logits.length === unique.length, 'device_pdf_tagger');
-      unique.forEach((l, i) => spanCache.set(l, spansOf((logits[i] ?? []).map(Number), input.tagger.threshold)));
+      const windows = unique.flatMap((l, line) => tagWindows(l, input.tagger, ...(neighbours.get(l) ?? [null, null])).map(w => ({ ...w, line })));
+      const logits = host.tag(windows.map(w => w.input));
+      check(Array.isArray(logits) && logits.length === windows.length, 'device_pdf_tagger');
+      const stitched = unique.map(l => new Array<number>(l.length));
+      windows.forEach((w, i) => {
+        const values = logits[i];
+        check(Array.isArray(values) && values.length === w.input.font.length && values.every(v => Number.isFinite(Number(v))), 'device_pdf_tagger');
+        for (let j = w.from; j < w.to; j++) stitched[w.line][j] = Number(values[w.own[0] + j - w.from]);
+      });
+      unique.forEach((l, i) => spanCache.set(l, spansOf(stitched[i], input.tagger.threshold)));
     }
     const spansFor = (line: Glyph[]) => line.length < 2 ? [] : spanCache.get(line) ?? [];
 
-    let prevCls = '';
     const notes: { marked: Marked; text: string; formulas: Formula[]; place: Place }[] = [];
     if (p === 0 && !title) {
       const first = ordered.find(r => r.cls === 'title');
@@ -344,7 +408,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         let marked = text;
         const size = median(line.map(g => g.size));
         for (const gl of fl) {
-          const f = makeFormula(gl, p, false, size);
+          const f = makeFormula(gl, p, false, size, undefined, line);
           tagFormulas.push(f);
           marked = marked.replace(PLACEHOLDER, marker(f.id));
         }
@@ -353,7 +417,18 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
       const text = joinLines(texts);
       if (!text || (cls !== 'title' && cls !== 'heading' && (text.match(/[\p{L}\p{N}]/gu) ?? []).length < 2 && !text.includes(PLACEHOLDER))) continue;
       const inner = cls !== 'listing' ? joinLines(parts) : parts.join('\n');
-      if (continues(text, cls, prevCls)) { para.push({ marked: inner, text, formulas: tagFormulas, role: '' }); paraPlaces.push(here); continue; }
+      const regionLines = linesFor(r), startSize = median(regionLines[0]?.filter(visible).map(g => g.size) ?? []);
+      const endSize = median(regionLines[regionLines.length - 1]?.filter(visible).map(g => g.size) ?? []);
+      const endLine = texts[texts.length - 1] ?? '';
+      // Duplicate layout boxes may visit the same physical text twice. A continuation must take part
+      // in duplicate suppression too, including when its last line is still an unfinished sentence.
+      if (cls === 'paragraph' && para[para.length - 1]?.crossPage && para[para.length - 1].text === text && here.every((v, i) => v === paraPlaces[paraPlaces.length - 1]?.[i])) continue;
+      if (continues(text, cls, prevCls, startSize, texts[0] ?? '')) {
+        const crossPage = paraPlaces[paraPlaces.length - 1]?.[0] !== here[0];
+        para.push({ marked: inner, text, formulas: tagFormulas, role: '', endSize, endLine, crossPage }); paraPlaces.push(here);
+        if (crossPage) lastText = canonicalText(text);
+        continue;
+      }
       flushPara();
       if (title && cls !== 'title' && canonicalText(text) === canonicalText(title)) continue;
       // The library's title read as a heading when the layout found no title: the reader's h1 is that title already.
@@ -396,7 +471,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         if (cls === 'abstract' && !(trace.headings.length && abstractHeading(trace.headings[trace.headings.length - 1].title))) {
           blocks.push({ kind: 'heading', level: 2, marked: 'Abstract', text: 'Abstract' }); addTrace('heading', 'Abstract', 2);
         }
-        para.push({ marked: inner, text, formulas: tagFormulas, role: cls === 'abstract' ? 'abstract' : '' }); paraPlaces.push(here);
+        para.push({ marked: inner, text, formulas: tagFormulas, role: cls === 'abstract' ? 'abstract' : '', endSize, endLine }); paraPlaces.push(here);
         if (cls !== 'paragraph') flushPara();
       }
       prevCls = cls;
@@ -423,7 +498,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
         const [text, fl] = lineText(line, spans);
         let marked = text;
         const size = median(line.map(g => g.size));
-        for (const gl of fl) { const f = makeFormula(gl, pageIndex, false, size); capFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
+        for (const gl of fl) { const f = makeFormula(gl, pageIndex, false, size, undefined, line); capFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
         return marked;
       }))).filter(Boolean).join(' ') : undefined;
       const kind = r.cls === 'figure' ? 'figure' : 'table';
@@ -449,7 +524,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
                 texts.push(text);
                 let marked = text;
                 const size = median(line.map(g => g.size));
-                for (const fgl of fl) { const f = makeFormula(fgl, pageIndex, false, size); cellFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
+                for (const fgl of fl) { const f = makeFormula(fgl, pageIndex, false, size, undefined, line); cellFormulas.push(f); marked = marked.replace(PLACEHOLDER, marker(f.id)); }
                 if (marked) parts.push(marked);
               }
               tds.push({ marked: parts.join(' '), span });
@@ -877,7 +952,7 @@ export function gate(reading: Reading): void {
     // A display's punctuation the recogniser could not see (displayPunctuation): after the formula, as LaTeXML sets it.
     if (f.trailing && f.latex && !f.transcribed && !/[.,;]\s*(\\end\{[a-z*]+\}\s*)?$/.test(f.latex)) f.latex = `${f.latex}${f.trailing}`;
     const confident = f.confidence >= (f.display ? reading.displayGate : GATE);
-    // verifyGlyphs: under the gate, a reading whose letters and digits are the page's own glyphs is typeset too.
+    // verifyGlyphs: under the gate, named PDF glyphs must confirm the reading, including its mathematical operators.
     const checkable = !confident && reading.verifyFloor !== null && !!f.glyphTexts && f.confidence >= reading.verifyFloor;
     if (f.latex && (confident || checkable)) {
       let math = renderMath(f.latex, f.display);

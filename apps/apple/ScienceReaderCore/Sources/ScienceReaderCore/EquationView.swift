@@ -309,6 +309,16 @@ public final class EquationResultStore: @unchecked Sendable {
         }.sorted { $0.2 > $1.2 }.map { (fileName: $0.0, value: $0.1) }
     }
 
+    /// Every kept answer's file name and when it was written, without opening any (global search reindexes only the
+    /// files that changed).
+    public func fileStamps() -> [(fileName: String, modified: Date)] {
+        lock.lock(); defer { lock.unlock() }
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
+        return files.filter { $0.pathExtension == "sealed" }.map {
+            ($0.lastPathComponent, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+        }
+    }
+
     /// One kept answer by its file name (as `entries(as:)` listed it).
     public func read<Value: Decodable>(fileName: String, as type: Value.Type) -> Value? {
         guard fileName.hasSuffix(".sealed"), !fileName.contains("/") else { return nil }

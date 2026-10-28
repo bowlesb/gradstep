@@ -3,23 +3,211 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gradstep</title>
-<meta name="description" content="Gradstep is an iPhone and iPad reader for machine-learning papers, with an assistant that answers questions about the paper you are reading.">
+<title>Gradstep AI Reader · Make sense of scientific research</title>
+<meta name="description" content="A new way to read scientific research, starting with AI and machine learning. Explore papers, figures and equations with contextual explanations, and build a library around what you want to learn. In private beta.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#faf9f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111114" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gradstep.ai/">
+<meta property="og:title" content="Gradstep AI Reader · Make sense of scientific research">
+<meta property="og:description" content="Read the paper, explore its ideas and build your understanding. Contextual AI explanations and a library for what you want to learn. In private beta.">
+<meta property="og:image" content="https://gradstep.ai/img/og.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/brand/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" as="image" href="/img/hero-light.webp" media="(min-width: 561px) and (prefers-color-scheme: light)">
+<link rel="preload" as="image" href="/img/hero-dark.webp" media="(min-width: 561px) and (prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<main>
-  <header class="brand"><img class="mark" src="/brand/icon.svg" alt="" width="28" height="28">Gradstep</header>
-  <h1>Read machine-learning papers, one step at a time.</h1>
-  <p class="lead">Gradstep is an iPhone and iPad reader for ML papers. Equations stay equations, figures open full screen, and an assistant answers questions about the paper you are reading, citing where the answer comes from.</p>
-  <p>Gradstep is in a private beta on TestFlight.</p>
-  <footer>
-    <a href="/privacy/">Privacy</a>
-    <a href="mailto:hello@gradstep.ai">hello@gradstep.ai</a>
-  </footer>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site">
+  <div class="wrap bar">
+    <a class="brand" href="/" aria-label="Gradstep home"><img src="/brand/icon.svg" alt="" width="26" height="26">Gradstep</a>
+    <nav aria-label="Primary">
+      <a href="#how">How it works</a>
+      <a class="join" href="mailto:hello@gradstep.ai?subject=Gradstep%20beta">Join the beta</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero wrap" aria-labelledby="title">
+    <p class="eyebrow">Gradstep AI Reader</p>
+    <h1 id="title">Make sense of the research. <span class="line">One idea at a&nbsp;time.</span></h1>
+    <p class="lede">A new way to read scientific research, starting with AI and machine learning. Ask about a passage, unpack an equation, and follow an explanation back to the paper. Keep your questions close to the ideas that sparked&nbsp;them.</p>
+    <div class="actions">
+      <a class="button" href="mailto:hello@gradstep.ai?subject=Gradstep%20beta">Join the private beta</a>
+      <a class="quiet" href="https://app.gradstep.ai">Already in? Open it in your browser <span aria-hidden="true">&rarr;</span></a>
+    </div>
+    <p class="where">Private beta &middot; iPhone, iPad and Mac via TestFlight &middot; in the browser</p>
+
+    <figure class="shot hero-shot">
+      <picture>
+        <source srcset="/img/hero-phone-dark.webp" media="(max-width: 560px) and (prefers-color-scheme: dark)" width="784" height="1020">
+        <source srcset="/img/hero-phone-light.webp" media="(max-width: 560px)" width="784" height="1020">
+        <source srcset="/img/hero-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="/img/hero-light.webp" width="2000" height="1389" fetchpriority="high"
+          alt="Gradstep in a browser. The paper Direct Preference Optimization is open in the reader with its contents on the left. On the right, an answer to “Why does the DPO objective need a reference model?” shows the loss equation and numbered reasons, each followed by paragraph markers such as ¶23, ¶24 and ¶27.">
+      </picture>
+      <figcaption>A question about the reference model in DPO. Each <span class="cite">¶</span> marker in the answer opens the paper at the passage it&nbsp;cites.</figcaption>
+    </figure>
+  </section>
+
+  <section class="argument" aria-labelledby="why">
+    <div class="wrap narrow">
+      <p class="label"><span aria-hidden="true">¶</span> Why I&rsquo;m building Gradstep</p>
+      <h2 id="why">On-device AI, cloud AI, and your own&nbsp;understanding.</h2>
+      <p>I want AI to expand what we can understand. I&rsquo;m starting with learning about AI itself: a field where following the reasoning matters as much as keeping up with the latest&nbsp;papers.</p>
+      <p>Gradstep brings different kinds of help into the same reading experience: local models to help prepare PDFs, cloud models to explain difficult ideas, and your curiosity to guide the conversation. The aim is to work through a paper until you can explain it in your own&nbsp;words.</p>
+    </div>
+
+    <figure class="contrast wrap" aria-label="A summary of DPO compared with the reasoning behind it">
+      <div class="side summary">
+        <p class="side-label">The summary</p>
+        <blockquote>DPO replaces RLHF&rsquo;s reward model and reinforcement-learning loop with a single classification&nbsp;loss.</blockquote>
+      </div>
+      <div class="side reasons">
+        <p class="side-label">The reasons</p>
+        <ol>
+          <li>Under a KL constraint, the best policy has a closed form in terms of the reward. <span class="cite">¶27</span></li>
+          <li>Rearranged, the reward can be written in terms of the policy. <span class="cite">¶29</span></li>
+          <li>Compare two answers to the same prompt and the intractable normaliser cancels. <span class="cite">¶30</span></li>
+          <li>What remains is a loss on the policy alone. <span class="cite">¶33</span></li>
+        </ol>
+      </div>
+      <figcaption>Start with the main idea, then follow the reasoning. Keep the source close enough to check what the explanation&nbsp;means.</figcaption>
+    </figure>
+  </section>
+
+  <section class="features wrap" aria-labelledby="does">
+    <p class="label"><span aria-hidden="true">¶</span> A reader built for understanding</p>
+    <h2 id="does">Explanations, right where you&rsquo;re&nbsp;reading.</h2>
+    <p class="section-intro">A passage, figure or equation can be the starting point for a conversation. Explore the part you find difficult, check the source, and return to the paper with a clearer&nbsp;picture.</p>
+
+    <article class="feature">
+      <div class="copy">
+        <h3>See what the figure is&nbsp;showing.</h3>
+        <p>Ask about a figure or one of its parts. The assistant can place cropped details beside its explanation, so you can compare the interpretation with the image you&rsquo;re&nbsp;studying.</p>
+      </div>
+      <figure class="shot panel">
+        <picture>
+          <source srcset="/img/parts-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="/img/parts-light.webp" width="784" height="980" loading="lazy" decoding="async"
+            alt="An answer about Figure 1 of the DPO paper. It explains that the figure compares the two-stage RLHF pipeline with DPO’s single stage, then shows part 1, “RLHF pipeline (left)”, cropped from the figure, followed by a step-by-step explanation citing paragraphs ¶18 and ¶20.">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="feature">
+      <div class="copy">
+        <h3>Work through the equation.</h3>
+        <p>Open an equation, adjust its size, and explore its symbols. Explanations distinguish definitions found in the paper from general mathematical background, with links to source paragraphs when&nbsp;available.</p>
+      </div>
+      <figure class="shot panel pad">
+        <picture>
+          <source srcset="/img/equation-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="/img/equation-light.webp" width="1038" height="1100" loading="lazy" decoding="async"
+            alt="The equation view for Equation 7 of the DPO paper, the DPO loss, shown large with a size control. Below it, “What it says” summarises the loss, and a list of symbols explains L_DPO, π_θ(y|x), π_ref(y|x) and the expectation, each marked “From the paper” with its paragraph number.">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="feature wide">
+      <div class="copy">
+        <h3>Test your understanding.</h3>
+        <p>Study mode asks you questions and responds to your answers using the paper. A study map helps you keep track of the concepts you&rsquo;ve covered and the ones you want to revisit. Give the idea a go in your own&nbsp;words.</p>
+      </div>
+      <div class="pair">
+        <figure class="shot panel">
+          <picture>
+            <source srcset="/img/study-ask-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/img/study-ask-light.webp" width="784" height="915" loading="lazy" decoding="async"
+              alt="The tutor’s first turn on the DPO paper: a short framing of the paper’s central claim with paragraph citations, then a bolded question asking why RLHF includes the KL penalty term and what might go wrong without it.">
+          </picture>
+        </figure>
+        <figure class="shot panel">
+          <picture>
+            <source srcset="/img/study-map-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/img/study-map-light.webp" width="784" height="873" loading="lazy" decoding="async"
+              alt="The knowledge map for the same session: three concepts, “RLHF pipeline” and “DPO: skip RL via change of variables” marked as learning, and “KL penalty / reference policy” highlighted as the current focus, with a legend for not yet, learning, known and verified.">
+          </picture>
+        </figure>
+      </div>
+    </article>
+
+    <div class="also">
+      <div class="copy">
+        <h3>A library that grows with your&nbsp;interests.</h3>
+        <p>Give the papers you discover a place alongside the questions and notes they&nbsp;inspire.</p>
+      </div>
+      <ul>
+        <li>Save papers and organize them with labels. Keep notes on the ideas you want to return&nbsp;to.</li>
+        <li>Discover related work, browse a feed of new papers, and ask for recommendations for your next&nbsp;read.</li>
+        <li>Your library, notes and conversations can sync across iPhone, iPad, Mac and web. PDF files and prepared reading copies stay on the device where you saved&nbsp;them.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="how" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <p class="label"><span aria-hidden="true">¶</span> How it works</p>
+      <h2 id="how-title">Local reading. Cloud help when you&nbsp;ask.</h2>
+      <div class="columns">
+        <div>
+          <h3>Start with arXiv HTML</h3>
+          <p>Our strongest support is for arXiv&rsquo;s official HTML. Gradstep prepares it on your device, bringing the paper&rsquo;s sections, equations and figures into a layout suited to your&nbsp;screen.</p>
+        </div>
+        <div>
+          <h3>Bring your PDFs</h3>
+          <p>Open and keep PDFs on your device. The Apple apps also offer experimental on-device models that prepare a structured reading from a PDF. Results can be imperfect; the original remains available to&nbsp;check.</p>
+        </div>
+        <div>
+          <h3>Choose when to ask AI</h3>
+          <p>When you ask for cloud AI help, your question and relevant paper text, images or conversation context go to your selected model after consent. The original PDF file is not uploaded for&nbsp;conversion.</p>
+        </div>
+      </div>
+      <div class="privacy-note">
+        <h3>Encryption for your notes and conversations.</h3>
+        <p>They are encrypted on your device before storage or sync, with keys held by your devices. Your library list and tags are handled separately by the service. Stored-history encryption does not hide the context you send for an answer from the AI provider. <a href="/privacy/">Read the privacy details</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="now wrap" aria-labelledby="now-title">
+    <div class="now-copy">
+      <p class="label"><span aria-hidden="true">¶</span> Where we are</p>
+      <h2 id="now-title">Built by reading. Improved with&nbsp;you.</h2>
+      <p>Gradstep is in private beta on iPhone, iPad and Mac through TestFlight, and in the browser. We&rsquo;re improving it by reading real papers, checking the explanations and fixing what gets in the way of&nbsp;understanding.</p>
+      <p>If you&rsquo;re learning about AI or working through scientific papers, bring your questions and tell us where the reading gets difficult. Help shape a reader that supports the way you&nbsp;think.</p>
+      <div class="actions">
+        <a class="button" href="mailto:hello@gradstep.ai?subject=Gradstep%20beta">Join the private beta</a>
+        <a class="quiet" href="mailto:hello@gradstep.ai">hello@gradstep.ai</a>
+      </div>
+    </div>
+    <figure class="phone">
+      <img src="/img/iphone-parts.webp" width="700" height="1522" loading="lazy" decoding="async"
+        alt="Gradstep on iPhone: an answer that splits a test figure into a left and a right half, each crop shown beneath its heading inside the answer.">
+      <figcaption>On iPhone, with a test figure.</figcaption>
+    </figure>
+  </section>
+
 </main>
+
+<footer class="site">
+  <div class="wrap foot">
+    <div class="foot-links">
+      <a class="brand small" href="/"><img src="/brand/icon.svg" alt="" width="20" height="20">Gradstep</a>
+      <a href="/privacy/">Privacy</a>
+      <a href="mailto:hello@gradstep.ai">hello@gradstep.ai</a>
+    </div>
+    <p class="credit">The paper shown is Rafailov et al., <cite>Direct Preference Optimization: Your Language Model is Secretly a Reward Model</cite>, <a href="https://arxiv.org/abs/2305.18290">arXiv:2305.18290</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>. Screens are from Gradstep&rsquo;s beta. The answers shown were written by Claude during&nbsp;testing.</p>
+    <p class="credit">Thank you to arXiv for use of its open access interoperability. This product was not reviewed or approved by, nor does it necessarily express or reflect the policies or opinions of, arXiv.</p>
+  </div>
+</footer>
 </body>
 </html>

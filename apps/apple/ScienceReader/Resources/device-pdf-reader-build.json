@@ -1,7 +1,7 @@
 {
  "renderer_id": "gradstep-device-pdf-mathml-v1",
  "converter": "0.1.0",
- "revision": 14,
- "build_sha256": "f8ba7bc4089d018d976d6b4ad7b90dde0980fedc54c3ea2079d56e7929fc058b",
- "code_sha256": "24ae19ad863c424916fe3b7081f1f2ca0ba2aab1b554a436d14a178e52de1c22"
+ "revision": 21,
+ "build_sha256": "398b0112b78995e776c32646c9a074f60ade3637c206dd6b742c83ed624f6a14",
+ "code_sha256": "3b700d4835dc2524f8a48177dc1b6ccd6ca393cea26d7d0ad1cb1a56073783da"
 }

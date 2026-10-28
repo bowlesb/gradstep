@@ -219,12 +219,15 @@ public enum DevicePDFRaster {
     /// pixels of white on every side.
     public struct CleanedCrop: Sendable { public let image: RGB; public let rect: [Int] }
 
-    /// `em`: the formula's font size in pixels at this resolution; `margin`: pixels of white kept around the ink. A piece
-    /// of ink is dropped only when it touches the crop's edge, lies wholly outside the formula's own ink with a clear gap,
-    /// and is small for a line of text (under 0.45 em tall above or below, 0.3 em wide beside); specks in the zone of
-    /// dropped pieces go with them. Nothing is dropped when that would take a quarter of the ink, so a formula the layout
-    /// box cut into is never cut further. Deterministic: the same pixels give the same result.
-    public static func cleanFormula(_ crop: RGB, em: Double, margin: Int) -> CleanedCrop {
+    /// `em`: font size in pixels; `margin`: white pixels around the retained ink. Optional `content` is the unpadded
+    /// native-glyph protected rectangle, in crop coordinates (end exclusive; inline callers use the full width).
+    /// Whole ink components intersecting
+    /// it, with a one-pixel tolerance, are protected. A short top/bottom edge tail whose midpoint is outside the
+    /// hint can be removed too: a neighboring descender can overlap a font's loose ascent box. Other disconnected
+    /// components wholly outside it can be removed even without touching the edge. No protected ink means abstain.
+    /// Without a valid hint, the legacy cleaner removes only small separated edge tails, never a quarter of the ink.
+    /// Deterministic: the same pixels and hint give the same result. This cannot recover ink clipped before the crop.
+    public static func cleanFormula(_ crop: RGB, em: Double, margin: Int, content: [Double]? = nil) -> CleanedCrop {
         let w = crop.width, h = crop.height, margin = max(0, margin)
         guard w > 0, h > 0, em.isFinite, em > 0 else { return CleanedCrop(image: crop, rect: [0, 0, w, h]) }
         func luminance(_ i: Int) -> Int { (Int(crop.pixels[i * 3]) * 299 + Int(crop.pixels[i * 3 + 1]) * 587 + Int(crop.pixels[i * 3 + 2]) * 114) / 1000 }
@@ -259,11 +262,31 @@ public enum DevicePDFRaster {
         let small = 0.15 * em, gap = max(1, Int((0.06 * em).rounded())), sideGap = max(gap, Int((0.3 * em).rounded()))
         func touches(_ p: Piece) -> Bool { p.minX == 0 || p.minY == 0 || p.maxX == w - 1 || p.maxY == h - 1 }
         func isSmall(_ p: Piece) -> Bool { Double(p.maxX - p.minX + 1) <= small && Double(p.maxY - p.minY + 1) <= small }
-        // The formula's own ink: the pieces clear of the edges, specks aside (a dot or prime decides nothing).
+        // Without a trustworthy content hint, the formula's own ink is inferred from pieces clear of the edges.
         var core = pieces.indices.filter { !touches(pieces[$0]) && !isSmall(pieces[$0]) }
         if core.isEmpty { core = pieces.indices.filter { !touches(pieces[$0]) } }
         var dropped = Set<Int>()
-        if !core.isEmpty {
+        var protected: Set<Int>?
+        if let content, content.count == 4, content.allSatisfy(\.isFinite),
+           content[0] >= 0, content[1] >= 0, content[2] <= Double(w), content[3] <= Double(h),
+           content[2] > content[0], content[3] > content[1] {
+            let found = Set(pieces.indices.filter { i in
+                let p = pieces[i]
+                // Small tails cut by a horizontal crop edge can reach inside loose native font bounds. The glyph's
+                // own script/prime bounds are included by the converter; its component midpoint stays in the hint.
+                let middleY = Double(p.minY + p.maxY + 1) / 2
+                if Double(p.maxY - p.minY + 1) < 0.45 * em &&
+                    ((p.minY == 0 && middleY < content[1]) || (p.maxY == h - 1 && middleY >= content[3])) { return false }
+                // Keep the whole component, including an overhanging connected radical or tall clipped operator.
+                return Double(p.maxX + 1) > content[0] - 1 && Double(p.minX) < content[2] + 1 &&
+                    Double(p.maxY + 1) > content[1] - 1 && Double(p.minY) < content[3] + 1
+            })
+            if !found.isEmpty { protected = found }
+        }
+        if let protected {
+            // Ownership evidence replaces the area heuristic: on a tiny statistic, foreign ink can be the majority.
+            dropped = Set(pieces.indices.filter { !protected.contains($0) })
+        } else if !core.isEmpty {
             let top = core.map { pieces[$0].minY }.min()!, bottom = core.map { pieces[$0].maxY }.max()!
             let left = core.map { pieces[$0].minX }.min()!, right = core.map { pieces[$0].maxX }.max()!
             var above: Int?, below: Int?

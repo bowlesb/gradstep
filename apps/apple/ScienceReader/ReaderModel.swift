@@ -6,14 +6,33 @@ import SwiftUI
 
 enum ReaderTab: String, CaseIterable, Identifiable {
     case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Snippets", settings = "Settings"
-    /// The phone's floating tab bar (owner, 2026-10-20): Notes replaces Settings, which every top-right menu now opens.
+    /// The More list (the compact bar's fourth item) and Search (🔍, every shape; owner, 2026-10-25: "a fourth icon with
+    /// the words More… For the fifth, it's a search icon"). Neither is one of the Mac's five places.
+    case more = "More", search = "Search"
+    /// The five places of the Mac's toolbar and View menu, and ⌘1…⌘5 everywhere (numbers name places, not positions).
     static let phoneTabs: [ReaderTab] = [.feed, .library, .paper, .chat, .notes]
-    /// The places on screen: on iPad Settings is the sixth, beside Snippets (owner, 2026-10-24: "on the iPad we could
-    /// actually have six along the bottom… put Settings here beside Snippets on the right"), in the bar upright and the
-    /// places menu sideways, and in no ⋯ menu. The iPhone keeps five (Settings in every ⋯); the Mac its toolbar and menus.
-    @MainActor static var places: [ReaderTab] { Platform.isPad ? phoneTabs + [.settings] : phoneTabs }
+    /// The Tall bar (docs/DESIGN.md › Tall and Wide › The bar; JUDGMENT_LOG 13–14): Library · Paper · Chat · More on iPhone
+    /// and in Tall windows too narrow for six (`TallBar`), every place on a full-width iPad upright (owner, 2026-10-24:
+    /// "on the iPad we could actually have six along the bottom"). 🔍 is its own circle beside either.
+    static let compactBar: [ReaderTab] = [.library, .paper, .chat, .more]
+    static let fullBar: [ReaderTab] = [.feed, .library, .paper, .chat, .notes, .settings]
+    static func bar(_ bar: TallBar) -> [ReaderTab] { bar == .full ? fullBar : compactBar }
+    /// More's rows (owner, 2026-10-25: "a screen with the other three options"). Feed and Snippets open as places with More
+    /// highlighted; Settings opens over the More list as before.
+    static let morePlaces: [ReaderTab] = [.feed, .notes, .settings]
+
+    /// The bar item drawn as selected, derived from the place (no route changes for this; GLOBAL_SEARCH_AND_MORE.md A.5):
+    /// a bar place is its own item; a More place, or the More list, is More; Search is 🔍; Settings over the screen is
+    /// Settings where the bar has it, else More. nil when nothing in this bar stands for the place.
+    static func barSelection(tab: ReaderTab, settingsShown: Bool, bar: [ReaderTab]) -> ReaderTab? {
+        if settingsShown { return bar.contains(.settings) ? .settings : (bar.contains(.more) ? .more : nil) }
+        if tab == .search || bar.contains(tab) { return tab }
+        if tab == .more || morePlaces.contains(tab) { return bar.contains(.more) ? .more : nil }
+        return nil
+    }
+
     var id: Self { self }
-    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
+    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape"; case .more: "ellipsis"; case .search: "magnifyingglass" } }
 }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
 /// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says. Only `offered` is in
@@ -191,9 +210,18 @@ final class ReaderModel {
     var rowReveal: RowReveal?
     /// Mac: where Settings was opened from (Settings replaces the window's panes there; Done returns).
     @ObservationIgnored var placeBeforeSettings: ReaderTab = .library
+    /// Where Search was opened from: its Cancel (and Escape) return there (ReaderModel+GlobalSearch.swift).
+    @ObservationIgnored var placeBeforeSearch: ReaderTab = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
     /// The account's encrypted full-text index, kept in step with the library (docs/architecture/NATIVE_LIBRARY_SEARCH.md).
     @ObservationIgnored let fullTextIndexer = LibraryFullTextIndexer()
+    /// Global search (docs/architecture/GLOBAL_SEARCH.md): the account's everything index kept in step, and the screen.
+    @ObservationIgnored let everythingIndexer = EverythingIndexer()
+    let globalSearch = GlobalSearchModel()
+    /// A search result's message: the chat lands on it, briefly marked.
+    var chatLanding: ChatLanding?
+    /// A search result's setting: Settings shows that row (or opens its page).
+    var settingsFocus: SettingsFocus?
     /// Advances when the full-text index changes, so a current search runs again.
     @ObservationIgnored private var librarySearchFullTextRevision: UInt64 = 0
     /// Body snippets of the displayed search results, by row ID (only rows whose match was in the paper's text).
@@ -1055,6 +1083,8 @@ final class ReaderModel {
             if summaries != conversationSummaries { conversationSummaries = summaries }
             let registry = InterestRegistry(privateState)
             if registry != interestRegistry { interestRegistry = registry; scheduleInterestUpdate() }
+            // Chats, diagrams, snippets: global search's index follows every write and sync merge (coalesced).
+            everythingIndexer.noteChange()
             let notesRevision = notes.stateRevision
             notes.update(privateState)
             // Notes and snippets are indexed with their paper.
@@ -1207,11 +1237,11 @@ final class ReaderModel {
     let podcasts = PodcastCenter()
     /// Notes and snippets (Services/NotesCenter.swift, ReaderModel+Notes.swift; docs/architecture/NOTES_AND_SNIPPETS.md).
     let notes = NotesCenter()
-    /// Settings shown over the current screen on a phone-width layout: the last section of every top-right menu opens
-    /// it, and closing it returns to the same place (NOTES_AND_SNIPPETS.md "Navigation"). The wide layouts keep their
-    /// own Settings destination (`tab == .settings`, the header gear, the Mac toolbar and ⌘,).
+    /// Settings shown over the current screen on iPhone and iPad (More's third row, the iPad's sixth place, ⌘,), and
+    /// closing it returns to the same place (NOTES_AND_SNIPPETS.md "Navigation"). The Mac keeps its own Settings
+    /// destination (`tab == .settings`: ⌘, and the last section of every ⋯).
     var settingsPresented = false
-    /// RootView: whether the phone-width layout (the five-item tab bar) is showing.
+    /// RootView: whether the Tall shape (the iPhone app, with its bar at the bottom) is showing.
     @ObservationIgnored var compactLayout = true
     /// Tests and UI fixtures: the note-assets transport; nil uses the app's network client.
     @ObservationIgnored var notesTransportOverride: (any NoteAssetTransport)?
@@ -1224,6 +1254,9 @@ final class ReaderModel {
     private var keys: DeviceKeys?
     private(set) var device: LocalDevice?
     private(set) var localPersistence = ReaderLocalPersistence()
+    // Above the Tall/Wide reader containers so a PDF preview and its zoom survive iPad rotation.
+    var pdfPeek: PDFPeekPresentation?
+    @ObservationIgnored var pdfPeekWorker = PDFPositionWorker()
     private var draftQueue: ReaderDraftQueue?
     private var pendingDraftCheckpoints: [UUID: ChatWorkspace.Checkpoint] = [:]
     private var draftsRestored = false
@@ -1312,7 +1345,7 @@ final class ReaderModel {
     @ObservationIgnored private var librarySearchPreparation: Task<Void, Never>?
     @ObservationIgnored private var librarySearchSourceRevision: UInt64 = 0
     @ObservationIgnored private var librarySearchSourceDirty = true
-    @ObservationIgnored private var librarySearchCandidates: [LibrarySearchCandidate] = []
+    @ObservationIgnored private(set) var librarySearchCandidates: [LibrarySearchCandidate] = []
     @ObservationIgnored private var librarySearchCandidatePositions: [String: Int] = [:]
     @ObservationIgnored private var libraryRowLookup: [String: LibraryListEntry] = [:]
     @ObservationIgnored private var libraryMatchedIDs: [String] = []
@@ -1364,6 +1397,7 @@ final class ReaderModel {
         Connectivity.shared.onReconnect { [weak self] in self?.connectionReturned() }
         fullTextIndexer.inputs = { [weak self] in self?.fullTextInputs() ?? .init() }
         fullTextIndexer.changed = { [weak self] in self?.fullTextIndexChanged() }
+        configureGlobalSearch()
         // Snippets' search reads the reading under a drawn region when that paper's reading is on this device.
         notes.readingIndex = { [weak self] manifest in
             self?.papers.first { $0.readerBundle?.manifestSHA256 == manifest }?.readerBundle?.index
@@ -1406,6 +1440,7 @@ final class ReaderModel {
     }
 
     private func libraryPapersChanged(from previous: [Paper]) {
+        if previous.count != papers.count { everythingIndexer.noteChange() }
         // A paper whose import this device watched finish is downloaded and prepared here now, with its progress in
         // its row; opening it then is immediate.
         let known = Set(previous.map(\.id))
@@ -2348,6 +2383,8 @@ final class ReaderModel {
         restoreReadingActivity(reading)
         restoreKeptFeed(keptFeed)
         fullTextIndexer.attach(persistence.searchIndex)
+        everythingIndexer.attach(persistence.everythingIndex)
+        DeviceSearch.shared.configure(cache: persistence.mlSearchCache)
         self.device = device
         self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local,
                               noteAssets: notesTransportOverride ?? BackendNoteAssets(backend: backend, accountID: device.accountID),
@@ -2480,9 +2517,14 @@ final class ReaderModel {
     func waitForLocalRetirement() async { await retirementQueue.wait() }
 
     private func clearAccountView() {
+        clearPDFPeek()
         localAI.cancelInference()
         contextualChat = nil; contextualComposers = [:]; explainerReturn = nil; presentedExplainer = nil; promotedChatContexts = [:]
         fullTextIndexer.detach(); librarySnippets = [:]; libraryMatches = [:]; pendingPaperFind = nil
+        // Global search: the index stops (closed with the account's writers), the screen and its memory are cleared, and
+        // ML paper search's cached results are removed from this device.
+        everythingIndexer.detach(); globalSearch.reset(); chatLanding = nil; settingsFocus = nil
+        DeviceSearch.shared.signedOut()
         pendingAIChoice = nil; pendingLocalAIChoice = nil
         // Before the old writer retires: fence answers and keep their partials.
         retireChatGenerations()
@@ -4553,6 +4595,7 @@ final class ReaderModel {
         return stored
     }
     func keepEquationAnswer(_ answer: EquationAnswer, for key: EquationResultKey) {
+        defer { everythingIndexer.noteChange() }
         var answer = answer
         if answer.subject == nil {
             answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: key.equationID, action: key.action) { paper in
@@ -4758,6 +4801,7 @@ final class ReaderModel {
         return stored
     }
     func keepFigureAnswer(_ answer: FigureAnswer, for key: FigureResultKey) {
+        defer { everythingIndexer.noteChange() }
         var answer = answer
         if answer.subject == nil {
             answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: key.figureID, action: key.action) { paper in
@@ -4848,6 +4892,7 @@ final class ReaderModel {
         return stored
     }
     func keepPaperExplainerAnswer(_ answer: PaperExplainerAnswer, for key: PaperExplainerKey) {
+        defer { everythingIndexer.noteChange() }
         var answer = answer
         if answer.subject == nil {
             answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: "paper", action: .paperExplainer) { _ in "AI Explainer" }
@@ -6071,6 +6116,8 @@ final class ReaderModel {
         restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
         restoreKeptFeed(await localPersistence.feedPages?.load() ?? [:])
         fullTextIndexer.attach(localPersistence.searchIndex)
+        everythingIndexer.attach(localPersistence.everythingIndex)
+        DeviceSearch.shared.configure(cache: localPersistence.mlSearchCache)
         // `--nothing-open`: the sample is in the library but no paper is open (Wide's Library placeholder).
         openSample(select: !ProcessInfo.processInfo.arguments.contains("--nothing-open"))
         if let kind = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--chat-paper-navigation-fixture=") }) {
@@ -6080,6 +6127,7 @@ final class ReaderModel {
         if ProcessInfo.processInfo.arguments.contains("--snippets-fixture") {
             try await installSnippetsFixture(into: local, deviceID: fixtureDevice.deviceID, accountID: fixtureAccount)
         }
+        if Self.searchFixtureEnabled { installSearchFixture() }
         let scrollAuditConversation = ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--chat-scroll-audit=") })
             ? try await installScrollAuditFixture(into: local, deviceID: fixtureDevice.deviceID) : nil
         let snapshot = await local.snapshot()
@@ -6089,6 +6137,7 @@ final class ReaderModel {
         StorageFullFixture.arm()
         checkpointAllDrafts()
         tab = .library
+        openGlobalSearchIfAskedAtLaunch()
     }
     #endif
 
@@ -6368,6 +6417,10 @@ final class ReaderLocalPersistence {
     /// The Feed's last page per view, sealed beside the store under the same key (FeedPages.swift); erased when this
     /// writer retires (sign-out).
     private(set) var feedPages: FeedPageStore?
+    /// Global search's index of chats, explanations, snippets and diagrams, sealed the same way (GLOBAL_SEARCH.md).
+    private(set) var everythingIndex: EverythingIndex?
+    /// ML paper search's day-long cache of results, sealed under the same key.
+    private(set) var mlSearchCache: SealedCacheFiles?
     private(set) var isActivating = false
     private(set) var isRetired = false
     private var accountID: UUID?
@@ -6482,6 +6535,8 @@ final class ReaderLocalPersistence {
             }
             if searchIndex == nil { searchIndex = await Self.openSearchIndex(url: url, accountID: accountID, localKey: localKey) }
             if feedPages == nil { feedPages = try? FeedPageStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey) }
+            if everythingIndex == nil { everythingIndex = await Self.openEverythingIndex(url: url, accountID: accountID, localKey: localKey) }
+            if mlSearchCache == nil { mlSearchCache = Self.openMLSearchCache(url: url, accountID: accountID, localKey: localKey) }
             try Task.checkCancellation()
             guard !isRetired else { throw CancellationError() }
             return store
@@ -6498,7 +6553,24 @@ final class ReaderLocalPersistence {
         readingStore = try? ReadingActivityStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
         feedPages = try? FeedPageStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
         searchIndex = await Self.openSearchIndex(url: url, accountID: accountID, localKey: localKey)
+        everythingIndex = await Self.openEverythingIndex(url: url, accountID: accountID, localKey: localKey)
+        mlSearchCache = Self.openMLSearchCache(url: url, accountID: accountID, localKey: localKey)
         return opened
+    }
+
+    /// Global search's index, in `everything-index/` beside the Library's (removed with the account's folder).
+    private static func openEverythingIndex(url: URL, accountID: UUID, localKey: Data) async -> EverythingIndex? {
+        let directory = url.deletingLastPathComponent().appendingPathComponent(EverythingIndex.namespace, isDirectory: true)
+        return await Task.detached(priority: .utility) {
+            try? EverythingIndex(directory: directory, accountID: accountID, localKey: localKey)
+        }.value
+    }
+
+    /// ML paper search's cache: `Caches/arxiv-search/<account>/`, sealed (the system may clear it; sign-out removes it).
+    private static func openMLSearchCache(url: URL, accountID: UUID, localKey: Data) -> SealedCacheFiles? {
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        return try? SealedCacheFiles(directory: caches.appendingPathComponent("arxiv-search", isDirectory: true).appendingPathComponent(accountID.wire, isDirectory: true),
+                                     accountID: accountID, localKey: localKey, namespace: "arxiv-search")
     }
 
     /// Opened off the main actor (it reads and decrypts its manifest). A store that can't open leaves search to
@@ -6559,6 +6631,7 @@ final class ReaderRetirementQueue {
                 await persistence.searchIndex?.close()
                 // The Feed's kept pages leave with the account (sign-out); its other encrypted files stay, as before.
                 await persistence.feedPages?.erase()
+                await persistence.everythingIndex?.close()
             }
             if self?.pending?.id == id { self?.pending = nil }
         }
@@ -6693,5 +6766,74 @@ extension ReaderModel {
         chatInput = question
         pendingSelection = (current.composer, question, quote, nil, current.origin, false)
         await sendMessage()
+    }
+}
+
+extension ReaderModel {
+    func isCurrentPDFPeek(paper: Paper, scope: ReaderDocumentScope) -> Bool {
+        readerDocumentScope == scope && paper.id == scope.paperID
+            && selectedPaper?.sourceID == paper.sourceID && selectedPaper?.sourceRevision == paper.sourceRevision
+    }
+
+    func clearPDFPeek() {
+        pdfPeek = nil
+        pdfPeekWorker = PDFPositionWorker()
+    }
+
+    /// PDF peek uses only the encrypted local original, optionally fetched directly after the sheet's download action.
+    /// No backend original/download endpoint or upload queue participates.
+    func pdfForPeek(paper: Paper, scope: ReaderDocumentScope, download: Bool,
+                    fetcher: any DevicePDFFetching = DevicePDFFetcher()) async throws -> (Data, LocalPaperIdentity) {
+        #if DEBUG && FIXTURE_HOST
+        if PDFPeekFixture.isEnabled {
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope), paper.isSample,
+                  paper.readerBundle?.manifestSHA256 == ReaderBundleLoader.sampleManifestSHA256 else { throw PDFPeekError.unavailable }
+            return try PDFPeekFixture.original()
+        }
+        #endif
+        guard isCurrentPDFPeek(paper: paper, scope: scope), let store = localPersistence.localPaperStore else { throw PDFPeekError.unavailable }
+        // A device-converted reading binds its original by digest, including PDFs imported from Files.
+        if let provenance = paper.readerBundle?.devicePDFSource {
+            guard let record = localPaperRecords.first(where: { $0.identity.sha256.hex == provenance.pdfSHA256 }) else { throw PDFPeekError.unavailable }
+            let data = try await store.read(record.identity)
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            return (data, record.identity)
+        }
+        guard
+              let sourceID = paper.sourceID, let revision = paper.sourceRevision,
+              let source = try? ArxivReference(sourceID: sourceID, revision: revision) else { throw PDFPeekError.unavailable }
+        try Task.checkCancellation()
+        var record = await store.record(sourceID: sourceID, revision: revision)
+        try Task.checkCancellation()
+        guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+        if record == nil {
+            guard download else { throw PDFPeekError.missing }
+            guard let url = URL(string: "https://arxiv.org/pdf/\(source.identifier)") else { throw PDFPeekError.unavailable }
+            let pdf = try await fetcher.fetch([url], progress: { _ in })
+            defer { try? FileManager.default.removeItem(at: pdf.file) }
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            guard pdf.link.scheme == "https", pdf.link.path.hasPrefix("/pdf/"),
+                  let final = try? ArxivReference(pdf.link.absoluteString), final == source else { throw PDFPeekError.wrongRevision }
+            try await PDFPositionWorker().validate(file: pdf.file)
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            let write = try acceptLocalPaperWrite { store in
+                try await store.install(pdfAt: pdf.file, sourceID: sourceID, revision: revision)
+            }
+            record = try await write.value
+            let records = await store.records()
+            try Task.checkCancellation()
+            guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+            localPaperRecords = records
+        }
+        try Task.checkCancellation()
+        guard isCurrentPDFPeek(paper: paper, scope: scope), let record else { throw CancellationError() }
+        let data = try await store.read(record.identity)
+        try Task.checkCancellation()
+        guard isCurrentPDFPeek(paper: paper, scope: scope) else { throw CancellationError() }
+        return (data, record.identity)
     }
 }

@@ -1,5 +1,5 @@
 {
- "note": "Package digests of the device route models (scripts/device-models.mjs). Layout and tagger: converter 0.1.0 port kit, 2026-10-14; recogniser: texteller-ft-v4 as one batched multifunction package with a 512-token cache, 2026-10-23.",
+ "note": "Source digests of the device route models. Same v5b-journal/layout-v5/TexTeller-v4 weights; exact-weight recovery carrier. Encrypted compiled artifacts are verified separately.",
  "models": {
   "layout": {
    "export": "layout-fcos-v5-coreml",
@@ -7,14 +7,26 @@
    "sha256": "724a95c5350b6d84994d5d2192d00c0daf52606d3b465118caed1eb532f8ef8a"
   },
   "tagger": {
-   "export": "inline-tagger-v4-coreml",
+   "export": "inline-tagger-v5b-journal-coreml",
    "package": "tagger.mlpackage",
-   "sha256": "516064d074f540bf1cb700a4fd52bbeacdeb6e5cf975c3c459ca5b4d8ff72121"
+   "sha256": "4729bf925b14bf1e7f43f7dfd7628343055396debd0bc15f31fcbcbef6687e27",
+   "threshold": 0.65
   },
   "recogniser": {
    "export": "texteller-ft-v4-mf8-int8-l512",
    "package": "recogniser.mlpackage",
    "sha256": "636c81fb98f3480189bc229cc3cf114db148b5c3bcb88fe17b20cf7a8d79b403"
+  },
+  "tagger_reference": {
+   "export": "inline-tagger-v5b-journal-reference",
+   "manifest": "tagger-reference.json",
+   "weights": "tagger-reference.bin",
+   "sha256": "2b09f7baaf2340dd7987e5300088a86579f734039fba66d7c6ef610d61c9497f",
+   "binary_sha256": "54c00488b893fbc7e9cf5e305e50a8c7ed9b9a8503c73a4e62374dcaf79b9eb7",
+   "checkpoint_sha256": "d705b191ddd7eb33cc36cbf8e47e71c1363e5389fb41dbea3936720858188d0c",
+   "carrier_export": "inline-tagger-v5b-journal-reference-carrier",
+   "carrier_package": "tagger-reference-carrier.mlpackage",
+   "carrier_sha256": "182ab44b32fdc2efef57fef426de23cb748757c98b94108542e237453d4f5185"
   }
  }
 }

@@ -13,8 +13,12 @@ import SwiftUI
 enum ChromeMetrics {
     /// The floating tab bar's height: a 50 pt item inside 4 pt of glass.
     static let tabBarHeight: CGFloat = 58
-    /// The widest the tab bar gets (iPad): five tabs don't need more.
-    static let tabBarMaxWidth: CGFloat = 520
+    /// The widest a bar item gets (iPad), the capsule's 4 pt padding included in `tabBarMaxWidth(items:)`: five tabs were
+    /// at most 520 pt.
+    static let tabItemMaxWidth: CGFloat = 104
+    static func tabBarMaxWidth(items: Int) -> CGFloat { tabItemMaxWidth * CGFloat(items) }
+    /// Between the places capsule and the 🔍 circle beside it (owner, 2026-10-25; GLOBAL_SEARCH_AND_MORE.md A.2).
+    static let searchGap: CGFloat = 8
     /// Room kept between the end of the content and the bar above it.
     static let contentGap: CGFloat = 8
     /// How far a fade reaches past the controls it is behind.
@@ -224,6 +228,8 @@ enum GradstepSymbol {
     static let settings = "gradstep.settings"
     /// Notes: a notebook page with a captured box; the amber point marks the newest snippet.
     static let notes = "gradstep.notes"
+    /// More (owner, 2026-10-25): three dots, the last the amber point; the word "More" under it tells it from ⋯.
+    static let more = "gradstep.more"
     static let newChat = "gradstep.chat.new"
     /// All chats: a list (owner feedback, build 14: not a clock-arrow, which reads as refresh).
     static let chats = "gradstep.chats"
@@ -243,6 +249,8 @@ struct BrandSymbol: View {
 }
 
 extension ReaderTab {
+    /// The place's glyph: the app's own symbols, and the system's magnifying glass for Search (as iOS draws its search
+    /// tab). `menuIcon` takes either name; a view draws it with `image`.
     var icon: String {
         switch self {
         case .feed: GradstepSymbol.feed
@@ -251,8 +259,11 @@ extension ReaderTab {
         case .chat: GradstepSymbol.chat
         case .notes: GradstepSymbol.notes
         case .settings: GradstepSymbol.settings
+        case .more: GradstepSymbol.more
+        case .search: "magnifyingglass"
         }
     }
+    var image: Image { self == .search ? Image(systemName: icon) : Image(icon) }
 }
 
 /// One tab of the floating tab bar: the selected tab's symbol in accent with its amber point, on a
@@ -265,6 +276,8 @@ struct TabBarItem: View {
             icon.frame(height: 27)
             Text(tab.rawValue).font(.caption2.weight(selected ? .semibold : .regular)).lineLimit(1)
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                // Four items keep about 67 pt each on the smallest iPhone: a long word shrinks a little rather than cut.
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(selected ? Color.accentColor : Color.primary)
         }
         .frame(maxWidth: .infinity).frame(height: 50)
@@ -274,10 +287,38 @@ struct TabBarItem: View {
 
     // Icon study 2026-10-07 (docs/DECISIONS.md): chosen over tuned system symbols and an app-icon tile.
     private var icon: some View {
-        Image(tab.icon)
+        tab.image
             .symbolRenderingMode(selected ? .palette : .monochrome)
             .foregroundStyle(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.primary), Color.gradstepAmber)
             .font(.system(size: 22, weight: .medium))
             .accessibilityHidden(true)
+    }
+}
+
+/// 🔍 beside the places (owner, 2026-10-25: "For the fifth, it's a search icon"; GLOBAL_SEARCH_AND_MORE.md A.2–A.3): its own
+/// glass circle, as iOS 26 places a search tab. The bar's is the bar's height (58 pt); Wide's sits beside the places button
+/// at the header controls' 44 pt. Selected while Search is the place: the symbol in accent on the light accent fill.
+struct SearchCircle: View {
+    let diameter: CGFloat
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "magnifyingglass")
+                // The bar's line weight (its glyphs are medium); Wide's matches the header controls' 17 pt.
+                .font(.system(size: diameter > 50 ? 20 : 17, weight: diameter > 50 ? .medium : .semibold))
+                .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                .frame(width: diameter, height: diameter)
+                .background { if selected { Circle().fill(Color.accentColor.opacity(0.14)).padding(4) } }
+                .modifier(GlassCircle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        // The glyph keeps its size at large text sizes (the Large Content Viewer shows it bigger), as the bar's items.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .accessibilityLabel("Search")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("tab.search")
+        .accessibilityShowsLargeContentViewer { Label("Search", systemImage: "magnifyingglass") }
     }
 }

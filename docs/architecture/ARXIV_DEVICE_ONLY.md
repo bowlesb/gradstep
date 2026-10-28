@@ -969,9 +969,11 @@ follow (`// egress-ok: link`). `scripts/search-eval.mjs` is marked a local devel
 search with DataCite (the retired server engine's 2026-10-15 results are in §5.6.1). The `saxes` dependency is now
 unused by code; removing it from the package manifests and locks is left for a dependency pass.
 
-**Copy.** The privacy draft (`web/site-next/privacy/`) now says our servers never contact arXiv, that catalog details
+**Copy.** The privacy source (`web/site/privacy/`; the former separate draft was consolidated here on October 27)
+says our servers never contact arXiv, that catalog details
 come from DataCite and Crossref (OpenAlex for papers not on arXiv, and with Crossref and DataCite for identifying a
-reference) and that a device's details stay with its own library; republish the preview after the deploy. Native
+reference) and that a device's details stay with its own library. The historical rollout required publishing that
+notice after the service deploy; current website publication is recorded separately. Native
 Settings › Acknowledgements: DataCite supplies "Paper details, ML paper search and the shared Feed … Our servers never
 contact arXiv" (ships with the next build). How Gradstep works (both clients) names no server lookup and is unchanged.
 

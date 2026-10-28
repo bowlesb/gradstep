@@ -4,7 +4,7 @@ Update, 2026-10-25: **the owner approved the §5 privacy notice and serving to `
 [DECISIONS.md](../DECISIONS.md#interest-index-privacy-notice-approved-serving-may-go-to-all-owner-2026-10-25)). The
 notice is placed on gradstep.ai/privacy (website deploy waiting for the owner) and in the apps' Privacy & data (next
 TestFlight build). Readiness fixes 0156 and 0157 were applied to staging on 2026-10-25 13:48 UTC (backup
-20261025T134806Z). Serving is still `staff` until the privacy page is live; the flip and its checks are in
+20261025T134806Z). Serving went to `all` on 2026-10-28 13:54 UTC (`worker_interest_set_policy(null, 'all')`), after the notice went live on gradstep.ai/privacy with the landing page (2026-10-27); `interest.health` passes.
 [Serving to all](#serving-to-all-prepared-2026-10-25-not-run).
 
 Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00055-vzm`,
@@ -389,14 +389,13 @@ arXiv research from our servers, the same file for everyone. Your topics are wor
 don't receive them. For you also ranks new papers by how close they are to the arXiv papers in your library, using their
 public titles and abstracts; nothing from that comparison is kept."
 
-Where it appears, word for word:
+Where the approved notice was placed on October 25:
 
-- **gradstep.ai/privacy** (`web/site/privacy/index.html`): a "Topics and For you" section after Papers. The Papers
-  paragraph's library sentence now ends "used for synchronization and to rank the Feed's For you list", so that "For
-  you also" follows from it.
-- **The redesign draft** (`web/site-next/privacy/index.html`): Your library, after its For you sentence. That sentence
-  said For you is ranked "without an AI model"; it now says "without sending it to an AI provider", because the
-  fingerprints come from gte-small.
+- **gradstep.ai/privacy** (current canonical source `web/site/privacy/index.html`): the original page used a "Topics
+  and For you" section after Papers, while the redesign placed it under Your library, after its For you sentence.
+  These website sources were consolidated on October 27; the separate draft directory is retired. The redesign
+  changed "without an AI model" to "without sending it to an AI provider", because the fingerprints come from
+  gte-small. This source-path update does not establish publication or a change in interest-index serving.
 - **Settings › Privacy & data**: a "Topics and For you" section in the apps (`PrivacyView`, RootView.swift) and the
   browser (`PrivacyData.tsx`, `privacy-topics`).
 - The Library topics ⓘ already says topics are "worked out on this device from its arXiv papers and a public map of

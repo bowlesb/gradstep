@@ -21,7 +21,8 @@ final class DeviceSearchTests: XCTestCase {
         ArxivMetadataFetcher.fixtureProtocolClasses = [ArxivAPIFixture.self]
         DataCiteSearchClient.fixtureProtocolClasses = [DataCiteFixture.self]
         let fetcher = ArxivMetadataFetcher(defaultsSuite: suite, cacheDirectory: folders[0], now: { clock.now }, sleep: { clock.advance($0) })
-        return Setup(search: DeviceSearch(fetcher: fetcher, cacheDirectory: folders[1], now: { clock.now }), clock: clock, suite: suite, folders: folders)
+        let cache = try? SealedCacheFiles(directory: folders[1], accountID: UUID(), localKey: Data(repeating: 9, count: 32), namespace: "arxiv-search")
+        return Setup(search: DeviceSearch(fetcher: fetcher, cache: cache, now: { clock.now }), clock: clock, suite: suite, folders: folders)
     }
     private func tearDown(_ setup: Setup) {
         ArxivMetadataFetcher.fixtureProtocolClasses = nil
@@ -52,10 +53,19 @@ final class DeviceSearchTests: XCTestCase {
         let again = try await s.search.search("  Direct Preference   Optimization ")
         XCTAssertEqual(again.map(\.sourceID), results.map(\.sourceID))
         XCTAssertEqual(ArxivAPIFixture.requests.count, 2)
+        // Kept sealed (GLOBAL_SEARCH.md "ML paper search cache"): no file holds the results or the words.
+        let files = try FileManager.default.contentsOfDirectory(at: s.folders[1], includingPropertiesForKeys: nil)
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files.first?.pathExtension, "sealed")
+        let bytes = try Data(contentsOf: files[0])
+        for word in ["2305.18290", "Direct Preference", "results"] { XCTAssertNil(bytes.range(of: Data(word.utf8)), word) }
         // A day later it is asked again.
         s.clock.advance(86_401)
         _ = try await s.search.search("direct preference optimization")
         XCTAssertEqual(ArxivAPIFixture.requests.count, 4)
+        // Sign-out removes them.
+        s.search.signedOut()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.folders[1].path))
     }
 
     /// Tuning 1: arXiv finds nothing for a misspelling, so the device asks DataCite's near spellings (arXiv has none).

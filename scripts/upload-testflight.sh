@@ -16,7 +16,14 @@ BUILD="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 # Since 2026-10-24 they are a separate download ("The models as a download"): the folder is the On-Demand Resources tag
 # `device-pdf-models`, which the archive and the upload below carry as an asset pack beside the app (App Store hosted),
 # and the script also writes apps/apple/DeviceModelsManifest/device-models-pack.json, which the app ships.
-node scripts/device-models.mjs > ".artifacts/device-models-$BUILD.log" 2>&1 || { echo "Device models not prepared: .artifacts/device-models-$BUILD.log"; exit 1; }
+node scripts/device-models.mjs --require-encryption > ".artifacts/device-models-$BUILD.log" 2>&1 || { echo "Device models not prepared: .artifacts/device-models-$BUILD.log"; exit 1; }
+# The native loader is built and team-signed separately; a CLI success on an unsigned/old pack is insufficient.
+: "${SCIENCE_READER_COREML_VERIFY_TOOL:?set the path to the team-signed DevicePDFRouteTool}"
+SCIENCE_READER_COREML_VERIFICATION="$(pwd)/.artifacts/coreml-encryption-$BUILD.json"
+export SCIENCE_READER_COREML_VERIFICATION
+node scripts/verify-coreml-encryption.mjs --tool "$SCIENCE_READER_COREML_VERIFY_TOOL" \
+  --models apps/apple/DeviceModels --manifest apps/apple/DeviceModelsManifest/device-models-pack.json \
+  --out "$SCIENCE_READER_COREML_VERIFICATION"
 (cd apps/apple && xcodegen generate > /dev/null)
 ARCHIVE=".artifacts/Paperstep-$BUILD.xcarchive"
 AUTH="-authenticationKeyPath $KEY -authenticationKeyID $ASC_KEY_ID -authenticationKeyIssuerID $ASC_ISSUER_ID"

@@ -205,8 +205,10 @@ enum NoteEntrySync: Equatable {
     }
 
     func setRecognised(_ texts: [UUID: String]) {
-        if texts != recognised { recognised = texts }
+        if texts != recognised { recognised = texts; recognisedChanged?() }
     }
+    /// Recognised text changed (global search indexes it with its snippet).
+    @ObservationIgnored var recognisedChanged: (() -> Void)?
 
     func sync(of entry: NotesState.Entry) -> NoteEntrySync {
         let blobs = entry.record.media?.all.map(\.blobID) ?? []

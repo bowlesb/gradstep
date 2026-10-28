@@ -1,6 +1,71 @@
 # Agent handoff
 
-**Current checkpoint, 2026-10-17 ~04:36 UTC (Oct 16 PDT):** The owner's new build-64 screenshot shows VLA-Δ
+**Landing page, 2026-10-27:** published at `https://gradstep.ai` as Pages deployment `e631ca58`.
+Use `web/site/`; the duplicate redesign folder is retired. [Landing record](proposals/LANDING_PAGE.md) contains
+verification and privacy corrections. Both reading PDFs are under `output/pdf/`. Website publication does not
+resolve the native model-encryption blocker below.
+
+**Current on-device PDF work, 2026-10-26/27:** start with
+[training/device_pdf/README.md](../training/device_pdf/README.md), the single current progress log and ranked backlog.
+It summarizes the older experiments so they need not be rediscovered. Core training is in this repo; GPU work uses
+`192.168.1.32:/home/ben/science-reader-training`, separate from the older dirty checkout. Port 20 removes 4,973 rejected
+transcription exposures; port 21 reduces confirmed neighboring-line intrusions **25→6** in 61 journal crops, with
+zero own-ink changes and all 60 cleaner controls passing. Both preserve recognition and source locations across
+101 recorded PDFs. Native reliability now adds one independent CPU evaluation of the same tagger weights after
+two invalid Core ML buffers; valid outputs and thrown-model-error behavior are unchanged. The paired quiet/load
+experiment recorded six retry exhaustions, three each for FP16/FP32; FP32 showed no reliability gain. All 2,029
+real inputs recover under injected persistent failure with zero 0.65-threshold changes versus frozen PyTorch.
+The 31 focused Swift checks, `npm test` and two fresh native imports / 22 pages pass. Those imports needed zero
+recoveries and preserve text, equation decisions and PDF places; they are not a whole-import reliability estimate.
+The earlier opaque read-stage error remains unattributed. Model weights remain v5b-journal / layout-v5 / TexTeller-v4;
+the pack adds the hash-bound reference implementation. No native app/model-pack release or physical-phone verification occurred.
+The subsequent span study is complete and merged as `acd565ce`: expanded labels and a whole-expression objective
+improved completeness on the 468-expression development benchmark, but both failed original-corpus recall preservation.
+Production weights remain unchanged and the final reserved cohort is unscored. Next, diagnose those retention losses;
+do not repeat or widen the rejected experiment. Apple model-encryption setup is merged as `0eb82b00`, but complete
+encrypted-pack qualification remains blocked; website publication is separate. The current log links the exact gates.
+Evidence is in `.artifacts/device-pdf-development`; use `crops/scored` and `protection/final`,
+not superseded attempts; `reliability/native-check.json` and `reliability/reference/policy-check.json` are the current
+runtime gates. Do not repeat the known-negative FP32, layout or recognizer runs summarized in the log.
+Earlier dated reviews below remain historical evidence; do not create another competing current PDF handoff.
+
+**Earlier checkpoint, 2026-10-26: PDF preview merged as a standalone commit.** At the owner's request the two
+feature commits from `codex/pdf-peek-fullscreen-20261025` are squashed into one commit on `main`, including these
+status updates. Application/test code is unchanged from the audited work; routine `npm test` is the merge check.
+The completed worktree and branch are retired, with compact evidence preserved in `.artifacts/pdf-peek-complete/`
+and reachable through `.artifacts/pdf-peek-evidence`. The main desktop handoff remains in `.artifacts/pdf-peek-handoff/`.
+No deployment or TestFlight release occurred. Other tasks' worktrees and branches are outside this cleanup.
+
+**Follow-up quality task merged into local main as a separate commit:** converter port 16 prevents missing mathematical operators from
+being overlooked by low-confidence glyph verification. Two real dropped-integral cases now use the original
+PDF crop; the incomplete spans themselves remain a model/layout gap. The new check is a separate commit from
+`09e71c2f`. Across 93 recorded PDFs it retains 98.90–99.64% of previously typeset equations in each corpus,
+with 333 new crops and no new typeset promotions. Text, identities and PDF regions are unchanged.
+`npm test`, 28 focused tests and Apple JavaScriptCore replay (including JIT disabled) pass. No model weights or
+release changed. [Review and next concrete model experiment](reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md).
+Inputs, reports and visual evidence are preserved under the main checkout's `.artifacts/device-pdf-quality-20261026/`.
+The completed quality worktree and branch are retired after preserving that evidence.
+
+The PDF preview request is implemented: one simultaneous two-finger single tap opens a full-screen PDF at the
+passage under the fingers, zooming for 350 ms with the figure explainer's violet outline immediately fading over
+one second. X or a top-row swipe returns to the unchanged reader. Native PDF pan/pinch remains; the existing
+one-finger double tap still opens Contents. The toolbar uses selection/viewport, which can differ from the last
+finger tap. Existing converter-provenance selection/equation menu actions remain unchanged.
+
+**All 18 distinct native checks are verified per iPhone/iPad Simulator.** The phone full matrix passed 18/18;
+the tablet passed 17/18 before a test expectation was corrected (its toolbar correctly addressed page 3 rather
+than the earlier finger tap's page 2). That affected journey then passed on both devices, including header swipe.
+No application code changed for that rerun. `npm test` passes all ten steps; browser snapshot checks pass at
+390/1024 px. [Exact runs, screenshots and limits](reviews/PDF_PEEK_NATIVE_20261025.md).
+
+The matcher remains on-device lexical retrieval, with encrypted originals and exact-version device acquisition.
+Its broad desktop corpus has automatic labels, not human gold. Physical iPhone work remains paused; no NAS, paid
+service, GPU training or deployment occurred. The HTML-first cutover is already verified. The discarded old
+multi-destination Xcode job was terminated and confirmed gone. Native runners have exited; no corpus/download
+job is intended to remain running. Use the sequential Simulator runner in TESTING, not multiple destinations in
+one Xcode invocation. Mac Catalyst and physical-device interaction remain unverified here.
+
+**Earlier checkpoint, 2026-10-17 ~04:36 UTC (Oct 16 PDT):** The owner's new build-64 screenshot shows VLA-Δ
 2610.21306v1 with **Code: invalid**. **Cause now reproduced:** Swift 6.3 `-O` loses `index` when returning
 `(index, try await acquire(...))` from a task inside `do/catch`; successful downloads all overwrite slot zero.
 The final guard finds empty slots. Debug passes. Standalone no-network reproduction confirms it. The native

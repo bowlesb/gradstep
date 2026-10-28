@@ -249,7 +249,8 @@ test('verify glyphs: a reading whose letters, digits, accents and operators are 
   assert.ok(!glyphsAgree(['y', '=', 'W', 'x', '+', 'b'], math('y=Wx+c')), 'a letter misread');
   assert.ok(glyphsAgree(['ˆ', 'x', '¯', 'y', '2'], math('\\hat{x}\\bar{y}^{2}')), 'accents as the text layer names them');
   assert.ok(!glyphsAgree(['ˆ', 'x', 'y'], math('\\tilde{x}y')), 'the wrong accent');
-  assert.ok(glyphsAgree(['𝑥', '(cid:18)', 'ℝ', '∈'], math('x\\in\\mathbb{R}')), 'unnamed glyphs and styled letters');
+  assert.ok(glyphsAgree(['𝑥', '(', 'ℝ', '∈', ')'], math('x\\in\\mathbb{R}')), 'named delimiters and styled letters');
+  assert.ok(!glyphsAgree(['𝑥', '(cid:18)', 'ℝ', '∈'], math('x\\in\\mathbb{R}')), 'an unnamed glyph cannot verify uncertain math');
   assert.ok(!glyphsAgree(['x'], math('x')), 'too little to tell');
   // End to end: a display read under the gate is typeset only when the rule is on and its glyphs agree.
   const L = 54, display = line('$y = W x + b$', 150, 130);

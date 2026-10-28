@@ -87,6 +87,21 @@ final class ShowInPDFTests: XCTestCase {
         XCTAssertEqual(locate(PDFPassageQuery(text: phrase, expectedPage: 0))?.page, 0)
     }
 
+    func testJoinedParagraphSearchesBothRecordedPagesForTheSelectedPassage() throws {
+        let pages = [line("The cells grow in a medium containing", top: 700),
+                     line("alginate and other nutrients.", top: 80)]
+        let regions = [region(0, 72, 699, 500, 711), region(1, 72, 79, 500, 91)]
+        for (text, expectedPage) in [("The cells grow", 0), ("alginate and other nutrients", 1)] {
+            var asked: [Int] = []
+            let found = try XCTUnwrap(PDFPassageLocator.locate(PDFPassageQuery(text: text, regions: regions), pageCount: 2) {
+                asked.append($0); return pages[$0]
+            })
+            XCTAssertEqual(asked, [0, 1], "a joined paragraph retains both source pages")
+            XCTAssertEqual(found.page, expectedPage, "the selected words decide which page to show")
+            XCTAssertEqual(found.match, .words)
+        }
+    }
+
     func testTwoOccurrencesOnOnePageAreToldApartByTheBlocksBox() throws {
         let phrase = "gradient of the loss"
         let glyphs = line("We take the " + phrase + " first.", top: 100) + line("Then the " + phrase + " again.", top: 300)

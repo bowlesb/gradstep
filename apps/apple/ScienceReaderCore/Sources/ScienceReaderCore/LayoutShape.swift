@@ -20,3 +20,21 @@ public enum LayoutShape: String, Sendable, Equatable {
         size.width >= size.height && size.width >= wideMinimumWidth && size.height >= wideMinimumHeight ? .wide : .tall
     }
 }
+
+/// The Tall shape's bar (docs/DESIGN.md › Tall and Wide › The bar; owner, 2026-10-25, JUDGMENT_LOG 13–14): every place
+/// where six fit (an iPad upright, a tall window at least `fullMinimumWidth` across), otherwise Library · Paper · Chat ·
+/// More (a phone in either orientation, Split View, Slide Over, a narrow Stage Manager window). 🔍 sits beside either.
+/// The window's size alone decides it, as for `LayoutShape`: a phone sideways (at most about 440 pt tall) keeps the
+/// compact bar however wide it is.
+public enum TallBar: String, Sendable, Equatable {
+    case compact, full
+
+    /// Six items of 104 pt with the capsule's 8 pt of padding, an 8 pt gap, the 58 pt 🔍 circle and 16 pt margins: 730.
+    /// Every iPad upright qualifies, iPad mini (744) included.
+    public static let fullMinimumWidth: CGFloat = 730
+
+    /// The bar for a Tall window of this size (the whole window, as `LayoutShape.of(size:)`).
+    public static func of(window size: CGSize) -> TallBar {
+        size.width >= fullMinimumWidth && size.height >= LayoutShape.wideMinimumHeight ? .full : .compact
+    }
+}

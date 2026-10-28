@@ -35,19 +35,19 @@ final class DeviceModelRouteTests: XCTestCase {
         }
     }
 
-    private func run(_ pdf: Data, maxPages: Int = 0) throws -> (VerifiedReaderBundle, Data) {
+    private func run(_ pdf: Data, maxPages: Int = 0) async throws -> (VerifiedReaderBundle, Data) {
         guard #available(iOS 18.0, *) else { throw XCTSkip("The recogniser's state needs iOS 18") }
         guard DeviceModelEngine.available, let models = DeviceModelEngine.modelsDirectory, let compiler = DeviceModelEngine.compilerURL else {
             throw XCTSkip("This build carries no device models (node scripts/device-models.mjs)")
         }
-        let route = DevicePDFRoute(models: try DevicePDFModels(directory: models), compilerSource: try String(contentsOf: compiler, encoding: .utf8))
+        let route = DevicePDFRoute(models: try await DevicePDFModels.load(directory: models), compilerSource: try String(contentsOf: compiler, encoding: .utf8))
         let output = try route.convert(pdf: pdf, name: "paper.pdf", options: .init(title: "A Synthetic Paper About Simple Objectives", sourceID: "2305.18290", revision: 3, maxPages: maxPages))
         let verified = try VerifiedReaderBundle.verify(manifest: output.manifest, expectedSHA256: output.manifestSHA256, members: output.members)
         return (try ReaderBundleLoader.admitImages(in: verified), output.summary)
     }
 
     func testADevicePDFBecomesAReaderBundleTheStoreKeeps() async throws {
-        let (bundle, summary) = try run(syntheticPaper())
+        let (bundle, summary) = try await run(syntheticPaper())
         XCTAssertEqual(bundle.manifest.renderer.id, "gradstep-device-pdf-mathml-v1")
         XCTAssertEqual(bundle.devicePDFSource?.paper?.sourceID, "2305.18290")
         XCTAssertFalse(bundle.index.title.isEmpty)
@@ -64,14 +64,24 @@ final class DeviceModelRouteTests: XCTestCase {
 
     /// A real paper from the desktop's fixture set, when this Mac has it (TEST_RUNNER_DEVICE_PDF_FIXTURE=<paper.pdf>):
     /// the first three pages through the iOS path, with timings in the log.
-    func testARealPaperOnTheDevicePath() throws {
+    func testARealPaperOnTheDevicePath() async throws {
         guard let path = ProcessInfo.processInfo.environment["DEVICE_PDF_FIXTURE"], let pdf = FileManager.default.contents(atPath: path) else {
             throw XCTSkip("Set TEST_RUNNER_DEVICE_PDF_FIXTURE to a paper's PDF to run this")
         }
         let started = Date()
-        let (bundle, summary) = try run(pdf, maxPages: 3)
+        let (bundle, summary) = try await run(pdf, maxPages: 3)
         print("device route on the Simulator: \(Int(Date().timeIntervalSince(started))) s; \(String(decoding: summary, as: UTF8.self))")
         XCTAssertGreaterThan(bundle.index.blocks.count, 10)
         XCTAssertGreaterThan(bundle.index.headings.count, 0)
+    }
+
+    @MainActor func testModelKeyFailureKeepsARetryableBoundedMessage() {
+        for failure in [DevicePDFModelAccessFailure.keyUnavailable, .decryptionFailed, .serviceUnavailable] {
+            let message = ReaderModel.deviceModelMessage(DevicePDFModelError.access(failure))
+            XCTAssertTrue(message.lowercased().contains("try again"))
+            XCTAssertTrue(message.contains("internet for first use"))
+            XCTAssertTrue(message.contains("still on this device"))
+            XCTAssertLessThan(message.count, 200)
+        }
     }
 }

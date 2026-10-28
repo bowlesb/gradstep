@@ -9,6 +9,70 @@ import XCTest
 /// recogniser 20/20 on 2026-10-15).
 @available(macOS 15.0, iOS 18.0, *)
 final class DevicePDFHostTests: XCTestCase {
+    func testIndependentTaggerRecoveryRunsOnlyAfterTwoInvalidBuffers() throws {
+        for sequence in [[[-2.0, 0, 3]], [[0, 0, 0], [-2, 0, 3]], [[0, 0, 0], [0, 0, 0]]] {
+            var calls = 0, recoveries = 0
+            let result = try DevicePDFModels.readTaggerOutput(count: 3, recovery: {
+                recoveries += 1; return [-2, 0, 3]
+            }) {
+                let row = sequence[min(calls, sequence.count - 1)].map(Float.init); calls += 1; return row
+            }
+            XCTAssertEqual(result, [-2, 0, 3])
+            XCTAssertEqual(calls, sequence.count)
+            XCTAssertEqual(recoveries, sequence.last == [0, 0, 0] ? 1 : 0)
+        }
+    }
+
+    func testInvalidReferenceOrThrownPredictionStillFailsWithinTheBound() {
+        var calls = 0, recoveries = 0
+        XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: 3, recovery: {
+            recoveries += 1; return [0, 0, 0]
+        }) { calls += 1; return [0, 0, 0] })
+        XCTAssertEqual(calls, 2); XCTAssertEqual(recoveries, 1)
+        calls = 0; recoveries = 0
+        XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: 3, recovery: {
+            recoveries += 1; return [-2, 0, 3]
+        }) { calls += 1; throw DevicePDFModelError.unusable("prediction") })
+        XCTAssertEqual(calls, 1); XCTAssertEqual(recoveries, 0, "recovery does not hide arbitrary model exceptions")
+    }
+
+    func testPartiallyEmptyTaggerOutputRetriesAndFailsExplicitly() throws {
+        let valid = (0..<67).map { Float($0) * 0.01 - 10 }
+        let partial = Array(valid.prefix(32)) + [Float](repeating: 0, count: 35)
+        var calls = 0
+        let recovered = try DevicePDFModels.readTaggerOutput(count: valid.count) {
+            calls += 1; return calls == 1 ? partial : valid
+        }
+        XCTAssertEqual(recovered, valid); XCTAssertEqual(calls, 2)
+        XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: partial.count) { partial })
+        let separated: [Float] = [0, -1, 0, -2, 0, -3, 0, -4, 0, -5, 0, -6, 0, -7, 0]
+        XCTAssertEqual(try DevicePDFModels.readTaggerOutput(count: separated.count) { separated }, separated)
+    }
+
+    func testInvalidTaggerBuffersRetryOnceWithoutSilentlyRemovingMath() throws {
+        for invalid: [Float] in [[0, 0, 0], [-2, .nan, 3], [-2, .infinity, 3], [-2, 3]] {
+            var calls = 0
+            let recovered = try DevicePDFModels.readTaggerOutput(count: 3) { calls += 1; return calls == 1 ? invalid : [-2, 0, 3] }
+            XCTAssertEqual(recovered, [-2, 0, 3]); XCTAssertEqual(calls, 2)
+            calls = 0
+            XCTAssertThrowsError(try DevicePDFModels.readTaggerOutput(count: 3) { calls += 1; return invalid })
+            XCTAssertEqual(calls, 2, "persistent bad output fails after a bounded retry")
+        }
+        var calls = 0
+        _ = try DevicePDFModels.readTaggerOutput(count: 3) { calls += 1; return [-2, 0, 3] }
+        XCTAssertEqual(calls, 1, "valid outputs have no extra model call")
+    }
+
+    func testTaggerVocabularyMatchesTheLoadedModelShape() throws {
+        XCTAssertEqual(try DevicePDFModels.validateTaggerShape(modelWidth: 10, context: 0, maximum: 400), 10)
+        XCTAssertEqual(try DevicePDFModels.validateTaggerShape(modelWidth: 12, context: 24, maximum: 400), 12)
+        for (width, context, maximum) in [(10, 24, 400), (12, 0, 400), (14, 24, 400), (12, -1, 400), (12, 200, 400), (12, 24, 401), (10, 0, 1)] {
+            XCTAssertThrowsError(try DevicePDFModels.validateTaggerShape(modelWidth: width, context: context, maximum: maximum))
+        }
+        XCTAssertThrowsError(try DevicePDFModels.validateTaggerShape(modelWidth: nil, context: 0, maximum: 400))
+        XCTAssertThrowsError(try DevicePDFModels.validateTaggerShape(modelWidth: 10, context: 0, maximum: nil))
+    }
+
     func testPaddedRowsAreReadThroughTheirStrides() throws {
         // Core ML hands the layout's [30704, 11] scores back with strides [32, 1].
         var storage = [Float](repeating: -1, count: 3 * 4)

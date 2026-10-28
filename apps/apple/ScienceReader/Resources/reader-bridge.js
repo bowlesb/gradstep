@@ -1184,6 +1184,23 @@
     while (anchor?.nextElementSibling?.classList.contains('reader-authors')) anchor = anchor.nextElementSibling;
     if (anchor) anchor.after(line); else document.body.prepend(line);
   };
+  // BEGIN PAPER TAGS PLACE
+  // The keywords row reads right after the abstract (owner, TestFlight 92, WorldCast 2610.20731v2: it sat under two
+  // figures, between the abstract and the Introduction): before the first figure, table, caption or section that follows
+  // the abstract's heading, so a teaser the paper keeps under its abstract comes after the row. `nodes` are the page's
+  // top-level elements; null (no abstract heading before the first section) keeps the row before the first section.
+  const paperTagsPlace = nodes => {
+    const text = node => String(node.textContent || '').trim();
+    const named = (node, name) => (' ' + String(node.className || '') + ' ').includes(' ' + name + ' ');
+    const section = node => /^H[2-6]$/i.test(node.tagName) && !/^(abstract|contents|table of contents)$/i.test(text(node));
+    const float = node => /^FIGURE$/i.test(node.tagName) || named(node, 'reader-table') || named(node, 'reader-caption');
+    // The abstract's heading, or a model reading's abstract paragraph (`reader-abstract`).
+    const abstract = nodes.findIndex(node => (/^(H[1-6]|P)$/i.test(node.tagName) && /^abstract[.:]?$/i.test(text(node))) || named(node, 'reader-abstract'));
+    const first = nodes.findIndex(section);
+    if (abstract < 0 || (first >= 0 && first < abstract)) return null;
+    return nodes.slice(abstract + 1).find(node => section(node) || float(node)) ?? null;
+  };
+  // END PAPER TAGS PLACE
   // The paper's tags as chips under the paper line (or the title and authors). A chip offers a search for its keyword
   // (owner, builds 73 and 75: "an option right at the top to search ML papers based on this keyword"); anywhere else on
   // the row opens Edit keywords, without an "Edit" word (build 72).
@@ -1214,7 +1231,8 @@
       event.preventDefault();
       post(chip ? {type:'tag', name: chip.getAttribute('data-sr-tag')} : {type:'tags'});
     });
-    const heading = [...document.querySelectorAll('h2,h3,h4,h5,h6')].find(h => !/^(abstract|contents|table of contents)$/i.test(h.textContent.trim()));
+    const place = paperTagsPlace([...document.body.children]);
+    const heading = place ?? [...document.querySelectorAll('h2,h3,h4,h5,h6')].find(h => !/^(abstract|contents|table of contents)$/i.test(h.textContent.trim()));
     if (heading) heading.before(row);
     else document.body.append(row);
   };
@@ -1772,6 +1790,59 @@
     walk(document.body);
     return paperText = {text, segments, content: segments.filter(segment => segment.node), textNodes, flat: null};
   };
+  // Live PDF peek snapshot. No scrolling, DOM mutation, saved-position or citation-return changes.
+  window.__scienceReaderPDFPosition = (point = null) => {
+    if (!config || config.figure_id) return null;
+    const tapped = point && Number.isFinite(point.x) && Number.isFinite(point.y)
+      && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
+    const paper = readPaperText(), chosen = window.getSelection();
+    const words = value => value.split(/\s+/).filter(word => /[a-zA-Z]{3}/.test(word)).length;
+    // Short anchors need their immediate surroundings, never the beginning of a potentially multi-screen block.
+    const contextAround = (start, end, omitAnchor = false) => {
+      const before = paper.text.slice(Math.max(0, start - 240), start);
+      const after = paper.text.slice(end, Math.min(paper.text.length, end + 360));
+      return omitAnchor ? before + ' ' + after : before + paper.text.slice(start, end) + after;
+    };
+    let block, text, kind = 'visible';
+    if (!tapped && chosen?.rangeCount === 1 && !chosen.isCollapsed) {
+      const range = chosen.getRangeAt(0);
+      block = enclosingBlock(range.startContainer);
+      if (!blockIDs.has(block) || !blockIDs.has(enclosingBlock(range.endContainer))) return null;
+      const start = textOffset(paper, range.startContainer, range.startOffset);
+      const end = textOffset(paper, range.endContainer, range.endOffset);
+      text = paper.text.slice(start, Math.min(end, start + 2000));
+      kind = 'selection';
+      if (words(text) < 8) { text = contextAround(start, end); kind = 'nearby'; }
+    } else if (!tapped && selectedEquation) {
+      block = enclosingBlock(selectedEquation);
+      if (!blockIDs.has(block)) return null;
+      const range = document.createRange(); range.selectNode(selectedEquation);
+      const start = textOffset(paper, range.startContainer, range.startOffset);
+      const end = textOffset(paper, range.endContainer, range.endOffset);
+      // Matching the surrounding prose is more reliable than comparing LaTeX source with PDF glyph order.
+      text = contextAround(start, end, true); kind = 'nearby';
+    } else {
+      const y = Math.min(innerHeight - 1, Math.max(1, innerHeight * (tapped ? point.y : .25)));
+      const x = tapped ? Math.min(innerWidth - 1, Math.max(1, innerWidth * point.x)) : null;
+      const touchedBlock = tapped && document.elementFromPoint(x, y)?.closest(`[${key}]`);
+      const element = (touchedBlock && blockIDs.has(touchedBlock.id) ? touchedBlock : null) || blocks.find(node => {
+        const rect = node.getBoundingClientRect(); return rect.height > 0 && rect.top <= y && rect.bottom > y;
+      }) || blocks.find(node => { const rect = node.getBoundingClientRect(); return rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight; });
+      block = element && enclosingBlock(element);
+      if (!blockIDs.has(block)) return null;
+      const span = blockSpan(paper, block), rect = element.getBoundingClientRect();
+      if (!span) return null;
+      const caret = document.caretRangeFromPoint?.(x ?? Math.max(1, rect.left + Math.min(60, rect.width / 4)), Math.max(1, Math.min(y, rect.bottom - 1)));
+      const offset = caret && enclosingBlock(caret.startContainer) === block
+        ? textOffset(paper, caret.startContainer, caret.startOffset) : span.start;
+      const start = Math.max(span.start, offset - 100), end = Math.min(span.end, start + 1200);
+      text = paper.text.slice(start, end);
+      if (words(text) < 8) { text = contextAround(offset, offset); kind = 'nearby'; }
+    }
+    text = collapse(text).slice(0, 2000);
+    return text ? {manifest_sha256: manifest, block_id: block, text, kind} : null;
+  };
+
   // The same text with whitespace runs collapsed, and where each character came from.
   const flatText = paper => {
     if (paper.flat) return paper.flat;

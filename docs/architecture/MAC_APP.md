@@ -193,6 +193,14 @@ and conventions live in the Mac target.
 - The view switch and Settings move from the app's header row into the window's unified toolbar (centred
   segmented control, gear at the right); the header row is not drawn on the Mac. Each pane keeps its own
   bar (contents, title, "…"), so the one-"…"-per-screen rule is unchanged.
+- **Search field (2026-10-25; [GLOBAL_SEARCH_AND_MORE.md](../proposals/GLOBAL_SEARCH_AND_MORE.md) A.3):** the toolbar's
+  trailing edge holds a 220 pt search field, "Search everything" (`gradstep.search`, a `UISearchTextField` in an
+  `NSUIViewToolbarItem`: Catalyst has no `NSSearchToolbarItem`). A click in it, or Edit › Search Everything… ⌘K, goes to
+  the Search place
+  (no place segment selected) and keeps the keyboard there; what is typed is global search's own words
+  (`model.globalSearch.query`, kept the same both ways), so the place's own row has no second field. ↓/↑ choose a
+  result, Return opens it, Escape clears and then leaves Search. Leaving Search lets go of the field and keeps its words,
+  as Mail's.
 - The privacy cover shown when the iOS app leaves the foreground is off: a Mac window stays visible.
 - App-drawn header controls are 34 pt (44 pt touch targets on iOS); leading text bar buttons keep their width
   (Mac Catalyst otherwise draws "Cancel" in a circle as "C…").
@@ -205,7 +213,7 @@ Each item mirrors an on-screen control (header buttons and the "…" menus); not
 |---|---|
 | Gradstep | Settings… ⌘, |
 | File | Add Paper… ⌘N (sign-in first when signed out), New Chat ⇧⌘N, Close ⌘W |
-| Edit | Find in Paper… ⌘F, Find Next ⌘G, Find Previous ⇧⌘G (paper present in Reader or Browse); Search Library ⌘F elsewhere, ⌥⌘F beside the paper; Search arXiv ⇧⌘F |
+| Edit | Search Everything… ⌘K (the toolbar's field; 2026-10-25); Find in Paper… ⌘F, Find Next ⌘G, Find Previous ⇧⌘G (paper present in Reader or Browse); Search Library ⌘F elsewhere, ⌥⌘F beside the paper; Search arXiv ⇧⌘F |
 | View | Feed ⌘1, Library ⌘2, Reader ⌘3, Browse ⌘4, General Chat ⌘5; Show/Hide Library Beside Paper ⌃⌘S (Browse ↔ Reader); Library As, Sort Library By, Show in Library, Feed As; paper text ⌘+ / ⌘− / ⌘0; chat text ⌥⌘+ / ⌥⌘−; Refresh ⌘R; All Chats ⇧⌘Y; All Diagrams |
 | Paper | Table of Contents ⌥⌘T, Back to Reading Position ⌘[ (after a citation jump), Explain Selection in Chat ⌥⌘1 (2026-10-24: Why it matters, Related and Add paper removed), Ask About This Paper ⇧⌘A |
 | Help | Report This Screen…, My Reports, Privacy & Data (gradstep.ai/privacy) |

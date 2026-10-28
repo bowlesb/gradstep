@@ -87,6 +87,7 @@ public final class DevicePDFRoute {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 
         let timings = DevicePDFTimings()
+        let referenceRecoveriesBefore = models.taggerReferenceRecoveries
         func timed<T>(_ key: String, page: Int? = nil, _ body: () throws -> T) rethrows -> T { try timings.timed(key, page: page, body) }
         // The page the converter is reading (after every page's layout): its tagger lines and its own JavaScript time are
         // that page's (the per-page timings; `pageClock` is when the page began).
@@ -112,11 +113,14 @@ public final class DevicePDFRoute {
         defer { prefetch?.stop(); recogniser?.stop() }
 
         let context = JSContext()!
+        let exceptionDetails = Self.exceptionDetailsReader(in: context)
         var failure: Failure?
         context.exceptionHandler = { _, exception in
-            let code = exception?.objectForKeyedSubscript("code")?.toString() ?? "exception"
-            failure = failure ?? .converter(code: code == "undefined" ? "exception" : code, message: exception?.toString() ?? "")
+            guard failure == nil else { return }
+            failure = Self.converterFailure(exception, using: exceptionDetails)
         }
+        // The handler retains the extractor, which belongs to this context. Do not leave that cycle after conversion.
+        defer { context.exceptionHandler = nil }
         context.evaluateScript(compiler)
         if let failure { throw failure }
         guard let api = context.objectForKeyedSubscript("GradstepDevicePDF"), !api.isUndefined else {
@@ -166,6 +170,8 @@ public final class DevicePDFRoute {
                 inputs.append((numbers("x").map(Float.init), numbers("font").map { Int32($0) }, numbers("cls").map { Int32($0) }, numbers("char").map { Int32($0) }))
             }
             var out = [[Double]?](repeating: nil, count: count)
+            var problems = [String?](repeating: nil, count: count)
+            let page = readingPage
             // One tagger instance per thread (DevicePDFModels.taggers): never more threads than instances.
             let models = self.models, threads = max(1, min(options.taggerThreads, count, DevicePDFModels.taggerInstances))
             let start = DispatchTime.now().uptimeNanoseconds
@@ -173,19 +179,32 @@ public final class DevicePDFRoute {
             models.exclusive.lock(); defer { models.exclusive.unlock() }
             out.withUnsafeMutableBufferPointer { results in
                 let results = results
-                DispatchQueue.concurrentPerform(iterations: threads) { worker in
-                    for i in stride(from: worker, to: count, by: threads) {
-                        guard let input = inputs[i] else { results[i] = []; continue }
-                        results[i] = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker))?.map(Double.init)
-                        if ProcessInfo.processInfo.environment["DEVICE_PDF_TAG_CHECK"] != nil {
-                            let again = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker))?.map(Double.init)
-                            if again != results[i] { FileHandle.standardError.write(Data("TAG MISMATCH line \(i) of \(count), \(input.font.count) glyphs\n".utf8)) }
+                problems.withUnsafeMutableBufferPointer { errors in
+                    let errors = errors
+                    DispatchQueue.concurrentPerform(iterations: threads) { worker in
+                        for i in stride(from: worker, to: count, by: threads) {
+                            guard let input = inputs[i] else { results[i] = []; continue }
+                            do {
+                                results[i] = try models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker).map(Double.init)
+                            } catch {
+                                // Each worker writes only its line's slot. Keep a fixed reason and dimensions, never
+                                // arbitrary model errors, paths, glyph text, features or logits.
+                                errors[i] = Self.taggerFailureDetail(error, page: page, line: i, count: count, glyphs: input.font.count)
+                            }
+                            if ProcessInfo.processInfo.environment["DEVICE_PDF_TAG_CHECK"] != nil {
+                                let again = (try? models.tag(x: input.x, font: input.font, cls: input.cls, char: input.char, slot: worker))?.map(Double.init)
+                                if again != results[i] { FileHandle.standardError.write(Data("TAG MISMATCH line \(i) of \(count), \(input.font.count) glyphs\n".utf8)) }
+                            }
                         }
                     }
                 }
             }
             timings.add("tag", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9, page: readingPage)
-            if out.contains(where: { $0 == nil }) { context.exception = JSValue(newErrorFromMessage: "tagger: a line could not be read", in: context); return NSNull() }
+            // Select by source order after workers join, not by nondeterministic failure-completion order.
+            if let index = out.firstIndex(where: { $0 == nil }) {
+                let detail = problems[index] ?? Self.taggerFailureDetail(nil, page: page, line: index, count: count, glyphs: inputs[index]?.font.count ?? 0)
+                context.exception = JSValue(newErrorFromMessage: detail, in: context); return NSNull()
+            }
             return out.map { $0 ?? [] }
         }
         /// A crop request's piece of its page image with the recogniser's 8 px margin (nil when it cannot be cut).
@@ -260,8 +279,16 @@ public final class DevicePDFRoute {
             let clean = request.objectForKeyedSubscript("clean")
             if let clean, clean.isObject, let em = clean.objectForKeyedSubscript("em")?.toNumber()?.doubleValue, em.isFinite, em > 0, em <= 1000,
                let margin = clean.objectForKeyedSubscript("margin")?.toNumber()?.intValue, (0...200).contains(margin) {
+                // The converter sends native-glyph content in absolute page pixels. Keep fractional boundaries;
+                // the cleaner validates them after translating into the requested crop's coordinate system.
+                let absolute = (clean.objectForKeyedSubscript("content")?.toArray() as? [NSNumber])?.map(\.doubleValue)
+                let content = absolute.flatMap { values -> [Double]? in
+                    guard values.count == 4 else { return nil }
+                    return [values[0] - Double(rect[0]), values[1] - Double(rect[1]),
+                            values[2] - Double(rect[0]), values[3] - Double(rect[1])]
+                }
                 let (png, placed) = timed("images", page: page) { () -> (Data, [Int]) in
-                    let cleaned = DevicePDFRaster.cleanFormula(DevicePDFRaster.crop(source, rect), em: em, margin: margin)
+                    let cleaned = DevicePDFRaster.cleanFormula(DevicePDFRaster.crop(source, rect), em: em, margin: margin, content: content)
                     return (DevicePDFRaster.png(cleaned.image), [rect[0] + cleaned.rect[0], rect[1] + cleaned.rect[1], rect[0] + cleaned.rect[2], rect[1] + cleaned.rect[3]])
                 }
                 return ["png": png.base64EncodedString(), "width": placed[2] - placed[0], "height": placed[3] - placed[1], "rect": placed] as [String: Any]
@@ -338,12 +365,64 @@ public final class DevicePDFRoute {
                                "recogniser_batch": models.recogniserBatch, "recogniser_in_flight": options.recogniserConcurrency,
                                "tagger_threads": options.taggerThreads] as [String: Any]
         summary["model_load_seconds"] = models.loadSeconds.mapValues { ($0 * 100).rounded() / 100 }
+        summary["tagger_reference_recoveries"] = models.taggerReferenceRecoveries - referenceRecoveriesBefore
         summary["formulas_recognised"] = formulasDone
         if let issue = models.recogniserIssue { summary["recogniser_unavailable"] = String(issue.prefix(300)) }
         let summaryData = (try? JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys])) ?? Data("{}".utf8)
         var output = Output(manifest: bundle.manifest, manifestSHA256: bundle.manifestSHA256, members: bundle.members, summary: summaryData, trace: trace)
         if options.record, let value = result.objectForKeyedSubscript("record"), value.isString, let text = value.toString() { output.record = Data(text.utf8) }
         return output
+    }
+
+    /// Source-order dimensions are enough to distinguish a rejected buffer from a prediction error. Do not expose
+    /// arbitrary NSError descriptions: they can contain local paths or source text. Indices are zero-based here.
+    static func taggerFailureDetail(_ error: Error?, page: Int, line: Int, count: Int, glyphs: Int) -> String {
+        let reason: String
+        switch error as? DevicePDFModelError {
+        case .unusable("tagger input"): reason = "invalid_input"
+        case .unusable("tagger output"): reason = "invalid_output"
+        default: reason = "inference_failed"
+        }
+        func index(_ value: Int) -> String { value >= 0 && value < Int.max ? String(value + 1) : "unknown" }
+        func number(_ value: Int) -> String { value >= 0 ? String(value) : "unknown" }
+        return "tagger: \(reason) (page \(index(page)), line \(line < count ? index(line) : "unknown")/\(number(count)), glyphs \(number(glyphs)))"
+    }
+
+    /// Capture native helpers before loading the compiler. Only own string data properties are diagnostics: an
+    /// exception's getters, toString, stack and other object contents must not run or be copied while handling it.
+    /// Proxy descriptor traps are caught here, so a malformed exception cannot recursively replace the first one.
+    static func exceptionDetailsReader(in context: JSContext) -> JSValue? {
+        context.evaluateScript("""
+        (function() {
+          const own = Object.getOwnPropertyDescriptor;
+          const slice = Function.prototype.call.bind(String.prototype.slice);
+          return function(error) {
+            try {
+              if (typeof error === 'string') return ['', slice(error, 0, 200)];
+              if (error === null || (typeof error !== 'object' && typeof error !== 'function')) return ['', ''];
+              function text(name) {
+                const descriptor = own(error, name);
+                return descriptor && typeof descriptor.value === 'string' ? slice(descriptor.value, 0, 200) : '';
+              }
+              return [text('code'), text('detail') || text('message')];
+            } catch (_) { return ['', '']; }
+          };
+        })()
+        """)
+    }
+
+    /// The compiler throws `{code, detail}`; stringifying that loses its useful detail as `[object Object]`.
+    /// Keep the existing local Failure shape and compiler's 200 UTF-16-unit bound; the UI shows only its stable code.
+    static func converterFailure(_ exception: JSValue?, using reader: JSValue?) -> Failure {
+        guard let exception, let fields = reader?.call(withArguments: [exception]), fields.isArray,
+              let rawCode = fields.objectAtIndexedSubscript(0), rawCode.isString,
+              let detail = fields.objectAtIndexedSubscript(1), detail.isString else {
+            return .converter(code: "exception", message: "")
+        }
+        let value = rawCode.toString() ?? ""
+        let code = !value.isEmpty && value.count <= 80 && value.utf8.allSatisfy({ (97...122).contains($0) || (48...57).contains($0) || $0 == 95 })
+            ? value : "exception"
+        return .converter(code: code, message: detail.toString() ?? "")
     }
 
     /// A converter result (`{manifest, manifest_sha256, members, summary}`, base64) as bytes.

@@ -173,6 +173,10 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
   // Anything else (a description list) reads as one paragraph, without the empty lines its last `p` and `div` close with.
   else output = [block(cx, n, 'p', 'paragraph', id => trimBreaks(inline(cx, n, id)))];
   if (cx.blocks.length > before && n.attribs?.id && !cx.aliases.has(n.attribs.id)) bind(cx, n, cx.blocks[before].id);
+  // What a source float and a LaTeXML paragraph became (floats.ts). A float's outermost `figure` is set last, over its
+  // panels' own.
+  if (n.name === 'figure') for (const node of output) cx.floatOf.set(node, n);
+  else if (has(n, 'ltx_para')) for (const node of output) cx.paragraphOf.set(node, n);
   return recovered.length ? [...recovered, ...output] : output;
 }
 

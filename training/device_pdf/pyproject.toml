@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "science-reader-pdf-training"
+version = "0.1.0"
+description = "Local training and evaluation of Science Reader's PDF models"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy", "pillow", "torch", "torchvision", "transformers>=4.50,<5",
+  "opencv-contrib-python", "pypdfium2", "pdfplumber", "lxml", "pydantic", "tqdm",
+  "accelerate", "safetensors", "scipy",
+]
+
+[project.optional-dependencies]
+export = ["coremltools==9.0"]
+
+[project.scripts]
+science-reader-pdf = "science_reader_pdf.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"science_reader_pdf.tagger" = ["exclude-ids.txt"]

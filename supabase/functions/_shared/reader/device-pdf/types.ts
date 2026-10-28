@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 14;
+export const DEVICE_PDF_PORT_REVISION = 21;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -47,7 +47,7 @@ export interface TagLine { x: number[]; font: number[]; cls: number[]; char: num
 export interface RecogniseRequest { page: number; rect: [number, number, number, number]; display?: boolean; cost?: number }
 /** `clean` (formula crops only): the formula's font size and the margin kept around its ink, in pixels at `dpi`; the host
  * drops the cut tails of neighbouring lines, trims to the ink and adds the margin (DevicePDFRaster.cleanFormula). */
-export interface ImageRequest { page: number; dpi: number; rect: [number, number, number, number]; clean?: { em: number; margin: number } }
+export interface ImageRequest { page: number; dpi: number; rect: [number, number, number, number]; clean?: { em: number; margin: number; content?: Box } }
 /** `rect`: where a cleaned image sits on the page, in pixels at the request's `dpi` (it may reach past the request's). */
 export interface ImageResult { png: string; width: number; height: number; rect?: [number, number, number, number] }
 
@@ -71,6 +71,8 @@ export interface DevicePDFHost {
 export interface TaggerVocabulary {
   font_vocab: Record<string, number>; font_prior: Record<string, number>; char_vocab: Record<string, number>;
   threshold: number; max_len: number; unknown_index?: number; default_prior?: number;
+  /** v5: neighboring glyphs on either side; two extra feature columns identify context. Absent/zero means v4. */
+  context?: number;
 }
 
 export interface DevicePDFInput {
@@ -170,6 +172,9 @@ export interface Formula {
   tag?: string;
   /** Where the formula's image is cut when it differs from `box` (the display with its number). */
   imageBox?: Box;
+  /** Full-width native inline line band, protecting complete components while cleaning the shown crop.
+   * Absent for displays, OCR, rotated text and overlapping composed accents. No recognition/provenance change. */
+  imageContentBox?: Box;
   /** The punctuation after a display, outside its box (displayPunctuation). */
   trailing?: string;
 }

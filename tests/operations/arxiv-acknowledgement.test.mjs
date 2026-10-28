@@ -15,7 +15,7 @@ test('the acknowledgement is on the apps, the browser and the site', () => {
   assert.match(read('apps/apple/ScienceReader/Views/RootView.swift'), /Text\(ArxivAcknowledgement\.statement\)/, 'Acknowledgements (native)');
   const web = read('apps/web/src/ui/HowGradstepWorks.tsx');
   assert.ok(web.includes(`ARXIV_ACKNOWLEDGEMENT = '${STATEMENT}'`) && web.includes('{ARXIV_ACKNOWLEDGEMENT}'), 'How Gradstep works (browser)');
-  for (const page of ['web/site-next/index.html', 'web/site-next/privacy/index.html']) assert.ok(read(page).includes(STATEMENT), page);
+  for (const page of ['web/site/index.html', 'web/site/privacy/index.html']) assert.ok(read(page).includes(STATEMENT), page);
 });
 
 test('servers identify themselves as Gradstep with a reachable contact', () => {

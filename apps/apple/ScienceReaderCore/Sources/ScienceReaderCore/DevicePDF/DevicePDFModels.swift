@@ -1,5 +1,6 @@
 import Accelerate
 import CoreML
+import CryptoKit
 import Foundation
 
 /// The three exported models of the device route (docs/architecture/DEVICE_PDF_ROUTE.md) and their contracts, from
@@ -18,7 +19,19 @@ public struct DevicePDFModelConfiguration: Decodable, Sendable {
         enum CodingKeys: String, CodingKey { case model, classes, thresholds; case nmsIoU = "nms_iou"; case maxDetections = "max_detections"
             case canvasWidth = "canvas_width"; case canvasHeight = "canvas_height" }
     }
-    public struct Tagger: Decodable, Sendable { public let model: Model; public let vocabulary: String }
+    public struct Tagger: Decodable, Sendable {
+        public struct Reference: Decodable, Sendable {
+            public let manifest: String, manifestSHA256: String, coreMLSHA256: String
+            /// Raw weights are supported only for older development packs. A carrier takes precedence when present.
+            public let weights: String?
+            public let weightsModel: Model?
+            enum CodingKeys: String, CodingKey { case manifest, weights; case weightsModel = "weights_model"
+                case manifestSHA256 = "manifest_sha256", coreMLSHA256 = "coreml_sha256" }
+        }
+        public let model: Model; public let vocabulary: String
+        /// Optional in older packs. The same checkpoint evaluated independently after persistent invalid Core ML output.
+        public let reference: Reference?
+    }
     public struct Recogniser: Decodable, Sendable {
         public let encoder: Model, decoder: Model
         public let bos: Int, eos: Int, maxLength: Int, imageSize: Int
@@ -27,6 +40,8 @@ public struct DevicePDFModelConfiguration: Decodable, Sendable {
         enum CodingKeys: String, CodingKey { case encoder, decoder, bos, eos, mean, std; case maxLength = "max_len"; case imageSize = "image_size"
             case vocabulary; case addedTokens = "added_tokens" }
     }
+    public struct Protection: Decodable, Sendable { public let mode: String }
+    public let protection: Protection?
     public let layout: Layout
     public let tagger: Tagger
     public let recogniser: Recogniser
@@ -35,6 +50,18 @@ public struct DevicePDFModelConfiguration: Decodable, Sendable {
 public enum DevicePDFModelError: Error, Equatable, Sendable {
     case missing(String)
     case unusable(String)
+    /// A model-key/service failure must retain the installed pack and allow another reading attempt.
+    case access(DevicePDFModelAccessFailure)
+}
+
+public enum DevicePDFModelAccessFailure: String, Error, Equatable, Sendable {
+    case keyUnavailable = "model_key_unavailable"
+    case decryptionFailed = "model_decryption_failed"
+    case serviceUnavailable = "model_service_unavailable"
+
+    public var message: String {
+        "The PDF reading models couldn’t be unlocked. Connect to the internet for first use, then try again. The downloaded models are still on this device."
+    }
 }
 
 /// Loaded models. One instance per conversion thread: Core ML models are thread-safe for prediction, the decoder's
@@ -51,6 +78,12 @@ public final class DevicePDFModels: @unchecked Sendable {
     let taggers: [MLModel]
     var tagger: MLModel { taggers[0] }
     public static let taggerInstances = 4
+    /// v4 has ten features; the context-aware model adds two flags. Validated against its own vocabulary on load.
+    public let taggerFeatures: Int
+    private let referenceTagger: DevicePDFReferenceTagger?
+    private let recoveryLock = NSLock()
+    private var referenceRecoveries = 0
+    public var taggerReferenceRecoveries: Int { recoveryLock.lock(); defer { recoveryLock.unlock() }; return referenceRecoveries }
     /// The tagger (CPU) and the recogniser (GPU) never predict at the same time: under load, tagger predictions made
     /// while a recogniser prediction ran gave different logits for the same line, so the same PDF read differently
     /// (2026-10-21, docs/reviews/DEVICE_PDF_ROUTE_20261021.md). Held per tagged page and per recogniser call.
@@ -61,6 +94,11 @@ public final class DevicePDFModels: @unchecked Sendable {
     let encoder: MLModel?
     let decoder: MLModel?
     public private(set) var recogniserIssue: String?
+    public var recogniserAvailable: Bool { encoder != nil && decoder != nil && recogniserIssue == nil }
+    public var referenceIdentity: [String: String]? {
+        referenceTagger.map { ["checkpoint_sha256": $0.checkpointSHA256, "binary_sha256": $0.binarySHA256,
+                              "vocabulary_sha256": $0.vocabularySHA256] }
+    }
     let tokenizer: DevicePDFTokenizer
     /// The tagger's vocabularies and threshold (`vocab.json`), passed to the converter as they are.
     public let taggerVocabulary: Any
@@ -68,53 +106,188 @@ public final class DevicePDFModels: @unchecked Sendable {
 
     /// `layoutUnits`/`recogniserUnits`: the Neural Engine cannot load the stateful decoder (Mac, 2026-10-15), so the
     /// recogniser runs on CPU and GPU; the layout and tagger may use the Neural Engine.
-    public init(directory: URL, layoutUnits: MLComputeUnits = .cpuAndNeuralEngine, taggerUnits: MLComputeUnits = .cpuOnly,
-                recogniserUnits: MLComputeUnits = .cpuAndGPU) throws {
+    public static func load(directory: URL, layoutUnits: MLComputeUnits = .cpuAndNeuralEngine, taggerUnits: MLComputeUnits = .cpuOnly,
+                            recogniserUnits: MLComputeUnits = .cpuAndGPU, requireRecogniser: Bool = false) async throws -> DevicePDFModels {
+        try await DevicePDFModels(directory: directory, layoutUnits: layoutUnits, taggerUnits: taggerUnits,
+                                  recogniserUnits: recogniserUnits, requireRecogniser: requireRecogniser)
+    }
+
+    /// All callers use Core ML's asynchronous loader: encrypted models may need to obtain their key on first use.
+    private init(directory: URL, layoutUnits: MLComputeUnits, taggerUnits: MLComputeUnits,
+                 recogniserUnits: MLComputeUnits, requireRecogniser: Bool) async throws {
         self.directory = directory
         let configURL = directory.appendingPathComponent("device-models.json")
         guard let data = try? Data(contentsOf: configURL) else { throw DevicePDFModelError.missing("device-models.json") }
         let configuration = try JSONDecoder().decode(DevicePDFModelConfiguration.self, from: data)
         self.configuration = configuration
+        #if arch(x86_64) && (os(macOS) || targetEnvironment(macCatalyst))
+        try Self.validateProtection(mode: configuration.protection?.mode, intelMac: true)
+        #endif
         var seconds: [String: Double] = [:]
-        func load(_ model: DevicePDFModelConfiguration.Model, _ units: MLComputeUnits, _ role: String) throws -> MLModel {
+        func load(_ model: DevicePDFModelConfiguration.Model, _ units: MLComputeUnits, _ role: String) async throws -> MLModel {
+            try Task.checkCancellation()
+            guard DevicePDFModelPack.isSafe(model.file) else { throw DevicePDFModelError.unusable("model path") }
             let url = directory.appendingPathComponent(model.file)
             guard FileManager.default.fileExists(atPath: url.path) else { throw DevicePDFModelError.missing(model.file) }
             let config = MLModelConfiguration(); config.computeUnits = units
             if let function = model.function { config.functionName = function }
             let start = Date()
             do {
-                let loaded = try MLModel(contentsOf: url, configuration: config)
-                seconds[role] = Date().timeIntervalSince(start)
+                let loaded = try await MLModel.load(contentsOf: url, configuration: config)
+                try Task.checkCancellation()
+                seconds[role, default: 0] += Date().timeIntervalSince(start)
                 return loaded
-            } catch { throw DevicePDFModelError.unusable("\(model.file): \(error.localizedDescription)") }
+            } catch {
+                try Task.checkCancellation()
+                if error is CancellationError { throw error }
+                if let failure = Self.accessFailure(error) { throw DevicePDFModelError.access(failure) }
+                throw DevicePDFModelError.unusable("\(role) load failed")
+            }
         }
-        layout = try load(configuration.layout.model, layoutUnits, "layout")
-        taggers = try (0..<Self.taggerInstances).map { _ in try load(configuration.tagger.model, taggerUnits, "tagger") }
+        layout = try await load(configuration.layout.model, layoutUnits, "layout")
+        var loadedTaggers: [MLModel] = []
+        for _ in 0..<Self.taggerInstances { loadedTaggers.append(try await load(configuration.tagger.model, taggerUnits, "tagger")) }
+        taggers = loadedTaggers
+        guard let vocabulary = try? Data(contentsOf: directory.appendingPathComponent(configuration.tagger.vocabulary)),
+              let tagger = (try? JSONSerialization.jsonObject(with: vocabulary)) as? [String: Any] else { throw DevicePDFModelError.missing(configuration.tagger.vocabulary) }
+        taggerFeatures = try Self.validateTaggerShape(modelWidth: taggers[0].modelDescription.inputDescriptionsByName["x"]?.multiArrayConstraint?.shape.last?.intValue,
+                                                     context: tagger["context"] as? Int ?? 0, maximum: tagger["max_len"] as? Int)
+        taggerVocabulary = tagger
+        if let reference = configuration.tagger.reference {
+            guard DevicePDFModelPack.isSafe(reference.manifest),
+                  reference.coreMLSHA256 == configuration.tagger.model.weightsSHA256 else { throw DevicePDFModelError.unusable("tagger reference identity") }
+            let manifest = directory.appendingPathComponent(reference.manifest)
+            guard let size = try manifest.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 65_536 else { throw DevicePDFModelError.unusable("tagger reference manifest") }
+            let manifestData = try Data(contentsOf: manifest)
+            let digest = SHA256.hash(data: manifestData).map { String(format: "%02x", $0) }.joined()
+            guard digest == reference.manifestSHA256 else { throw DevicePDFModelError.unusable("tagger reference manifest") }
+            let loaded: DevicePDFReferenceTagger
+            if let carrier = reference.weightsModel {
+                // Scope the carrier to this one prediction. Only the checked immutable CPU tensors survive loading.
+                func protectedReference() async throws -> DevicePDFReferenceTagger {
+                    let model = try await load(carrier, .cpuOnly, "tagger-reference")
+                    let dummy = try MLMultiArray(shape: [1], dataType: .float32); dummy[0] = 0
+                    let input = try MLDictionaryFeatureProvider(dictionary: ["dummy": dummy])
+                    let output = try await Self.referenceCarrierOutput {
+                        try await model.prediction(from: input).featureValue(for: "reference_weights")
+                    }
+                    let data = try Self.referenceWeightData(output?.multiArrayValue)
+                    return try DevicePDFReferenceTagger(manifest: manifestData, weights: data)
+                }
+                loaded = try await protectedReference()
+            } else if let weights = reference.weights, DevicePDFModelPack.isSafe(weights) {
+                loaded = try DevicePDFReferenceTagger(manifest: manifest, weights: directory.appendingPathComponent(weights))
+            } else { throw DevicePDFModelError.unusable("tagger reference weights") }
+            let vocabularyDigest = SHA256.hash(data: vocabulary).map { String(format: "%02x", $0) }.joined()
+            guard loaded.featureCount == taggerFeatures, loaded.vocabularySHA256 == vocabularyDigest else { throw DevicePDFModelError.unusable("tagger reference vocabulary") }
+            referenceTagger = loaded
+        } else { referenceTagger = nil }
         // The stateful decoder does not load everywhere (the Neural Engine on the Mac; the iOS Simulator): the asked
         // units first, then the CPU alone, then none.
-        var loaded: (MLModel, MLModel)?, issue: String?
-        for units in recogniserUnits == .cpuOnly ? [MLComputeUnits.cpuOnly] : [recogniserUnits, .cpuOnly] {
-            do {
-                let e = try load(configuration.recogniser.encoder, units, "encoder"), d = try load(configuration.recogniser.decoder, units, "decoder")
-                _ = d.makeState()
-                loaded = (e, d); issue = nil; break
-            } catch { issue = "\(error)" }
+        let (loaded, issue) = try await Self.recogniserWithFallback(units: recogniserUnits, required: requireRecogniser,
+                                                                 protectionMode: configuration.protection?.mode) { units in
+            let e = try await load(configuration.recogniser.encoder, units, "encoder")
+            let d = try await load(configuration.recogniser.decoder, units, "decoder")
+            _ = d.makeState()
+            return (e, d)
         }
         encoder = loaded?.0; decoder = loaded?.1; recogniserIssue = issue
         loadSeconds = seconds
-        guard let vocabulary = try? Data(contentsOf: directory.appendingPathComponent(configuration.tagger.vocabulary)),
-              let tagger = try? JSONSerialization.jsonObject(with: vocabulary) else { throw DevicePDFModelError.missing(configuration.tagger.vocabulary) }
-        taggerVocabulary = tagger
         tokenizer = try DevicePDFTokenizer(vocabulary: directory.appendingPathComponent(configuration.recogniser.vocabulary),
                                            added: directory.appendingPathComponent(configuration.recogniser.addedTokens))
     }
 
+    /// Only known Core ML service codes are retained; never copy a server error, URL, key or arbitrary description.
+    /// Follow a bounded underlying-error chain because framework wrappers may carry the original Core ML error.
+    static func accessFailure(_ error: Error) -> DevicePDFModelAccessFailure? {
+        if case .access(let failure) = error as? DevicePDFModelError { return failure }
+        var current = error as NSError, seen = Set<ObjectIdentifier>()
+        for _ in 0..<8 {
+            guard seen.insert(ObjectIdentifier(current)).inserted else { break }
+            if current.domain == MLModelErrorDomain {
+                switch current.code {
+                case MLModelError.modelDecryptionKeyFetch.rawValue: return .keyUnavailable
+                case MLModelError.modelDecryption.rawValue: return .decryptionFailed
+                case MLModelError.modelCollection.rawValue: return .serviceUnavailable
+                default: break
+                }
+            }
+            guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+            current = underlying
+        }
+        return nil
+    }
+
+    static func validateProtection(mode: String?, intelMac: Bool) throws {
+        if intelMac, mode == "encrypted" { throw DevicePDFModelError.unusable("encrypted PDF models require a Mac with Apple silicon") }
+    }
+
+    /// Core ML can finish or fail an in-flight prediction after the reading was stopped. Preserve cancellation
+    /// before accepting/extracting its weights; only genuine carrier failures become the bounded model error.
+    static func referenceCarrierOutput(_ prediction: () async throws -> MLFeatureValue?) async throws -> MLFeatureValue? {
+        do {
+            try Task.checkCancellation()
+            let output = try await prediction()
+            try Task.checkCancellation()
+            return output
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            if let failure = accessFailure(error) { throw DevicePDFModelError.access(failure) }
+            throw DevicePDFModelError.unusable("tagger reference carrier")
+        }
+    }
+
+    /// Ordinary unsupported compute-unit errors retain the image-only fallback. A key/service failure must instead
+    /// stop this attempt, with the installed pack untouched, so a later retry can unlock all its selected models.
+    static func recogniserWithFallback<Value>(units: MLComputeUnits, required: Bool = false, protectionMode: String? = nil,
+                                              operation: (MLComputeUnits) async throws -> Value) async throws -> (Value?, String?) {
+        for candidate in units == .cpuOnly ? [MLComputeUnits.cpuOnly] : [units, .cpuOnly] {
+            do {
+                try Task.checkCancellation()
+                let value = try await operation(candidate)
+                try Task.checkCancellation()
+                return (value, nil)
+            }
+            catch {
+                try Task.checkCancellation()
+                if error is CancellationError { throw error }
+                if let failure = accessFailure(error) { throw DevicePDFModelError.access(failure) }
+            }
+        }
+        // A protected pack is qualified as a complete reader. Never silently turn an encrypted model/runtime
+        // incompatibility into image-only formulas, even when its failure isn't one of the key-service codes.
+        if required || protectionMode == "encrypted" { throw DevicePDFModelError.unusable("recogniser unavailable") }
+        return (nil, "recogniser unsupported")
+    }
+
+    /// The frozen reference carrier's exact Float32 vector, converted to canonical little-endian bytes in memory.
+    /// ReferenceTagger then checks the complete manifest and binary SHA before allocating any parameter tensors.
+    static func referenceWeightData(_ array: MLMultiArray?) throws -> Data {
+        let count = 299_249
+        guard let array, array.dataType == .float32, array.shape.map(\.intValue) == [count],
+              array.strides.map(\.intValue) == [1], array.count == count else { throw DevicePDFModelError.unusable("tagger reference carrier shape") }
+        return try array.withUnsafeBytes { bytes in
+            guard bytes.count == count * 4 else { throw DevicePDFModelError.unusable("tagger reference carrier size") }
+            var data = Data(capacity: bytes.count)
+            for i in 0..<count {
+                let value = bytes.loadUnaligned(fromByteOffset: i * 4, as: Float.self)
+                guard value.isFinite else { throw DevicePDFModelError.unusable("tagger reference carrier value") }
+                var bits = value.bitPattern.littleEndian
+                withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
+            }
+            return data
+        }
+    }
+
     /// The provenance rows the converter writes (role, id, weights digest).
     public var provenance: [[String: String]] {
-        [["role": "layout", "id": configuration.layout.model.id, "sha256": configuration.layout.model.weightsSHA256],
+        var rows = [["role": "layout", "id": configuration.layout.model.id, "sha256": configuration.layout.model.weightsSHA256],
          ["role": "equations-encoder", "id": configuration.recogniser.encoder.id, "sha256": configuration.recogniser.encoder.weightsSHA256],
          ["role": "equations-decoder", "id": configuration.recogniser.decoder.id, "sha256": configuration.recogniser.decoder.weightsSHA256],
          ["role": "inline-tagger", "id": configuration.tagger.model.id, "sha256": configuration.tagger.model.weightsSHA256]]
+        if let referenceTagger { rows.append(["role": "inline-tagger-reference", "id": "device-pdf-tagger-reference-v1", "sha256": referenceTagger.binarySHA256]) }
+        return rows
     }
 
     // MARK: Layout
@@ -174,11 +347,17 @@ public final class DevicePDFModels: @unchecked Sendable {
 
     // MARK: Inline tagger
 
+    static func validateTaggerShape(modelWidth: Int?, context: Int, maximum: Int?) throws -> Int {
+        guard let maximum, (2...400).contains(maximum), context >= 0, context <= (maximum - 2) / 2,
+              let width = modelWidth, width == (context > 0 ? 12 : 10) else { throw DevicePDFModelError.unusable("tagger vocabulary does not match model inputs") }
+        return width
+    }
+
     /// One line's features (computed by the converter) to one logit per glyph.
     public func tag(x: [Float], font: [Int32], cls: [Int32], char: [Int32], slot: Int = 0) throws -> [Float] {
         let t = font.count
-        guard t >= 2, t <= 400, x.count == t * 10, cls.count == t, char.count == t else { throw DevicePDFModelError.unusable("tagger input") }
-        let xs = try MLMultiArray(shape: [1, NSNumber(value: t), 10], dataType: .float32)
+        guard t >= 2, t <= 400, x.count == t * taggerFeatures, cls.count == t, char.count == t else { throw DevicePDFModelError.unusable("tagger input") }
+        let xs = try MLMultiArray(shape: [1, NSNumber(value: t), NSNumber(value: taggerFeatures)], dataType: .float32)
         x.withUnsafeBufferPointer { src in xs.withUnsafeMutableBytes { raw, _ in raw.copyMemory(from: UnsafeRawBufferPointer(src)) } }
         func ints(_ values: [Int32]) throws -> MLMultiArray {
             let array = try MLMultiArray(shape: [1, NSNumber(value: t)], dataType: .int32)
@@ -186,10 +365,44 @@ public final class DevicePDFModels: @unchecked Sendable {
             return array
         }
         let input = try MLDictionaryFeatureProvider(dictionary: ["x": xs, "font": try ints(font), "cls": try ints(cls), "char": try ints(char)])
-        guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { throw DevicePDFModelError.unusable("tagger output") }
-        let all = Self.floats(logits)
-        guard all.count >= t else { throw DevicePDFModelError.unusable("tagger output") }
-        return Array(all.prefix(t))
+        // A flexible-shape Core ML prediction can occasionally return an entirely or partially zero buffer under load
+        // (observed on the Mac corpus). That silently classifies affected glyphs as prose. Retry on this thread's instance;
+        // another instance may be in use by a different tagging worker. Persistent invalid output uses the independent
+        // same-checkpoint reference when available, otherwise it is an explicit failure.
+        let recovery: (() throws -> [Float])? = referenceTagger.map { reference in
+            { [self] in
+                let values = try reference.tag(x: x, font: font, cls: cls, char: char)
+                if Self.validTaggerOutput(values, count: t) { recoveryLock.lock(); referenceRecoveries += 1; recoveryLock.unlock() }
+                return values
+            }
+        }
+        return try Self.readTaggerOutput(count: t, recovery: recovery) {
+            guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { return [] }
+            return Self.floats(logits)
+        }
+    }
+
+    static func validTaggerOutput(_ values: [Float], count: Int) -> Bool {
+        var zeros = 0, longest = 0
+        for value in values { zeros = value == 0 ? zeros + 1 : 0; longest = max(longest, zeros) }
+        return values.count == count && values.allSatisfy(\.isFinite) && values.contains(where: { $0 != 0 }) && longest < 8
+    }
+
+    static func readTaggerOutput(count: Int, recovery: (() throws -> [Float])? = nil, prediction: () throws -> [Float]) throws -> [Float] {
+        for _ in 0..<2 {
+            let values = try prediction()
+            // One journal audit returned 32 valid logits followed by 35 exact zeros; repeating the same input returned
+            // ordinary negative logits throughout. A run of eight exact zeros is not a credible learned sequence.
+            // Isolated zero logits remain valid. Reject a partial empty buffer as well as a wholly empty one.
+            if validTaggerOutput(values, count: count) { return values }
+        }
+        // The independent implementation uses the identical trained weights, never synthesized prose logits.
+        // It runs at most once, only after both Core ML results were invalid. Model exceptions still propagate.
+        if let recovery {
+            let values = try recovery()
+            if validTaggerOutput(values, count: count) { return values }
+        }
+        throw DevicePDFModelError.unusable("tagger output")
     }
 
     // MARK: Recogniser

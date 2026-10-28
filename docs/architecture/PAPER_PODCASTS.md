@@ -1799,7 +1799,8 @@ Migration `202610160076_podcast_source_deletion.sql` and the worker change:
   service still deletes. `scripts/podcast-ops.py cleanup` does the same by hand.
 - **Never exposed.** No API returns the text or its path (`podcast?action=source` answers the digest and size only);
   the episode's transcript and audio are the only things kept, private to the account. The Listen sheet's footnote
-  and the privacy draft (`web/site-next/privacy/`, Episodes) say so.
+  and the privacy policy source (`web/site/privacy/`, Episodes; the former separate draft was consolidated here on
+  October 27) say so.
 - Clients send the text again for any new request after one finished (native `PodcastGeneration.forgetFinishedRequest`,
   web `uploadedDevice` reset), and once more if a quote finds the text gone (`source_unavailable` with a remembered
   digest).

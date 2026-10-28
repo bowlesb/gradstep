@@ -1,5 +1,179 @@
 # Implementation status
 
+## Interest index serves every reader — 2026-10-28 UTC
+
+`interest_policy.serving` moved from `staff` to `all` at 13:54 UTC through `worker_interest_set_policy(null, 'all')`,
+after the approved notice ("Topics and For you") went live on gradstep.ai/privacy with the landing page on 2026-10-27.
+`interest.health` passes (12,311 embedded, 0 pending, map v1, 9 shards, serving all). Every reader now gets Library
+topics and the index's related papers; For you itself stays `feed_policy.serving='staff'` (a separate owner decision).
+Rollback: `worker_interest_set_policy(null, 'staff')`.
+
+## Gradstep landing page — 2026-10-27 (published)
+
+The owner-authorized founder-copy redesign is live at [gradstep.ai](https://gradstep.ai/), Cloudflare Pages
+deployment `e631ca58`. `web/site/` is now the sole source; the duplicate draft is retired. Privacy copy is reconciled
+with current AI routes and service behavior. All 22 public file hashes/types and three app redirects pass live
+readback; the existing security headers and Apple association are preserved. Fast checks pass, including 734
+browser unit tests. [Deployment and layout evidence](proposals/LANDING_PAGE.md#current-revision--founder-copy-2026-10-27).
+This is the marketing website only; the private beta and native model-pack release state are unchanged.
+
+## Core ML model encryption — 2026-10-27 (setup verified; complete pack blocked)
+
+Apple keys are generated for the existing signing team and stored privately outside the repo. Builds now require
+encrypted artifacts by default; asynchronous model loading, bounded retry messages, encrypted in-memory CPU tagger
+recovery, archive plaintext/key-copy checks and a signed exact-pack runtime qualification are implemented. Local
+research can explicitly build `--development-plaintext`; upload scripts cannot use that exception.
+
+The layout, tagger and reference carrier load encrypted. All 299,249 reference floats recover byte-for-byte.
+The current multifunction formula recognizer fails Apple's encrypted loader; lossless function splitting and
+decompressed weights do not resolve it. A 12-case synthetic control isolates encrypted `MLState` failure on this
+Mac's macOS 26.3.1 / Xcode 26.4. A stateless explicit-cache recognizer loads but exceeds the memory gate by at least
+5.835× baseline, so it is rejected before quality/timing qualification. The original learned models remain selected,
+and the full encrypted-pack verification deliberately fails. **Encryption is not enabled in a released pack.**
+
+Local checks: 12 protection-policy cases, 42 focused native cases and `npm test` pass; the native suite covers load/recovery errors,
+and the Simulator key-failure message check passes. Two fresh no-JIT native imports using an explicit research
+pack with the reference carrier preserve all 81 bundle/trace/asset files byte-for-byte: 22 pages, 330 blocks and
+302 equations, with zero tagger recoveries. This verifies the healthy path, not successful encrypted recognition.
+
+The owner's requested [end-to-end walkthrough](architecture/DEVICE_PDF_ROUTE.md#end-to-end-walkthrough--updated-2026-10-27)
+now covers acquisition, local inference, formula gates, PDF locations, storage, encryption and AI-context boundaries.
+The same document records the platform blocker and canonical evidence. No native app/model-pack release, NAS access
+or physical-phone testing occurred; first-use/offline behavior on iOS and Catalyst remains unverified. Website
+publication is a separate task and does not qualify or release the encrypted model pack.
+
+## Native PDF tagger recovery — 2026-10-27 (local, not released)
+
+The selected v5b-journal Core ML model remains the normal path. Two invalid output buffers now trigger one
+independent float32 CPU evaluation of the same frozen weights. Invalid recovery output and thrown model errors
+still fail. The pack binds reference weights to the checkpoint, Core ML package and exact vocabulary; older
+packs retain their existing behavior. Local diagnostics retain bounded failure details and a recovery count.
+
+The paired precision experiment recorded **six actual retry exhaustions**, three each for FP16/FP32 across
+40,580 primary calls per arm; FP32 did not establish a reliability gain. Fault injection through the production
+policy recovers **2,029/2,029** real inputs / 188,464 glyphs with **zero 0.65-threshold decision changes** versus
+frozen PyTorch. All 31 focused Swift tests and `npm test` pass. Two fresh no-JIT native imports verify 22 pages,
+330 blocks and 302 equations with unchanged content, decisions, source locations and real figure bytes; neither
+needed recovery. These are policy and conservation checks, not a measured whole-import success rate. The earlier
+opaque error remains unattributed. Evidence and remaining work stay in the
+[single development log](../training/device_pdf/README.md). No release or physical-phone testing occurred.
+
+## Inline PDF crop cleanup — 2026-10-27 (port 21; local, not released)
+
+Native upright inline fallback images preserve their own line while removing fragments above/below it. The fixed
+61-crop journal regression improves **25 confirmed contaminated crops → 6**, with own-line RGB unchanged; 60 controls
+across 24 existing papers preserve dark and gray own ink. This does not repair already-incomplete formula spans.
+Displays, OCR, rotations and uncertain/composed-accent crops retain legacy cleaning. Models and recognition stay fixed.
+
+All 101 recorded PDFs / 2,721 pages conserve recognition, reader content and PDF locations. Fast tests, 16 Swift
+tests and no-JIT replay pass. Fresh 11-page Core ML conversion produces 54 fallback images exactly matching the
+pixel audit, with unchanged reader index and source provenance (unique image count decreases through deduplication).
+One prior fresh read-stage conversion failed opaquely; diagnostic and unmodified reruns passed, but its cause is
+unproven; the native recovery follow-up above addresses separately reproduced invalid buffers. Evidence, failed
+approaches, limitations and the next completeness task live in the
+[single development log](../training/device_pdf/README.md). No release or automatic regeneration of saved readings.
+
+## Shared PDF training and trustworthy formula metadata — 2026-10-26/27 (port 20; local, not released)
+
+Core training for layout, equation recognition and inline tagging now lives in `training/device_pdf`, with existing
+journal workflows under `scripts/device-pdf-models`. The laptop and GPU desktop share Git source; data/checkpoints
+stay outside Git. Numerical parity and optimizer/evaluation smoke checks pass. The single
+[development entry point](../training/device_pdf/README.md) contains commands, evidence, ranked targets and the log.
+
+Port 20 prevents rejected recognizer guesses reaching delivered equation metadata, block text, image alternatives
+and missing-image fallbacks. On 101 recorded PDFs / 2,721 pages, exposures fall **4,973→0** while **56,193 accepted
+formulas**, other content, crop requests and source locations remain unchanged. Fresh native Core ML conversion
+with JIT disabled confirms zero exposures in 54 rejected equations. `npm test` and five Python evaluation tests pass.
+Raw diagnostic traces retain unverified answers for scoring. Current model weights remain unchanged; this does not
+claim recognition accuracy, physical-device performance or an update to already prepared readings.
+
+## Journal statistics model — 2026-10-26 (v5b-journal verified locally; not released)
+
+The copied Papers corpus now supplies grouped splits, source-reviewed evaluation and a trained on-device tagger.
+Fine-tuning with replay and teacher preservation improves complete selected held-out statistics **0/104 → 99/104**,
+with zero detections in 103 prose controls. Separate original-corpus cut/split errors fall **682 → 533**; glyph
+precision 98.27% → 98.30%, recall 96.83% → 96.82%. The new tagger uses the existing twelve-feature GRU interface
+at a development-selected 0.65 threshold; layout/recognizer weights and converter port 19 remain unchanged.
+
+Core ML reproduces the journal score. Two complete native articles conserve all 330 blocks and PDF locations;
+all nine reviewed unnamed-comparison statistics become complete formula regions. The host now aligns glyphs with
+the displayed CropBox and retries partially zero output. Fast checks, 19 focused Swift tests, five evaluation
+tests and pack verification pass. Local pack `81701d81e3d6`, about 364.6 MB; no upload/deployment or phone testing.
+Remaining limits include bold/small statistics, imperfect image crops and unverified recognition metadata behind
+source-image fallbacks. [Training, held-out measurements and limits](reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md).
+
+## Repeated PDF margin text — 2026-10-26 (port 19 verified locally; not released)
+
+Long repeated headers/footers now require consistent outer-margin geometry, spacing and typography. Only their
+glyphs are removed, after layout order/ownership; body copies and mixed-region body text stay. The fixed eLife
+case improves **76 → 0** intrusions and **7 → 0** false Contents entries. Across 99 PDFs / 2,699 pages, four papers
+lose 109 verified intrusions and regain nine continuations; 95 readings remain identical. Article text, reference
+order, equation/figure content and PDF locations pass the content gate. Seven focused tests, the fast gate, actual
+22-page Core ML conversion and no-JIT replay pass. No model, UI, migration, release or service change.
+[Measurement, source labels and limits](reviews/DEVICE_PDF_MARGIN_TEXT_20261026.md).
+
+## Scientific-PDF paragraph continuity — 2026-10-26 (port 18 verified locally; not released)
+
+The on-device converter retains unfinished paragraphs across adjacent pages while rejecting uncertain prose,
+font transitions, short labels, unsupported hyphen completions and duplicate layout boxes. Six biology PDFs improve
+**60 → 26** measured mid-sentence page breaks (56.7%). All **99 PDFs / 2,699 pages** replay without missing model
+answers; 484 reviewed continuations preserve all text, tables, figures, source places and 60,864 equation records.
+Whole-block matching improves on the existing arXiv and publisher comparisons. The automatic test-set math
+realignment metric falls 0.5 points despite identical math output; the independent identity/content/gate audit passes.
+
+Twelve focused tests, `npm test`, Apple JavaScriptCore with JIT disabled and a fresh 29-page Core ML conversion
+pass. Model weights, HTML-first routing and reader controls are unchanged. No upload, deployment or physical-phone
+work. Remaining prominent gaps are repeated journal headers, caption attachment, tables and text extraction.
+[Frozen corpus, measurements, exact checks and limits](reviews/DEVICE_PDF_READING_QUALITY_20261026.md).
+
+## Complete device-PDF inline spans — 2026-10-26 (port 17 verified locally; not released)
+
+The context-aware v5a tagger is integrated with a development-selected 0.7 threshold, twelve input features and
+bounded windows that preserve every glyph. Held-out cut/split errors decrease **17.8% (830 → 682)**. Whole-equation
+inline glyph matches improve **91.4% → 93.3% / 91.8% → 92.7% / 81.5% → 84.5%** on the arXiv development/test and
+publisher comparisons; text F1 is unchanged or better. All 93 replays have complete model answers, including 700
+new recogniser crops evaluated on this Mac. Table-cell F1 declines 0.1/0.3 points on the arXiv sets and improves
+1.7 points on publishers; this remains a separate quality gap.
+
+The rebuilt pack records the actual v5a digest and threshold. The native host checks the model contract and retries
+invalid outputs once, preventing a zero buffer from silently removing math. Fast tests, native checks, and complete
+arXiv/publisher Mac conversions with JIT disabled pass. No client upload, deployment or physical-phone work.
+[Exact comparisons, model identity, visual examples and limits](reviews/DEVICE_PDF_SPAN_COVERAGE_20261026.md).
+
+## Device PDF equation integrity — 2026-10-26 (port 16 verified locally; not released)
+
+Uncertain equations must preserve named mathematical operators and account for every unnamed PDF glyph before
+being typeset. Otherwise the reader uses the original crop. Two real missing-integral cases are covered by
+regressions; their underlying spans remain partial. The separate quality change follows PDF preview commit
+`09e71c2f`. Model weights and client releases are unchanged.
+
+Replaying 93 PDFs / 2,532 pages preserves 99.64% / 99.53% / 98.90% of previously typeset equations across arXiv
+development/test and publisher corpora: 333 new crop fallbacks, zero new promotions, zero missing model answers,
+unchanged block text, identities and source regions. These are retention figures, not general math accuracy.
+`npm test`, 28 focused tests and Apple JavaScriptCore replay with JIT disabled pass. Physical phone work stays paused.
+[Product gaps, exact evidence and limitations](reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md).
+
+## Reader-position PDF — 2026-10-25 PDT (full-screen/two-finger audit verified; not released)
+
+Merged into `main` as one standalone commit on 2026-10-26, from the audited work based on `a993d838`.
+The completed feature worktree/branch are retired. A simultaneous two-finger single tap opens the original
+PDF full screen at the passage beneath the fingers, zooms for 350 ms and immediately fades the figure explainer's
+violet outline over one second. X or a top-row swipe returns to the unchanged reader. The toolbar entry remains;
+ordinary pinch and the existing one-finger Contents double tap are preserved. This replaces the first version's
+sheet and persistent highlight. The unchanged lexical matcher, original download and encrypted store stay on device.
+
+**18 distinct focused checks are verified per iPhone/iPad Simulator**, including two-touch input, touch-specific
+pages, PDF pan/pinch, X/swipe return with unchanged reading position, iPad reading mode, rotation/large text,
+Reduce Motion, PDFKit crop/rotation geometry, scope and encrypted offline reopening. The final affected journey
+rerun passed both devices after correcting the tablet toolbar test's expected page; no application code changed.
+`npm test` passes all ten steps, including nine matcher tests, and Chromium capture checks pass at 390/1024 px.
+[Native report, exact runs and screenshots](reviews/PDF_PEEK_NATIVE_20261025.md).
+
+Merged locally; not deployed or released to TestFlight. Preserved patch and evidence:
+`/Users/benbowlwes/science-reader/.artifacts/pdf-peek-complete/`. Physical phone work remains paused. Existing
+converter-provenance selection/equation menu actions remain intact. [Architecture](architecture/READER_PDF_PEEK.md).
+The HTML-first cutover is already verified below; the handoff's older pending-cutover statement is obsolete.
+
 ## After TestFlight 93 — 2026-10-25: adding rows keep their height without Progress; the double-tap journey; For you without headings (built, not in a build)
 
 - **Library table, Progress column hidden** (JUDGMENT_LOG 17, 27): an import's spinner (regular, 20 pt) and one word
@@ -23,6 +197,24 @@
   sideways, the bubble).
 - Screenshots: `.artifacts/tf93-followups/` (before: the TestFlight 93 gate's and today's failing runs, and the owner's
   TestFlight 92 Feed screenshot).
+
+## After TestFlight 93 — figure placement, 2026-10-25 UTC (branch; not yet in a build)
+
+Owner feedback on TestFlight 92 (iPhone, 17:11 UTC, WorldCast 2610.20731v2): "Is the Figure displayed in the right
+place". The paper writes Figures 1 and 2 before its first section (the PDF prints them at the foot of page 1 and the top
+of page 2), so the reader showed both, then the keywords, then "1 Introduction", whose second paragraph cites Figure 1.
+**Reader revision 27** moves a float written before the first section that the first section cites to just after the
+paragraph citing it, later front floats following in order; teasers the Introduction doesn't cite and all body floats
+stay ([HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md) "Floats before the first section", JUDGMENT_LOG 43).
+Model readings take the same rule with named citations (**device port revision 15**). The bridge puts the keywords row
+right after the abstract for every bundle version. Verified: `npm test`; 186 cached sources against revision 26 (21
+change, 35 floats moved, nothing else changed, 0 newly refused, all validate); fresh-paper sweep (`--recent=40`, 30
+papers) 0 failures, 6 warnings unrelated to floats; 76 recorded model readings (4 change, 0 refused); iPhone 17 Pro
+Simulator, dark, this branch's app with WorldCast bundles compiled by revisions 26 and 27
+(`ReaderNavigationTests.testTestFlight92FigurePlacement`: a revision-26 copy shows the keywords under the abstract and
+the figures after them; a revision-27 copy shows the keywords, then the Introduction, with both figures after the
+paragraph citing Figure 1); Playwright WebKit at iPhone size with the old and new bridge. Screenshots, with the owner's,
+in the main checkout's `.artifacts/tf92-figures/`. Not verified: a physical device; the Mac app; iPad.
 
 ## TestFlight 93 — 2026-10-25 UTC (iOS and Mac uploaded)
 
@@ -99,6 +291,49 @@ and the admin site deploys.
   `swift test` (ScienceReaderCore). No Simulator, device or paid check of the fallback itself.
 
 ## Account-deletion sweep listing — 2026-10-25 UTC (0159 applied 14:51 UTC, worker deployed; `deletion.sweep` passes; admin site and scheduled check image not yet deployed)
+
+## After TestFlight 93 — 2026-10-25: global search, and the bar with More and 🔍 (apps, one branch; not in a build)
+
+Phase 1 of [GLOBAL_SEARCH_AND_MORE.md](proposals/GLOBAL_SEARCH_AND_MORE.md), both halves merged on one branch; calls in
+JUDGMENT_LOG 13–16 and 32–42. Navigation as built: DESIGN.md › Tall and Wide › The bar, More and 🔍
+([DECISIONS.md](DECISIONS.md#the-bar-library--paper--chat--more-with--owner-request-2026-10-25-judgment-calls-apps-built-not-yet-in-a-build));
+search as built: [GLOBAL_SEARCH.md](architecture/GLOBAL_SEARCH.md).
+- **iPhone (and Tall windows under 730 pt wide or 600 tall):** Library · Paper · Chat · More, 🔍 in its own circle
+  beside the capsule; More lists Feed, Snippets, Settings (`MoreView`); More stays highlighted for Feed and Snippets and
+  returns to its list when tapped again; Settings opens over the list. Settings is in no iPhone or iPad ⋯ menu.
+- **iPad upright:** six places and 🔍. **Sideways:** 🔍 beside the places menu (leading reserve 104 pt). ⌘1…⌘5, ⌘, and ⌘K
+  now work upright too (root shortcuts).
+- **Mac:** a "Search everything" field at the toolbar's trailing edge (global search's own words); Edit › Search
+  Everything… ⌘K; places and other shortcuts unchanged.
+- **Search** is a place (`ReaderTab.search`, `GlobalSearchView`) reached through `openGlobalSearch(scopePaper:)` from
+  every entry point; Cancel returns to where it was opened; Wide keeps Search as the place with the picked result beside
+  the list; ↓/↑ and Return with a hardware keyboard; 🔍 returns at the result opened last. The search itself (indexes,
+  ranking, rows, routes, Settings rows) is the search branch's, unchanged apart from these.
+- No route changed: the bar's highlight is derived (`ReaderTab.barSelection`). The podcast toast and the new-device
+  banner now use the shared shape rule; stale comments fixed; `gradstep.more` drawn with `tools/icons`.
+- Browser (paused): unchanged.
+- **Verified (merged branch):**
+  - Core `swift test`: 535 Swift Testing and 101 XCTest (3 skipped) pass, `TallBarTests` and `GlobalSearchTests` included.
+  - App-hosted, iPhone 17 Simulator: `PlacesNavigationTests` 11/11 (bars, the highlight for every place, More's rows,
+    one test per route group, state kept across bar switches), `GlobalSearchAppTests`, `DeviceSearchTests`, 21/21.
+  - UI, iPhone 17 Simulator: `PlacesBarJourneyTests` (5 iPhone journeys), `GlobalSearchJourneyTests` (5; the Wide one is
+    iPad's), `MenusJourneyTests`, `TableColumnsTests`, `FeedForYouTests`, `SnippetsFeedbackTests`, `SettingsTests`,
+    `NotesJourneyTests/testSettingsFromEveryMenuReturnsToItsOrigin` pass.
+  - UI, iPad Pro 11-inch (M5) Simulator: the same suites plus `IPadShapesJourneyTests` (23) and the iPad journeys (narrow
+    window, upright ⌘1/⌘5/⌘K/⌘2/⌘,, ↓/↑ and Return in Search, 🔍 sideways, the Wide search beside the list) pass;
+    `IPadShapesJourneyTests/testTheListTogglePromotesAndDemotesKeepingThePlace` missed its 60 pt tolerance by 3 pt once
+    under heavy load and passed alone.
+  - `PaperToolsTests` fails as before on both devices in two tests not touched here:
+    `testDoubleTapOpensContentsDeepInThePaperAfterAnEquationMenuAndAFling` (recorded failing the same way on TestFlight
+    91's code) and `testReportedQuantumPaperEquationsFinishAndCanReopen` (needs the pinned device corpus).
+  - Mac Catalyst builds; the toolbar field was photographed on the Library and on the Search place.
+  - Screenshots: `.artifacts/global-search-nav/` in this branch's worktree (iPhone bar, More, Feed from More, Settings
+    over More, Search and Search again, landscape, largest text; iPad upright, narrow, sideways Search, ↓ choice; Mac).
+- **Not verified:** a physical device (paused); a click or ⌘K on the Mac (no Catalyst UI-test target); a hardware Return
+  key in the Simulator (`typeKey(.return)` never reached the field, so the journey presses Return through the field);
+  VoiceOver itself (labels, values and traits are asserted, not listened to).
+
+## Account-deletion sweep listing — 2026-10-25 UTC (local; nothing deployed)
 
 - **Found (staging, read-only):** the worker's `worker_account_deletions_pending` call has failed every minute since
   2026-10-12 14:01 UTC (last HTTP 200; first 500 on 2026-10-09 14:03): `canceling statement due to statement timeout`
@@ -291,9 +526,10 @@ The owner approved the interest index's privacy notice and serving it to `all` (
 branch, for the lead to review and run (steps in INTEREST_INDEX.md "Serving to all"):
 
 - **Notice:**
-  - The approved text, word for word, as a "Topics and For you" section on gradstep.ai/privacy (`web/site/privacy/`).
-    The library sentence now adds "and to rank the Feed's For you list".
-  - The redesign draft (`web/site-next/privacy/`).
+  - At this October 25 checkpoint, the approved text appeared word for word in the original page's "Topics and For
+    you" section and the redesign's "Your library" section. The original library sentence added "and to rank the Feed's
+    For you list". Both website sources were consolidated into `web/site/privacy/` on October 27; the separate draft
+    directory is retired. This historical entry does not establish the later publication or interest-serving status.
   - Settings › Privacy & data in the apps (`PrivacyView`) and the browser (`PrivacyData`; the owner-58 journey's
     heading list updated).
 - **0156:** For you's similar tier computes each pair's cosine before grouping. At the 300-paper library cap, its CTEs

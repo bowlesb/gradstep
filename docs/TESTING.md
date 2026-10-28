@@ -1,5 +1,228 @@
 # Fast and slow tests
 
+## Core ML model protection — October 27
+
+Routine checks: `npm test`, plus `node --test tests/operations/device-model-protection.test.mjs` (12 cases).
+The latter rejects tampered/re-described packs, plaintext payloads, raw recovery weights, source/key copies,
+unsafe links and stale/unqualified runtime evidence. Fixtures test the gate logic; actual Apple encryption
+requires the signed checks below. Focused native checks, from `apps/apple/ScienceReaderCore`:
+`swift test -c release --filter 'DevicePDFModelLoadingTests|DevicePDFReferenceTaggerTests|DevicePDFErrorTests|DevicePDFHostTests'`.
+They cover asynchronous access-error classification, cancellation, strict encrypted recognizer loading, legacy
+fallback, Intel preflight, reference shape/byte integrity and unchanged tagger recovery. All 42 pass, including
+cancelled loads/predictions that return a late success or framework error after the reader has stopped.
+
+Build keys stay in private `~/.config/science-reader/coreml-encryption/keys.json` (or `SCIENCE_READER_COREML_KEYS`).
+The mapping names team `3BJ33TT599` and private `.mlmodelkey` paths for `layout`, `tagger`, `recogniser` and
+`tagger_reference`. Never copy key contents into the repo, logs or app. `node scripts/device-models.mjs
+--require-encryption` compiles the pinned sources. A team-signed current `DevicePDFRouteTool` then runs through:
+
+```sh
+node scripts/verify-coreml-encryption.mjs --tool /path/to/signed/DevicePDFRouteTool \
+  --models apps/apple/DeviceModels --manifest apps/apple/DeviceModelsManifest/device-models-pack.json \
+  --out .artifacts/device-pdf-development/encryption/verification.json
+```
+
+**Current expected outcome: failure**, because this Mac cannot load the encrypted stateful recognizer.
+A compiler success or `LMNE` header alone is insufficient. The release script requires a successful report bound
+to the exact pack, compiled trees, tool and signing team before archive/upload; no report was issued for the failed
+pack. `--development-plaintext` is only an explicit research build/check mode. Preserve the selected usable pack
+when experimenting by passing separate `--out` and `--manifest` paths.
+
+Slow reproduction (only when investigating encryption/runtime compatibility): use the existing Core ML Python
+environment to run `scripts/device-pdf-models/probe_coreml_state_encryption.py --out NEW_DIRECTORY
+--encryption-key PRIVATE_KEY --signing-identity EXISTING_IDENTITY`. It generates synthetic stateful/stateless and
+FP16 explicit-cache controls, compiles/signs and records all 12 CPU/GPU cases, source/tool/tree hashes and the
+OS/compiler identity. `probe_completed` and `state_encryption_failure_isolated` are separate results. Recorded
+evidence: `encryption/stateful-minimal/reproduction/report.json`. No corpus or private model weights are needed.
+
+The app's focused Simulator assertion is
+`ScienceReaderTests/DeviceModelRouteTests/testModelKeyFailureKeepsARetryableBoundedMessage`; Debug with release
+optimization builds the fixture-dependent test target (`Internal` lacks its DEBUG-only fixtures). Its passing
+result is `encryption/key-message.xcresult`. This checks the retry wording; it is not an encrypted iOS import or
+offline-key test. Actual carrier loading, negative full-pack qualification and the rejected explicit-cache memory
+experiment are linked from the [runtime document](architecture/DEVICE_PDF_ROUTE.md#core-ml-model-encryption--owner-request-2026-10-27-full-pack-blocked).
+
+`encryption/native-conservation.json` compares two fresh no-JIT native imports against the prior recovery baseline:
+all 81 bundle/trace/asset files are byte-identical (22 pages / 330 blocks / 302 equations, zero recoveries).
+The pack is explicitly `development-plaintext`, with the new carrier; this checks unchanged healthy conversion
+and reference initialization while the encrypted recognizer remains blocked. Reuse this evidence for changes
+limited to cancellation/error handling, which the focused tests cover; it is not encrypted-import evidence.
+
+## Native PDF tagger recovery — October 27
+
+Routine project gate: `npm test`. Focused native checks, from `apps/apple/ScienceReaderCore`:
+`swift test -c release --filter 'DevicePDFErrorTests|DevicePDFHostTests|DevicePDFReferenceTaggerTests'`.
+They cover bounded first-error extraction, unchanged successful predictions, at most two Core ML calls and one
+reference call, propagated model exceptions, GRU parity, invalid manifests/weights and input bounds.
+
+The private corpus gate is opt-in: set `DEVICE_PDF_RECOVERY_CORPUS` to the canonical
+`.artifacts/device-pdf-development/reliability/recovery-corpus.json` and add
+`DevicePDFReferenceRecoveryCorpusTests` to the filter. Its SHA-bound inputs, checkpoint and PyTorch logits are
+listed there. It injects two invalid outputs through the production recovery policy for every real input and
+runs the actual reference weights; require exact call counts and zero own-glyph decision changes at 0.65.
+Recorded result: 31 focused tests including this gate pass, **2,029/2,029 recoveries**, 188,464 glyphs and zero
+own/all-glyph decision differences. This is fault injection, not an observed import failure rate.
+
+For host/model changes, reuse or rerun the affected evidence in `reliability/`: paired quiet/load Core ML logs
+record six real retry exhaustions (three per precision; FP32 showed no reliability gain), while `native-check.json`
+verifies two fresh no-JIT imports / 22 pages with zero recoveries, no replay misses and unchanged reading/source
+locations. Gulliver's older record is recomposed with current port 21 before comparing delivered metadata; only
+synthetic figure asset hashes are normalized in replay, with real figure bytes checked separately. Keep the
+earlier opaque error unattributed. No physical-phone result or release is implied; details stay in the
+[single development log](../training/device_pdf/README.md).
+
+## Native inline crop cleanup — port 21
+
+Routine `npm test` includes the crop-band eligibility, detached-script, punctuation and composed-accent regressions
+in `device-pdf-crop-bounds.test.ts`. For cleaner changes, run `swift test -c release --filter
+DevicePDFFormulaCleanTests` (16 cases). The [development log](../training/device_pdf/README.md#reproducing-the-crop-regression)
+contains the three audit/scoring commands and canonical evidence: source-reviewed native crop pairs, source-label
+protection controls, and 101-PDF request/content conservation against **738515bc**. Synthetic replay pixels cannot
+measure crop quality; use the actual 216 dpi CoreGraphics outputs. Do not count a baseline-label disagreement as a
+fixed failure or silently drop gray/unaligned oracle controls. Keep the known-case scope separate from fresh accuracy.
+
+Final local evidence: fast gate, 16 Swift checks, zero replay misses, 61/61 baseline images reproduced exactly,
+60/60 preservation controls, no-JIT converter replay and complete native 11-page conversion. The latter's 54 image
+assets exactly match the native scorer; text and source locations match port 20. An earlier native read-stage
+failure remains unattributed; the separate recovery checks above do not prove its cause. Successful reruns are
+not a reliability benchmark. No physical-phone testing occurred.
+
+## PDF training source and rejected transcriptions — port 20
+
+`npm test` includes `device-pdf-transcription.test.ts` and the expanded image-budget regression: rejected guesses
+cannot enter delivered index text, `data-latex`, image alternatives or missing-image text; accepted MathML survives.
+The [single development log](../training/device_pdf/README.md#verification-and-evidence-map) gives source-parity,
+training-smoke and 101-PDF replay commands/evidence. The slow replay requires a port-19 baseline checkout and
+SHA-bound local recordings, fails on missing model answers, and checks accepted math/content/crop/region conservation.
+Do not use the current branch as its own baseline or infer mathematical accuracy from this metadata boundary test.
+
+## Journal PDF model — October 26, v5b-journal
+
+Fast, no private data: `python3 -m unittest discover -s scripts/device-pdf-models -p 'test_papers_*.py'` checks
+family grouping and acceptance scoring. Focused native: `swift test -c release --filter
+'DevicePDFTextLayerTests|DevicePDFHostTests'` checks displayed CropBox coordinates against raster ink at every
+rotation and the bounded retry for entirely/partially zero tagger output. Routine project gate remains `npm test`.
+
+Slow, only for model/host changes: the private `papers-model-20261026` research artifacts retain frozen family
+splits, native inputs, source-reviewed labels, baseline/candidate predictions and complete-paper runs. Use
+`papers_score_statistics.py GOLD PREDICTIONS OUT --inputs INPUTS --thresholds THRESHOLD` to bind scores to actual
+inputs. `papers_eval_original.py` evaluates complete, unpadded original labeled lines; never train on those
+development/test papers. `papers_check_native.py BEFORE AFTER OUT` verifies newly detected math in the two journal
+examples preserves original text and locations by reconstructing source glyphs. Inspect actual source crops and
+generated reader paragraphs separately: conservation does not guarantee transcription or crop quality.
+
+The [review](reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md) records gates, exact model/gold hashes, export parity and
+remaining limitations. New tuning must use fresh reserved families; do not keep selecting against this revealed
+test. After a host coordinate change, regenerate native records rather than silently reusing old audit outputs.
+
+## Long PDF headers/footers — October 26, port 19
+
+`npm test` includes seven cases in `tests/backend/device-pdf-margin.test.ts`. They protect body copies, changing
+numbers, close body lines, tables/figures, rotated/OCR text, typography/position variation and mixed-region PDF
+locations. Slow: `audit_margins.mjs RECORDS OUTPUT.json` proposes physical lines; inspect the source PDFs.
+`check_margins.py BEFORE AFTER tests/fixtures/device-pdf/margin-corpus.json SPLIT OUTPUT.json` gates the four
+PDF-reviewed cases (`bio`, `dev`, `test`, `venue`), rejecting any unreviewed change in other papers. Every remaining
+paragraph must be conserved, references retain order, and each source region must belong to its original text.
+Use complete actual-model records, then native full conversion and no-JIT replay of the new native record.
+The [99-PDF review](reviews/DEVICE_PDF_MARGIN_TEXT_20261026.md) records results, negative controls and limitations.
+
+## Device-PDF paragraph continuity — October 26, port 18
+
+`npm test` includes the twelve cases in `tests/backend/device-pdf-continuity.test.ts`: adjacent page joins and
+separate PDF places, supported/unsupported hyphens, closing punctuation, prose/typography guards, short labels,
+intervening structure/pages, floats, duplicate detections and inline-equation ownership. The frozen six-paper
+publisher corpus and sixty source-boundary labels are in `tests/fixtures/device-pdf/continuity-corpus.json`.
+
+Slow, explicit: `publisher_reference.py` and `publisher_quality.py` under `scripts/device-pdf-models/` extract
+local JATS references and propose boundaries; `compare_continuity.py` scores the fixed baseline boundaries and
+requires conservation of every paragraph, other block, formula gate and source region. It uses `reader.json`,
+whose IDs match provenance, rather than the diagnostic trace's `index.json`. Pass the checked-in
+`tests/fixtures/device-pdf/continuity-corpus.json` as its final argument for acceptance: it verifies PDF hashes,
+baseline block IDs and source places and fails on a missing baseline/candidate. Omit that argument for the
+existing-corpus conservation-only comparisons; do not regenerate the primary denominator from candidate alignment.
+`device-route-continuity-references.mjs` and `audit_continuity.py` identify exact source-paragraph support; review
+the remaining joins against actual PDF regions. Do not infer correctness from an improved one-block match alone.
+Run recorded replays with zero tag/crop misses, then actual native conversion with the 25 app rules, a real value
+for `--rules`, and semicolon-separated authors. The [audit](reviews/DEVICE_PDF_READING_QUALITY_20261026.md) records
+99-PDF results and the no-JIT Mac checks; it does not claim physical-device performance or new UI coverage.
+The Core Swift test `ShowInPDFTests.testJoinedParagraphSearchesBothRecordedPagesForTheSelectedPassage` checks that
+text selected from either half of a joined paragraph resolves to the right source page; both pages are searched.
+
+## Reader-position PDF preview — October 25
+
+`npm test` includes the nine tests of the app-bundled lexical matcher. `tests/reader/pdf-position-bridge.mjs`
+is the optional browser capture regression; the native checks below exercise the actual WKWebView bridge.
+
+`bash scripts/test-pdf-peek-apple.sh SIMULATOR_UDID` is the opt-in native gate. It checks the supplied iPhone/iPad
+Simulator and one available companion of the other family on the same runtime, with release Swift optimization.
+It uses separate sequential Xcode invocations (the second reuses the build); Xcode 26.4 stalled between destinations
+when both were supplied to one serial invocation. It runs PDFPositionTests, three PDF capture tests in
+PaperWebViewTests, PDFPeekJourneyTests, and the existing one-finger Contents double-tap regression. The full-screen
+journeys use an actual simultaneous two-touch single tap, then check zoom/fade, screen size, X/top-row dismissal,
+reader position, browsing/pinch, rotation, large text and background clearing. The PDFKit geometry check covers
+actual outline opacity over time and a cropped/rotated page; the cached-paper check also covers Reduce Motion.
+The runner uses only `simctl` to validate devices; it never queries or targets a physical phone.
+
+For native PDFKit extraction and warm-matching timing, set `PDF_PEEK_PDF` to the already cached
+`2305.18290v3/paper.pdf` (SHA-256 `92cb3a2b71362acda98a789b03d88688fd33cf5fcf13f81d2b1de30ee7d3b67a`).
+This adds PDFPeekCorpusTests. It checks the known page and PDFKit region and attaches timings for cold extraction
+plus indexing and 100 warm queries. No network fetch is made. Results/synthetic screenshots are in
+`.artifacts/pdf-peek-derived/Logs/Test/`; export attachments with `xcrun xcresulttool export attachments`.
+
+The new downloader test uses scripted HTTP through the real fetcher and encrypted store, then a fresh model with
+no HTTP responses to verify offline reopening. The UI fixture substitutes PDF acquisition, so UI passes alone
+cannot certify downloading or persistence. Scope, cancellation, wrong revision, rotated/cropped geometry,
+ambiguous and no-text cases remain separate assertions. Record all native results and limits in
+[READER_PDF_PEEK.md](architecture/READER_PDF_PEEK.md); desktop corpus evidence is not Apple performance evidence.
+
+## The bar with More and 🔍 (navigation half of global search) — October 25
+
+Fast: Core `swift test --filter "LayoutShapeTests|TallBarTests"` (which bar a window gets: phones in both orientations,
+every iPad upright, Split View, Slide Over, Stage Manager; the 730/600 boundaries). App-hosted, iPhone Simulator:
+`-only-testing:ScienceReaderTests/PlacesNavigationTests` (the bars' items; the derived highlight for every place, every
+More-opened place and Settings over a screen, in both bars; More's rows; the More list giving way when a window grows
+or turns; one test per route group of the proposal's A.5 table — Paper, Chat, Library, Snippets and Feed, Settings,
+Search with its paper scope; each place's state across bar switches). Slow, opt-in: `ScienceReaderUITests/PlacesBarJourneyTests`
+on one iPhone Simulator (the four items and 🔍, More's list and each row, More highlighted and More again, Settings over
+the list, 🔍 as a place with the keyboard up, Cancel back and the words kept, In this paper from Paper, a phone sideways,
+the largest accessibility text) and one iPad Simulator (a narrow window with the fixture-only `--narrow-window=600`,
+upright ⌘1/⌘5/⌘K/⌘2/⌘, keys, ↓/↑ and Return choosing a search result, 🔍 sideways), with `TEST_RUNNER_GS_SCREENSHOT_DIR`
+for screenshots. In Search, the Simulator didn't deliver `typeKey(.return)` to the field (arrows arrive); press Return
+through the field (`typeText("\n")`). With the on-screen keyboard up the bar hides, so ask the screen
+(`search.field`) rather than `tab.search` after ⌘K. After a change to the bar, More or the places menu, rerun those and the navigation suites whose helpers
+go through More on iPhone (`ReaderMenuSupport.placeItem`, `show`, `openSettingsFromMenu`): `MenusJourneyTests`,
+`IPadShapesJourneyTests`, `TableColumnsTests`, `FeedForYouTests`, `SnippetsFeedbackTests`, `PaperToolsTests`,
+`SettingsTests`, `NotesJourneyTests/testSettingsFromEveryMenuReturnsToItsOrigin`. The Mac's toolbar field and ⌘K are
+checked by building Mac Catalyst (no Catalyst UI-test target).
+
+## Global search — October 25
+
+Fast: Core `swift test --filter "GlobalSearchTests|EverythingBenchTests|FullTextSearchTests|NoteSearchTests"` (tokenizer v2,
+typos, ranking, grouping and collapse, scope, partial results, incremental updates, nothing plaintext on disk, closing,
+recent searches, the sealed ML cache). App-hosted, one Simulator: `-only-testing:ScienceReaderTests/GlobalSearchAppTests`
+and `DeviceSearchTests` (the indexer over real private state, the engine, each result's route, Settings rows exist).
+Slow, opt-in: `-only-testing:ScienceReaderUITests/GlobalSearchJourneyTests` on an iPhone Simulator (six journeys, about
+3 minutes; `testWideShowsTheResultBesideTheList` runs on an iPad, sideways); `TEST_RUNNER_GS_SCREENSHOT_DIR` saves
+`iphone-…`/`ipad-…` screenshots. Launch arguments (Debug, fixture host): `--global-search[=words]`, `--global-search-scoped`
+(In this paper, the open paper), `--search-fixture` (a kept equation explanation). Speed, opt-in, release:
+`swift run -c release FullTextBenchTool everything owner heavy`, or
+`EVERYTHING_BENCH=owner,heavy swift test -c release -Xswiftc -enable-testing --filter EverythingBenchTests` (fails over
+100 ms p95). Rerun `SearchMatchJourneyTests`, `LibraryFullTextJourneyTests` and
+`SnippetsFeedbackTests/testSearchCoversEveryTextOfASnippet` after a tokenizer change.
+
+## Floats before the first section (reader revision 27, device port 15) — October 25
+
+Fast (in `npm test`): `tests/backend/arxiv-float-placement.test.ts` (WorldCast's two front figures, a teaser cited later
+or never, a citing paragraph with a display, order kept and the body's floats not passed, a table float, `\captionof`
+with and without the image shown, a caption-only float that holds the others; the bridge's keywords place; the same rule
+on model-reading blocks). Slow, opt-in: a replay of cached sources against the previous revision
+(`scripts/arxiv-converter-equivalence.mjs --ignore-ids` lists what changed), the fresh-paper sweep, and recorded model
+readings through `scripts/device-route-replay.mjs`. Screenshots: compile `node scripts/reader-device-compile.mjs
+--ids=2610.20731v2 --out=<dir>`, then on an iPhone Simulator
+`-only-testing:ScienceReaderUITests/ReaderNavigationTests/testTestFlight92FigurePlacement` with
+`TEST_RUNNER_READER_SHOT_BUNDLES=<dir>`, `TEST_RUNNER_READER_SHOT_NAME=<prefix>` and `TEST_RUNNER_GS_SCREENSHOT_DIR`
+(skipped without the bundle; about 9 minutes, most of it held drags). Screenshots under `.artifacts/tf92-figures/`.
+
 ## Aligned equations and accents (reader revision 26, device port 14) — October 25
 
 Fast (in `npm test`): `tests/backend/arxiv-equations.test.ts` (LaTeXML align with two column pairs, separately numbered

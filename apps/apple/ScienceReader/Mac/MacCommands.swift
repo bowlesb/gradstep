@@ -64,10 +64,13 @@ struct GradstepCommands: Commands {
         }
 
         // Edit
-        // ⌘F finds in the paper while reading (as in any Mac document) and searches the library elsewhere;
+        // ⌘K searches everything from the toolbar's field (owner, 2026-10-25; GLOBAL_SEARCH_AND_MORE.md A.3, as the
+        // browser's ⌘K). ⌘F finds in the paper while reading (as in any Mac document) and searches the library elsewhere;
         // ⌥⌘F always searches the library (as Mail and Notes do), ⇧⌘F is ML paper search.
         CommandGroup(after: .pasteboard) {
             Section {
+                Button("Search Everything…") { NotificationCenter.default.post(name: MacToolbarController.focusSearch, object: nil) }
+                    .keyboardShortcut("k")
                 if findsInPaper {
                     // The paper view opens it, with its own checks (a readable paper, the selection cleared).
                     Button("Find in Paper…") { MacCommandRequests.shared.findInPaper = UUID() }.keyboardShortcut("f")

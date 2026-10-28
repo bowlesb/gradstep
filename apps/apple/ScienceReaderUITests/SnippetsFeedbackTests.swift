@@ -148,8 +148,9 @@ final class SnippetsFeedbackTests: XCTestCase {
         search("KALEIDO")
         waitFor("Recognised text in an image is searched", timeout: 30) { quick.exists && !group.exists }
         capture("Search: recognised text")
-        // The reading under a drawn region: an equation's LaTeX.
-        search("operatorname")
+        // The reading under a drawn region: an equation's LaTeX (its words: tokenizer v2, 2026-10-25, drops layout
+        // commands such as \operatorname, keeping their arguments).
+        search("softmax")
         waitFor("The equation under the region is searched") { quick.exists && !group.exists }
         // Without the comment's accent, by a word's beginning.
         search("cafe tab")
