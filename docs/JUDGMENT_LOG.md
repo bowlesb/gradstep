@@ -44,6 +44,17 @@ Building 27 (Go deeper on a key concept; CHAT.md "Go deeper on a key concept"; l
 51. **Not built:** the browser (it sends no `paper_concept`; its explainer is unchanged) and deepened concepts in
     Download your assets (the shared export fixture is unchanged). Both are follow-ups.
 
+## 2026-10-28
+
+52. **Astra owns the on-device model track; the Claude lead owns the app, server and releases** (owner: "I'll let
+    you decide"). Working rules are at the top of [AGENT_HANDOFF.md](AGENT_HANDOFF.md). The Claude team's recogniser
+    speed branch goes to Astra as input instead of merging separately. *Why:* both teams were changing the same
+    recogniser cache, which is also what blocks encryption. *Undo:* reassign in the handoff.
+53. **TestFlight 94 reships TestFlight 93's model pack unchanged, in plaintext; any new pack still needs the
+    encryption qualification.** *Why:* since 0eb82b00 every upload required a passing encrypted-pack check, which fails
+    until the recogniser encrypts, so no app fix could ship; 93's pack is already public, so nothing new is exposed.
+    *Undo:* remove the reship mode from the upload scripts.
+
 ## 2026-10-25
 
 43. **A figure printed before the Introduction reads after the paragraph that first cites it** (owner, TestFlight 92,
