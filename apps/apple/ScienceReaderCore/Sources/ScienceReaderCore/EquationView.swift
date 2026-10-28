@@ -282,6 +282,22 @@ public final class EquationResultStore: @unchecked Sendable {
     /// the file's own name, so each file is checked against the name it is kept under.
     public func all<Value: Decodable>(as type: Value.Type) -> [Value] { entries(as: type).map(\.value) }
 
+    /// An answer written again under the file it was read from (`entries(as:)`): a paper's explainer gains a deepened
+    /// concept in the file that holds it, whichever profile it was kept under.
+    public func write(_ answer: any Encodable, fileName: String) throws {
+        guard fileName.hasSuffix(".sealed"), !fileName.contains("/") else { throw ReaderError.invalidEvent }
+        lock.lock(); defer { lock.unlock() }
+        let data = try JSONEncoder().encode(answer)
+        guard data.count <= 1_000_000, let sealed = try AES.GCM.seal(data, using: key, authenticating: aad(fileName: fileName)).combined else {
+            throw ReaderError.invalidEvent
+        }
+        var options: Data.WritingOptions = [.atomic]
+        #if os(iOS)
+        options.insert(.completeFileProtection)
+        #endif
+        try sealed.write(to: directory.appendingPathComponent(fileName), options: options)
+    }
+
     /// `all(as:)` with each answer's file name, to read it again by name (`read(fileName:as:)`).
     public func entries<Value: Decodable>(as type: Value.Type) -> [(fileName: String, value: Value)] {
         lock.lock(); defer { lock.unlock() }

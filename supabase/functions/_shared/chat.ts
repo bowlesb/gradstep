@@ -18,6 +18,8 @@ import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP
 import { legacyStudyMap, STUDY_INSTRUCTIONS, STUDY_STATE_LIMITS, studyState, StudyStateFilter, studyStateForPrompt, studyStateFromText, type StudyState } from './chat-study.ts';
 import { PAPER_EXPLAINER_INSTRUCTIONS, paperExplainer, paperExplainerJSON, paperExplainerMaxTokens, PaperExplainerStream, paperExplainerText,
   type PaperExplainer, type PaperExplainerItem, type PaperExplainerKind, type PaperExplainerStreamItem } from './chat-paper-explainer.ts';
+import { PAPER_CONCEPT_INSTRUCTIONS, paperConcept, paperConceptJSON, paperConceptMaxTokens, PaperConceptStream, paperConceptText,
+  type PaperConcept, type PaperConceptSection, type PaperConceptStreamItem } from './chat-paper-concept.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { freeModel, switchRefusal, type AiSwitches } from './ai-switches.ts';
 import { FALLBACK_FIRST_DATA_MS, FALLBACK_MODELS, fallbackEligible, fallbackParams } from './chat-fallback.ts';
@@ -161,12 +163,15 @@ export const CHARGED_ENDINGS: readonly ChatEnding[] = ['completed', 'stopped', '
 const LIMIT_STOP_REASONS: readonly string[] = ['max_tokens', 'model_context_window_exceeded'];
 /** A Stop's record (v1_chat_stop) may still be on its way when the stream closes: one more look after this long. */
 export const STOP_GRACE_MS = 1_500;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'figure_detail' | 'paper_explainer';
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'figure_detail' | 'paper_explainer' | 'paper_concept';
 // `figure_detail` is deprecated (2026-10-21): accepted from older builds only; remove once no supported build sends it
 // (chat-figure-view.ts FIGURE_ACTIONS).
-const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler', 'figure_detail', 'paper_explainer'];
+const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler', 'figure_detail', 'paper_explainer', 'paper_concept'];
+/** The paper's AI Explainer and "Go deeper" on one of its key concepts (`paper_concept`, chat-paper-concept.ts): one JSON
+ * object on the whole numbered paper, settled as an answer. */
+const isPaperExplainerAction = (action: ChatAction | null) => action === 'paper_explainer' || action === 'paper_concept';
 /** The equation, figure and paper explainers: no conversation (one turn, no title, no suggestions), and no tool result relayed. */
-const isViewAction = (action: ChatAction | null) => isEquationAction(action) || isFigureAction(action) || action === 'paper_explainer';
+const isViewAction = (action: ChatAction | null) => isEquationAction(action) || isFigureAction(action) || isPaperExplainerAction(action);
 /** The hidden notes a device sends back with a Study turn: an object, at most this many bytes as JSON. */
 export const MAX_STUDY_STATE_BYTES = STUDY_STATE_LIMITS.bytes;
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
@@ -235,6 +240,10 @@ export function validateChatRequest(input: unknown): ChatRequest {
     } else if (action === 'paper_explainer') {
       // The paper's AI Explainer: the whole numbered paper on the device, one turn, no passage.
       if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2' || selection !== null || turns.length !== 1) invalid();
+    } else if (action === 'paper_concept') {
+      // Go deeper on one of its key concepts: the whole numbered paper on the device, one turn, the concept as the passage
+      // (its name, kind, the explainer's line and the paragraphs it linked: ChatGenerationRequest.paperConcept).
+      if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2' || selection === null || turns.length !== 1) invalid();
     } else if (isViewAction(action)) {
       // The equation view: the tapped equation in the numbered paper on the device, one turn (EQUATION_VIEW.md). The
       // figure view: the figure's caption (or, to explain one part more simply, that part's text), one turn (FIGURE_VIEW.md).
@@ -284,8 +293,8 @@ export function validateChatRequest(input: unknown): ChatRequest {
   if (figures!.length && (!namesFigures(consentVersion) || mode !== 'paper' || action === 'ingest' || action === 'diagram_fix' || isEquationAction(action))) invalid();
   // The figure view: exactly that figure's image, from a build that has the view (its chats carry the walkthrough tool).
   if (isFigureAction(action) && (figures!.length !== 1 || !capabilities.includes(FIGURE_VIEW_CAPABILITY))) invalid();
-  // The paper's explainer carries no figure.
-  if (action === 'paper_explainer' && figures!.length) invalid();
+  // The paper's explainer, and a concept of it, carry no figure.
+  if (isPaperExplainerAction(action) && figures!.length) invalid();
   return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, visuals, figures: figures!, choice, topicTitle, followUps,
     ...(localContext ? { localContext } : {}), ...(notes ? { studyState: notes } : {}), ...(legacyStudy ? { legacyStudy } : {}) };
 }
@@ -409,7 +418,7 @@ export function chatInstructionParts(mode: 'paper' | 'general', action: ChatActi
     : `${visuals ? `${DIAGRAM_INSTRUCTIONS}\n\n${VISUAL_INSTRUCTIONS}` : NO_VISUAL_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
   const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS
     : action === 'study' ? (options.studyState ? `${STUDY_INSTRUCTIONS}\n\n${studyStateForPrompt(options.studyState)}` : STUDY_INSTRUCTIONS)
-    : action === 'paper_explainer' ? PAPER_EXPLAINER_INSTRUCTIONS
+    : action === 'paper_explainer' ? PAPER_EXPLAINER_INSTRUCTIONS : action === 'paper_concept' ? PAPER_CONCEPT_INSTRUCTIONS
     : action === 'equation' ? EQUATION_INSTRUCTIONS : action === 'equation_background' ? EQUATION_BACKGROUND_INSTRUCTIONS
     : action === 'figure' ? FIGURE_INSTRUCTIONS : action === 'figure_simpler' ? FIGURE_SIMPLER_INSTRUCTIONS
     : action === 'figure_detail' ? FIGURE_DETAIL_INSTRUCTIONS : null;
@@ -558,6 +567,11 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'paper_summary'; data: { summary: string } }
   | { event: 'paper_item'; data: { kind: PaperExplainerKind; index: number; item: PaperExplainerItem } }
   | { event: 'paper_explainer'; data: PaperExplainer }
+  /** "Go deeper" on one key concept (chat-paper-concept.ts): where the model is, each section as it is complete (checked as
+   * the final concept checks it; `index` is its place there), then the whole concept. */
+  | { event: 'concept_progress'; data: { stage: 'reading' | 'writing'; characters?: number; parts?: number } }
+  | { event: 'concept_section'; data: { index: number; section: PaperConceptSection } }
+  | { event: 'paper_concept'; data: PaperConcept }
   /** The equation view's checked symbols (EQUATION_VIEW.md), sent once before `done`: all of them, also after they were
    * streamed (the record a device keeps; builds before streaming read only this). */
   | { event: 'equation'; data: EquationSymbols }
@@ -691,7 +705,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // Gemini Flash answers at low unless the question asks for reasoning (chat-profiles.ts geminiEffort, 2026-10-25); the
   // equation's background and a Study turn keep the medium they were measured at (their own instructions ask for
   // intuition, worked examples and a tutor's step, whatever the question's words).
-  const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler' || request.action === 'equation' || request.action === 'paper_explainer')
+  const choice = resolved && (request.action === 'figure' || request.action === 'figure_simpler' || request.action === 'equation' || isPaperExplainerAction(request.action))
     ? { ...resolved, effort: figureViewEffort(request.choice, resolved.effort) }
     : resolved?.model === 'gemini' && (request.action === 'equation_background' || request.action === 'study') ? { ...resolved, effort: 'medium' as const } : resolved;
   const profile = resolveProfile(choice);
@@ -700,8 +714,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (profile.model === 'deepseek' && request.consentVersion !== ROUTER_CONSENT_VERSION) {
     await admitted(); throw new ChatFailure('consent_required');
   }
-  // Ingest, Why it matters (the paper only), Study and the paper's explainer (the paper only) and diagram repairs never search.
-  const search = !['ingest', 'relevance', 'diagram_fix', 'study', 'paper_explainer'].includes(request.action ?? '') && deps.webSearch === true;
+  // Ingest, Why it matters (the paper only), Study, the paper's explainer and its concepts (the paper only) and diagram
+  // repairs never search.
+  const search = !['ingest', 'relevance', 'diagram_fix', 'study', 'paper_explainer', 'paper_concept'].includes(request.action ?? '') && deps.webSearch === true;
   // Our search_web tool (Tavily), when its consent is given and it is ready (checked while the paper loads).
   const tavilyReady = search && namesTavily(request.consentVersion) && deps.search
     ? deps.search.ready().catch(() => false) : Promise.resolve(false);
@@ -749,13 +764,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const detailOnly = request.action === 'figure_detail';
   // The paper's explainer is one JSON object in the reply, read as it arrives and relayed entry by entry.
   const explainerOnly = request.action === 'paper_explainer';
-  const heldBack = symbolsOnly || walkthroughOnly || detailOnly || explainerOnly;
+  // One of its key concepts, deeper: one JSON object in the reply, read as it arrives and relayed section by section.
+  const conceptOnly = request.action === 'paper_concept';
+  const heldBack = symbolsOnly || walkthroughOnly || detailOnly || explainerOnly || conceptOnly;
   // Flash counts reasoning against max_tokens: the live DPO symbol request used the old 2,000-token
   // allowance before completing its JSON. Keep the answer allowance plus the profile's reasoning room.
   const symbolTokens = EQUATION_MAX_TOKENS + (profile.model === 'gemini' ? EFFORTS.find(e => e.id === profile.effort)!.thinkingTokens : 0);
   // The resolved profile (above); a repair always uses the default model with its own small allowance.
   const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? symbolTokens : walkthroughOnly ? figureMaxTokens(profile.effort)
-    : detailOnly ? figureDetailMaxTokens(profile.effort) : explainerOnly ? paperExplainerMaxTokens(profile.effort) : profile.maxTokens;
+    : detailOnly ? figureDetailMaxTokens(profile.effort) : explainerOnly ? paperExplainerMaxTokens(profile.effort)
+    : conceptOnly ? paperConceptMaxTokens(profile.effort) : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
     { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, studyState: request.studyState ?? null });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
@@ -770,7 +788,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     && request.capabilities.includes(FIGURE_VIEW_CAPABILITY);
   const figureView = isFigureAction(request.action);
   // The figure view's own instructions say how to read its figure; the chat's figure instructions (parts) do not apply.
-  const trailing = [instructions.action, figureView || explainerOnly ? null : figureInstructions(request.figures, offersParts, offersLook),
+  const trailing = [instructions.action, figureView || explainerOnly || conceptOnly ? null : figureInstructions(request.figures, offersParts, offersLook),
     repair || study || heldBack ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens, figures: request.figures.length ? figureBlocks(request.figures) : undefined,
@@ -821,7 +839,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The paper's explainer on Gemini at low effort asks for minimal reasoning: at low the first words came after 1.5–34 s
   // (a long tail with no reasoning tokens billed), at minimal after 2.1–3.3 s in every run, with the same entries, links
   // and length (CHAT.md "Paper AI Explainer", "Speed"). The prompt cache is unaffected (the prefix is unchanged).
-  if (explainerOnly && profile.model === 'gemini' && profile.effort === 'low') params.output_config = { ...params.output_config, effort: 'minimal' };
+  if ((explainerOnly || conceptOnly) && profile.model === 'gemini' && profile.effort === 'low') params.output_config = { ...params.output_config, effort: 'minimal' };
   // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
   const hold = holdForParams(params);
   // The answer's fallback (chat-fallback.ts): only where the owner's switches, free credits and the price cards allow it
@@ -897,7 +915,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The streamed walkthrough (FIGURE_VIEW.md "Streamed walkthrough"): the model writes it as JSON in its reply (or, as
   // before, in a figure_walkthrough call); each is read as it arrives, and the summary and every complete part, checked
   // exactly as the final walkthrough is, go to the device at once. Only one source is relayed (the first to yield).
-  const paragraphs = isFigureAction(request.action) || offersWalkthrough || explainerOnly || study ? paragraphCount(paper?.text ?? '') : 0;
+  const paragraphs = isFigureAction(request.action) || offersWalkthrough || explainerOnly || conceptOnly || study ? paragraphCount(paper?.text ?? '') : 0;
   const walkStreams = walkthroughOnly ? { text: new FigureWalkthroughStream(paragraphs), tool: new FigureWalkthroughStream(paragraphs) } : null;
   // Assigned in the stream's callbacks (declared wide so the checks after the answer see every value).
   let walkSource = null as 'text' | 'tool' | null, progressAt = -Infinity, firstPartMs = null as number | null;
@@ -938,6 +956,23 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   };
   if (explainerStream && !signal.aborted) emit({ event: 'paper_progress', data: { stage: 'reading' } });
+  // One concept, deeper (as the explainer): each complete section goes at once, with where the writing is.
+  const conceptStream = conceptOnly ? new PaperConceptStream(paragraphs) : null;
+  let conceptProgressAt = -Infinity, firstSectionMs = null as number | null;
+  const relayConcept = (piece: string) => {
+    if (!conceptStream) return;
+    const items: PaperConceptStreamItem[] = conceptStream.push(piece);
+    if (signal.aborted) return;
+    for (const item of items) {
+      if (item.kind === 'section') { firstSectionMs ??= now() - generationStarted; emit({ event: 'concept_section', data: { index: item.index, section: item.section } }); }
+    }
+    const counted = items.some(i => i.kind === 'parts');
+    if (conceptStream.length && (counted || now() - conceptProgressAt >= 400)) {
+      conceptProgressAt = now();
+      emit({ event: 'concept_progress', data: { stage: 'writing', characters: conceptStream.length, ...(conceptStream.parts ? { parts: conceptStream.parts } : {}) } });
+    }
+  };
+  if (conceptStream && !signal.aborted) emit({ event: 'concept_progress', data: { stage: 'reading' } });
   // Study mode: the tutor's hidden notes are removed from what the reader is sent (chat-study.ts StudyStateFilter).
   const notesFilter = study ? new StudyStateFilter() : null;
   // The streamed equation symbols (EQUATION_VIEW.md "Streamed explanation"): the same reader over the reply's JSON; the
@@ -969,14 +1004,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: raw => { const text = notesFilter ? notesFilter.push(raw) : raw;
         if (text.trim()) { wroteText = true; firstTextMs ??= now() - generationStarted; } answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
-        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); if (explainerOnly) relayExplainer(text); else { relayWalk('text', text); relaySymbols(text); } return; }
+        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); if (explainerOnly) relayExplainer(text); else if (conceptOnly) relayConcept(text); else { relayWalk('text', text); relaySymbols(text); } return; }
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       ...(walkStreams ? { onToolInput: (call: { index: number; name: string }, piece: string) => {
         if (call.name === FIGURE_WALKTHROUGH_TOOL.name) relayWalk('tool', piece);
       } } : {}),
       // The model's own progress (`waiting` while nothing has come back, then `thinking`: openrouter-chat.ts) is said under
-      // an answer; the equation, figure and explainer views show their own progress instead.
-      onStatus: heldBack ? next => { if (next.kind !== 'waiting' && next.kind !== 'thinking') status(next); } : status,
+      // an answer; the equation, figure and explainer views show their own progress instead. A concept's card says
+      // "Still waiting for the model…" in its bar (its writing is its own progress, so not `thinking`).
+      onStatus: heldBack ? next => { if ((next.kind !== 'waiting' || conceptOnly) && next.kind !== 'thinking') status(next); } : status,
     }, { tavily, cap: searchCap }, stats, fallback);
     leftDuringAnswer = signal.aborted;
     answerMs = now() - generationStarted;
@@ -1048,13 +1084,18 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const explained = !explainerOnly ? null : (explainerInput !== undefined ? paperExplainer(explainerInput, paragraphs) : null) ?? explainerStream!.explainer();
   const explainerWords = explainerOnly && !explained
     ? ((explainerInput !== undefined ? paperExplainerText(explainerInput, paragraphs) : '') || (/^\s*(?:```\w*\s*)?\{/.test(heldText) ? '' : heldText.trim())).slice(0, 12_000) : '';
+  // One concept, deeper: as the explainer (the JSON, else the sections that streamed, else its words).
+  const conceptInput = conceptOnly ? paperConceptJSON(heldText) : undefined;
+  const deepened = !conceptOnly ? null : (conceptInput !== undefined ? paperConcept(conceptInput, paragraphs) : null) ?? conceptStream!.concept();
+  const conceptWords = conceptOnly && !deepened
+    ? ((conceptInput !== undefined ? paperConceptText(conceptInput, paragraphs) : '') || (/^\s*(?:```\w*\s*)?\{/.test(heldText) ? '' : heldText.trim())).slice(0, 12_000) : '';
   const detailWords = detailOnly && !detail
     ? ((walkthroughCall ? figureWalkthroughText(walkthroughCall.input, paragraphs) : '') || heldText.trim()).slice(0, 6_000) : '';
   // How the answer ended decides whether the reader pays (owner decision 2026-10-16, CHAT.md "When an answer stops
   // early"): work that finished, or the part the reader chose to stop. Anything else that ended it costs them nothing.
   // The figure view delivers only what it shows: a walkthrough or words (its tool calls are never relayed otherwise).
   const showsWork = symbolsOnly ? !!described || !!symbolWords : walkthroughOnly ? !!walkthrough || !!walkthroughWords : detailOnly ? !!detail || !!detailWords
-    : explainerOnly ? !!explained || !!explainerWords : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
+    : explainerOnly ? !!explained || !!explainerWords : conceptOnly ? !!deepened || !!conceptWords : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
   const ending = await answerEnding(deps, request, answer, { readerLeft: leftDuringAnswer, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
   // Provider spend (the platform budget): OpenRouter's cost of every attempt. Tavily searches within its prepaid plan
@@ -1082,10 +1123,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const absorbed = credits > 0 ? Math.max(0, actual - Math.ceil(delivered)) : actual;
   if (credits > 0 && priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
   else if (credits > 0 && creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
-  // The paper's explainer settles as an answer (the settlement check's actions are fixed by migration 083; it needs no
-  // migration of its own: chat_answer logs carry `paper_explainer`, and cost reports count both as chat).
+  // The paper's explainer and its concepts settle as answers (the settlement check's actions are fixed by migration 083;
+  // they need no migration of their own: chat_answer logs carry `paper_explainer` / `paper_concept`, and cost reports
+  // count them as chat; the apps name them from what the device recorded, AIUsage.swift).
   const settledAs = await settle(deps, request.operationID, { credits, microusd: actual,
-    action: request.action === 'paper_explainer' ? 'answer' : request.action ?? 'answer', ending, absorbed });
+    action: isPaperExplainerAction(request.action) ? 'answer' : request.action ?? 'answer', ending, absorbed });
   // A23: the reader is told what was recorded. A settlement the database refused, or one that could not be confirmed and
   // reads back unsettled, is settled later by the stale sweep as our server's ending, charging nothing.
   const reported = settledAs === 'settled' ? { credits, charged } : await settlementReadback(deps, request.operationID);
@@ -1163,7 +1205,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       }
     }
     // A figure request: the device attaches that figure and asks again (only when none was attached; never twice).
-    const look = offersLook && !request.figures.length && !isEquationAction(request.action) && !explainerOnly ? outcome.toolCalls?.find(c => c.name === 'look_at_figure') : undefined;
+    const look = offersLook && !request.figures.length && !isEquationAction(request.action) && !explainerOnly && !conceptOnly ? outcome.toolCalls?.find(c => c.name === 'look_at_figure') : undefined;
     if (look) {
       const wanted = figureLookRequest(look.input);
       deps.log({ event: wanted ? 'chat_figure_request' : 'chat_figure_request_invalid_input', operation_id: request.operationID });
@@ -1220,6 +1262,14 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         streamed: explainerStream!.count, first_item_ms: firstItemMs });
       if (explained) emit({ event: 'paper_explainer', data: explained });
       else if (explainerWords) emit({ event: 'delta', data: { text: explainerWords } });
+    }
+    // One concept, deeper: checked, relayed once (format paper-concept-v1); without one, its words.
+    if (conceptOnly && !signal.aborted) {
+      deps.log({ event: deepened ? 'chat_paper_concept' : 'chat_paper_concept_invalid_output', operation_id: request.operationID,
+        sections: deepened?.sections.length ?? 0, places: deepened?.sections.reduce((n, s) => n + (s.places?.length ?? 0), 0) ?? 0,
+        streamed: conceptStream!.items.length, first_section_ms: firstSectionMs });
+      if (deepened) emit({ event: 'paper_concept', data: deepened });
+      else if (conceptWords) emit({ event: 'delta', data: { text: conceptWords } });
     }
     // Follow-up questions: relayed once, never stored (chat-follow-ups.ts; counted in chat_answer).
     if (suggested?.questions && !signal.aborted) emit({ event: 'followups', data: { questions: suggested.questions } });

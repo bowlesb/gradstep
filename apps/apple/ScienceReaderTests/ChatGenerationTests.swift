@@ -951,6 +951,82 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(sequence, .valid)
     }
 
+    /// Go deeper on a key concept (JUDGMENT_LOG 27): one request at the explainer's AI with the concept as its passage,
+    /// streamed into its card (with the waiting notice), kept with the explainer (the overview's mark), and opened again —
+    /// the same card while the explainer is open, the kept one after it reopens — without another request.
+    func testAConceptGoesDeeperOnceAndReopensFromWhatIsKept() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        transport.profiles = ScriptedChatTransport.table
+        model.refreshChatProfiles()
+        try await waitUntil("profile table loaded") { model.chatProfileTable != nil }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/package.json")))
+        let local = try LocalPaperChatContext(reference: try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2), bundle: bundle)
+        let context = PaperExplainerContext(paperID: UUID(), title: "Fixture paper", bundle: bundle, localContext: local)
+        let explainer = PaperExplainer(summary: "S.", background: [.init(id: "b1", name: "HTML documents", line: "Nested elements.", paragraphs: [4])],
+                                       ideas: [.init(id: "i1", name: "Numbered blocks", line: "", paragraphs: [4])], links: [])
+        model.keepPaperExplainerAnswer(PaperExplainerAnswer(explainer: explainer, model: "gemini-3.8-flash"),
+                                       for: PaperExplainerKey(manifestSHA256: bundle.manifestSHA256, profile: model.equationProfile))
+        let session = PaperExplainerSession(context: context, model: model)
+        session.start(requesting: false)
+        XCTAssertEqual(session.state, .done)
+        XCTAssertTrue(session.deepened.isEmpty)
+
+        let card = session.concept(explainer.background[0], kind: .background)
+        XCTAssertEqual(card.state, .idle, "nothing is asked until the card opens")
+        card.start()
+        try await waitUntil("concept requested") { transport.requests.count == 1 }
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.action, .paperConcept)
+        XCTAssertEqual(request.profile, model.equationProfile, "the explainer's AI")
+        XCTAssertEqual(request.selection, PaperConcept.selection(explainer.background[0], kind: .background))
+        XCTAssertEqual(request.usageItemID, "b1", "Your AI usage links to this concept")
+        XCTAssertEqual(AIUsageProvenance(request).action, "paper_concept")
+        transport.send(.conceptProgress(.init(stage: .reading)), .status(ChatProgress(kind: .waiting)))
+        try await waitUntil("waiting said in the bar") { card.progress?.label == "Still waiting for the model…" }
+        let section = PaperConcept.Section(kind: "what", title: "What it is", text: "Nested elements [¶4].", paragraphs: [4])
+        transport.send(.conceptProgress(.init(stage: .writing, characters: 300, parts: 2)), .conceptSection(index: 0, section: section))
+        try await waitUntil("the first section shows as it is written") { card.concept?.sections.count == 1 }
+        XCTAssertEqual(card.state, .loading)
+        let final = PaperConcept(sections: [section, .init(kind: "where", title: "Where it appears", text: "", places: [.init(paragraph: 4, note: "Defined")])])
+        transport.send(.paperConcept(final), .done(stopReason: "end_turn", credits: 2, model: "claude-haiku-5-5", profile: nil))
+        transport.end()
+        try await waitUntil("done") { card.state == .done }
+        XCTAssertEqual(card.concept, final)
+        XCTAssertEqual(card.answeredModel, "claude-haiku-5-5", "labelled with the model that wrote it (the fallback here)")
+        XCTAssertEqual(session.deepened, ["b1"], "the overview's mark")
+        XCTAssertTrue(session.concept(explainer.background[0], kind: .background) === card, "the same card while the explainer is open")
+
+        // The explainer opened again: the mark and the kept card, without a request.
+        let reopened = PaperExplainerSession(context: context, model: model)
+        reopened.start(requesting: false)
+        XCTAssertEqual(reopened.deepened, ["b1"])
+        let again = reopened.concept(explainer.background[0], kind: .background)
+        XCTAssertEqual(again.state, .done)
+        XCTAssertTrue(again.fromKept)
+        XCTAssertEqual(again.concept, final)
+        again.start()
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(transport.requests.count, 1, "reopening is free")
+        XCTAssertEqual(reopened.entry("b1")?.kind, .background)
+        // Another concept is its own request.
+        let idea = reopened.concept(explainer.ideas[0], kind: .idea)
+        idea.start()
+        try await waitUntil("a second concept asks") { transport.requests.count == 2 }
+        XCTAssertTrue(transport.requests[1].selection?.contains("Kind: one of this paper's own ideas") == true)
+        reopened.stop()
+    }
+
+    /// TestFlight 93 ("The space at the top isn't that well used"): the explainer's header is two short lines in the sheet's
+    /// bar, and the overview starts right under it.
+    func testTheExplainersHeaderIsCompact() {
+        XCTAssertTrue(PaperExplainerHeader.inBar)
+        XCTAssertEqual(PaperExplainerHeader.lines, 2)
+        XCTAssertEqual(PaperExplainerHeader.titleLineLimit, 1)
+        XCTAssertLessThanOrEqual(PaperExplainerHeader.contentTopPadding, 8)
+        XCTAssertEqual(PaperExplainerHeader.label(model: "Gemini 3.8 Flash"), "AI Explainer · Gemini 3.8 Flash")
+    }
+
     /// Hosts the real chat screen and records screenshots of each answer phase.
     func testChatScreenPresentsThinkingStreamingStopAndIssues() async throws {
         let (model, transport) = try await makeModel(consented: false)

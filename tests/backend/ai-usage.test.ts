@@ -44,8 +44,9 @@ test('every chat action the function accepts has an activity', () => {
   const actions = [...(/const CHAT_ACTIONS: readonly string\[\] = \[([^\]]*)\]/.exec(chat)![1]).matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
   assert.ok(actions.length >= 10);
   const named = quoted(activityFn);
-  // The paper's AI Explainer settles as an answer (chat_endings.action 'answer', no migration), so it is listed as Chat.
-  const COUNTED_AS_CHAT = ['paper_explainer'];
+  // The paper's AI Explainer and Go deeper on one of its concepts settle as answers (chat_endings.action 'answer', no
+  // migration), so the server lists them as Chat; the apps name them from what the device recorded (AIUsage.swift).
+  const COUNTED_AS_CHAT = ['paper_explainer', 'paper_concept'];
   for (const action of actions) assert.ok(named.has(action) || COUNTED_AS_CHAT.includes(action), `chat action ${action}`);
   // And how a settled chat names itself (chat_endings.action).
   for (const action of latestCheck('action', 'chat_endings_action_check')) if (!['answer', 'unknown'].includes(action)) assert.ok(named.has(action), `ending action ${action}`);

@@ -124,6 +124,8 @@ extension ReaderModel {
 
     private static func explanationLinkTitle(_ action: String) -> String {
         if action == ChatAction.paperExplainer.rawValue { return "Open AI Explainer" }
+        // Go deeper on a concept: the explainer with that concept's kept card in front.
+        if action == ChatAction.paperConcept.rawValue { return "Open concept" }
         return action.hasPrefix("equation") ? "Open equation" : "Open figure"
     }
 

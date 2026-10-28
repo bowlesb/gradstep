@@ -19,7 +19,10 @@ import ScienceReaderCore
 /// Study turns (action `study`) are answered in every mode: a tutor's question, its hidden notes sent only as
 /// `study_state` (never in the text). The paper's AI Explainer (action `paper_explainer`) is answered in every mode,
 /// streamed as the server streams it (`--paper-fixture-step-ms=<n>` slows it; `--paper-fixture-words` sends words
-/// instead of an explainer; `--paper-fixture-fail` fails it, not charged).
+/// instead of an explainer; `--paper-fixture-fail` fails it, not charged). Go deeper on one of its concepts (action
+/// `paper_concept`) is answered in every mode too, streamed section by section at the same step; each section's text names
+/// how many concept requests this launch has answered ("fixture request N"), so a journey can tell a kept card from a new
+/// request.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 /// Answers report their model and profile and, when asked, a topic title (server 2026-10-08);
 /// `--chat-fixture-no-profiles` behaves like a server without them.
@@ -244,6 +247,22 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
                     }
+                    if request.action == .paperConcept {
+                        let number = Self.conceptRequests.next()
+                        let name = (request.selection ?? "").split(separator: "\n").first.map { String($0.dropFirst("Concept: ".count)) } ?? "this concept"
+                        let concept = Self.paperConcept(name: name, request: number)
+                        try await Task.sleep(for: .milliseconds(300))
+                        continuation.yield(.conceptProgress(.init(stage: .reading)))
+                        for (index, section) in concept.sections.enumerated() {
+                            try await Task.sleep(for: Self.paperStep)
+                            continuation.yield(.conceptProgress(.init(stage: .writing, characters: 400 * (index + 1), parts: concept.sections.count)))
+                            continuation.yield(.conceptSection(index: index, section: section))
+                        }
+                        try await Task.sleep(for: Self.paperStep)
+                        continuation.yield(.paperConcept(concept))
+                        continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
+                        continuation.finish(); return
+                    }
                     if request.action == .equation {
                         if Self.equationOldServer { try await Task.sleep(for: Self.equationStep * 3) } else { try await Self.streamSymbols(Self.equationSymbols, continuation) }
                         continuation.yield(.equation(Self.equationSymbols))
@@ -390,6 +409,24 @@ struct ChatFixtureTransport: ChatTransport {
             .init(id: "i2", name: "Grounded answers", line: "Answers cite the numbered blocks they rely on.", paragraphs: [6])],
         links: [.init(from: "b1", to: "i1", label: "is split into"), .init(from: "b2", to: "i1", label: "becomes one of"),
                 .init(from: "b3", to: "i2", label: "shapes"), .init(from: "i1", to: "i2", label: "makes possible")])
+    /// One concept of the fixture paper, deeper: four sections citing its numbered blocks and where it appears.
+    static func paperConcept(name: String, request: Int) -> PaperConcept {
+        PaperConcept(sections: [
+            .init(kind: "what", title: "What it is", text: "\(name), in this short paper, is how the reader keeps a paper’s blocks [¶4]. Fixture request \(request); no AI request was made.", paragraphs: [4]),
+            .init(kind: "why", title: "Why this paper needs it", text: "Answers point at a passage only when its blocks are kept and numbered [¶4][¶6].", paragraphs: [4, 6]),
+            .init(kind: "example", title: "A small example", text: "A figure and its caption become one block, \\(b_6\\), that an answer can cite [¶6].", paragraphs: [6]),
+            .init(kind: "paper", title: "How the paper uses it", text: "The reader numbers every block and the answers cite them [¶4].", paragraphs: [4]),
+            .init(kind: "where", title: "Where it appears", text: "", paragraphs: [4, 6],
+                  places: [.init(paragraph: 4, note: "Blocks are numbered"), .init(paragraph: 6, note: "A figure with its caption")]),
+        ])
+    }
+    /// Concept requests this launch answered (the fixture's own count: a kept card asks nothing).
+    static let conceptRequests = RequestCounter()
+    final class RequestCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func next() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
+    }
     static var paperWords: Bool { ProcessInfo.processInfo.arguments.contains("--paper-fixture-words") }
     static var paperFail: Bool { ProcessInfo.processInfo.arguments.contains("--paper-fixture-fail") }
     static var paperStep: Duration {

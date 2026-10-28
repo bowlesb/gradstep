@@ -170,16 +170,22 @@ public extension ChatGenerationRequest {
     }
 }
 
-/// What the device keeps of one explainer (not synced, not chat history): the explainer or the words sent instead.
+/// What the device keeps of one explainer (not synced, not chat history): the explainer or the words sent instead, and the
+/// concepts deepened from it ("Go deeper", 2026-10-25), sealed in the same file so reopening one is free.
 public struct PaperExplainerAnswer: Codable, Equatable, Sendable {
     public var explainer: PaperExplainer?
     public var text: String
     public var model: String?
     /// What it explains, for Settings › Your assets (action `paper_explainer`, item "paper").
     public var subject: ExplanationSubject?
-    public init(explainer: PaperExplainer? = nil, text: String = "", model: String? = nil, subject: ExplanationSubject? = nil) {
-        self.explainer = explainer; self.text = text; self.model = model; self.subject = subject
+    /// Each deepened concept by its entry's id (PaperExplainer.Item.id); absent in explainers kept before 2026-10-25.
+    public var concepts: [String: PaperConceptAnswer]?
+    public init(explainer: PaperExplainer? = nil, text: String = "", model: String? = nil, subject: ExplanationSubject? = nil,
+                concepts: [String: PaperConceptAnswer]? = nil) {
+        self.explainer = explainer; self.text = text; self.model = model; self.subject = subject; self.concepts = concepts
     }
+    /// The entries already deepened (the overview's quiet mark).
+    public var deepened: Set<String> { Set((concepts ?? [:]).keys) }
 }
 
 /// One kept explainer: the paper revision (bundle manifest) and the chat profile.
