@@ -6,6 +6,13 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+60. **Deleted the retired 27B local-AI model (15 GB) and stale build folders (4 GB)** from `.artifacts` after the repo
+    review found the disk 96 % full. The model was never qualified and is pinned in `tests/local-ai/candidates.json`, so
+    it can be downloaded again; nothing else referenced the folders. *Undo:* re-download via `scripts/local-model-eval.mjs`.
+61. **Numbers are handed out by the lead when dispatching work** (judgment-log entries and migration numbers; Astra asks
+    the lead), reader/device revisions stay "claim at merge", and `docs/JUDGMENT_LOG.md` merges with `merge=union`.
+    *Why:* 3 judgment-number collisions and repeated migration renumbering in 10 days. *Undo:* drop the rule.
+
 59. **Unavailable device-PDF equations show plain words when their source crop cannot be shown** (Astra source
     fix on `codex/device-pdf-focus-20261028`; awaiting the lead's compiler rebuild and integration). The label is
     `Equation in PDF (transcription unavailable)`. Keep the exact old sentinel in equation metadata and admit only

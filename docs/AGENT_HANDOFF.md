@@ -28,6 +28,8 @@ own sub-agents). This section is the contract; read it before anything else in t
    interface or navigation, the website or privacy page, or anything deployed. If you change one, say the effect on
    others in one sentence at the top of your handoff note.
 4. Version numbers (reader revision, device port revision): take the next number only at merge time (main + 1).
+   Judgment-log entries and migration numbers are handed out by the lead when work is dispatched; Astra asks the
+   lead for one. Releases are tagged `tf-N`.
 5. Machine: heavy work on the desktop (`192.168.1.32:/home/ben/science-reader-training`). On this Mac take
    `mkdir /Users/benbowlwes/gradstep-mac/.coreml-lock` for every Core ML run, keep at most 5 GB of new evidence under
    `.artifacts` (move the rest to the desktop), and at most one booted Simulator.
