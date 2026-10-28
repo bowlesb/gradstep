@@ -29,21 +29,29 @@ async function identity(deps: SpendingDependencies, route: Route, ordinal: numbe
 }
 
 /** Whether the database granted this send; `reason` is its refusal (`operation_ceiling`: the request no longer fits the
- * operation's hold), null when granted or when the admission itself could not be read. */
+ * operation's hold), null when granted or when the admission itself could not be read. `after`: a fallback's first request
+ * names the attempt it follows, and the database carries that attempt's ceiling for Gradstep when it was silent
+ * (migration 0163: `carried` µ$, or why the month could not take it). */
 async function admission(deps: SpendingDependencies, attempt: Awaited<ReturnType<typeof identity>>, provider: string,
-  route: Route, model: string, ceiling: number, units: Units, dispatch?: OpenRouterDispatch): Promise<{ granted: boolean; reason: string | null; dispatched: boolean }> {
+  route: Route, model: string, ceiling: number, units: Units, dispatch?: OpenRouterDispatch, after?: string)
+  : Promise<{ granted: boolean; reason: string | null; dispatched: boolean; carried: number; carryRefused: string | null }> {
   const begin = { p_account_id: deps.accountID, p_operation_id: deps.operationID, p_attempt_id: attempt.id,
     p_route: route, p_model: model, p_request_sha256: attempt.requestSHA, p_ceiling_microusd: ceiling, p_reserved_units: units };
   try {
     // C6 (migration 0107): an OpenRouter request is admitted and dispatched in one transaction (one round trip).
-    const result = (dispatch
+    const result = (dispatch && after
+      ? await deps.rpc('worker_openrouter_admit_fallback', { ...begin, p_metadata: dispatch, p_after_attempt_id: after })
+      : dispatch
       ? await deps.rpc('worker_openrouter_admit', { ...begin, p_metadata: dispatch })
-      : await deps.rpc('worker_provider_attempt_begin', { ...begin, p_provider: provider })) as { granted?: unknown; reason?: unknown; dispatched?: unknown } | null;
-    return { granted: result?.granted === true, reason: typeof result?.reason === 'string' ? result.reason : null, dispatched: result?.dispatched === true };
+      : await deps.rpc('worker_provider_attempt_begin', { ...begin, p_provider: provider })) as
+        { granted?: unknown; reason?: unknown; dispatched?: unknown; carried_microusd?: unknown; carry_refused?: unknown } | null;
+    const code = (value: unknown) => typeof value === 'string' && /^[a-z_]{1,64}$/.test(value) ? value : null;
+    return { granted: result?.granted === true, reason: typeof result?.reason === 'string' ? result.reason : null, dispatched: result?.dispatched === true,
+      carried: Number.isSafeInteger(result?.carried_microusd) ? result!.carried_microusd as number : 0, carryRefused: code(result?.carry_refused) };
   } catch {
     // The transaction may have committed. Never retry into another send grant.
     deps.log?.({ event: 'provider_admission_unavailable', operation_id: deps.operationID, attempt_id: attempt.id, provider, route });
-    return { granted: false, reason: null, dispatched: false };
+    return { granted: false, reason: null, dispatched: false, carried: 0, carryRefused: null };
   }
 }
 async function admit(deps: SpendingDependencies, attempt: Awaited<ReturnType<typeof identity>>, provider: string,
@@ -90,17 +98,20 @@ export function admittedModelCalls(deps: SpendingDependencies,
     const feature = options.purpose ?? (params.tool_choice?.type === 'tool' ? params.tool_choice.name : deps.feature ?? 'chat');
     const dispatch = { ...transport, feature, caller: 'chat' };
     const granted = await admission(deps, attempt, 'openrouter', 'chat', params.model, ceiling,
-      { output_tokens: params.max_tokens, web_searches: 0 }, dispatch);
+      { output_tokens: params.max_tokens, web_searches: 0 }, dispatch, options.afterAttemptID);
+    // What the fallback's admission did with the silent attempt it follows (migration 0163), for the caller's log.
+    const carry = { ...(granted.carried > 0 ? { carriedMicrousd: granted.carried } : {}), ...(granted.carryRefused ? { carryRefused: granted.carryRefused } : {}) };
+    const refused = { ...(granted.reason && /^[a-z_]{1,64}$/.test(granted.reason) ? { refusedBy: granted.reason } : {}), ...carry };
     // Not sent: our own bound when the round no longer fits the hold, else our server (a pause, capacity, a lost reply).
     // A lapsed price card (A4, migration 0101) is the model's unavailability, not a fault to retry.
-    if (!granted.granted && granted.reason === 'tariff_expired') return { ...unavailable(), failure: 'provider_rejected', rejectionReason: 'tariff_expired', cause: 'server' };
-    if (!granted.granted) return { ...unavailable(), cause: granted.reason === 'operation_ceiling' ? 'limit' : 'server' };
+    if (!granted.granted && granted.reason === 'tariff_expired') return { ...unavailable(), failure: 'provider_rejected', rejectionReason: 'tariff_expired', cause: 'server', ...refused };
+    if (!granted.granted) return { ...unavailable(), cause: granted.reason === 'operation_ceiling' ? 'limit' : 'server', ...refused };
     let outcome: ProviderOutcome;
     try { outcome = await generate(params, { ...options, attribution: rpcAttribution(deps, attempt.id, feature, 'chat',
       granted.dispatched ? dispatch : undefined) }); }
     catch {
       await finish(deps, attempt.id, 'unknown', null, null, {}, 'transport_unknown');
-      return { ...unavailable(), exact: false, cause: 'server' };
+      return { ...unavailable(), exact: false, cause: 'server', attemptID: attempt.id, ...carry };
     }
     const units: Units = outcome.attempts.reduce((sum, item) => ({
       input_tokens: sum.input_tokens + item.usage.input,
@@ -120,7 +131,8 @@ export function admittedModelCalls(deps: SpendingDependencies,
       { ...units, web_searches: 0, attempts: outcome.attempts.length, ...firstData }, outcome.failure), outcome.receipt ?? Promise.resolve(true)]);
     // Stop here when the exact result could not be recorded, instead of sending
     // another round under headroom the database cannot know is available.
-    return recorded ? outcome : { ...outcome, status: 'failed', failure: 'provider_error', exact: false, cause: 'server' };
+    const result: ProviderOutcome = recorded ? outcome : { ...outcome, status: 'failed', failure: 'provider_error', exact: false, cause: 'server' };
+    return { ...result, attemptID: attempt.id, ...carry };
   };
 }
 
