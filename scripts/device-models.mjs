@@ -14,6 +14,10 @@
 //   node scripts/device-models.mjs --development-plaintext   (local research only; release gate rejects it)
 //   Optional: --from ~/gradstep-mac --out apps/apple/DeviceModels --manifest PATH --update-lock
 //   node scripts/device-models.mjs --describe   (only rewrites the description of an existing output folder)
+//   node scripts/device-models.mjs --reship-pack VERSION [--reship-from ARCHIVE_OR_FOLDER]
+//     copies a pack TestFlight already shipped, byte for byte, as recorded in apps/apple/device-models-shipped.json
+//     (JUDGMENT_LOG 55). It skips encryption because nothing new is exposed; the lock is untouched; any unrecorded or
+//     changed pack fails. Sources default to the record's archives under .artifacts/.
 //
 // Sources (each a directory under --from):
 // - layout-fcos-v5-coreml (the desktop's port kit, /home/ben/mathpix/data/models; fp16: 91/91 agreement on the Mac)
@@ -27,11 +31,12 @@
 //   512-token decoder cache (`--max-len 512`; 20/20 on the samples): recognitions the 256-token cache cut off are read
 //   whole, every other one is the same token for token; decoder step +13 % on the Mac's GPU. In the app since then.
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, realpathSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, relative, sep } from 'node:path';
 import { MODEL_FILES, TEAM_ID, verifyEncryptedTree, treeSHA } from './device-model-protection.mjs';
+import { findReshipSource, readShippedRecord, shippedPack, verifyReshipSource } from './device-model-reship.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -78,6 +83,48 @@ function describe(lockModels) {
   writeFileSync(MANIFEST + '.pending', JSON.stringify(pack, null, 1) + '\n');
   renameSync(MANIFEST + '.pending', MANIFEST);
   console.log(`pack ${pack.version.slice(0, 12)}: ${pack.files.length} files; description ${MANIFEST}`);
+}
+// Reship (JUDGMENT_LOG 55): the recorded bytes of a pack TestFlight already distributed, or nothing.
+if (process.argv.includes('--reship-pack')) {
+  if (plaintext || ['--require-encryption', '--update-lock', '--describe'].some(f => process.argv.includes(f)))
+    throw Error('--reship-pack copies a recorded shipped pack unchanged; it cannot be combined with building, describing or relocking');
+  const entry = shippedPack(readShippedRecord(ROOT, arg('--shipped-record')), arg('--reship-pack'));
+  const source = findReshipSource(ROOT, entry, arg('--reship-from') && resolve(arg('--reship-from')));
+  const previous = `${DESTINATION}.previous-build`;
+  if (existsSync(previous)) throw Error('previous pack backup exists; inspect it before rebuilding');
+  mkdirSync(dirname(DESTINATION), { recursive: true }); mkdirSync(dirname(MANIFEST), { recursive: true });
+  const staged = mkdtempSync(join(dirname(DESTINATION), '.device-models-reship-'));
+  const pendingManifest = `${MANIFEST}.pending-${process.pid}`, oldManifest = existsSync(MANIFEST) ? readFileSync(MANIFEST) : null;
+  let promoted = false, swapped = false;
+  try {
+    for (const row of entry.description.files) {
+      mkdirSync(dirname(join(staged, row.path)), { recursive: true });
+      copyFileSync(join(source, row.path), join(staged, row.path));
+    }
+    verifyReshipSource(staged, entry);
+    writeFileSync(pendingManifest, JSON.stringify(entry.description, null, 1) + '\n');
+    try {
+      if (existsSync(DESTINATION)) renameSync(DESTINATION, previous);
+      try { renameSync(staged, DESTINATION); swapped = true; } catch (error) { if (existsSync(previous)) renameSync(previous, DESTINATION); throw error; }
+      renameSync(pendingManifest, MANIFEST);
+      promoted = true;
+    } catch (error) {
+      if (swapped) {
+        rmSync(DESTINATION, { recursive: true, force: true });
+        if (existsSync(previous)) renameSync(previous, DESTINATION);
+        if (oldManifest) writeFileSync(MANIFEST, oldManifest); else rmSync(MANIFEST, { force: true });
+      }
+      throw error;
+    }
+    rmSync(previous, { recursive: true, force: true });
+  } finally {
+    rmSync(pendingManifest, { force: true });
+    if (!promoted) rmSync(staged, { recursive: true, force: true });
+  }
+  const bytes = entry.description.files.reduce((n, f) => n + f.size, 0);
+  console.log(`pack ${entry.description.version.slice(0, 12)}: ${entry.description.files.length} files, ${(bytes / 1e6).toFixed(1)} MB; ` +
+    `reshipped unchanged from TestFlight ${entry.builds.ios} (${entry.protection}, ${source}); description ${MANIFEST}`);
+  process.exit(0);
 }
 if (process.argv.includes('--describe')) {
   if (!existsSync(join(OUT, 'device-models.json'))) { console.error(`no models in ${OUT}`); process.exit(2); }

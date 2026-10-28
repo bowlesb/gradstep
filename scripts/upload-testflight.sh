@@ -8,22 +8,37 @@
 set -eu
 cd "$(dirname "$0")/.."
 node scripts/test-imports.mjs gate
-. ./.env.appstore
-KEY="$(pwd)/$ASC_KEY_PATH"
 BUILD="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
+mkdir -p .artifacts
 # The on-device PDF route's models (docs/architecture/DEVICE_PDF_ROUTE.md): compiled into apps/apple/DeviceModels and
 # checked against apps/apple/device-models.lock.json; a build without them hides the experiment, so say so loudly.
 # Since 2026-10-24 they are a separate download ("The models as a download"): the folder is the On-Demand Resources tag
 # `device-pdf-models`, which the archive and the upload below carry as an asset pack beside the app (App Store hosted),
 # and the script also writes apps/apple/DeviceModelsManifest/device-models-pack.json, which the app ships.
-node scripts/device-models.mjs --require-encryption > ".artifacts/device-models-$BUILD.log" 2>&1 || { echo "Device models not prepared: .artifacts/device-models-$BUILD.log"; exit 1; }
-# The native loader is built and team-signed separately; a CLI success on an unsigned/old pack is insufficient.
-: "${SCIENCE_READER_COREML_VERIFY_TOOL:?set the path to the team-signed DevicePDFRouteTool}"
-SCIENCE_READER_COREML_VERIFICATION="$(pwd)/.artifacts/coreml-encryption-$BUILD.json"
-export SCIENCE_READER_COREML_VERIFICATION
-node scripts/verify-coreml-encryption.mjs --tool "$SCIENCE_READER_COREML_VERIFY_TOOL" \
-  --models apps/apple/DeviceModels --manifest apps/apple/DeviceModelsManifest/device-models-pack.json \
-  --out "$SCIENCE_READER_COREML_VERIFICATION"
+# Reship (JUDGMENT_LOG 55): RESHIP_DEVICE_PACK=<64-hex version> ships a pack TestFlight already distributed, byte for
+# byte as recorded in apps/apple/device-models-shipped.json (copied from that build's archive, or RESHIP_DEVICE_PACK_FROM),
+# without Apple model encryption: nothing new is exposed. Any other pack is built encrypted and must pass the signed
+# verification. PREPARE_ONLY=1 stops after this model gate, before the archive and the App Store key.
+if [ -n "${RESHIP_DEVICE_PACK:-}" ]; then
+  unset SCIENCE_READER_COREML_VERIFICATION
+  node scripts/device-models.mjs --reship-pack "$RESHIP_DEVICE_PACK" ${RESHIP_DEVICE_PACK_FROM:+--reship-from "$RESHIP_DEVICE_PACK_FROM"} \
+    > ".artifacts/device-models-$BUILD.log" 2>&1 || { echo "Recorded device model pack not prepared: .artifacts/device-models-$BUILD.log"; exit 1; }
+  PACK_MODE="--reship-pack $RESHIP_DEVICE_PACK"
+else
+  node scripts/device-models.mjs --require-encryption > ".artifacts/device-models-$BUILD.log" 2>&1 || { echo "Device models not prepared: .artifacts/device-models-$BUILD.log"; exit 1; }
+  # The native loader is built and team-signed separately; a CLI success on an unsigned/old pack is insufficient.
+  : "${SCIENCE_READER_COREML_VERIFY_TOOL:?set the path to the team-signed DevicePDFRouteTool}"
+  SCIENCE_READER_COREML_VERIFICATION="$(pwd)/.artifacts/coreml-encryption-$BUILD.json"
+  export SCIENCE_READER_COREML_VERIFICATION
+  node scripts/verify-coreml-encryption.mjs --tool "$SCIENCE_READER_COREML_VERIFY_TOOL" \
+    --models apps/apple/DeviceModels --manifest apps/apple/DeviceModelsManifest/device-models-pack.json \
+    --out "$SCIENCE_READER_COREML_VERIFICATION"
+  PACK_MODE=""
+fi
+cat ".artifacts/device-models-$BUILD.log"
+if [ "${PREPARE_ONLY:-}" = 1 ]; then echo "Prepared device models for build $BUILD; stopping before the archive (PREPARE_ONLY=1)"; exit 0; fi
+. ./.env.appstore
+KEY="$(pwd)/$ASC_KEY_PATH"
 (cd apps/apple && xcodegen generate > /dev/null)
 ARCHIVE=".artifacts/Paperstep-$BUILD.xcarchive"
 AUTH="-authenticationKeyPath $KEY -authenticationKeyID $ASC_KEY_ID -authenticationKeyIssuerID $ASC_ISSUER_ID"
@@ -33,7 +48,7 @@ AUTH="-authenticationKeyPath $KEY -authenticationKeyID $ASC_KEY_ID -authenticati
 # Refuse an upload if import code changed while the archive was being built.
 node scripts/test-imports.mjs gate
 node scripts/check-ios-model-boundary.mjs "$ARCHIVE/Products/Applications/ScienceReader.app"
-node scripts/check-device-model-pack.mjs "$ARCHIVE"
+node scripts/check-device-model-pack.mjs $PACK_MODE "$ARCHIVE"
 cat > .artifacts/ExportOptions.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

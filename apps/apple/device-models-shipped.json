@@ -1,0 +1,131 @@
+{
+ "schema": "gradstep-device-models-shipped-v1",
+ "note": "Model packs already distributed through TestFlight, byte for byte. Only a pack listed here may be shipped again without Apple model encryption (node scripts/device-models.mjs --reship-pack VERSION; RESHIP_DEVICE_PACK in the upload scripts). Every new pack still requires --require-encryption and the signed qualification. Add an entry only for a pack whose exact description an uploaded build carried. JUDGMENT_LOG 55.",
+ "packs": [
+  {
+   "builds": {
+    "ios": 93,
+    "mac": 93
+   },
+   "commit": "1c87b2af4bf9b97f8a780b1dd4dede33cc192bb9",
+   "uploaded": {
+    "ios": "2026-10-25T18:58Z",
+    "mac": "2026-10-25T19:09Z"
+   },
+   "protection": "plaintext",
+   "models": "layout-fcos-v5, inline-tagger-v4 (threshold 0.7 in tagger-vocab.json), texteller-ft-v4-mf8-int8-l512; no tagger reference",
+   "sources": [
+    ".artifacts/Paperstep-93.xcarchive",
+    ".artifacts/Gradstep-mac-93.xcarchive"
+   ],
+   "description": {
+    "schema": "gradstep-device-models-pack-v1",
+    "version": "28f6fd14e8beec14bbb21207ae05b94960c76db65c9562605ca92ff80493b195",
+    "tag": "device-pdf-models",
+    "folder": "DeviceModels",
+    "lock": {
+     "layout": "724a95c5350b6d84994d5d2192d00c0daf52606d3b465118caed1eb532f8ef8a",
+     "tagger": "516064d074f540bf1cb700a4fd52bbeacdeb6e5cf975c3c459ca5b4d8ff72121",
+     "recogniser": "636c81fb98f3480189bc229cc3cf114db148b5c3bcb88fe17b20cf7a8d79b403"
+    },
+    "files": [
+     {
+      "path": "DeviceLayout.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "sha256": "1ae1c161fe64d9fbe9ff11d560081e1b05f3ce3139d59c722477446e202ffa65"
+     },
+     {
+      "path": "DeviceLayout.mlmodelc/coremldata.bin",
+      "size": 400,
+      "sha256": "40977437383ae19e6eb68a3c88fc83a19326426d7c3ed4e9cc7d8441f2ffb9d0"
+     },
+     {
+      "path": "DeviceLayout.mlmodelc/metadata.json",
+      "size": 2464,
+      "sha256": "eacdfefa13909b43f7731ccdd89dea7b01a1ab529e39838b3d24ac25d7fff7ad"
+     },
+     {
+      "path": "DeviceLayout.mlmodelc/model.mil",
+      "size": 305945,
+      "sha256": "661830babe60afe3a16559022f7d68cb8869747278e6901042fc4c596fac216e"
+     },
+     {
+      "path": "DeviceLayout.mlmodelc/weights/weight.bin",
+      "size": 64423968,
+      "sha256": "3b0be7b77a0cfd192eadc3578108766f9b7c68273de94afff253264d45edeb8b"
+     },
+     {
+      "path": "DeviceRecogniser.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "sha256": "38057aa07773e572e4add399d44b6f65acd4b7a280fada7cfedad6896869f52e"
+     },
+     {
+      "path": "DeviceRecogniser.mlmodelc/coremldata.bin",
+      "size": 496,
+      "sha256": "f7be6ec104353b6c5b00091cf093753423ece42e73cfc7824bee5ed5b351d700"
+     },
+     {
+      "path": "DeviceRecogniser.mlmodelc/metadata.json",
+      "size": 9510,
+      "sha256": "3b4d77e7d4bc1db40cf7184ab385cf5e22bd536e82bf191f42f39ce3d26804ed"
+     },
+     {
+      "path": "DeviceRecogniser.mlmodelc/model.mil",
+      "size": 504835,
+      "sha256": "7027be248e4464d0e5a083e66ce74ecd6821bc2dd657dec469680ec220c71ec1"
+     },
+     {
+      "path": "DeviceRecogniser.mlmodelc/weights/weight.bin",
+      "size": 298444144,
+      "sha256": "7c6330222e1f4aab161599340c0de24186b55bcbc4595419c524c0c84e7e77cb"
+     },
+     {
+      "path": "DeviceTagger.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "sha256": "52a322e3ac1ee67d0b8744d258114875969815111715a11187ee23bf988b405f"
+     },
+     {
+      "path": "DeviceTagger.mlmodelc/coremldata.bin",
+      "size": 497,
+      "sha256": "0f63ac7a8460324aa09ea233bfc29233586b64f40ae7523062b4f0ae96323784"
+     },
+     {
+      "path": "DeviceTagger.mlmodelc/metadata.json",
+      "size": 3354,
+      "sha256": "41b09ac80fd9ab32fa14af56f5dd838b04b64fd74736f1f6f73789db36adbb99"
+     },
+     {
+      "path": "DeviceTagger.mlmodelc/model.mil",
+      "size": 67583,
+      "sha256": "9d121ac7594405f66f62a0b016d5dcc60a4943fb70dbbc3f688dc3c701f583dd"
+     },
+     {
+      "path": "DeviceTagger.mlmodelc/weights/weight.bin",
+      "size": 602688,
+      "sha256": "3daf02fbf07b968cfcc1bbabf0fa6ff811881211a2ada59f09faa7b738ed492e"
+     },
+     {
+      "path": "device-models.json",
+      "size": 1551,
+      "sha256": "34e1a7b1a83078feefde33f76741c3413e8b6e7b381c843c97fdbe29cb740158"
+     },
+     {
+      "path": "recogniser-added-tokens.json",
+      "size": 56003,
+      "sha256": "7e88a0bc018da0461d442e43efdb9c36d0c9ccee4ee77040435a6393c4dc0f0e"
+     },
+     {
+      "path": "recogniser-vocab.json",
+      "size": 146663,
+      "sha256": "6c5fdc7c688b7da8ca9f6abca73ff2c12c08e14386461daf9af1f0716b31e359"
+     },
+     {
+      "path": "tagger-vocab.json",
+      "size": 41016,
+      "sha256": "df79281a8727a3e5f0780f23e7e4ea32a7ff0490a190a7021dcf69081ae35a8d"
+     }
+    ]
+   }
+  }
+ ]
+}
