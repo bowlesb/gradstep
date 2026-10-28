@@ -861,7 +861,8 @@ public enum LibrarySource {
     public static func badge(sourceID: String?, revision: Int?) -> String? {
         guard let sourceID else { return nil }
         if isWebSourceID(sourceID) { return "Open access" }
-        if isUploadSourceID(sourceID) { return "Your PDF" }
+        // A PDF added on this device (`local:<id>`, LocalPDFMembership) was labelled "arXiv v1" before 2026-10-28.
+        if isUploadSourceID(sourceID) || sourceID.hasPrefix("local:") { return "Your PDF" }
         return revision.map { "arXiv v\($0)" } ?? "arXiv"
     }
 

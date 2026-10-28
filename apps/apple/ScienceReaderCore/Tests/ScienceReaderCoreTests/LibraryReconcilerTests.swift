@@ -173,6 +173,8 @@ import Testing
         #expect(LibrarySource.isUploadSourceID(uploadSource) && !LibrarySource.isUploadSourceID("upload:31000000-0000-4000-8000-0000000000A1")
                 && !LibrarySource.isUploadSourceID("upload:x") && !LibrarySource.isUploadSourceID("openalex:W1"))
         #expect(LibrarySource.badge(sourceID: uploadSource, revision: 1) == "Your PDF")
+        // A PDF added on this device (LocalPDFMembership.sourceID) is the reader's own PDF, not "arXiv v1".
+        #expect(LibrarySource.badge(sourceID: LocalPDFMembership.sourceID(UUID()), revision: 1) == "Your PDF")
         #expect(LibrarySource.placeholderTitle(sourceID: uploadSource) == "Uploaded PDF")
         // A cached entry survives an encode/decode round trip without inventing a source page.
         let encoded = try JSONEncoder().encode(LibraryEntry.import(pending))
