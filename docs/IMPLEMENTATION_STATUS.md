@@ -1,5 +1,13 @@
 # Implementation status
 
+## Interest index serves every reader — 2026-10-28 UTC
+
+`interest_policy.serving` moved from `staff` to `all` at 13:54 UTC through `worker_interest_set_policy(null, 'all')`,
+after the approved notice ("Topics and For you") went live on gradstep.ai/privacy with the landing page on 2026-10-27.
+`interest.health` passes (12,311 embedded, 0 pending, map v1, 9 shards, serving all). Every reader now gets Library
+topics and the index's related papers; For you itself stays `feed_policy.serving='staff'` (a separate owner decision).
+Rollback: `worker_interest_set_policy(null, 'staff')`.
+
 ## Gradstep landing page — 2026-10-27 (published)
 
 The owner-authorized founder-copy redesign is live at [gradstep.ai](https://gradstep.ai/), Cloudflare Pages

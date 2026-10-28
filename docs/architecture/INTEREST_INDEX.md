@@ -4,7 +4,7 @@ Update, 2026-10-25: **the owner approved the §5 privacy notice and serving to `
 [DECISIONS.md](../DECISIONS.md#interest-index-privacy-notice-approved-serving-may-go-to-all-owner-2026-10-25)). The
 notice is placed on gradstep.ai/privacy (website deploy waiting for the owner) and in the apps' Privacy & data (next
 TestFlight build). Readiness fixes 0156 and 0157 were applied to staging on 2026-10-25 13:48 UTC (backup
-20261025T134806Z). Serving is still `staff` until the privacy page is live; the flip and its checks are in
+20261025T134806Z). Serving went to `all` on 2026-10-28 13:54 UTC (`worker_interest_set_policy(null, 'all')`), after the notice went live on gradstep.ai/privacy with the landing page (2026-10-27); `interest.health` passes.
 [Serving to all](#serving-to-all-prepared-2026-10-25-not-run).
 
 Status, 2026-10-24: **Phase B built and deployed to staging** (migration 0152, worker revision `gradstep-pipeline-00055-vzm`,
