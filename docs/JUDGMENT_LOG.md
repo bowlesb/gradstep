@@ -6,6 +6,24 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+54. **Pictures set apart from their captions or labels read as panels, each picture above its own caption** (reader
+    revision 28; agent report on 2610.20608v1, whose Figure 2 showed only "(a)", "(b)", "(c)" and its caption while the
+    closing note counted its three plots as left-out graphics). LaTeXML wrote the plots as one paragraph and the
+    sub-figures as captions alone; the flow read that paragraph as text, where a graphic is left out. Now such a figure
+    is one figure and the i-th picture joins the i-th caption (after it when the captions come first; page order when
+    the counts differ). The same reading for the tabular form, a row of pictures with a row of labels under or over it
+    (Batch Normalization's Figure 1 had read as a table of "(a) | (b) Without BN | (c) With BN"). Of 243 cached sources
+    4 papers change (61 pictures in 7 figures now show), none newly refused; left-out graphics in the closing notes of
+    the 219 papers that compile, 2,730 → 2,669.
+    *Why:* the panels' own captions, under their pictures, are how every other sub-figure reads (revision 12) and how
+    the figure viewer finds parts. *Cost:* 2610.09823v1's three galleries now carry 48 more photos (bundle 9.2 → 26.1
+    MiB; preparing it took 25 s instead of 1.7 s in WebKit on a Mac, since 71 images exceed the per-image pixel share and
+    are redrawn as PNG), and past the 16-picture figure limit a label stays as words without its picture. *Undo:* drop
+    the `panelsApart`/`labelledPanels` branch in `arxiv/flow.ts` and bump the revision. *Not taken:* grids with row or
+    column headings (18 figures, 588 pictures in 5 cached papers, and 28 table floats with 613 pictures in cells) still
+    read as tables without their pictures; showing them needs pictures inside reader tables in all three validators, a
+    separate proposal.
+
 Building 27 (Go deeper on a key concept; CHAT.md "Go deeper on a key concept"; local, not deployed):
 
 44. **The deeper card has fixed parts**: What it is · Why this paper needs it · An intuition *or* A small example · How
@@ -43,6 +61,17 @@ Building 27 (Go deeper on a key concept; CHAT.md "Go deeper on a key concept"; l
     the card closes the explainer and the card in one dismissal; Back to AI Explainer brings both back.
 51. **Not built:** the browser (it sends no `paper_concept`; its explainer is unchanged) and deepened concepts in
     Download your assets (the shared export fixture is unchanged). Both are follow-ups.
+
+## 2026-10-28
+
+52. **Astra owns the on-device model track; the Claude lead owns the app, server and releases** (owner: "I'll let
+    you decide"). Working rules are at the top of [AGENT_HANDOFF.md](AGENT_HANDOFF.md). The Claude team's recogniser
+    speed branch goes to Astra as input instead of merging separately. *Why:* both teams were changing the same
+    recogniser cache, which is also what blocks encryption. *Undo:* reassign in the handoff.
+53. **TestFlight 94 reships TestFlight 93's model pack unchanged, in plaintext; any new pack still needs the
+    encryption qualification.** *Why:* since 0eb82b00 every upload required a passing encrypted-pack check, which fails
+    until the recogniser encrypts, so no app fix could ship; 93's pack is already public, so nothing new is exposed.
+    *Undo:* remove the reship mode from the upload scripts.
 
 ## 2026-10-25
 

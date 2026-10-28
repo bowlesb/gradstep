@@ -175,6 +175,17 @@ cannot certify downloading or persistence. Scope, cancellation, wrong revision, 
 ambiguous and no-text cases remain separate assertions. Record all native results and limits in
 [READER_PDF_PEEK.md](architecture/READER_PDF_PEEK.md); desktop corpus evidence is not Apple performance evidence.
 
+## Figure panels set apart from their captions (reader revision 28) — October 28
+
+Fast (in `npm test`): `tests/backend/arxiv-figure-panels.test.ts` (2610.20608v1's row of pictures over caption-only
+sub-figures, captions over pictures, counts that differ, a panel the device couldn't prepare; Batch Normalization's
+tabular of plots over labels and labels over pictures; a grid with headings, a table float and uneven rows that stay
+tables; a composed bundle the shared validator admits). Slow, opt-in: a replay of cached sources against the previous
+revision (`scripts/arxiv-converter-equivalence.mjs --ignore-ids`), the fresh-paper sweep, and
+`node scripts/reader-device-compile.mjs --ids=2610.20608v1,1502.03167v3,2610.09823v1,2610.31644v1 --out=<dir>` (every
+picture prepared, no note). Screenshots: Playwright WebKit at 393 pt of the compiled bundles' `index.html` with its
+`reader.css`, under `.artifacts/figure-panels/` (no Simulator).
+
 ## The bar with More and 🔍 (navigation half of global search) — October 25
 
 Fast: Core `swift test --filter "LayoutShapeTests|TallBarTests"` (which bar a window gets: phones in both orientations,

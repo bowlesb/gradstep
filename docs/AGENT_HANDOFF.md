@@ -1,5 +1,72 @@
 # Agent handoff
 
+## Working together: Astra and the Claude lead (owner, 2026-10-28)
+
+Owner: "let me know how I should direct Astra to work synchronously from you" and, on the proposal, "I'll let you
+decide". Two agent teams share this repo and this Mac: **Astra** (a Codex session) and the **Claude lead** (with its
+own sub-agents). This section is the contract; read it before anything else in this file.
+
+**Ownership**
+- **Astra owns the on-device PDF model track:** training and evaluation (`training/device_pdf/`, its README is the
+  single current log), `scripts/device-pdf-models/`, the Core ML runtime in ScienceReaderCore/DevicePDF, the converter
+  (`supabase/functions/_shared/reader/device-pdf/`), model packaging and Core ML encryption. First tasks, in order:
+  (1) the untranscribed-equation fallback shows raw `\(\text{Equation in PDF (transcription unavailable)}\)` markup to
+  readers (`device-pdf` emit path, `reader-math-fallback`; about 90 of 600 test formulas take it) — show plain text or
+  the PDF's own glyph text instead; (2) make the recogniser load encrypted (the "return only new cache entries"
+  candidate), folding in the Claude team's speed work: branch `worktree-agent-a089fbf80d06665de` (continuous batching,
+  length limit, text-first host, one ODR tag per model, tagger v5a evidence), summarised in the device-PDF README;
+  (3) before the next tagger experiment, add a control arm (same fine-tune without the new labels) and state why the
+  preservation gate is 0.01 pp when v5b was admitted at 0.3 pp.
+- **The Claude lead owns** the app and its interface, the server and staging deploys, releases (TestFlight builds and
+  their scripts), owner-feedback triage, and merging for each build.
+
+**Rules for both**
+1. Start of a session: read this file, `docs/JUDGMENT_LOG.md` and `git log` since your last session.
+2. End of a session: add at most 10 lines here — what changed, what it means for the other team in plain
+   consequences (e.g. "this blocks every TestFlight upload"), and what's blocked.
+3. Ask the owner (or the lead) first before changing upload/release scripts or release requirements, shared app
+   interface or navigation, the website or privacy page, or anything deployed. If you change one, say the effect on
+   others in one sentence at the top of your handoff note.
+4. Version numbers (reader revision, device port revision): take the next number only at merge time (main + 1).
+5. Machine: heavy work on the desktop (`192.168.1.32:/home/ben/science-reader-training`). On this Mac take
+   `mkdir /Users/benbowlwes/gradstep-mac/.coreml-lock` for every Core ML run, keep at most 5 GB of new evidence under
+   `.artifacts` (move the rest to the desktop), and at most one booted Simulator.
+6. Quote the owner's words with a date for any approval; one change per commit with a short why in the body.
+7. Judgment calls made for the owner go in `docs/JUDGMENT_LOG.md` (next number after the highest).
+
+**From the lead to Astra, 2026-10-28 (review of a993d838..9a6dd366; owner asked for it).** The experiments and
+fail-closed code are the strongest in the repo. Focus, in order:
+1. Reader-visible bug: untranscribed equations show raw `\(\text{Equation in PDF (transcription unavailable)}\)`.
+2. Recogniser encryption with the lean cache interface, folding in the speed branch (`worktree-agent-a089fbf80d06665de`,
+   handoff in the device-PDF README "2026-10-28 — recogniser speed branch"): CPU prototype on the desktop first; gate on
+   token parity, memory under 2× and a quiet-Mac timing A/B. This is the next model release (one download per model).
+3. Measure what hiding rejected transcriptions costs (4,973 = 8.1 % of equations now give search, copy and AI context a
+   placeholder): sample how many rejected guesses were right.
+4. Next tagger experiment: a control arm (same replay fine-tune without the new labels), more than one seed, and a
+   written reason for the 0.01 pp preservation gate (v5b was admitted at 0.3 pp).
+Tie up:
+- Re-check 9f150b94's MediaBox→CropBox glyph change on its own (it affects every device reading) and record it.
+- Small bugs: `pdfPositionRequestID` stays set if the reader reloads mid-capture (PaperView.swift ~1645), so the
+  preview button and two-finger tap stay disabled; the pinch assertion in PDFPeekJourneyTests.swift:43-44 can't fail;
+  the reference-tagger fixture has binary_sha256 == checkpoint_sha256; recovery counts never reach the app summary.
+- Docs: TESTING.md tells DeviceModelJourneyTests users to run plain `device-models.mjs`, which now needs keys; this
+  file said 31 focused Swift checks where TESTING says 42; replace absolute /home/ben and /Users paths in scripts.
+- Approvals: quote the owner's words with a date for the two-finger preview, the new Show in PDF toolbar button
+  (it is new in 09e71c2f, not "existing") and the website publish.
+- Privacy page: ARXIV_DEVICE_ONLY.md now says the page discloses Crossref/OpenAlex lookups; the live page mentions
+  only DataCite while identify.ts/discover.ts do query Crossref and OpenAlex. Draft the missing sentence for the
+  owner's approval (the lead deploys).
+- Disk: move about 12 GB of new evidence (device-pdf-development 9.2 GB, mostly encryption attempts;
+  papers-model-20261026 3.1 GB) to the desktop; keep under 5 GB here.
+- Old Codex branches: 9 unmerged `codex/web-*`/`codex/mac-native` branches from 2026-10-08 and 12 worktrees in
+  `/Users/benbowlwes/science-reader-*` (1.7 GB). Ask the owner whether to archive (tag) and remove them.
+- The personal-library test split now also feeds the owner's on-device test catalog (36 held-out PDFs, selection
+  recorded by the lead's agent): keep `splits.json` stable.
+
+**Release state, 2026-10-28:** TestFlight 94 reships the exact model pack that TestFlight 93 shipped (already public,
+plaintext); any new pack still requires the encryption qualification (JUDGMENT_LOG). New models ship together once the
+recogniser qualifies encrypted.
+
 **Landing page, 2026-10-27:** published at `https://gradstep.ai` as Pages deployment `e631ca58`.
 Use `web/site/`; the duplicate redesign folder is retired. [Landing record](proposals/LANDING_PAGE.md) contains
 verification and privacy corrections. Both reading PDFs are under `output/pdf/`. Website publication does not

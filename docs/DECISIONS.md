@@ -1,8 +1,16 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-27. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-28. Requirements below come from the current user conversation, not from TextBrain's product specification.
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
+
+## Pictures set apart from their captions read as panels (agent report on 2610.20608v1, 2026-10-28; agent decision, reversible)
+
+A figure whose pictures sit outside its caption-only sub-figures, or a figure float whose one tabular pairs rows of
+pictures with rows of labels, is one figure: each picture with its caption or label, in the order the page sets them
+(reader revision 28, [HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md#figure-panels-set-apart-from-their-captions-revision-28-2026-10-28-not-yet-released);
+[JUDGMENT_LOG.md](JUDGMENT_LOG.md) 54). Grids with row or column headings remain tables without their pictures until
+reader tables may hold pictures (a separate proposal).
 
 ## Publish the founder's landing copy (owner request, 2026-10-27; verified)
 

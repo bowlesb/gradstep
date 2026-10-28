@@ -1,6 +1,7 @@
 {
  "renderer_id": "gradstep-arxiv-html-mathml-v2",
  "versions": [
+  {"revision": 28, "date": "2026-10-28", "build_sha256": "37f2d53fa4e511ef571435909cfd98c1fb0010e9fceda753670f6440ce1b68e4", "note": "Figure panels whose pictures sat apart from their captions or labels show their pictures, each above its own caption, instead of only the captions."},
   {"revision": 27, "date": "2026-10-25", "build_sha256": "33b5531f3d5024c1e61be4178d54922921b473626c58fc71d8814b40f79fd77f", "note": "A figure printed before the Introduction reads after the paragraph that first mentions it; the keywords sit right under the abstract."},
   {"revision": 26, "date": "2026-10-25", "build_sha256": "3ece1190907482549bb07aff781339d2d21b5835106335ddf3dbc7a5e0a68319", "note": "Aligned equations keep each relation on one line, aligned at its sign, with their number beside them; a bar or dot accent sits over its letter."},
   {"revision": 25, "date": "2026-10-24", "build_sha256": "d31e1a339dbff08feb187dfed7f10174184c5886464ab9874a7bc9c19055172a", "note": "A figure drawing with photos or screenshots inside it shows in the paper instead of a note that the PDF has it."},
