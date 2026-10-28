@@ -197,7 +197,8 @@ warmed timed trial. This conclusively fails the less-than-2× memory gate; do no
 token parity for that candidate. The original four-asset configuration (including the protected reference carrier)
 is retained in the builder. Its actual signed encrypted qualification fails, so **the native model-pack release path
 remains blocked**. This does not block publication of the separate marketing website.
-No plaintext substitution or recognizer downgrade qualifies. Existing local development readings remain usable.
+No plaintext substitution or recognizer downgrade qualifies for a new pack. The one exception is reshipping a pack
+an uploaded build already carried, byte for byte (next section). Existing local development readings remain usable.
 
 Evidence stays in `.artifacts/device-pdf-development/encryption/`: `verification.json` is the failed complete-pack
 qualification, `actual-proof/carrier-load.json` proves exact reference recovery,
@@ -210,6 +211,60 @@ but that proposal has no quality, memory or latency qualification yet.
 No native app/model-pack release or physical-phone test has occurred; first-use key acquisition and cached offline use need explicit
 configuration-specific evidence. Follow Apple's [key generation](https://developer.apple.com/documentation/coreml/generating-a-model-encryption-key)
 and [encryption/loading](https://developer.apple.com/documentation/coreml/encrypting-a-model-in-your-app) workflows.
+
+## Reshipping TestFlight 93's pack — TestFlight 94, 2026-10-28 (gate verified locally; not uploaded)
+
+Owner decision, 2026-10-28 ("I'll let you decide", recorded by the lead; JUDGMENT_LOG 53 and 56): 94 ships the pack 93
+already distributed, unchanged and in plaintext. Any new pack still needs the encryption qualification above, so
+nothing new is exposed.
+
+**The record.** `apps/apple/device-models-shipped.json` pins each pack an uploaded build carried by its full
+description: every file's size and SHA-256, and the version digest. Today it holds one pack, 93's `28f6fd14e8be…`. It
+was built from 1c87b2af's lock (layout-fcos-v5, inline-tagger-v4, texteller-ft-v4-mf8-int8-l512; no tagger reference)
+and was carried identically by the iOS asset pack and the Mac app. Add an entry only for a pack an uploaded build
+carried.
+
+**The mode.** `node scripts/device-models.mjs --reship-pack VERSION [--reship-from ARCHIVE_OR_FOLDER]` works like
+this:
+- It finds the recorded bytes in the record's archives (`.artifacts/Paperstep-93.xcarchive`,
+  `.artifacts/Gradstep-mac-93.xcarchive`) or in the folder given.
+- It checks every file and refuses unlisted files or links.
+- It stages the copy, checks it again, and swaps it into `apps/apple/DeviceModels` with the recorded description.
+- The lock is untouched.
+
+`check-device-model-pack.mjs --reship-pack VERSION` replaces the encryption qualification with three checks:
+- the written description and the app's copy must equal the record;
+- each asset pack or Mac copy must be exactly the recorded files;
+- the distribution scan allows only those plaintext trees inside `DeviceModels`, and still refuses keys, source
+  models, raw recovery weights and other plaintext.
+
+Both upload scripts enter this mode only when `RESHIP_DEVICE_PACK` is set. `PREPARE_ONLY=1` stops after the model gate,
+before the App Store key and the archive. Mixed modes, an unrecorded pack or abbreviated version, and changed bytes
+all fail closed.
+
+A rebuild cannot substitute. Compiling 1c87b2af's lock again gives `606f18099a4b`. Every weight, `model.mil` and
+vocabulary byte matches, but two `coremldata.bin` files list the same model metadata in another order. The compiler
+is not byte-deterministic.
+
+**Compatibility with today's app.** The host reads 93's pack as follows:
+- It decodes the older `device-models.json`, which has no `protection` and no `reference`.
+- It checks the v4 vocabulary (ten features, no context) against the model's input.
+- It passes the pack's own 0.7 threshold to the converter. Nothing pins 0.65 outside the pack builder.
+- It leaves the reference recovery off.
+- The converter's v4 path is the same window code as before, without context columns.
+
+One behaviour had to change. On this Mac, v4 sometimes returns all-zero buffers. 93's own host got 0, 8 and 16 such
+lines in three runs of a 969-line paper, and 6 of 577 lines on a scanned paper. It read them as prose without noticing.
+Today's host retries once and then failed the reading: 2 of 6 papers on the first pass. Now
+`readLegacyTaggerOutput` handles a pack without the reference: after the same retry, a still-invalid line reads as
+prose (logit −20) and is counted in the summary's `tagger_unread_lines`. Packs with the reference keep the strict
+recovery-or-fail rule. With the change, today's host read 7 of 7 papers on 93's exact pack, with 0–7 prose-read lines
+per run, fewer than 93's 0–16. Compared with 93's host (port 14), content is the same with today's converter
+changes (ports 15–21): 90–99.7 % word overlap, the same or more equations, and no recognition failures.
+Evidence: `.artifacts/reship94/evidence.json`.
+
+**Not verified:** an archive of build 94, a Simulator journey with the reshipped pack, and any phone. Upgrading 93 → 94
+keeps an installed pack, since the version is unchanged.
 
 ## Native tagger recovery — 2026-10-27 (locally verified, not released)
 
@@ -225,7 +280,8 @@ workers; successful recoveries use a locked counter, reported as `tagger_referen
 loader checks dimensions, contiguous offsets, byte limits and binary digest before accepting them. The optional
 pack reference binds its manifest, selected Core ML package and exact serialized app vocabulary; the pack builder
 also checks the Core ML export's checkpoint against the reference checkpoint. Older packs without the reference
-retain their previous retry-and-fail behavior. The added binary is 1,196,996 bytes; no new weights were trained.
+(93's, reshipped in 94) read a line still invalid after the retry as prose and count it, as 93 did (section above;
+before 2026-10-28 they failed the reading). The added binary is 1,196,996 bytes; no new weights were trained.
 The host now retains the compiler's bounded own-string error detail and source-order tagger failure dimensions,
 without arbitrary model descriptions, paths, glyph text or logits; the existing user-facing error code is unchanged.
 
@@ -277,7 +333,7 @@ Context comes only from the same layout region; table-cell lines remain independ
 context logits are discarded, and spans form after stitching, so neither a line tail nor a crossing equation is
 silently cut. The Swift host checks ten-feature v4 / twelve-feature v5 vocabulary compatibility against the model.
 Invalid tagger output retries once; the current pack then uses the bounded reference recovery above, while older
-packs fail explicitly.
+packs read the line as prose and count it (2026-10-28, reshipping 93's pack).
 
 `scripts/device-models.mjs` pins the threshold in `device-models.lock.json` and the downloaded pack vocabulary.
 The selected package digest and every generated pack file are verified. Existing downloaded readings are not

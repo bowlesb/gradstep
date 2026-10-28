@@ -5,7 +5,7 @@
 //   SCIENCE_READER_COREML_VERIFICATION=/path/verification.json node scripts/check-device-model-pack.mjs ARCHIVE
 //   --development-plaintext skips encryption qualification for local unsigned research builds only.
 //   --reship-pack VERSION: the pack is one TestFlight already shipped (apps/apple/device-models-shipped.json,
-//     JUDGMENT_LOG 55). Instead of encryption qualification, the description must be the recorded one and every
+//     JUDGMENT_LOG 56). Instead of encryption qualification, the description must be the recorded one and every
 //     distributed model tree must be exactly its recorded bytes; keys, sources and raw recovery weights stay refused.
 //   node scripts/check-device-model-pack.mjs --mac <archive.xcarchive | Gradstep.app>    Mac (models inside the app)
 //

@@ -1,5 +1,39 @@
 # Fast and slow tests
 
+## Reshipping a pack TestFlight already shipped (TestFlight 94) — October 28
+
+Routine: `npm test` runs `tests/operations/device-model-reship.test.mjs` (10 cases, fixtures only, no Core ML):
+- Only a pack recorded in `apps/apple/device-models-shipped.json`, named by its full version, may skip encryption.
+- These fail: unrecorded, abbreviated or duplicated versions; a record whose files don't hash to its version; a source
+  with a changed, missing, extra or linked file; mixed modes; a changed description.
+- The distribution scan accepts only the recorded plaintext trees inside `DeviceModels`. It still refuses keys,
+  source models and raw recovery weights.
+- `device-models.mjs --reship-pack` copies exactly the recorded bytes, and a refused run keeps the previous pack.
+- Both upload scripts skip the signed verification only behind `RESHIP_DEVICE_PACK`.
+
+Focused native: `DevicePDFHostTests` (in the filter below) adds
+`testPackWithoutReferenceReadsAPersistentlyInvalidLineAsProseAfterTheRetry`. That is the 93-pack tolerance in
+JUDGMENT_LOG 56.
+
+Before a reship release, run this from the main checkout. It needs no Core ML and no App Store key. It needs 93's
+archives in `.artifacts`; otherwise pass `RESHIP_DEVICE_PACK_FROM`. It also needs the import corpus that the script's
+first line checks.
+
+```sh
+PREPARE_ONLY=1 BUILD_NUMBER=94 RESHIP_DEVICE_PACK=28f6fd14e8beec14bbb21207ae05b94960c76db65c9562605ca92ff80493b195 \
+  sh scripts/upload-testflight.sh
+```
+
+Recorded slow evidence is in `.artifacts/reship94/evidence.json` (2026-10-28, this Mac). Reuse it unless the
+tagger path in `DevicePDFModels`/`DevicePDFRoute` or the record changes. It ran `DevicePDFRouteTool` from 1c87b2af
+and from this branch on 93's exact pack, over seven corpus PDFs (arXiv, CVPR, ACL, PLOS, two scans):
+- The strict host failed 2 of 6.
+- With the tolerance, 7 of 7 read with 0–7 prose-read lines.
+- 93's host had 0–16 all-zero lines per run.
+
+`check-device-model-pack.mjs --reship-pack` passes on both 93 archives (iOS asset pack; Mac app) and refuses them
+without the flag.
+
 ## Core ML model protection — October 27
 
 Routine checks: `npm test`, plus `node --test tests/operations/device-model-protection.test.mjs` (12 cases).

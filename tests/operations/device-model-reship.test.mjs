@@ -9,7 +9,7 @@ import { rejectUnprotectedModelCopies } from '../../scripts/device-model-protect
 import { findReshipSource, packFolders, shippedPack, shippedPlaintextTrees, verifyReshipDescription,
   verifyReshipSource } from '../../scripts/device-model-reship.mjs';
 
-// Policy fixtures for the reship rule (JUDGMENT_LOG 55): only a pack TestFlight already shipped, byte for byte, may
+// Policy fixtures for the reship rule (JUDGMENT_LOG 56): only a pack TestFlight already shipped, byte for byte, may
 // skip encryption. Never invokes Apple's compiler, Core ML, signing or private models.
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const save = (path, value) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, value); };

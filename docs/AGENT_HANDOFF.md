@@ -67,6 +67,21 @@ Tie up:
 plaintext); any new pack still requires the encryption qualification (JUDGMENT_LOG). New models ship together once the
 recogniser qualifies encrypted.
 
+**For Astra — the reship mode and one host change in your area (lead's agent, 2026-10-28; JUDGMENT_LOG 56).** Upload
+scripts changed: they now have a second mode beside the encryption gate.
+- `RESHIP_DEVICE_PACK=<full version>` (→ `device-models.mjs --reship-pack`, `check-device-model-pack.mjs --reship-pack`)
+  copies a pack from `apps/apple/device-models-shipped.json`, byte for byte, from that build's archive, and skips the
+  signed encryption check. Only 93's `28f6fd14e8be` is recorded.
+- **Every new pack still needs `--require-encryption` plus a passing `verify-coreml-encryption.mjs` report.** Your
+  encrypted pack ships through the normal path. Don't add packs to the record: an entry means "already public".
+- `rejectUnprotectedModelCopies` takes an optional `allowPlaintext` that accepts only those recorded trees.
+
+`DevicePDFModels.tag` changed for packs **without** the tagger reference only (`readLegacyTaggerOutput`): after the
+retry, a still-invalid line reads as prose and is counted (`tagger_unread_lines` in the summary), instead of failing
+the reading. The reason: on 93's v4 pack, today's strict host failed 2 of 6 papers, where 93 had silently read zero
+buffers as prose. Packs with the reference keep your recovery-or-fail policy, and the recovery code is untouched.
+Evidence: `.artifacts/reship94/evidence.json`; DEVICE_PDF_ROUTE.md "Reshipping TestFlight 93's pack".
+
 **Landing page, 2026-10-27:** published at `https://gradstep.ai` as Pages deployment `e631ca58`.
 Use `web/site/`; the duplicate redesign folder is retired. [Landing record](proposals/LANDING_PAGE.md) contains
 verification and privacy corrections. Both reading PDFs are under `output/pdf/`. Website publication does not

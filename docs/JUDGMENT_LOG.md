@@ -6,6 +6,21 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+56. **How 94 reships 93's pack (implements 53), and 93's pack keeps 93's tagger tolerance.** The upload scripts take
+    `RESHIP_DEVICE_PACK=<full version>`. Only a pack pinned in `apps/apple/device-models-shipped.json` qualifies: today
+    that is 93's `28f6fd14e8be…` from 1c87b2af. It is copied byte for byte from 93's archive (or `RESHIP_DEVICE_PACK_FROM`),
+    and only then is the signed encryption check skipped. Anything else fails: an unrecorded pack, one byte changed, an
+    abbreviated version or mixed modes. The archive scan still refuses keys, source models, raw recovery weights and any
+    other plaintext model. A rebuild can't stand in: the compiler writes model metadata in a different order each run.
+    *Compatibility change:* today's app reads 93's pack. Its v4 tagger has ten features and its own 0.7 threshold, and
+    without the reference the recovery stays off. But today's host failed **2 of 6 papers** on it ("tagger:
+    invalid_output"). v4 sometimes returns all-zero buffers: 93's own host got 0, 8 and 16 such lines of 969 in three
+    runs of one paper, and 6 of 577 on a scan. 93 read those lines as prose, unnoticed; today's host retried once, then
+    failed the whole reading. Now a pack **without the reference** reads a line that is still invalid after the retry as
+    prose, as 93 did, and counts it (`tagger_unread_lines`). Result: 7 of 7 papers read, with 0–7 such lines each, fewer
+    than 93. Packs with the reference (every pack the builder makes now) keep the strict rule. *Why:* it is what 93
+    shipped, and the owner wants a first open to degrade rather than refuse. *Undo:* `readLegacyTaggerOutput`
+    (DevicePDFModels.swift) to fail the reading again; the reship branch in both upload scripts.
 54. **Pictures set apart from their captions or labels read as panels, each picture above its own caption** (reader
     revision 28; agent report on 2610.20608v1, whose Figure 2 showed only "(a)", "(b)", "(c)" and its caption while the
     closing note counted its three plots as left-out graphics). LaTeXML wrote the plots as one paragraph and the

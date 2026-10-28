@@ -63,7 +63,7 @@ final class DevicePDFHostTests: XCTestCase {
         XCTAssertEqual(calls, 1, "valid outputs have no extra model call")
     }
 
-    /// TestFlight 93's pack (no reference) keeps 93's tolerance after the same bounded retry (JUDGMENT_LOG 55).
+    /// TestFlight 93's pack (no reference) keeps 93's tolerance after the same bounded retry (JUDGMENT_LOG 56).
     func testPackWithoutReferenceReadsAPersistentlyInvalidLineAsProseAfterTheRetry() throws {
         for invalid: [Float] in [[0, 0, 0], [-2, .nan, 3], [-2, 3]] {
             var calls = 0

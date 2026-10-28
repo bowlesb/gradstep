@@ -395,7 +395,7 @@ public final class DevicePDFModels: @unchecked Sendable {
     /// Logit for a line read as prose: far below every tagger threshold (sigmoid ≈ 2e-9).
     static let proseLogit: Float = -20
 
-    /// A pack without the independent reference (TestFlight 93's v4 pack, reshipped in 94; JUDGMENT_LOG 55) keeps the
+    /// A pack without the independent reference (TestFlight 93's v4 pack, reshipped in 94; JUDGMENT_LOG 56) keeps the
     /// tolerance that build shipped with: TestFlight 93 read an empty buffer as prose (sigmoid 0.5 is below its 0.7
     /// threshold). After the same bounded retry, a still-invalid line reads as prose and is counted
     /// (`tagger_unread_lines`) instead of failing the whole reading. Measured on 93's own host: 6 of 577 lines of one

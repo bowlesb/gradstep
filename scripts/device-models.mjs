@@ -16,7 +16,7 @@
 //   node scripts/device-models.mjs --describe   (only rewrites the description of an existing output folder)
 //   node scripts/device-models.mjs --reship-pack VERSION [--reship-from ARCHIVE_OR_FOLDER]
 //     copies a pack TestFlight already shipped, byte for byte, as recorded in apps/apple/device-models-shipped.json
-//     (JUDGMENT_LOG 55). It skips encryption because nothing new is exposed; the lock is untouched; any unrecorded or
+//     (JUDGMENT_LOG 56). It skips encryption because nothing new is exposed; the lock is untouched; any unrecorded or
 //     changed pack fails. Sources default to the record's archives under .artifacts/.
 //
 // Sources (each a directory under --from):
@@ -84,7 +84,7 @@ function describe(lockModels) {
   renameSync(MANIFEST + '.pending', MANIFEST);
   console.log(`pack ${pack.version.slice(0, 12)}: ${pack.files.length} files; description ${MANIFEST}`);
 }
-// Reship (JUDGMENT_LOG 55): the recorded bytes of a pack TestFlight already distributed, or nothing.
+// Reship (JUDGMENT_LOG 56): the recorded bytes of a pack TestFlight already distributed, or nothing.
 if (process.argv.includes('--reship-pack')) {
   if (plaintext || ['--require-encryption', '--update-lock', '--describe'].some(f => process.argv.includes(f)))
     throw Error('--reship-pack copies a recorded shipped pack unchanged; it cannot be combined with building, describing or relocking');

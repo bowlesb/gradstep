@@ -20,7 +20,7 @@ mkdir -p .artifacts
 # The on-device PDF route's models (docs/architecture/DEVICE_PDF_ROUTE.md), as in upload-testflight.sh. Rebuild and
 # qualify the exact encrypted pack for this archive. The Mac app keeps the
 # models inside the app (On-Demand Resources don't exist on the Mac; ENABLE_ON_DEMAND_RESOURCES is off for Mac Catalyst).
-# Reship (JUDGMENT_LOG 55), as in upload-testflight.sh: RESHIP_DEVICE_PACK=<64-hex version> copies a recorded shipped
+# Reship (JUDGMENT_LOG 56), as in upload-testflight.sh: RESHIP_DEVICE_PACK=<64-hex version> copies a recorded shipped
 # pack unchanged (apps/apple/device-models-shipped.json) and skips encryption; any other pack must be encrypted and
 # pass the signed verification. PREPARE_ONLY=1 stops after this model gate, before the archive and the App Store key.
 if [ -n "${RESHIP_DEVICE_PACK:-}" ]; then

@@ -15,7 +15,7 @@ mkdir -p .artifacts
 # Since 2026-10-24 they are a separate download ("The models as a download"): the folder is the On-Demand Resources tag
 # `device-pdf-models`, which the archive and the upload below carry as an asset pack beside the app (App Store hosted),
 # and the script also writes apps/apple/DeviceModelsManifest/device-models-pack.json, which the app ships.
-# Reship (JUDGMENT_LOG 55): RESHIP_DEVICE_PACK=<64-hex version> ships a pack TestFlight already distributed, byte for
+# Reship (JUDGMENT_LOG 56): RESHIP_DEVICE_PACK=<64-hex version> ships a pack TestFlight already distributed, byte for
 # byte as recorded in apps/apple/device-models-shipped.json (copied from that build's archive, or RESHIP_DEVICE_PACK_FROM),
 # without Apple model encryption: nothing new is exposed. Any other pack is built encrypted and must pass the signed
 # verification. PREPARE_ONLY=1 stops after this model gate, before the archive and the App Store key.

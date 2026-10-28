@@ -149,6 +149,9 @@ complete real model answers; the 83 scorable arXiv/publisher papers improve inli
 regression. The small arXiv table-cell F1 decreases (0.1/0.3 percentage points) are documented. Actual Core ML outputs,
 pack hashes, fast checks and native checks pass; full Mac conversions with JIT disabled pass for arXiv and publisher
 PDFs. Invalid all-zero tagger buffers retry once, then fail explicitly. The model lock names the actual v5a package.
+*Amended 2026-10-28 ([JUDGMENT_LOG.md](JUDGMENT_LOG.md) 56):* a pack without the tagger reference (TestFlight 93's,
+reshipped in 94) instead reads such a line as prose after the retry and counts it, as 93 did; packs with the reference
+keep recovery-or-fail.
 
 ## Device PDF equation integrity (owner-directed quality task, 2026-10-26; locally verified, not released)
 

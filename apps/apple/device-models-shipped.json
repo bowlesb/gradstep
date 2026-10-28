@@ -1,6 +1,6 @@
 {
  "schema": "gradstep-device-models-shipped-v1",
- "note": "Model packs already distributed through TestFlight, byte for byte. Only a pack listed here may be shipped again without Apple model encryption (node scripts/device-models.mjs --reship-pack VERSION; RESHIP_DEVICE_PACK in the upload scripts). Every new pack still requires --require-encryption and the signed qualification. Add an entry only for a pack whose exact description an uploaded build carried. JUDGMENT_LOG 55.",
+ "note": "Model packs already distributed through TestFlight, byte for byte. Only a pack listed here may be shipped again without Apple model encryption (node scripts/device-models.mjs --reship-pack VERSION; RESHIP_DEVICE_PACK in the upload scripts). Every new pack still requires --require-encryption and the signed qualification. Add an entry only for a pack whose exact description an uploaded build carried. JUDGMENT_LOG 56.",
  "packs": [
   {
    "builds": {

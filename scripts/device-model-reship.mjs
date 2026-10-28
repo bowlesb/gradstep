@@ -1,4 +1,4 @@
-// Reshipping a model pack that TestFlight already distributed (JUDGMENT_LOG 55, owner decision 2026-10-28).
+// Reshipping a model pack that TestFlight already distributed (JUDGMENT_LOG 56, owner decision 2026-10-28).
 // apps/apple/device-models-shipped.json pins every such pack by its exact description (file list, sizes, SHA-256 and
 // the version digest). Only a listed pack may skip Apple model encryption, and only with exactly those bytes: it
 // exposes nothing that was not already public. Any other pack still requires --require-encryption and the signed
