@@ -6,6 +6,27 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+55. **After a silent model, the fallback's admission moves the silent attempt's ceiling out of the reader's hold into
+    Gradstep's own room** (migration 0163; local, not applied or deployed). Staging, 14:12 and 14:14 UTC: a paper
+    explainer on Flash was silent 25 s, "Switching to Claude Haiku 5.5…" showed, then Haiku was `denied`
+    (`operation_ceiling`: 132,872 µ$ unresolved + Haiku's 149,531 > the 149,531 hold) and the reader got "couldn't
+    finish". Every action without a search allowance (all explainers, Go deeper, Study, answers without search) had this,
+    so after a silent model the fallback never ran. Now `worker_openrouter_admit_fallback` admits the fallback's first
+    request and, when the attempt it follows was silent (no output, no receipt), raises the operation's *provider* ceiling
+    by exactly that attempt's ceiling and reserves it in the month, recorded as a `carried` event on the silent attempt.
+    The reader's credit hold and quote never change; they pay only the answer they got. Nothing is carried for a refusal
+    that cost nothing (429, 503), output that arrived, a replay, a settled operation, or when the month, the free AI pool
+    or a testing cap can't take it (then the fallback is refused as before and `chat_fallback` logs `carry_refused`).
+    Settlement, reconciliation, Your AI usage and assumed zero (0162) are unchanged: the silent ceiling is the
+    operation's unresolved liability until reconciled or assumed zero. *Why this and not sizing every hold for both
+    attempts up front:* that would reserve the second ceiling on every Flash answer, against the month, the free pool
+    and testing caps (near the pool's end a free answer would have been paid from bought credits) to cover the ~6 % that
+    fall back; carrying at the moment of the fallback reserves it only then, keeps the operation's ceiling a true bound
+    on its spend (no overrun alerts), and leaves the reader's side untouched. *Cost:* one migration (a new admission
+    function, a `carried` event state, a replay-tolerant `worker_reserve_chat`) that must be applied before `chat` is
+    deployed. *Undo:* deploy `chat` without the `afterAttemptID` line in `generateAnswer` (the fallback is admitted as
+    before); the function can stay. Turning the fallback off (`chat_fallback: off`) also removes it.
+
 54. **Pictures set apart from their captions or labels read as panels, each picture above its own caption** (reader
     revision 28; agent report on 2610.20608v1, whose Figure 2 showed only "(a)", "(b)", "(c)" and its caption while the
     closing note counted its three plots as left-out graphics). LaTeXML wrote the plots as one paragraph and the

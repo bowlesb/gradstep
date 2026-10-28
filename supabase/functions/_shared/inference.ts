@@ -347,6 +347,14 @@ export interface ProviderOutcome {
   streamError?: ProviderErrorKind;
   /** Milliseconds from sending to the model's first output (text, reasoning, tool call or finish); absent when none came. */
   firstDataMs?: number;
+  /** The admitted attempt's id (provider-spending.ts admittedModelCalls): a fallback names the attempt it follows. */
+  attemptID?: string;
+  /** Not admitted: the database's reason (a closed code such as `operation_ceiling`), for logs only. */
+  refusedBy?: string;
+  /** A fallback's admission moved the silent attempt it follows out of the reader's hold (migration 0163): the amount (µ$),
+   * or why the month, the free AI pool or a testing cap could not take it (`carryRefused`). */
+  carriedMicrousd?: number;
+  carryRefused?: string;
 }
 
 /** Server work during an answer, relayed to the reader's device as an SSE `status` event.
@@ -387,6 +395,9 @@ export interface StreamOptions {
   firstDataMs?: number;
   /** False: no same-model retry of a busy refusal (retryOnceWhenBusy); the caller asks its fallback model at once instead. */
   busyRetry?: boolean;
+  /** A fallback's first request: the chosen model's attempt it follows. Admitted with worker_openrouter_admit_fallback
+   * (migration 0163), which carries that attempt's ceiling for Gradstep when it was silent. */
+  afterAttemptID?: string;
 }
 
 /** The longest wait worth a retry inside one answer; a longer Retry-After (or a breaker's cool-off) goes to the reader. */

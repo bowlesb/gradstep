@@ -117,6 +117,7 @@ parser.add_argument('--interest-only', action='store_true', help='Run the intere
 parser.add_argument('--feed-only', action='store_true', help='Run the For you fixtures (v4 library, migration 0154; library similarity, 0155) only.')
 parser.add_argument('--assumed-zero-only', action='store_true', help='Run the OpenRouter reconciler fixtures: automatic reconciliation (0102), OpenRouter-only reporting (0140) and assumed zero (0162), with the usage and model health fixtures they touch.')
 parser.add_argument('--deletion-sweep-only', action='store_true', help='Run the account-deletion sweep fixtures (migrations 128 and 0159) and the deletion suites they share functions with.')
+parser.add_argument('--fallback-carry-only', action='store_true', help='Run the fallback-after-a-silent-attempt fixtures (migration 0163): the SQL fixture with the admission, reservation, usage and assumed-zero fixtures it touches, and the chat journey (the real chat code against this database).')
 args = parser.parse_args()
 # Migration 0152 enables pgvector: the server must offer it (docs/TESTING.md).
 _vector = subprocess.run([str(BIN / 'psql'), *BASE, '-X', '-At', '-d', 'postgres', '-c',
@@ -128,7 +129,8 @@ if _vector.returncode == 0 and _vector.stdout.strip() == '0':
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
 # OpenRouter-only reporting (0140) and the owner's per-account costs (0141) follow them (owner, 2026-10-21).
 # Assumed zero (0162, JUDGMENT_LOG 21): an attempt with no output and no OpenRouter record after 12 tries settles at 0.
-SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql', 'openrouter_auto_reconcile.sql', 'budget_pauses_persist.sql', 'owner_budget_limit.sql', 'testing_allowance_safeguards.sql', 'scoped_provider_breakers.sql', 'openrouter_admit_and_dispatch.sql', 'sql_hot_paths.sql', 'openrouter_only_reporting.sql', 'account_costs.sql', 'openrouter_assumed_zero.sql']]
+# A fallback after a silent attempt (0163, JUDGMENT_LOG 55): the silent ceiling is carried for Gradstep, not the reader.
+SPENDING_FIXES = [ROOT / 'tests/database' / name for name in ['provider_attempt_windows.sql', 'openrouter_tariff_validity.sql', 'openrouter_auto_reconcile.sql', 'budget_pauses_persist.sql', 'owner_budget_limit.sql', 'testing_allowance_safeguards.sql', 'scoped_provider_breakers.sql', 'openrouter_admit_and_dispatch.sql', 'sql_hot_paths.sql', 'openrouter_only_reporting.sql', 'account_costs.sql', 'openrouter_assumed_zero.sql', 'fallback_carry.sql']]
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
 fence = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql'
 if args.reader_issuer_fence_candidate:
@@ -162,6 +164,12 @@ if args.model_health_only:
 if args.assumed_zero_only:
     phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', *[ROOT / 'tests/database' / name for name in ['openrouter_auto_reconcile.sql',
            'openrouter_only_reporting.sql', 'account_costs.sql', 'openrouter_assumed_zero.sql', 'ai_usage_reported_tokens.sql', 'model_health.sql']]], [])
+    raise SystemExit(0)
+if args.fallback_carry_only:
+    phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', *[ROOT / 'tests/database' / name for name in ['fallback_carry.sql',
+           'openrouter_admit_and_dispatch.sql', 'openrouter_assumed_zero.sql', 'ai_usage_reported_tokens.sql', 'model_health.sql', 'free_ai_and_spend.sql',
+           'testing_allowance_safeguards.sql']]], [])
+    phase(all_migrations, ['chat_fallback_journey'])
     raise SystemExit(0)
 if args.general_only:
     current_schema_phase(all_migrations, CURRENT_GENERAL)
@@ -219,4 +227,7 @@ phase([*all_migrations, ROOT / 'tests/database/default_privileges.sql', ROOT / '
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert (and its listing's speed and
 # reports, migration 0159); after every migration.
 phase([*all_migrations, ROOT / 'tests/database/podcast_device_source_deletion.sql', ROOT / 'tests/database/podcast_source_reservation.sql', ROOT / 'tests/database/beta_admission_revocation.sql', ROOT / 'tests/database/account_deletion_sweep.sql', ROOT / 'tests/database/account_deletion_sweep_speed.sql'], [])
+# The chat fallback journey (migration 0163, JUDGMENT_LOG 55): the real chat code against its own migrated database, since
+# its rows are committed (each call is its own session, as through PostgREST).
+phase(all_migrations, ['chat_fallback_journey'])
 current_schema_phase(all_migrations, CURRENT_GENERAL)

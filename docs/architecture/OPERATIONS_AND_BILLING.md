@@ -10,7 +10,12 @@ failing before output) and this month's Flash volume on staging (127 attempts, $
 month; the forecast and the $100/month budget are unchanged. A silent first attempt keeps its ceiling as an unresolved
 liability until the reconciler settles it (those seen so far have no OpenRouter record; from migration 0162 one with no
 output that OpenRouter still answers 404 for after 12 tries settles at zero automatically, counted against the month on
-Health, `budget.health` and Spending: [Assumed zero](PROVIDER_SPENDING.md#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied)). The 2026-10-25 reliability probe
+Health, `budget.health` and Spending: [Assumed zero](PROVIDER_SPENDING.md#assumed-zero-no-output-and-no-openrouter-record-migration-0162-2026-10-25-local-not-applied)).
+From migration 0163 (2026-10-28, JUDGMENT_LOG 55) that silent ceiling no longer takes the reader's hold: the fallback's
+admission reserves it in the month as Gradstep's own (refused, with the fallback, when the month, the free pool or a
+testing cap cannot take it), so a fallback after a silent model reserves one extra ceiling (up to about $0.18 on a long
+paper) from the switch until the attempt is reconciled or assumed zero; no fixed cost, the reader's quote and credits
+unchanged, the forecast unchanged ([A silent attempt carried by Gradstep](PROVIDER_SPENDING.md#a-silent-attempt-carried-by-gradstep-migration-0163-2026-10-28-local-not-applied)). The 2026-10-25 reliability probe
 spent $0.367654 (at most $0.515881 with the silent attempt's held ceiling) of a $1.00 allowance, inside the staging
 provider budget.
 
