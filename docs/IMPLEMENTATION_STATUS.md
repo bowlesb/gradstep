@@ -8,9 +8,10 @@ Server action `paper_concept` (chat function; no migration) and the apps: Go dee
 in front (streamed; kept with the explainer, so reopening is free; a quiet mark), ¶ links with Back, Ask about this,
 Your AI usage's Concept explainer; the explainer's header is one row in the sheet's bar. Evidence: backend tests
 (validation, checks, streaming at every split, cache prefix, settlement, Gemini effort, the Haiku fallback at the view
-deadline), Core and app unit tests (request, checks, bar, storage and reopening without a request), the iPhone journey
-`StudyExplainerJourneyTests/testGoDeeperOpensTheConceptInFrontAndTheOverviewStaysBehind` on the fixture backend, and a
-paid DPO probe ($0.0455). **To ship:** deploy the chat function, then a build. Older builds and the browser never send
+deadline), Core and app unit tests (request, checks, bar, storage and reopening without a request), the journey
+`StudyExplainerJourneyTests/testGoDeeperOpensTheConceptInFrontAndTheOverviewStaysBehind` on the fixture backend on the
+iPhone 17 Pro and iPad Pro 11-inch Simulators (with the explainer's existing journey on iPhone), all rerun after merging
+main at c6480d1c, and a paid DPO probe ($0.0455). The Mac was not run. **To ship:** deploy the chat function, then a build. Older builds and the browser never send
 the action. Not built: the browser, and concepts in Download your assets.
 
 ## Interest index serves every reader — 2026-10-28 UTC
