@@ -60,6 +60,11 @@ public enum FigureProgress {
     /// browser's equation-progress.ts, fixture tests/fixtures/equation-progress.json). Same rule, own words and sizes.
     public enum Kind: Sendable {
         case figure, equation
+        /// "Go deeper" on a concept of the paper's AI Explainer (PaperConceptTracker): no summary, so the sections are the
+        /// whole bar. Measured on DPO (2026-10-25, Gemini 3.8 Flash and Claude Haiku 5.5): a section's JSON about 500–1,000
+        /// characters.
+        case concept
+        public static let conceptParameters: [String: Double] = ["summaryChars": 1, "partChars": 750, "summaryShare": 0, "partCap": 0.9]
         /// The equation's measured sizes (2026-10-22, DPO's loss and gradient; Gemini 3.8 Flash and Sonnet 5.5): the
         /// summary's JSON about 240–430 characters, a symbol's about 170–210.
         public static let equationParameters: [String: Double] = ["summaryChars": 320, "partChars": 200, "summaryShare": 0.1, "partCap": 0.9]
@@ -67,6 +72,7 @@ public enum FigureProgress {
             switch self {
             case .figure: (Parameters.summaryChars, Parameters.partChars, Parameters.summaryShare, Parameters.partCap)
             case .equation: (Self.equationParameters["summaryChars"]!, Self.equationParameters["partChars"]!, Self.equationParameters["summaryShare"]!, Self.equationParameters["partCap"]!)
+            case .concept: (Self.conceptParameters["summaryChars"]!, Self.conceptParameters["partChars"]!, Self.conceptParameters["summaryShare"]!, Self.conceptParameters["partCap"]!)
             }
         }
         func label(_ stage: Stage, next: Int = 0, of: Int? = nil) -> String {
@@ -75,9 +81,12 @@ public enum FigureProgress {
             case (.figure, .reading): "Reading the figure…"
             case (.equation, .preparing): "Preparing the equation…"
             case (.equation, .reading): "Reading the equation…"
+            case (.concept, .preparing): "Preparing the paper…"
+            case (.concept, .reading): "Reading the paper…"
             case (_, .done): "Done"
             case (.figure, .writing): of.map { "Writing part \(next) of \($0)…" } ?? "Writing part \(next)…"
             case (.equation, .writing): of.map { "Explaining symbol \(next) of \($0)…" } ?? "Explaining symbol \(next)…"
+            case (.concept, .writing): of.map { "Writing section \(next) of \($0)…" } ?? "Writing section \(next)…"
             }
         }
     }

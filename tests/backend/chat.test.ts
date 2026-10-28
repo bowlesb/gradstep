@@ -19,6 +19,8 @@ import { figureBox, figureDetail, figureDetailMaxTokens, figureMaxTokens, figure
 import { openRouterChatParams } from '../../supabase/functions/_shared/openrouter-chat.ts';
 import { STUDY_STATE_LIMITS, studyState, StudyStateFilter, studyStateFromText } from '../../supabase/functions/_shared/chat-study.ts';
 import { boundedText, PAPER_EXPLAINER_INSTRUCTIONS, paperExplainer, paperExplainerMaxTokens, PaperExplainerStream, paperExplainerText, type PaperExplainerStreamItem } from '../../supabase/functions/_shared/chat-paper-explainer.ts';
+import { PAPER_CONCEPT_INSTRUCTIONS, PAPER_CONCEPT_LIMITS, paperConcept, paperConceptMaxTokens, PaperConceptStream, paperConceptText,
+  type PaperConceptStreamItem } from '../../supabase/functions/_shared/chat-paper-concept.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
   canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, OWN_PAPER_TITLE, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
@@ -1979,6 +1981,137 @@ test('the paper explainer never shows a summary or line cut inside a word or num
   const items = stream.push(JSON.stringify({ items: 2, summary: long, background: [] }));
   assert.equal(items.find(i => i.kind === 'summary')?.kind === 'summary' && (items.find(i => i.kind === 'summary') as { summary: string }).summary, checked.summary);
   assert.match(PAPER_EXPLAINER_INSTRUCTIONS, /under 450 characters/);
+});
+
+// "Go deeper" on one key concept of the paper's AI Explainer (chat-paper-concept.ts; JUDGMENT_LOG 27).
+const conceptQuote = 'Concept: Softmax\nKind: background the paper assumes\nThe explainer\'s line: Turns scores into weights.\nParagraphs: [¶4]';
+const conceptBody = (overrides: Record<string, unknown> = {}) => explainerBody({ action: 'paper_concept', selection: { quote: conceptQuote },
+  messages: [{ role: 'user', text: 'Go deeper: Softmax' }], ...overrides });
+const sampleConcept = { parts: 5, sections: [
+  { kind: 'what', title: 'What it is', text: 'Softmax turns a vector of scores into weights that are positive and sum to one: \\(\\mathrm{softmax}(z)_i = e^{z_i}/\\sum_j e^{z_j}\\).' },
+  { kind: 'why', title: 'Why this paper needs it', text: 'Attention needs weights over positions [¶4]; the paper scales the scores first [¶5][¶99].' },
+  { kind: 'example', title: 'A small example', text: 'Scores (2, 1, 0) give weights of about (0.67, 0.24, 0.09).', paragraphs: [3, 400] },
+  { kind: 'paper', title: '', text: '**Scaled** dot products feed it [¶4].' },
+  { kind: 'where', title: 'Where it appears', places: [{ paragraph: 4, note: 'Defines **attention** weights [¶4]' }, { paragraph: 4, note: 'again' },
+    { paragraph: 99, note: 'outside the paper' }, { paragraph: 5, note: 'Scaling before it' }] },
+  { kind: 'what', title: 'Empty', text: '' }] };
+
+test('a concept is one turn on the numbered paper with the concept as its passage, without a figure, title or suggestions', () => {
+  const parsed = validateChatRequest(conceptBody());
+  assert.equal(parsed.action, 'paper_concept'); assert.equal(parsed.selection, conceptQuote);
+  assert.match(canonicalRequest(parsed), /"action":"paper_concept"/, 'the action is part of the request digest');
+  for (const [label, change] of Object.entries({
+    'no concept': { selection: null }, 'two turns': { messages: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }, { role: 'user', text: 'c' }] },
+    'general mode': { mode: 'general', local_context: undefined }, 'server document': { document_id: documentID, local_context: undefined },
+    'unnumbered context': { local_context: localContext }, 'a title': { topic_title: true }, 'suggestions': { follow_ups: true }, 'notes': { study_state: sampleNotes },
+    'a figure': { figures: [{ id: 'F1', paragraph: 2, caption: 'x', media_type: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]).toString('base64'), width: 10, height: 10 }] },
+  })) assert.throws(() => validateChatRequest(conceptBody(change as Record<string, unknown>)), { code: 'invalid_request' }, label);
+});
+
+test('the concept check bounds the model output and its citations; the stream yields exactly the final sections as they complete', () => {
+  const checked = paperConcept(sampleConcept, 30)!;
+  assert.equal(checked.format, 'paper-concept-v1');
+  assert.deepEqual(checked.sections.map(s => s.kind), ['what', 'why', 'example', 'paper', 'where'], 'a section without words is left out');
+  assert.equal(checked.sections[1].text, 'Attention needs weights over positions [¶4]; the paper scales the scores first [¶5].', 'a [¶N] outside the paper is removed');
+  assert.deepEqual(checked.sections[1].paragraphs, [4, 5]);
+  assert.deepEqual(checked.sections[2].paragraphs, [3], 'listed paragraphs are kept only inside the paper');
+  assert.equal(checked.sections[3].title, 'How the paper uses it', 'a missing title is the kind\'s');
+  assert.deepEqual(checked.sections[4].places, [{ paragraph: 4, note: 'Defines attention weights' }, { paragraph: 5, note: 'Scaling before it' }],
+    'places: inside the paper, each paragraph once, notes plain');
+  assert.deepEqual(checked.sections[4].paragraphs, [4, 5]);
+  assert.equal(checked.sections[4].text, '');
+  assert.match(checked.sections[0].text, /\\\(\\mathrm\{softmax\}/, 'math is kept');
+  assert.equal(paperConcept({ sections: [{ kind: 'what', text: '' }, { title: '', text: 'no kind, no title' }] }, 30), null);
+  assert.equal(paperConcept({ sections: Array.from({ length: 9 }, (_, i) => ({ kind: 'what', text: `t${i}` })) }, 30)!.sections.length, PAPER_CONCEPT_LIMITS.sections);
+  const long = paperConcept({ sections: [{ kind: 'what', text: 'A sentence that goes on. '.repeat(200) }] }, 30)!;
+  assert.ok([...long.sections[0].text].length <= PAPER_CONCEPT_LIMITS.textChars && long.sections[0].text.endsWith('.'), 'cut at a sentence');
+  assert.match(paperConceptText(sampleConcept, 30), /\*\*Where it appears\*\*\n\n- \[¶4\] Defines attention weights\n- \[¶5\] Scaling before it$/);
+  // Streamed in pieces of every size: the count, then each section in order, equal to the final check.
+  const json = JSON.stringify(sampleConcept);
+  for (const size of [1, 3, 17, json.length]) {
+    const stream = new PaperConceptStream(30); const items: PaperConceptStreamItem[] = [];
+    for (let i = 0; i < json.length; i += size) items.push(...stream.push(json.slice(i, i + size)));
+    assert.deepEqual(items.map(i => i.kind), ['parts', 'section', 'section', 'section', 'section', 'section'], `split every ${size}`);
+    assert.deepEqual(items.filter(i => i.kind === 'section').map(i => (i as { section: unknown }).section), checked.sections);
+    assert.equal(stream.parts, 5); assert.ok(stream.complete);
+  }
+  // Cut off: the complete sections stay.
+  const cut = new PaperConceptStream(30); cut.push(json.slice(0, json.indexOf('"example"')));
+  assert.equal(cut.concept()!.sections.length, 2);
+});
+
+test('a concept streams its sections, then the whole concept; it reads the cached paper, never searches, and settles as an answer', async () => {
+  const sent: ModelRequest[] = [];
+  const json = JSON.stringify(sampleConcept);
+  const h = studyHarness({ generate: async (params, stream) => {
+    sent.push(params);
+    stream.onStatus?.({ kind: 'waiting' }); stream.onStatus?.({ kind: 'thinking' });
+    for (let i = 0; i < json.length; i += 40) stream.onText(json.slice(i, i + 40));
+    return completeOutcome();
+  } });
+  h.deps.webSearch = true; h.deps.search = { ready: async () => true, run: async () => found };
+  await runChat(h.deps, conceptBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' } }), h.emit, new AbortController().signal);
+  const kinds = h.events.map(e => e.event);
+  assert.equal(kinds[0], 'concept_progress'); assert.deepEqual(h.events[0].data, { stage: 'reading' });
+  assert.ok(!kinds.includes('delta'), 'the JSON never reaches the reader as words');
+  assert.deepEqual(h.events.filter(e => e.event === 'status').map(e => e.data), [{ kind: 'waiting' }], 'the card hears "waiting", not "thinking"');
+  assert.deepEqual(kinds.filter(k => k === 'concept_section' || k === 'paper_concept' || k === 'done'),
+    ['concept_section', 'concept_section', 'concept_section', 'concept_section', 'concept_section', 'paper_concept', 'done']);
+  assert.ok(h.events.some(e => e.event === 'concept_progress' && (e.data as { parts?: number }).parts === 5), 'the announced count reaches the progress bar');
+  assert.deepEqual(h.events.filter(e => e.event === 'concept_section').map(e => (e.data as { index: number }).index), [0, 1, 2, 3, 4]);
+  assert.deepEqual(h.events.find(e => e.event === 'paper_concept')!.data, paperConcept(sampleConcept, 30));
+  const params = sent[0];
+  const system = (params.system as { text: string }[]).map(block => block.text).join('\n');
+  assert.match(system, /asked to go deeper on one of its key concepts/);
+  assert.ok(system.indexOf('device-only-context-marker') < system.indexOf('go deeper on one of its key concepts'), 'the instructions follow the cached paper');
+  // The paper and the shared instructions are the explainer's own prefix: the concept reads the explainer's cache.
+  const explainerSent: ModelRequest[] = [];
+  const e = studyHarness({ generate: async (p, stream) => { explainerSent.push(p); stream.onText(JSON.stringify(sampleExplainer)); return completeOutcome(); } });
+  await runChat(e.deps, explainerBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' } }), e.emit, new AbortController().signal);
+  // The cached prefix: the tools, the shared instructions and the paper (its cache breakpoint); only what follows differs.
+  const blocks = (p: ModelRequest) => p.system as { text: string; cache_control?: unknown }[];
+  assert.ok(blocks(params)[1].cache_control && blocks(explainerSent[0])[1].cache_control, 'the paper is the cache breakpoint');
+  assert.deepEqual(blocks(params).slice(0, 2), blocks(explainerSent[0]).slice(0, 2), 'the same cached prefix as the explainer');
+  assert.notEqual(blocks(params)[2].text, blocks(explainerSent[0])[2].text, 'its own instructions after the paper');
+  assert.deepEqual(params.tools, explainerSent[0].tools, 'and the same tools');
+  assert.match(JSON.stringify(params.messages), /Concept: Softmax/, 'the concept goes as the passage, after the paper');
+  assert.ok(!/look_at_figure with its number/.test(system), 'no figure instructions');
+  assert.equal(params.output_config?.effort, 'low', 'automatic effort writes the concept at low');
+  assert.equal(params.max_tokens, paperConceptMaxTokens('low'));
+  assert.ok(!params.tools?.some(t => t.name === 'search_web'));
+  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_action, 'answer', 'settled as an answer (no migration)');
+  assert.equal(h.answers[0].action, 'paper_concept', 'logged as the concept');
+  assert.equal(h.generations(), 1, 'no title or suggestion request');
+  assert.ok(h.logs.some(l => l.event === 'chat_paper_concept' && l.sections === 5 && l.places === 2 && l.streamed === 5));
+  assert.match(PAPER_CONCEPT_INSTRUCTIONS, /\{"parts": 5, "sections"/);
+  // Words without JSON are the concept; an unreadable object shows nothing and charges nothing.
+  const words = studyHarness({ generate: async (_params, stream) => { stream.onText('Softmax normalises scores [¶4].'); return completeOutcome(); } });
+  await runChat(words.deps, conceptBody(), words.emit, new AbortController().signal);
+  assert.deepEqual(words.events.map(e => e.event), ['concept_progress', 'delta', 'done']);
+  const broken = studyHarness({ generate: async (_params, stream) => { stream.onText('{"parts": 4, "sections": [{"kind": "wh'); return completeOutcome(); } });
+  await runChat(broken.deps, conceptBody(), broken.emit, new AbortController().signal);
+  assert.deepEqual(broken.events.filter(e => e.event !== 'concept_progress').map(e => e.event), ['done']);
+  assert.equal(broken.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_credits, 0);
+  // Cut off at its allowance: the streamed sections are the concept, not charged.
+  const cut = studyHarness({ generate: async (_params, stream) => { stream.onText(json.slice(0, json.indexOf('"example"'))); return completeOutcome({ stopReason: 'max_tokens' }); } });
+  await runChat(cut.deps, conceptBody(), cut.emit, new AbortController().signal);
+  assert.equal((cut.events.find(e => e.event === 'paper_concept')!.data as { sections: unknown[] }).sections.length, 2);
+  assert.equal((cut.events.at(-1)!.data as { charged: boolean }).charged, false);
+});
+
+test('a concept on Gemini asks for minimal reasoning, as the explainer; its quote keeps the profile\'s low effort', async () => {
+  const sent: ModelRequest[] = [];
+  const h = studyHarness({ generate: async (params, stream) => { sent.push(params); stream.onText(JSON.stringify(sampleConcept)); return completeOutcome(); } });
+  h.deps.gemini = true;
+  await runChat(h.deps, conceptBody({ profile: { model: 'gemini', effort: 'medium', length: 'standard' } }), h.emit, new AbortController().signal);
+  assert.equal(sent[0].output_config?.effort, 'minimal');
+  assert.equal(h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote.effort, 'low');
+  // A Claude effort the reader chose stays.
+  const claude: ModelRequest[] = [];
+  const s = studyHarness({ generate: async (params, stream) => { claude.push(params); stream.onText(JSON.stringify(sampleConcept)); return completeOutcome(); } });
+  await runChat(s.deps, conceptBody({ profile: { model: 'sonnet', effort: 'medium', length: 'standard' } }), s.emit, new AbortController().signal);
+  assert.equal(claude[0].output_config?.effort, 'medium');
+  assert.equal(claude[0].max_tokens, paperConceptMaxTokens('medium'));
 });
 
 test('follow-up suggestions may ask for one picture when visual answers are on, never two and never when they are off', () => {

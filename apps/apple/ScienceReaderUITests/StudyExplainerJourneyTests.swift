@@ -64,9 +64,124 @@ final class StudyExplainerJourneyTests: XCTestCase {
         #endif
     }
 
-    /// The explainer's scrolling page (its scroll view, which has a hit point wherever it is scrolled).
+    /// The explainer's scrolling page (its scroll view, which has a hit point wherever it is scrolled; the header with the
+    /// paper's title is in the sheet's bar since TestFlight 93).
     private func page(_ app: XCUIApplication) -> XCUIElement {
-        app.scrollViews.containing(.any, identifier: "paperExplainer.paperTitle").firstMatch
+        app.scrollViews.containing(.any, identifier: "paperExplainer.summary").firstMatch
+    }
+
+    /// Paper › … › AI Explainer, its model chosen, written in full (the fixture's).
+    private func explainPaper(_ app: XCUIApplication) {
+        app.show("paper")
+        #if targetEnvironment(macCatalyst)
+        let options = app.popUpButtons["Paper options"].firstMatch
+        XCTAssertTrue(options.waitForExistence(timeout: 10)); options.click()
+        let item = app.menuItems.matching(NSPredicate(format: "title BEGINSWITH[c] %@", "AI Explainer")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5)); item.click()
+        #else
+        let options = app.buttons["Paper options"].firstMatch
+        XCTAssertTrue(options.waitForExistence(timeout: 10)); options.tap()
+        let item = app.buttons["paper.aiExplainer"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5)); item.tap()
+        #endif
+        if !app.buttons["ai.chooseModel"].waitForExistence(timeout: 8), app.buttons["paperExplainer.start"].exists { app.buttons["paperExplainer.start"].tap() }
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 8)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(any("paperExplainer.diagram", app).waitForExistence(timeout: 30), "the explainer is written")
+        XCTAssertTrue(any("paperExplainer.progress", app).waitForNonExistence(timeout: 10))
+    }
+
+    /// Owner, TestFlight 93 (JUDGMENT_LOG 27): "an option for users to request more elaboration on each concept, and then
+    /// another screen in front. Then when we swipe away we get the entire overview behind". The header is two short lines
+    /// in the bar; Go deeper opens the concept's card in front, streamed; swiped down, the overview is where it was, the
+    /// concept marked; opened again it shows what was kept without a request (the fixture numbers its requests); a place's
+    /// ¶ opens the paper with Back, which brings the explainer and the card back; Ask about this starts the question.
+    func testGoDeeperOpensTheConceptInFrontAndTheOverviewStaysBehind() throws {
+        let app = launch(["--paper-fixture-step-ms=700"])
+        explainPaper(app)
+        sleep(1); save("\(device())-\(appearance)-concept-1-explainer-header")
+        // The header is two short lines on the bar's leading side; the first card starts right under the bar.
+        let header = any("paperExplainer.header", app)
+        XCTAssertTrue(app.navigationBars.containing(.any, identifier: "paperExplainer.header").firstMatch.exists, "the header is in the bar")
+        let summary = any("paperExplainer.summary", app)
+        XCTAssertTrue(summary.exists)
+        XCTAssertLessThan(header.frame.minX - app.frame.minX, 40, "on the bar's leading side (\(header.frame))")
+        XCTAssertLessThan(summary.frame.minY - header.frame.maxY, 80, "the overview starts right under the bar (\(header.frame), \(summary.frame))")
+
+        // Scrolled a little, to show the place it keeps.
+        let deeper = app.buttons["paperExplainer.background.1.deeper"]
+        XCTAssertTrue(deeper.waitForExistence(timeout: 5), "Go deeper on each concept")
+        scroll(page(app), down: true)
+        for _ in 0..<4 where !deeper.isHittable { scroll(page(app), down: false) }
+        XCTAssertTrue(deeper.isHittable)
+        let anchor = any("paperExplainer.idea.1", app)
+        let before = anchor.frame
+        save("\(device())-\(appearance)-concept-2-go-deeper")
+        deeper.tap()
+
+        // The card in front, written section by section with the explainer's bar.
+        let card = any("paperConcept.page", app)
+        XCTAssertTrue(card.waitForExistence(timeout: 8), "the concept's card in front")
+        let opened = any("paperConcept.progress", app).waitForExistence(timeout: 5)
+        save("\(device())-\(appearance)-concept-3-card-opening")
+        XCTAssertTrue(opened, "its progress bar at once")
+        XCTAssertTrue(any("paperConcept.section.1", app).waitForExistence(timeout: 10), "sections as they are written")
+        save("\(device())-\(appearance)-concept-3-card-streaming")
+        let ask = app.buttons["paperConcept.ask"]
+        XCTAssertTrue(ask.waitForExistence(timeout: 15), "done: Ask about this")
+        XCTAssertTrue(waitLabelled("Fixture request 1", app), "the first request's words")
+        XCTAssertTrue(any("paperConcept.name", app).label.contains("HTML documents"))
+        sleep(1); save("\(device())-\(appearance)-concept-4-card")
+
+        // Swiped down: the overview behind, where it was, the concept marked.
+        dismissCard(app)
+        XCTAssertTrue(card.waitForNonExistence(timeout: 5), "the card goes")
+        XCTAssertTrue(anchor.waitForExistence(timeout: 3))
+        XCTAssertEqual(anchor.frame.minY, before.minY, accuracy: 2, "the overview is where it was")
+        XCTAssertEqual(deeper.value as? String, "Explained", "a quiet mark on the concept")
+        save("\(device())-\(appearance)-concept-5-overview-marked")
+
+        // Opened again: what was kept, at once (no bar, no new request).
+        deeper.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["paperConcept.ask"].waitForExistence(timeout: 3), "kept: whole at once")
+        XCTAssertFalse(any("paperConcept.progress", app).exists, "nothing asked")
+        XCTAssertTrue(waitLabelled("Fixture request 1", app), "the kept words, not a second request's")
+
+        // A place's ¶: the paper there, with Back to AI Explainer, which brings the explainer and this card back.
+        let place = app.buttons["paperConcept.place.4"]
+        let cardScroll = app.scrollViews.containing(.any, identifier: "paperConcept.name").firstMatch
+        for _ in 0..<8 where !(place.exists && place.isHittable) { scroll(cardScroll, down: true) }
+        XCTAssertTrue(place.isHittable, "where it appears, with ¶ links")
+        save("\(device())-\(appearance)-concept-6-card-places")
+        place.tap()
+        let back = app.buttons["reader.explainer.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "the paper at that paragraph, with a way back")
+        XCTAssertTrue(back.label.contains("AI Explainer"), back.label)
+        back.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "back to the explainer with the card in front")
+        XCTAssertTrue(waitLabelled("Fixture request 1", app), "still the kept card")
+
+        // Ask about this: the card goes and the explainer's question names the concept.
+        let askAgain = app.buttons["paperConcept.ask"]
+        for _ in 0..<8 where !(askAgain.exists && askAgain.isHittable) { scroll(cardScroll, down: true) }
+        askAgain.tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 5))
+        let composer = any("contextChat.composer", app)
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        XCTAssertTrue(((composer.value as? String) ?? "").hasPrefix("About “HTML documents”"), "\(composer.value ?? "")")
+        sleep(1); save("\(device())-\(appearance)-concept-7-ask")
+    }
+
+    /// Swipes the concept's card away (its X on the Mac).
+    private func dismissCard(_ app: XCUIApplication) {
+        #if targetEnvironment(macCatalyst)
+        app.buttons["sheet.close"].firstMatch.click()
+        #else
+        let top = any("paperConcept.name", app)
+        let start = top.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 600)), withVelocity: .fast, thenHoldForDuration: 0)
+        #endif
     }
 
     /// The numbered fixture paper's chat: the Chat tab on a phone, the chat beside the paper in the wide layout.

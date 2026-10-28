@@ -172,6 +172,27 @@ test('a figure explainer whose model fails before writing is explained by the fa
   assert.ok(FALLBACK_FIRST_DATA_MS.view < FALLBACK_FIRST_DATA_MS.answer && FALLBACK_FIRST_DATA_MS.answer < FIRST_DATA_DEADLINE_MS);
 });
 
+test('a concept of the paper explainer whose model is silent is asked of the fallback at the view deadline, streamed and labelled', async () => {
+  const concept = JSON.stringify({ parts: 2, sections: [{ kind: 'what', title: 'What it is', text: 'A normaliser [¶2].' },
+    { kind: 'where', title: 'Where it appears', places: [{ paragraph: 2, note: 'defined' }] }] });
+  const h = harness((sent, init) => sent.model === GEMINI_OPENROUTER_MODEL ? silent(init?.signal) : answer(sent.model, concept, 0.0012),
+    { firstData: { view: 40, answer: 5_000 } });
+  await h.run({ mode: 'paper', local_context: { format: 'reader-local-context-v2', source: 'local', text: '[¶1] Intro.\n\n[¶2] Softmax.' },
+    action: 'paper_concept', selection: { quote: 'Concept: Softmax\nKind: background the paper assumes' }, messages: [{ role: 'user', text: 'Go deeper: Softmax' }],
+    capabilities: ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'] });
+  assert.deepEqual(h.sent.map(s => s.model), [GEMINI_OPENROUTER_MODEL, FALLBACK_HAIKU], 'the view deadline (not the answer\'s) gave up on the silent model');
+  // Gemini's minimal reasoning (the explainer's) is Claude's low for the fallback.
+  assert.deepEqual(h.sent[1].reasoning, { effort: 'low' });
+  const names = h.events.map(e => e.event);
+  assert.ok(names.includes('concept_section') && names.includes('paper_concept'), names.join(','));
+  assert.deepEqual(h.events.filter(e => e.event === 'status').map(e => e.data), [{ kind: 'switching', model: 'claude-haiku-5-5' }]);
+  const doneEvent = h.events.at(-1)!;
+  assert.equal((doneEvent.data as any).model, 'claude-haiku-5-5'); assert.equal((doneEvent.data as any).profile, 'gemini-low-standard');
+  assert.equal((doneEvent.data as any).charged, true);
+  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.p.p_action, 'answer');
+  assert.ok(h.logs.some(l => l.event === 'chat_fallback' && l.action === 'paper_concept' && l.result === 'answered'));
+});
+
 test('the hold covers whichever model would cost more to write the answer; the reader still pays only what answered', async () => {
   // A long paper: Haiku's byte-estimated prompt passes its 100k-token tier, so its ceiling passes Flash's.
   const paper = { mode: 'paper', local_context: { format: 'reader-local-context-v2', source: 'local', text: `[¶1] ${'The model and its loss. '.repeat(7_000)}` } };

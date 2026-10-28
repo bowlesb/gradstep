@@ -180,12 +180,73 @@ card, the same cards in Chat".
   the owner's own 14:07 run on a 93k-token paper took 34 s). The difference from the model-alone numbers is the service's
   own preparation and Gemini's variable start; it is not yet explained further.
 
+### Go deeper on a key concept — 2026-10-25 (server and apps local, not deployed)
+
+Owner, TestFlight 93 (iPhone, 19:51 UTC): *"The space at the top isn't that well used. I think we can improve this by
+having an option for users to request more elaboration on each concept, and then another screen in front. Then when we
+swipe away we get the entire overview behind etc."* Decision: [JUDGMENT_LOG](../JUDGMENT_LOG.md) 27 (and, for the
+calls made building it: 44–51).
+
+- **The overview.** Each Key concept has **Go deeper ›** beside its ¶ links (under them when they don't fit), once the
+  explainer is whole. A concept already deepened carries a small check and VoiceOver's "Explained". The header moved into
+  the sheet's bar: "AI Explainer · <model>" over the paper's title, one line each (`PaperExplainerHeader`), so the overview
+  starts under the bar instead of under a 28-point title, the paper, the model and an empty band. The chat symbol stays.
+  The idle state's "AI Explainer" bar capsule is gone (the page's own "Explain this paper" does the same). The figure and
+  equation explainers keep their headings (a ⌄ menu of the paper's other figures or equations: not the same component).
+- **The card** (`PaperConceptView`, a `slotSheet`: the system sheet on iPhone, iPad Tall and the Mac, the companion slot's
+  own sheet in Wide, as every sheet raised from an explainer): the concept's kind, name, line and the model; then its
+  sections on the explainer's raised cards — What it is, Why this paper needs it, An intuition / A small example, How the
+  paper uses it (Markdown with working ¶ links and math) — and **Where it appears**: each place a ¶ capsule (the overview's)
+  with what happens there; then **Ask about this**. Swiped down (the Mac: its X), the overview is as it was, scrolled where
+  it was. A ¶ opens the paper there with "Back to AI Explainer", which brings back the explainer and the card (the return
+  records action `paper_concept` and the concept's id). Ask about this closes the card and starts the explainer's question
+  with "About “<concept>”: " (as a figure part's Ask about this part); the concept's words go with the question, before the
+  overview's.
+- **Request:** the explainer's own (`ChatGenerationRequest.paperConcept`: its profile, capabilities and numbered paper, so
+  the paper is read from the cache the explainer wrote) with `action: "paper_concept"`, one turn ("Go deeper: <name>") and
+  the concept as the selection: `Concept: <name>` / `Kind: background the paper assumes` or `one of this paper's own ideas`
+  / `The explainer's line: …` / `Paragraphs: [¶N] …`. Validation as `paper_explainer`, with the selection required.
+  Effort `low` when automatic or Gemini (Gemini asks for `minimal` reasoning, as the explainer); 3,000 output tokens plus the
+  effort's thinking. No web search, title, suggestions or figure.
+- **Output** (`chat-paper-concept.ts`, `PAPER_CONCEPT_INSTRUCTIONS`): one JSON object, `{"parts": N, "sections": [{kind,
+  title, text}, …, {kind: "where", title, places: [{paragraph, note}]}]}`, kinds `what`, `why`, `example`, `paper`, `where`.
+  Checked by `paperConceptSection` / `paperConcept`: a [¶N] outside the paper removed, places inside it and each paragraph
+  once, notes plain one-liners ≤ 160, text ≤ 1,500 (cut at a sentence), titles ≤ 60 (the kind's when missing), six
+  sections at most; a section with neither text nor places is left out.
+- **Stream:** `concept_progress {stage: reading|writing, characters?, parts?}`, `concept_section {index, section}` as each
+  section closes (`PaperConceptStream` on json-list-stream.ts, checked exactly as the final one), then `paper_concept
+  {format: "paper-concept-v1", sections}` and `done`. The card also hears `status waiting` ("Still waiting for the model…"
+  in its bar, from 12 s) and `switching` (the other explainers drop `waiting`); never `thinking`. Unusable JSON: its words as
+  `delta`; a cut-off reply keeps its streamed sections and is not charged.
+- **Fallback and deadlines:** an explainer view, so the 25 s first-data deadline while Claude Haiku 5.5 can answer for
+  Gemini Flash, labelled by `done.model` (the card names "Claude Haiku 5.5").
+- **Money:** quoted, held and settled as an answer (`p_action 'answer'`, no migration; `chat_answer` logs `paper_concept`
+  and `chat_paper_concept` its section and place counts). The provider attempt's feature is the action (`paper_concept`),
+  which the usage and admin functions count as chat, as the paper's explainer. The apps name it **Concept explainer** in Your
+  AI usage from what the device recorded (the action and the concept's id), with **Open concept**: the explainer with that
+  kept card in front.
+- **Kept** with the explainer it deepens: `PaperExplainerAnswer.concepts[<entry id>]` (`PaperConceptAnswer`: the
+  sections or words, the model, when), in the same sealed file on the device (rewritten under the name it was read from,
+  whichever profile it was kept under: `EquationResultStore.write(_:fileName:)`), not synced, as the explainer. Reopening is
+  free. A card closed while it is written goes on being written while the explainer is open (closing the explainer stops
+  it: not charged, as any explainer left early). A new explainer starts with no concepts (the old one's stay in its file).
+- **Browser:** not built (the browser sends no `paper_concept`; its explainer is unchanged). Download your assets does not
+  yet include deepened concepts (the shared export fixture is unchanged).
+- **Measured** (`scripts/paper-concept-probe.mjs`: the server's own requests straight to OpenRouter after the explainer,
+  DPO, 274 blocks; `.artifacts/go-deeper-20261025/probe/`): Gemini 3.8 Flash at minimal, cache read (34.6k tokens),
+  $0.0062–0.0074 a concept, 660–951 tokens written, five sections each, streamed = final; first output 3.2 s once and 25.1
+  and 25.2 s twice (the known Flash start; with the fallback on, Haiku is asked at 25 s). Claude Haiku 5.5 at low: first
+  output 1.7–2.4 s, whole 7.7–12.1 s, $0.0015–0.0021 on its cache ($0.0121 writing it). Quality: correct, specific to the
+  paper, 5–6 places each with real paragraphs; Haiku's worked examples carry checked numbers. The first prompt's "keep
+  general knowledge apart" made Haiku hedge ("the only part I can verify"); the prompt now asks for "in general" without
+  such remarks, and sections of 200–700 characters (some still run to ~1,000; the check keeps ≤ 1,500).
+
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off; "cloud-ai-v3" adds figures, "cloud-ai-v4" DeepSeek, [below](#chat-redesign-from-build-57-feedback--2026-10-16)), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study mode](#study-mode--reworked-2026-10-22-server-on-staging-apps-and-browser-local)) | "paper_explainer" (paper mode with local context v2, exactly one turn, no selection or figures; [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study_state?: {turn, level, concepts, next} (≤ 4 KB), study?: {…} (an older build's map, ≤ 16 KB, ignored)} ` (`study_state` and `study` only with `action: "study"`, both optional since 2026-10-22; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off; "cloud-ai-v3" adds figures, "cloud-ai-v4" DeepSeek, [below](#chat-redesign-from-build-57-feedback--2026-10-16)), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study mode](#study-mode--reworked-2026-10-22-server-on-staging-apps-and-browser-local)) | "paper_explainer" (paper mode with local context v2, exactly one turn, no selection or figures; [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)) | "paper_concept" (as `paper_explainer` but the concept is the selection, which it requires; [Go deeper](#go-deeper-on-a-key-concept--2026-10-25-server-and-apps-local-not-deployed)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study_state?: {turn, level, concepts, next} (≤ 4 KB), study?: {…} (an older build's map, ≤ 16 KB, ignored)} ` (`study_state` and `study` only with `action: "study"`, both optional since 2026-10-22; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
 - `GET` (2026-10-08) returns the versioned profile table, below.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?, model?}` (2026-10-07, below; `waiting`/`thinking` and `switching {model}` since 2026-10-25, [fallback](#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed)), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study_state {state}` (2026-10-22; the 2026-10-14 `study {map}` is no longer sent), `paper_progress`, `paper_summary`, `paper_item`, `paper_explainer` (2026-10-22, [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)), `done {stop_reason, credits, usage, model?, profile, charged, reason?}` (`model`/`profile` since 2026-10-08; `charged`/`reason` since 2026-10-16, [below](#when-an-answer-stops-early--2026-10-16)), `error {code, credits?, charged?, reason?}` (`credits` since 2026-10-14: what the failed answer cost the reader; since 2026-10-16 every error after the hold carries `credits: 0, charged: false` and a `reason`, and an error without `charged` came before anything was held) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?, model?}` (2026-10-07, below; `waiting`/`thinking` and `switching {model}` since 2026-10-25, [fallback](#a-fallback-when-the-chosen-model-fails-before-writing--2026-10-25-server-and-clients-local-not-deployed)), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study_state {state}` (2026-10-22; the 2026-10-14 `study {map}` is no longer sent), `paper_progress`, `paper_summary`, `paper_item`, `paper_explainer` (2026-10-22, [Paper AI Explainer](#paper-ai-explainer--2026-10-22-server-on-staging-apps-and-browser-local)), `concept_progress`, `concept_section`, `paper_concept` (2026-10-25, [Go deeper](#go-deeper-on-a-key-concept--2026-10-25-server-and-apps-local-not-deployed)), `done {stop_reason, credits, usage, model?, profile, charged, reason?}` (`model`/`profile` since 2026-10-08; `charged`/`reason` since 2026-10-16, [below](#when-an-answer-stops-early--2026-10-16)), `error {code, credits?, charged?, reason?}` (`credits` since 2026-10-14: what the failed answer cost the reader; since 2026-10-16 every error after the hold carries `credits: 0, charged: false` and a `reason`, and an error without `charged` came before anything was held) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel; then the follow-up suggestions, from the finished answer) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request

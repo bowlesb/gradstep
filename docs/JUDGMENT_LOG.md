@@ -4,6 +4,46 @@ Owner, 2026-10-25: "Just make a good judgment and keep a log." Calls the lead or
 newest first. Each says what was decided, why, and how to undo it. Formal entries stay in [DECISIONS.md](DECISIONS.md);
 this is the one place to skim and overrule. Say "undo N" (or describe the change) to reverse any of them.
 
+## 2026-10-28
+
+Building 27 (Go deeper on a key concept; CHAT.md "Go deeper on a key concept"; local, not deployed):
+
+44. **The deeper card has fixed parts**: What it is · Why this paper needs it · An intuition *or* A small example · How
+    the paper uses it · **Where it appears** (2–6 places, each the overview's ¶ capsule with what happens there), then
+    **Ask about this**. Sections stream in one by one under the explainers' bar. *Why:* the four questions 27 named, in
+    the order a reader needs them; places as ¶ capsules behave exactly like the overview's. *Undo:* the instructions in
+    `chat-paper-concept.ts` (the device shows any titled section).
+45. **Go deeper asks the explainer's AI without a model chooser**, and the card names the model (or "by Claude Haiku
+    5.5" when the fallback wrote it). A card closed while it is being written keeps being written while the explainer
+    is open and shows when reopened; closing the explainer stops it (not charged). Reopening a kept one asks nothing.
+    *Why:* one tap per concept; the AI was chosen for this explainer a moment ago. *Undo:* show `AIChoiceView` before the
+    first concept, as the explainer does.
+46. **The explainer's header is one row in the sheet's bar**: "AI Explainer · <model>" over the paper's title (one line
+    each) on the left, the chat symbol on the right (and the X on the Mac or in Wide's slot). It had to be one view: as
+    a separate leading item, iOS 26 moved both it and the chat symbol into a ⋯ overflow menu. On an iPhone the first
+    card now starts ~90 pt higher. The idle state's "AI Explainer" capsule in the bar went (the page's own "Explain this
+    paper" does the same). The figure and equation explainers keep their headings: theirs is a ⌄ menu of the paper's
+    other figures or equations, a different component. *Undo:* `PaperExplainerHeader` and `topRow` in
+    PaperExplainView.swift (the old heading was a `title2` VStack at the top of the page).
+47. **A concept is metered and settled as chat, like the paper's explainer** (no migration; the attempt's feature is
+    `paper_concept`, which the usage and admin functions count as chat); the apps name it **Concept explainer** in Your
+    AI usage from what the device recorded, with **Open concept** (the explainer with that card in front). *Why:* the
+    same design as the explainer it deepens, nothing to apply on the database. *Undo / wider:* an activity of its own
+    needs a migration of `usage_activity`, `v1_ai_usage` and both clients' lists.
+48. **Gemini writes concepts at `minimal` reasoning, as the explainer** (Claude keeps a chosen effort; automatic is
+    `low`). DPO probe: five sections each, the same quality as Haiku; Flash's start was 3 s once and 25 s twice (its known
+    tail; Haiku is asked at 25 s). The prompt asks for "in general" rather than remarks about what can be verified
+    (Haiku hedged before), and 200–700 characters a section. *Undo:* the `conceptOnly` clause beside the explainer's in
+    chat.ts.
+49. **The card says "Still waiting for the model…" in its bar** (the server relays `waiting` to concepts, not to the
+    other explainers, which keep "Reading…"). *Why:* the probe's 25 s Flash starts; a card with a still bar for 25 s
+    reads as stuck. *Undo:* drop `conceptOnly` from the `onStatus` filter.
+50. **Ask about this closes the card and starts the explainer's question "About “<concept>”: " with the keyboard up**,
+    the concept's words going with the question before the overview's (as a figure part's Ask about this part). A ¶ in
+    the card closes the explainer and the card in one dismissal; Back to AI Explainer brings both back.
+51. **Not built:** the browser (it sends no `paper_concept`; its explainer is unchanged) and deepened concepts in
+    Download your assets (the shared export fixture is unchanged). Both are follow-ups.
+
 ## 2026-10-25
 
 43. **A figure printed before the Introduction reads after the paragraph that first cites it** (owner, TestFlight 92,

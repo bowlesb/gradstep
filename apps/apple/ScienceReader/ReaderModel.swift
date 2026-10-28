@@ -4926,12 +4926,37 @@ final class ReaderModel {
         paperExplainerStore = try? EquationResultStore(directory: directory, accountID: accountID, localKey: device.localStoreKey)
         return paperExplainerStore
     }
-    /// Paper › … › AI Explainer: the kept explainer at once; otherwise the model is chosen first (`requesting`).
-    func openPaperExplainer(_ paper: Paper, requesting: Bool) {
+    /// Paper › … › AI Explainer: the kept explainer at once; otherwise the model is chosen first (`requesting`). With a
+    /// `concept` (Your AI usage's "Open concept"), that concept's kept card opens in front of it (action `paper_concept`).
+    func openPaperExplainer(_ paper: Paper, requesting: Bool, concept: String? = nil) {
         guard let bundle = paper.readerBundle else { return }
         presentedExplainer = ExplanationPresentation(subject: ExplanationSubject(paperID: paper.id, paperTitle: paper.title,
-            manifestSHA256: bundle.manifestSHA256, itemID: "paper", label: "AI Explainer", action: ChatAction.paperExplainer.rawValue, savedAt: Date()),
+            manifestSHA256: bundle.manifestSHA256, itemID: concept ?? "paper", label: "AI Explainer",
+            action: (concept == nil ? ChatAction.paperExplainer : .paperConcept).rawValue, savedAt: Date()),
             requesting: requesting)
+    }
+
+    // MARK: Go deeper on a key concept (2026-10-25; JUDGMENT_LOG 27)
+
+    /// Keeps a deepened concept with the explainer it deepens: in the sealed file that holds that explainer (whichever
+    /// profile it was kept under, so the explainer isn't copied), and in memory wherever that explainer is shown. Returns
+    /// the concepts now kept with it (the overview's marks).
+    @discardableResult
+    func keepPaperConcept(_ concept: PaperConceptAnswer, id: String, explainer: PaperExplainer, key: PaperExplainerKey) -> [String: PaperConceptAnswer] {
+        let store = paperExplainerResultStore()
+        let held = store?.entries(as: PaperExplainerAnswer.self).first {
+            $0.value.explainer == explainer && ($0.value.subject?.manifestSHA256 ?? key.manifestSHA256) == key.manifestSHA256
+        }
+        var answer = held?.value ?? paperExplainerAnswers.values.first { $0.explainer == explainer } ?? PaperExplainerAnswer(explainer: explainer)
+        answer.concepts = (answer.concepts ?? [:]).merging([id: concept]) { _, new in new }
+        if answer.subject == nil {
+            answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: "paper", action: .paperExplainer) { _ in "AI Explainer" }
+        }
+        for (shown, kept) in paperExplainerAnswers where kept.explainer == explainer { paperExplainerAnswers[shown] = answer }
+        if paperExplainerAnswers[key] == nil { paperExplainerAnswers[key] = answer }
+        if let held { _ = keptOnDevice({ try store?.write(answer, fileName: held.fileName) }) }
+        else { _ = keptOnDevice({ try store?.write(answer, for: key) }) }
+        return answer.concepts ?? [:]
     }
     /// Whether this paper revision has a kept explainer (any cloud model).
     func hasPaperExplainer(_ paper: Paper) -> Bool {
@@ -5349,7 +5374,7 @@ final class ReaderModel {
                 case .studyState(let notes): studyNotes = notes
                 // The explainers' own events; an ordinary answer never gets them.
                 case .equation, .figure, .figureProgress, .figureSummary, .figureSection, .equationProgress, .equationSummary, .equationSymbol,
-                     .paperProgress, .paperSummary, .paperItem, .paperExplainer: break
+                     .paperProgress, .paperSummary, .paperItem, .paperExplainer, .conceptProgress, .conceptSection, .paperConcept: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits
