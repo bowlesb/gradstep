@@ -13,6 +13,33 @@ Provider SDK and search transport retries are disabled. A new explicit request, 
 continuation, needs a new grant and must fit the operation's remaining ceiling. The database records
 admission, final usage and reconciliation; application logs contain identifiers and counts only.
 
+## A silent attempt carried by Gradstep (migration 0163, 2026-10-28; local, not applied)
+
+[JUDGMENT_LOG 55](../JUDGMENT_LOG.md); [design and staging evidence](CHAT.md#after-a-silent-model-the-silent-ceiling-is-carried-for-gradstep--2026-10-28-migration-0163-local-not-deployed).
+After a silent first attempt, the answer's fallback was refused by the operation bound below (`operation_ceiling`): the
+silent ceiling, unresolved, filled the reader's hold. The project's rule was already that this ceiling is Gradstep's
+liability; 0163 applies it at admission.
+
+- **`worker_openrouter_admit_fallback(…, p_after_attempt_id)`** (service role; chat's fallback, first request only): as
+  `worker_openrouter_admit` (0107), with one step first, under the same locks. When the named attempt is in the same
+  operation, OpenRouter, chat, `unknown`, dispatched, with no first output and no receipt (`openrouter_no_output`, 0162),
+  the operation is open, the admission is not a replay and the attempt was not carried before: the operation's
+  `spend_ceiling_microusd` and the month's `reserved_microusd` grow by exactly its ceiling ("carried"). If the fallback is
+  then admitted, a `carried` event on the silent attempt records `carried_microusd`, `fallback_attempt_id` and the ceiling
+  before and after; if it is refused for any reason, the carry is undone in the same transaction. The result adds
+  `carried_microusd` and, when the carry was refused, `carry_refused`.
+- **Still the month's.** The carry is refused (`platform_budget_exhausted`, `free_pool_exhausted`, `testing_cap_reached`)
+  when the month's limit, the free AI pool (for an operation free credits pay) or the account's testing cap cannot take
+  it, exactly as a reservation of that amount would be; the fallback is then admitted as before.
+- **Never the reader's.** `credit_ceiling` and the quote (`chat_quotes`) are unchanged; settlement still caps the charge
+  at `credit_ceiling`. `worker_reserve_chat` now compares a replay with the reserved ceiling plus what the operation
+  carries (`app_private.operation_carried_microusd`), so a device's retry stays a replay.
+- **Unchanged after.** The silent attempt's row, ceiling, failure and units are untouched; at settlement its ceiling is
+  the operation's `provider_liability_microusd`; reconciliation and assumed zero release it from the month and the
+  operation; `known + liability` stays within the (raised) operation ceiling, so no `operation_over_ceiling` anomaly.
+- **Deploy:** apply 0163 before `chat` (a `chat` without it sends no fallback). **Undo:** a `chat` that does not pass
+  `afterAttemptID` (the function can stay).
+
 ## Assumed zero: no output and no OpenRouter record (migration 0162, 2026-10-25; local, not applied)
 
 [JUDGMENT_LOG 21](../JUDGMENT_LOG.md) (owner: "make a good judgment and keep a log"). Before, an OpenRouter attempt left
@@ -77,7 +104,8 @@ output arrived is asked once of its fallback (Claude Haiku 5.5, the same pinned 
 - **A second attempt, no new rule.** The fallback is the operation's next ordinal attempt: admitted and dispatched in one
   transaction with its own model, ceiling and pricing snapshot, finished with its exact bill. Admission's existing
   operation bound decides whether it may be sent: only if its whole ceiling fits beside the first attempt's (a refused
-  first attempt counts zero; a silent one its whole unresolved ceiling). The answer's part of the hold is the larger of the
+  first attempt counts zero; a silent one its whole unresolved ceiling, which from 0163 the fallback's admission carries
+  for Gradstep: [above](#a-silent-attempt-carried-by-gradstep-migration-0163-2026-10-28-local-not-applied)). The answer's part of the hold is the larger of the
   two models' ceilings (Haiku's passes Flash's only through its long-prompt tier on long papers); the quote and the
   customer cap are unchanged; a fallback that does not fit is not sent and the reader gets the first failure.
 - **What the reader pays.** Only the attempt that answered (`readerPriceAttempts`: a refused attempt has no cost, a silent

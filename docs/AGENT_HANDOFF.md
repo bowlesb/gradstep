@@ -46,9 +46,12 @@ fail-closed code are the strongest in the repo. Focus, in order:
    written reason for the 0.01 pp preservation gate (v5b was admitted at 0.3 pp).
 Tie up:
 - Re-check 9f150b94's MediaBox→CropBox glyph change on its own (it affects every device reading) and record it.
-- Small bugs: `pdfPositionRequestID` stays set if the reader reloads mid-capture (PaperView.swift ~1645), so the
-  preview button and two-finger tap stay disabled; the pinch assertion in PDFPeekJourneyTests.swift:43-44 can't fail;
-  the reference-tagger fixture has binary_sha256 == checkpoint_sha256; recovery counts never reach the app summary.
+- Small bugs: the reference-tagger fixture has binary_sha256 == checkpoint_sha256; recovery counts never reach the app
+  summary. (The PDF preview's stuck request id and pinch assertion are now the lead's: see below.)
+- **The two-finger PDF preview and Show in PDF are now the lead's** (app interface; owner 2026-10-28: "It shouldn't
+  matter if I click on a figure, text, equation or table"). The lead's agent is making one resolver for every element
+  and both reading kinds, using the converter's provenance boxes for model readings. Keep provenance (`blocks`,
+  equation boxes, figure/table boxes) stable in converter changes, and tell the lead before changing its shape.
 - Docs: TESTING.md tells DeviceModelJourneyTests users to run plain `device-models.mjs`, which now needs keys; this
   file said 31 focused Swift checks where TESTING says 42; replace absolute /home/ben and /Users paths in scripts.
 - Approvals: quote the owner's words with a date for the two-finger preview, the new Show in PDF toolbar button

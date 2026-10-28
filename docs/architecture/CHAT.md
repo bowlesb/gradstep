@@ -1077,8 +1077,10 @@ was read; OpenRouter's generation endpoint returns metadata only):
    the operation's hold after the first attempt's. **The answer's part of the hold is the larger of the two ceilings**
    (Haiku's is far below Flash's on most papers, but passes it on long ones, where its byte-estimated prompt reaches Haiku's
    100k-token tier: +7–16 % of that part for 90–200 KB of paper text, +10 % on DPO's 111 KB; below about 88 KB Haiku's is 80 % lower); the quote is unchanged. So after a refusal (exactly
-   zero) the fallback always fits; after a silent attempt (its whole ceiling still unresolved) it fits only with other
-   room, the search allowance held whenever search is offered. When it does not fit, nothing is sent and the reader
+   zero) the fallback always fits. After a silent attempt (its whole ceiling still unresolved) it fitted only with other
+   room, which explainers never have; since 2026-10-28 the fallback's admission carries the silent ceiling for Gradstep
+   ([below](#after-a-silent-model-the-silent-ceiling-is-carried-for-gradstep--2026-10-28-migration-0163-local-not-deployed)),
+   so it fits the same hold. When it does not fit, nothing is sent and the reader
    gets the first failure exactly as before (`chat_fallback` logs `not_sent`). **The reader pays only for the attempt that
    answered**, never above the hold; a refused attempt costs zero; a silent one keeps its ceiling as Gradstep's
    unresolved liability for the reconciler, never the reader's. Settlement, `chat_endings`, the month's spend, Health and
@@ -1096,7 +1098,47 @@ was read; OpenRouter's generation endpoint returns metadata only):
    90 %, or a p90 first output over 20 s (≥ 10 timed calls); the workflow check `models.health` fails on the first and
    warns on the second (ADMIN_HEALTH.md, WORKFLOW_CHECKS.md).
 7. **Logs** (codes and numbers only): `chat_fallback {from, to, cause, status, result: answered|failed|not_sent}`;
-   `chat_answer` adds `fallback`, `served_model` and `provider_error_type`.
+   `chat_answer` adds `fallback`, `served_model` and `provider_error_type`. Since 0163 `chat_fallback` also carries
+   `carried: true` (the silent ceiling moved to Gradstep), `carry_refused` (why the month, the free pool or a testing cap
+   could not take it) and, when not sent, `refused` (the database's reason, e.g. `operation_ceiling`).
+
+### After a silent model, the silent ceiling is carried for Gradstep — 2026-10-28 (migration 0163; local, not deployed)
+
+[JUDGMENT_LOG 55](../JUDGMENT_LOG.md). **Staging, 14:12:42 and 14:14:20 UTC:** a paper explainer on Gemini Flash (a
+127,135-token paper; quote 30 credits, 149,531 µ$, the larger of the two ceilings: Haiku's long-prompt tier) sent nothing
+for 25 s; the stream said "Switching to Claude Haiku 5.5…"; Haiku's admission was `denied` with `operation_ceiling`
+(132,872 µ$ of Flash still unresolved + 149,531 > 149,531); the reader got `provider_unavailable`, not charged. The
+same happens for every action without a search allowance — the paper, figure and equation explainers, Go deeper, Study
+and answers without search — so after a silent model the fallback never ran; it worked only after a refusal that cost
+nothing (429, 503).
+
+- **The rule applied.** A silent attempt's unresolved ceiling is Gradstep's liability, never the reader's. The
+  fallback's first request is admitted with `worker_openrouter_admit_fallback(…, p_after_attempt_id)`, naming the chosen
+  model's attempt (`ProviderOutcome.attemptID` → `StreamOptions.afterAttemptID`). In the same transaction, when that
+  attempt is silent (OpenRouter, chat, `unknown`, dispatched, no `first_data_ms`, no receipt: 0162's
+  `openrouter_no_output`) and the operation is open, the operation's **provider** ceiling (`spend_ceiling_microusd`) and
+  the month's reservation grow by exactly its ceiling, and a `carried` event on the silent attempt records the amount and
+  the fallback's attempt. The fallback, its searches, the title and the suggestions then find the room they would have
+  had after a refusal that cost nothing.
+- **The reader's side never changes:** `credit_ceiling` (what the quote showed and what is held from their credits),
+  the quote row, and the charge (only the answer they got, never above the hold). A replayed reservation of a carried
+  operation is compared with the quote's ceiling (`worker_reserve_chat` adds the carried amount back), so a device's retry
+  is still `operation_replayed`.
+- **Still counted against the month.** The carry is refused when the month's limit (`platform_budget_exhausted`), the free
+  AI pool for an operation free credits pay (`free_pool_exhausted`) or an account's testing cap (`testing_cap_reached`)
+  cannot take it; the fallback is then admitted exactly as before (refused by the operation's own bound) and the reader
+  hears the first failure. Nothing is carried for a refusal that cost nothing, output that arrived, a replay, a settled
+  operation or an attempt carried before; a fallback refused for any other reason after the carry (paused, a lapsed
+  card, capacity) undoes it in the same transaction.
+- **Everything after is unchanged.** At settlement the silent ceiling is the operation's unresolved liability, as
+  before; the reconciler and 0162's assumed zero release it from the month; Your AI usage names Haiku and flags the silent
+  call as not provider-reported (0160/0161); model health counts the failure. The operation's ceiling (quote + carried)
+  still bounds everything it may spend, so no overrun is recorded.
+- **Why not hold both ceilings up front.** Sizing every Flash hold for both attempts would reserve the second ceiling
+  against the month, the free pool and testing caps on every answer to cover the ~6 % that fall back (near the pool's
+  end, a free answer would have been paid from bought credits); carrying at the fallback reserves it only when needed.
+- **Deploy:** apply 0163, then `chat`. A `chat` without 0163 sends no fallback at all (the new function is missing: the
+  reader hears the first failure, not charged), so the order matters.
 
 ### Measured: the probe (2026-10-25 16:20–16:36 UTC; staging and OpenRouter; public DPO paper, synthetic accounts)
 
@@ -1151,6 +1193,18 @@ image; eligibility; OpenRouter's typed causes; per-request deadlines; `first_dat
 `chat.test.ts` and `openrouter-chat.test.ts`, the dated DeepSeek record in `openrouter-reconcile.test.ts`. Database:
 `tests/database/model_health.sql` (`--model-health-only`). Browser `tests/chat.test.ts` and Core
 `ChatStreamTests.parserReadsTheSwitchToTheFallbackModel`. No paid check of the fallback itself (not deployed).
+
+Since 2026-10-28 (0163): the backend harness enforces the database's operation bound (a fake ledger, as
+`worker_provider_attempt_begin` and the new fallback admission apply it), so a fallback that would be refused is refused
+in the fast tests too (before, every admission was granted, which is how the 14:12 failure went unseen). New: after a
+silent Flash, Haiku answers inside the reader's hold for a general answer with title and suggestions, a paper answer,
+the paper explainer (short and long paper), Go deeper, the figure and equation explainers and a Study turn; 429 and 503
+carry nothing, a 502 before output is carried; a month that cannot take the carry leaves the fallback unsent. Twelve of
+these fail on the code before the fix. Database: `tests/database/fallback_carry.sql` (the 14:12 numbers: the old
+admission still refuses, the fallback admission carries 132,872 µ$, the credit hold stays 30, settlement, usage, assumed
+zero, every refusal and replay) and `tests/database/chat_fallback_journey.py` (the real chat code and the real SQL through
+psql, eleven journeys; on the code before the fix the first one ends as on staging: Flash `unknown`, Haiku `denied`
+`operation_ceiling`, `provider_unavailable`), both with `--fallback-carry-only`.
 
 ## Visual answers — 2026-10-15 (owner: "The chat needs a html tool… mermaid diagrams… an option for the users to disable")
 

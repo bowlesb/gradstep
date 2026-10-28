@@ -33,14 +33,54 @@ function silent(signal: AbortSignal | null | undefined) {
 const refused429 = () => new Response(JSON.stringify({ error: { code: 429, message: 'Resource exhausted. private question', metadata: { error_type: 'rate_limit_exceeded', provider_code: 'RESOURCE_EXHAUSTED' } } }),
   { status: 429, headers: { 'x-generation-id': 'gen-refused' } });
 
-interface Sent { model: string; provider: Record<string, unknown>; reasoning: unknown; messages: unknown[] }
+interface Sent { model: string; provider: Record<string, unknown>; reasoning: unknown; messages: unknown[]; max_tokens?: number }
+/** The database's operation bound, as worker_provider_attempt_begin (migration 0100) applies it: an attempt is admitted only
+ * when the operation's known costs and unresolved ceilings plus its own ceiling fit the operation's ceiling (the hold); and
+ * as worker_openrouter_admit_fallback (0163) adds: a fallback after a silent attempt (unknown, no first output) first
+ * carries that attempt's ceiling for Gradstep, when the month can take it (`monthRoom`), undone if the fallback is refused. */
+class Ledger {
+  ceiling = 0; credits = 0;
+  readonly attempts = new Map<string, { model: string; ceiling: number; state: string; actual: number | null; units: Record<string, number>; carried?: number }>();
+  monthRoom: number;
+  constructor(monthRoom = Infinity) { this.monthRoom = monthRoom; }
+  reserve(p: Record<string, any>) { this.ceiling = p.p_microusd; this.credits = p.p_credits; }
+  used() { return [...this.attempts.values()].reduce((sum, a) => sum + (['admitted', 'unknown'].includes(a.state) ? a.ceiling : a.actual ?? 0), 0); }
+  admit(p: Record<string, any>) {
+    const fits = this.used() + p.p_ceiling_microusd <= this.ceiling;
+    this.attempts.set(p.p_attempt_id, { model: p.p_model, ceiling: p.p_ceiling_microusd, state: fits ? 'admitted' : 'denied', actual: null, units: {} });
+    return fits ? { granted: true, state: 'admitted', reason: null, dispatched: true } : { granted: false, state: 'denied', reason: 'operation_ceiling', dispatched: false };
+  }
+  admitFallback(p: Record<string, any>) {
+    const s = this.attempts.get(p.p_after_attempt_id);
+    if (!s) throw new Error('invalid_provider_attempt');
+    let carry = 0, refused: string | null = null;
+    if (s.state === 'unknown' && !('first_data_ms' in s.units) && !s.carried && !this.attempts.has(p.p_attempt_id)) {
+      if (s.ceiling > this.monthRoom) refused = 'platform_budget_exhausted';
+      else { carry = s.ceiling; this.ceiling += carry; this.monthRoom -= carry; }
+    }
+    const admission = this.admit(p);
+    if (carry && admission.granted) s.carried = carry;
+    else if (carry) { this.ceiling -= carry; this.monthRoom += carry; carry = 0; }
+    return { ...admission, carried_microusd: carry, ...(refused ? { carry_refused: refused } : {}) };
+  }
+  finish(p: Record<string, any>) {
+    const a = this.attempts.get(p.p_attempt_id);
+    if (a) Object.assign(a, { state: p.p_state, actual: p.p_actual_microusd, units: p.p_actual_units });
+  }
+  denied() { return [...this.attempts.values()].filter(a => a.state === 'denied').map(a => a.model); }
+}
+const ADMITS = ['worker_openrouter_admit', 'worker_openrouter_admit_fallback'];
 function harness(route: (sent: Sent, init: RequestInit | undefined, n: number) => Response | Promise<Response>, options: {
-  fallback?: boolean; admit?: (p: Record<string, any>) => Record<string, unknown>; firstData?: { view: number; answer: number } } = {}) {
+  fallback?: boolean; admit?: (p: Record<string, any>) => Record<string, unknown> | undefined; firstData?: { view: number; answer: number }; monthRoom?: number } = {}) {
   const operationID = `bbbbbbbb-0000-4000-8000-${String(Math.floor(Math.random() * 1e12)).padStart(12, '0')}`;
   const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], logs: Record<string, unknown>[] = [], sent: Sent[] = [];
+  const ledger = new Ledger(options.monthRoom);
   const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
-    if (name === 'worker_openrouter_admit') return options.admit?.(p) ?? { granted: true, dispatched: true };
-    return name === 'worker_openrouter_dispatch' || name === 'worker_openrouter_receipt' ? true : name === 'worker_reserve_chat' ? { replayed: false } : null; };
+    if (name === 'worker_reserve_chat') { ledger.reserve(p); return { replayed: false }; }
+    if (name === 'worker_openrouter_admit') return options.admit?.(p) ?? ledger.admit(p);
+    if (name === 'worker_openrouter_admit_fallback') return options.admit?.(p) ?? ledger.admitFallback(p);
+    if (name === 'worker_provider_attempt_finish') { ledger.finish(p); return null; }
+    return name === 'worker_openrouter_dispatch' || name === 'worker_openrouter_receipt' ? true : null; };
   const router = openRouterChat({ apiKey: 'fixture', sleep: async () => {}, firstDataMs: 2_000, waitingMs: 1_000, receiptWaitMs: 50,
     fetch: async (url, init) => {
       if (String(url).includes('/generation?id=')) return new Response(null, { status: 404 });
@@ -50,7 +90,7 @@ function harness(route: (sent: Sent, init: RequestInit | undefined, n: number) =
   const generate = retryOnceWhenBusy(admittedModelCalls({ accountID, operationID, rpc, sha256Hex }, router), { sleep: async () => {}, random: () => 0.5 });
   const deps: ChatDependencies = { accountID, rpc, sha256Hex, generate, gemini: true, fallback: options.fallback ?? true,
     fallbackFirstDataMs: options.firstData ?? { view: 40, answer: 40 }, loadPaper: async () => null, log: e => logs.push(e), sleep: async () => {} };
-  return { operationID, calls, events, logs, sent, deps,
+  return { operationID, calls, events, logs, sent, deps, ledger,
     run: (body: Record<string, unknown> = {}) => runChat(deps, { operation_id: operationID, consent_version: 'cloud-ai-v6', mode: 'general',
       messages: [{ role: 'user', text: 'What does the dot mean?' }], profile: { model: 'gemini', effort: 'auto', length: 'standard' }, ...body },
       e => events.push(e), new AbortController().signal) };
@@ -73,7 +113,7 @@ test('a 429 before the answer starts: Haiku on the same pinned route answers at 
   assert.equal((doneEvent.data as any).profile, 'gemini-low-standard', 'the reader\'s choice is unchanged');
   assert.equal((doneEvent.data as any).charged, true); assert.equal((doneEvent.data as any).credits, creditsFor(400));
   // Two admitted attempts in the one operation: the refused one at exactly zero, the fallback at its billed cost.
-  const admits = h.calls.filter(c => c.name === 'worker_openrouter_admit').map(c => c.p.p_model);
+  const admits = h.calls.filter(c => ADMITS.includes(c.name)).map(c => c.p.p_model);
   assert.deepEqual(admits, [GEMINI_MODEL, FALLBACK_HAIKU]);
   const finishes = h.calls.filter(c => c.name === 'worker_provider_attempt_finish').map(c => [c.p.p_state, c.p.p_actual_microusd]);
   assert.deepEqual(finishes, [['rejected', 0], ['succeeded', 400]]);
@@ -101,7 +141,93 @@ test('a silent model is given up on at the fallback deadline; its unresolved cei
   assert.equal(settle.p_ending, 'completed'); assert.equal(settle.p_actual_credits, creditsFor(300));
   assert.equal(h.logs.find(l => l.event === 'chat_fallback')!.cause, 'no_response');
   // The fallback had the whole output allowance (the silent attempt's estimate is not output that was used).
-  assert.ok(h.calls.filter(c => c.name === 'worker_openrouter_admit')[1].p.p_reserved_units.output_tokens >= 6_000);
+  assert.ok(h.calls.filter(c => ADMITS.includes(c.name))[1].p.p_reserved_units.output_tokens >= 6_000);
+});
+
+// Staging, 2026-10-28 14:12 and 14:14 UTC (JUDGMENT_LOG 55, migration 0163): a paper explainer on Flash was silent for
+// 25 s, "Switching to Claude Haiku 5.5…" was said, and Haiku's admission was denied (`operation_ceiling`): the silent
+// attempt's unresolved ceiling still filled the hold, and explainers have no search allowance to spare. Now the fallback's
+// admission names the attempt it follows and the database carries a silent one's ceiling for Gradstep.
+const image = { id: 'F1', paragraph: 2, caption: 'Figure 2: Left. The frontier.', media_type: 'image/jpeg',
+  data: Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Array(20).fill(7)]).toString('base64'), width: 10, height: 10 };
+const device = ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'];
+const paperText = '[¶1] Intro.\n\n[¶2] Figure 2: Left. The frontier. Softmax normalises the scores.\n\n[¶3] L = -log σ(β x)';
+const local = (text = paperText) => ({ mode: 'paper', local_context: { format: 'reader-local-context-v2', source: 'local', text } });
+const longPaper = `[¶1] ${'The model and its loss. '.repeat(7_000)}`;
+const ACTIONS: { name: string; body: Record<string, unknown>; sides?: boolean }[] = [
+  { name: 'a general answer with its title and suggestions', body: { topic_title: true, follow_ups: true }, sides: true },
+  { name: 'a paper answer', body: { ...local(), messages: [{ role: 'user', text: 'What does the loss do?' }] } },
+  { name: 'the paper explainer', body: { ...local(), action: 'paper_explainer', capabilities: device, messages: [{ role: 'user', text: 'Explain this paper' }] } },
+  { name: 'the paper explainer on a long paper (the 14:12 case: Haiku\'s ceiling above Flash\'s)', body: { ...local(longPaper), action: 'paper_explainer',
+    capabilities: device, messages: [{ role: 'user', text: 'Explain this paper' }] } },
+  { name: 'Go deeper on a concept', body: { ...local(), action: 'paper_concept', capabilities: device, selection: { quote: 'Concept: Softmax\nKind: background the paper assumes' },
+    messages: [{ role: 'user', text: 'Go deeper: Softmax' }] } },
+  { name: 'the figure explainer', body: { ...local(), action: 'figure', capabilities: device, selection: { quote: image.caption }, figures: [image],
+    messages: [{ role: 'user', text: 'Figure 2' }] } },
+  { name: 'the equation explainer', body: { ...local(), action: 'equation', selection: { quote: 'L = -\\log \\sigma(\\beta x)' }, messages: [{ role: 'user', text: 'Equation (1)' }] } },
+  { name: 'a Study turn', body: { ...local(), action: 'study', messages: [{ role: 'user', text: 'Quiz me and help me learn this paper.' }] } },
+];
+for (const action of ACTIONS) {
+  test(`after a silent model the fallback fits the hold the reader accepted: ${action.name}`, async () => {
+    const h = harness((sent, init) => sent.model === GEMINI_OPENROUTER_MODEL ? silent(init?.signal) : answer(sent.model, 'Haiku wrote this part.', 0.0005));
+    await h.run(action.body);
+    // (A title is written by Haiku alongside the answer, so it may be sent before the chosen model.)
+    const models = h.sent.map(s => s.model);
+    assert.equal(models.filter(m => m === GEMINI_OPENROUTER_MODEL).length, 1);
+    assert.ok(models.lastIndexOf(FALLBACK_HAIKU) > models.indexOf(GEMINI_OPENROUTER_MODEL), models.join(','));
+    const doneEvent = h.events.at(-1)!;
+    assert.equal(doneEvent.event, 'done', JSON.stringify(doneEvent.data));
+    assert.equal((doneEvent.data as any).model, 'claude-haiku-5-5');
+    assert.deepEqual(h.ledger.denied(), [], 'nothing in the operation was refused: the fallback, and the title and suggestions after it');
+    // The fallback's admission named the silent attempt, whose ceiling Gradstep now carries outside the reader's hold.
+    const admits = h.calls.filter(c => ADMITS.includes(c.name));
+    const primary = admits.find(c => c.p.p_model === GEMINI_MODEL)!, fallbacks = admits.filter(c => c.name === 'worker_openrouter_admit_fallback');
+    assert.equal(fallbacks.length, 1, 'only the fallback\'s first request names the attempt it follows');
+    const fallback = fallbacks[0];
+    assert.equal(fallback.p.p_model, FALLBACK_HAIKU); assert.equal(fallback.p.p_after_attempt_id, primary.p.p_attempt_id);
+    assert.equal(h.ledger.attempts.get(primary.p.p_attempt_id)!.state, 'unknown', 'the silent attempt stays for the reconciler');
+    assert.equal(h.ledger.attempts.get(primary.p.p_attempt_id)!.carried, primary.p.p_ceiling_microusd);
+    // The reader's hold is the quote as before: the larger of the two models' ceilings (plus the title and suggestions'),
+    // never both; the reader pays only the answer they got.
+    const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.p;
+    if (!action.sides) assert.equal(reserve.p_microusd, Math.max(primary.p.p_ceiling_microusd, fallback.p.p_ceiling_microusd));
+    assert.equal(reserve.p_credits, creditsFor(reserve.p_microusd));
+    const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.p;
+    assert.equal(settle.p_ending, 'completed');
+    // The fallback's answer (and a title it delivered), nothing for the silent attempt; never above the hold.
+    if (!action.sides) assert.equal(settle.p_actual_credits, creditsFor(500));
+    assert.ok(settle.p_actual_credits >= creditsFor(500) && settle.p_actual_credits <= reserve.p_credits);
+    assert.deepEqual(h.logs.find(l => l.event === 'chat_fallback'), { event: 'chat_fallback', operation_id: h.operationID,
+      action: (action.body.action as string | undefined) ?? 'none', from: GEMINI_MODEL, to: 'claude-haiku-5-5', cause: 'no_response', status: null,
+      result: 'answered', carried: true });
+  });
+}
+
+test('a refusal that cost nothing (429, 503) carries nothing; a stream broken before its first output (502) is carried', async () => {
+  for (const [status, carried] of [[429, false], [503, false], [502, true]] as const) {
+    const h = harness(sent => sent.model === GEMINI_OPENROUTER_MODEL
+      ? new Response(JSON.stringify({ error: { code: status, message: 'no' } }), { status, headers: { 'x-generation-id': `gen-${status}` } })
+      : answer(sent.model), {});
+    await h.run(ACTIONS[2].body);
+    assert.equal((h.events.at(-1)!.data as any).model, 'claude-haiku-5-5', `HTTP ${status}`);
+    const primary = h.calls.find(c => ADMITS.includes(c.name) && c.p.p_model === GEMINI_MODEL)!.p.p_attempt_id;
+    const flash = h.ledger.attempts.get(primary)!;
+    assert.equal(flash.state, carried ? 'unknown' : 'rejected', `HTTP ${status}`);
+    assert.equal(flash.carried, carried ? flash.ceiling : undefined, `HTTP ${status}`);
+    assert.deepEqual(h.ledger.denied(), [], `HTTP ${status}`);
+    assert.equal(h.logs.find(l => l.event === 'chat_fallback')!.carried, carried ? true : undefined, `HTTP ${status}`);
+  }
+});
+
+test('when the month cannot take the silent attempt\'s ceiling, the fallback is not sent and the reader is told the first failure', async () => {
+  const h = harness((sent, init) => sent.model === GEMINI_OPENROUTER_MODEL ? silent(init?.signal) : answer(sent.model), { monthRoom: 0 });
+  await h.run(ACTIONS[2].body);
+  assert.deepEqual(h.sent.map(s => s.model), [GEMINI_OPENROUTER_MODEL], 'nothing was sent to the fallback');
+  assert.deepEqual(h.events.at(-1)!.data, { code: 'provider_unavailable', credits: 0, charged: false, reason: 'provider', retry_after: 10 });
+  assert.deepEqual(h.ledger.denied(), [FALLBACK_HAIKU], 'refused by the operation\'s own bound, as before');
+  const line = h.logs.find(l => l.event === 'chat_fallback')!;
+  assert.equal(line.result, 'not_sent'); assert.equal(line.carry_refused, 'platform_budget_exhausted'); assert.equal(line.refused, 'operation_ceiling');
+  assert.equal(line.carried, undefined);
 });
 
 test('once the chosen model has written anything, a later failure is never re-asked of another model', async () => {
@@ -199,7 +325,7 @@ test('the hold covers whichever model would cost more to write the answer; the r
   const held = async (fallback: boolean) => {
     const h = harness(sent => sent.model === GEMINI_OPENROUTER_MODEL ? refused429() : answer(sent.model), { fallback });
     await h.run(paper);
-    const ceilings = h.calls.filter(c => c.name === 'worker_openrouter_admit').map(c => c.p.p_ceiling_microusd as number);
+    const ceilings = h.calls.filter(c => ADMITS.includes(c.name)).map(c => c.p.p_ceiling_microusd as number);
     return { hold: h.calls.find(c => c.name === 'worker_reserve_chat')!.p.p_microusd as number, ceilings, h };
   };
   const off = await held(false), on = await held(true);
