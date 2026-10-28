@@ -11,7 +11,7 @@ import { cellSpanOk, tableCells } from '../../supabase/functions/_shared/reader/
 import { charClass, fontFamily, spansOf, tagInput } from '../../supabase/functions/_shared/reader/device-pdf/tagger.ts';
 import { confidence, renderMath } from '../../supabase/functions/_shared/reader/device-pdf/math.ts';
 import { composeDevicePDFReader } from '../../supabase/functions/_shared/reader/device-pdf/bundle.ts';
-import { UNTRANSCRIBED_LATEX } from '../../supabase/functions/_shared/reader/device-pdf/emit.ts';
+import { UNTRANSCRIBED_LATEX, UNTRANSCRIBED_TEXT } from '../../supabase/functions/_shared/reader/device-pdf/emit.ts';
 import { decodeBase64, encodeBase64 } from '../../supabase/functions/_shared/reader/device-pdf/base64.ts';
 import { validateHTML } from '../../supabase/functions/_shared/reader/html-validate.ts';
 import { htmlPrefix, HTML_SUFFIX } from '../../supabase/functions/_shared/reader/html.ts';
@@ -239,7 +239,11 @@ test('the image budget: past 507 images rejected guesses never become formula te
   const index = JSON.parse(decoder.decode(bundle.members.get('reader.json')!));
   assert.ok(index.equations.every((e: { latex: string }) => e.latex === UNTRANSCRIBED_LATEX));
   assert.ok(index.blocks.every((b: { text: string }) => !/\bq\b/.test(b.text)));
-  assert.doesNotMatch(decoder.decode(bundle.members.get('index.html')!), /data-latex="q"|alt="q"|>q</);
+  const html = decoder.decode(bundle.members.get('index.html')!);
+  assert.doesNotMatch(html, /data-latex="q"|alt="q"|>q</);
+  const labels = [...html.matchAll(/class="reader-equation reader-inline reader-math-fallback"[^>]*>([^<]+)<\/span>/g)];
+  assert.equal(labels.length, s.degraded.formulaText);
+  assert.ok(labels.every(([, text]) => text === UNTRANSCRIBED_TEXT), 'every exhausted-budget formula has a readable label');
 });
 
 test('a math-image representation outside its renderer, or with a free style, is refused', () => {
@@ -317,7 +321,7 @@ test('formula crops are cleaned by the host and shown where the cleaned image si
     assert.ok(Math.abs(Number(em) - Number(pixels) / 3 / (r.clean!.em / 3)) < 0.002, 'height = cleaned pixels / 3 / font size');
   }
   assert.ok(inline.some(([, , , sign]) => sign === ''), 'an image ending well above its box rises: no minus');
-  // A host whose rectangle disagrees with its image is an image failure: the formula shows its LaTeX instead.
+  // A host whose rectangle disagrees with its image is an image failure: show the plain unavailable label instead.
   const lying = { ...base, image: (r: Parameters<typeof base.image>[0]) => {
     if (!r.clean) return base.image(r);
     return { png: png(10, 10, 99), width: 10, height: 10, rect: [0, 0, 11, 10] as [number, number, number, number] };

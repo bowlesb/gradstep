@@ -7,7 +7,7 @@ import { LIMITS } from '../profile.ts';
 import { check, CONTROL, excerpt, sha256Hex } from '../util.ts';
 import { pyRound } from './geometry.ts';
 import { MARKER, type LogicalBlock, type Place, type Reading } from './convert.ts';
-import { CROP_SCALE, DPI, PLACEHOLDER, type DevicePDFHost, type Formula, type ImageRequest } from './types.ts';
+import { CROP_SCALE, DPI, PLACEHOLDER, UNTRANSCRIBED_LATEX, UNTRANSCRIBED_TEXT, type DevicePDFHost, type Formula, type ImageRequest } from './types.ts';
 import { decodeBase64 } from './base64.ts';
 import { floatsNearMentions } from './floats.ts';
 import type { ReaderIndex } from '../render.ts';
@@ -33,8 +33,7 @@ const STYLE_NUMBER = (v: number) => { const n = Math.min(999, Math.max(0, v)); r
 const cleanText = (text: string) => text.replaceAll(PLACEHOLDER, '').replace(/[\t\n\r]/g, ' ').replace(new RegExp(CONTROL.source, 'g'), '');
 // The acceptance gate covers every delivered representation. A source crop does not make its rejected
 // recognizer guess safe for copy/search, screen readers or AI context. Raw answers remain only in the trace.
-export const UNTRANSCRIBED_TEXT = 'Equation in PDF (transcription unavailable)';
-export const UNTRANSCRIBED_LATEX = `\\text{${UNTRANSCRIBED_TEXT}}`;
+export { UNTRANSCRIBED_LATEX, UNTRANSCRIBED_TEXT } from './types.ts';
 
 export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: string): Emitted {
   const { prefix, formulas } = reading;
@@ -155,7 +154,7 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
       children = [el('img', { src: image.path, width: String(image.width), height: String(image.height), alt: UNTRANSCRIBED_TEXT, style })];
     } else {
       names.push('reader-math-fallback'); degraded.formulaText += 1;
-      children = [f.display ? latex : `\\(${latex}\\)`];
+      children = [UNTRANSCRIBED_TEXT];
     }
     equations.push({ id: f.id, block_id: owner(), latex, display: f.display, source_form: f.display ? 'environment' : 'body' });
     return el('span', { id: f.id, class: names.join(' '), 'data-reader-equation': f.id, 'data-latex': latex }, children);

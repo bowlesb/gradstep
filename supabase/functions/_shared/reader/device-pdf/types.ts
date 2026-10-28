@@ -10,6 +10,10 @@ export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
 export const DEVICE_PDF_PORT_REVISION = 21;
 
+/** Rejected recognizer output is never a delivered transcription, even when its source image is unavailable. */
+export const UNTRANSCRIBED_TEXT = 'Equation in PDF (transcription unavailable)';
+export const UNTRANSCRIBED_LATEX = `\\text{${UNTRANSCRIBED_TEXT}}`;
+
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
 export const CROP_SCALE = 3; // formula images at 3x the paper's own scale (216 dpi)

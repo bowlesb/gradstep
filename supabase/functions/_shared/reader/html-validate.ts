@@ -4,6 +4,7 @@ import { CLASSES, domText, elements, HTML_ATTRIBUTES, HTML_SUFFIX, htmlPrefix, i
 import { LIMITS } from './profile.ts';
 import { check, CONTROL, decodeUTF8, excerpt, idIsSafe } from './util.ts';
 import type { ReaderIndex } from './render.ts';
+import { UNTRANSCRIBED_LATEX, UNTRANSCRIBED_TEXT } from './device-pdf/types.ts';
 
 // --- HTML ------------------------------------------------------------------
 
@@ -194,7 +195,10 @@ export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<
     check(attr(node, 'id') === row.id && attr(node, 'data-reader-equation') === row.id && attr(node, 'data-latex') === row.latex &&
       blockOf(node) === blockByID.get(row.block_id) && (attr(node, 'class') ?? '').split(' ')[1] === (row.display ? 'reader-display' : 'reader-inline'), 'equation_identity');
     if ((attr(node, 'class') ?? '').includes('reader-math-fallback')) {
-      check(node.children[0].data === (row.display ? row.latex : `\\(${row.latex}\\)`), 'equation_representation');
+      // A missing device-PDF crop has no trustworthy transcription to typeset. Permit only its exact safe label;
+      // retain the old representation for previously saved bundles and every other reader profile.
+      const untranscribed = devicePDF && row.latex === UNTRANSCRIBED_LATEX && node.children[0].data === UNTRANSCRIBED_TEXT;
+      check(untranscribed || node.children[0].data === (row.display ? row.latex : `\\(${row.latex}\\)`), 'equation_representation');
     }
   });
   figures.forEach((node, n) => {

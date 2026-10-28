@@ -84,7 +84,7 @@ for (const source of JSON.parse(readFileSync(manifestPath, 'utf8'))) {
       if (!rejected.has(node.attribs?.['data-reader-equation'])) return;
       assert.equal(node.attribs['data-latex'], marker);
       for (const child of node.children) if (child.name === 'img') assert.equal(child.attribs.alt, text);
-      if (node.attribs.class.includes('reader-math-fallback')) assert.equal(node.children.map(n => n.data ?? '').join(''), node.attribs.class.includes('reader-display') ? marker : `\\(${marker}\\)`);
+      if (node.attribs.class.includes('reader-math-fallback')) assert.equal(node.children.map(n => n.data ?? '').join(''), text);
     });
     assert.equal(after, 0);
     const row = { group: source.group, paper: key, record_sha256: sha(bytes), pdf_sha256: record.input.pdf.sha256,
