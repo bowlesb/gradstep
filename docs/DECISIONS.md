@@ -4,6 +4,15 @@ Last updated: 2026-10-28. Requirements below come from the current user conversa
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Staff test catalogs from a folder of PDFs (owner request, 2026-10-28; built locally, not released)
+
+Owner: "create a catalog on my account for me that has maybe 30-40 random neuroscience pdf papers preloaded into the
+library with the on device model". Nothing private can be inserted from a server, so the owner's app does it:
+Settings › Experimental › Import a folder as a test catalog (operator roles only) adds a folder's PDFs on the device
+into a catalog named after it and reads each with the on-device model, one at a time, resuming after a relaunch.
+The test folder is 36 of the owner's journal PDFs from the held-out test split, seed 20261028
+([TEST_CATALOGS.md](architecture/TEST_CATALOGS.md); [JUDGMENT_LOG.md](JUDGMENT_LOG.md) 56). No server, schema or upload.
+
 ## Pictures set apart from their captions read as panels (agent report on 2610.20608v1, 2026-10-28; agent decision, reversible)
 
 A figure whose pictures sit outside its caption-only sub-figures, or a figure float whose one tabular pairs rows of

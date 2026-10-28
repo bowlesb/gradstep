@@ -382,6 +382,22 @@ final class ReaderModel {
     @ObservationIgnored var deviceModelTask: Task<Void, Never>? = nil
     /// A cancelled reading still unwinding; the next one waits for it.
     @ObservationIgnored var deviceModelUnwinding: Task<Void, Never>? = nil
+    /// Staff test catalog from a folder of PDFs (docs/architecture/TEST_CATALOGS.md; ReaderModel+TestCatalog.swift): its
+    /// queue, what it waits for, the worker, and the folder chosen this session.
+    var testCatalog: TestCatalogQueue? = nil
+    var testCatalogWaiting: String? = nil
+    var testCatalogPicking = false
+    @ObservationIgnored var testCatalogTask: Task<Void, Never>? = nil
+    /// The worker allowed to change the queue (Pause retires it; a retired one unwinding late changes nothing).
+    @ObservationIgnored var testCatalogWorker: UUID? = nil
+    @ObservationIgnored var testCatalogFolder: URL? = nil
+    @ObservationIgnored var testCatalogFolderScoped = false
+    /// The model reading the queue started (Pause stops only that one).
+    @ObservationIgnored var testCatalogRunID: UUID? = nil
+    #if DEBUG && FIXTURE_HOST
+    /// `--device-model-fake-reading`: the sources the stand-in model "read" this session.
+    @ObservationIgnored var fakeModelReadings: Set<String> = []
+    #endif
     /// Why a preparation failed, in the reader's words; never source text.
     static func preparationReason(_ error: Error) -> String {
         if let known = error as? ArxivHTMLError { return known.message }
@@ -2416,6 +2432,7 @@ final class ReaderModel {
         workOwnership.finishActivation(activation)
         libraryCommandCoordinator?.resume()
         activateUploads()
+        restoreTestCatalog()
         openLocalPaperIfNeeded()
         syncFailures = 0; updateSyncSchedule()
         await synchronize()
@@ -2557,6 +2574,7 @@ final class ReaderModel {
         for task in devicePreparationTasks.values { task.cancel() }
         devicePreparationTasks = [:]; devicePreparations = [:]; devicePreparationIssues = [:]
         readerUpdates = [:]; failedHTMLOpens = []; legacyBundleFallback = []; finishedImportSources = []
+        stopTestCatalog()
         cancelDeviceModelReading(); deviceModelIssue = nil; deviceModelSummaries = [:]; deviceModelHTMLBundles = [:]; deviceModelDownloadPaperID = nil
         chatProfileFetch = nil; chatProfilesRefreshing = false; chatProfileTable = nil; chatProfileTableFailed = false
         pendingChatProfiles = [:]; chatStudies = [:]; chatFollowUps = [:]; figureImageCache.removeAllObjects(); figurePartCropCache = [:]
@@ -4178,7 +4196,7 @@ final class ReaderModel {
         importSharedItems()
     }
 
-    private func installLocalPDF(_ file: URL, checked: CheckedPDF, target: PDFUploadTarget, catalogID: UUID?) async throws {
+    func installLocalPDF(_ file: URL, checked: CheckedPDF, target: PDFUploadTarget, catalogID: UUID?) async throws {
         guard let device, let store else { throw ReaderError.storageUnavailable }
         let scope = sessionID, id = UUID(), persistence = localPersistence
         if case .localPaper(let paperID) = target {
@@ -6421,6 +6439,8 @@ final class ReaderLocalPersistence {
     private(set) var everythingIndex: EverythingIndex?
     /// ML paper search's day-long cache of results, sealed under the same key.
     private(set) var mlSearchCache: SealedCacheFiles?
+    /// The staff test catalog's queue (TEST_CATALOGS.md), sealed in the account's folder under the same key.
+    private(set) var testCatalogStore: TestCatalogQueueStore?
     private(set) var isActivating = false
     private(set) var isRetired = false
     private var accountID: UUID?
@@ -6537,6 +6557,7 @@ final class ReaderLocalPersistence {
             if feedPages == nil { feedPages = try? FeedPageStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey) }
             if everythingIndex == nil { everythingIndex = await Self.openEverythingIndex(url: url, accountID: accountID, localKey: localKey) }
             if mlSearchCache == nil { mlSearchCache = Self.openMLSearchCache(url: url, accountID: accountID, localKey: localKey) }
+            if testCatalogStore == nil { testCatalogStore = Self.openTestCatalogStore(url: url, accountID: accountID, localKey: localKey) }
             try Task.checkCancellation()
             guard !isRetired else { throw CancellationError() }
             return store
@@ -6555,7 +6576,20 @@ final class ReaderLocalPersistence {
         searchIndex = await Self.openSearchIndex(url: url, accountID: accountID, localKey: localKey)
         everythingIndex = await Self.openEverythingIndex(url: url, accountID: accountID, localKey: localKey)
         mlSearchCache = Self.openMLSearchCache(url: url, accountID: accountID, localKey: localKey)
+        testCatalogStore = Self.openTestCatalogStore(url: url, accountID: accountID, localKey: localKey)
         return opened
+    }
+
+    /// `test-catalogs/` beside the Library's index (removed with the account's folder).
+    private static func openTestCatalogStore(url: URL, accountID: UUID, localKey: Data) -> TestCatalogQueueStore? {
+        try? TestCatalogQueueStore(directory: url.deletingLastPathComponent().appendingPathComponent("test-catalogs", isDirectory: true),
+                                   accountID: accountID, localKey: localKey)
+    }
+
+    /// Saves the test catalog's queue (nil removes it); refused once this writer is retired (signed out).
+    func saveTestCatalog(_ queue: TestCatalogQueue?) {
+        guard !isRetired, let testCatalogStore else { return }
+        try? testCatalogStore.save(queue)
     }
 
     /// Global search's index, in `everything-index/` beside the Library's (removed with the account's folder).

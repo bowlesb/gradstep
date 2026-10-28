@@ -1920,6 +1920,8 @@ struct SettingsView: View {
                         // One row (owner, TestFlight 91 session): off until the model is on this device; turning it on
                         // asks before the download on iPhone and iPad (the Mac's model is inside the app).
                         DeviceModelReaderSettingsRow(model: model)
+                        // Staff only (TEST_CATALOGS.md): a folder of PDFs as a catalog the model reads one by one.
+                        if model.showsTestCatalogTools { TestCatalogSettingsRow(model: model) }
                     } header: { Text("Experimental") }
                 }
                 // Text sizes live where you read and chat (A− / A+ on the paper, the chat's ⋯ menu; owner, build 57).

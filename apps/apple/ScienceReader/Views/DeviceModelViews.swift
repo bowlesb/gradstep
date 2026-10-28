@@ -1,5 +1,6 @@
 import ScienceReaderCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The on-device model at work on the open paper (docs/architecture/DEVICE_PDF_ROUTE.md): what it is reading,
 /// how far it is, how long it has taken, and a way to stop. The page stays readable underneath.
@@ -184,5 +185,66 @@ struct DeviceModelReaderSettingsRow: View {
 
     private var title: some View {
         LabelWithInfo(title: "On-device PDF reader", info: Self.info, identifier: "settings.deviceModel.info")
+    }
+}
+
+/// Settings › Experimental, staff only (grey, like the Admin rows; docs/architecture/TEST_CATALOGS.md): import a folder of
+/// PDFs as a catalog the on-device model reads one by one, with one progress line, Pause/Resume and what wasn't read.
+struct TestCatalogSettingsRow: View {
+    @Bindable var model: ReaderModel
+    static let info = "Staff testing. Choose a folder of PDFs: each is added to your library on this device (never uploaded) in a catalog named after the folder, then read by the on-device model one at a time while Gradstep is open. Importing the same folder again skips PDFs already in your library and retries failures."
+
+    var body: some View {
+        Group {
+            HStack(spacing: 2) {
+                Button("Import a folder as a test catalog…") { model.beginTestCatalogImport() }
+                    .disabled(!model.canManageCatalogs)
+                    .accessibilityIdentifier("settings.testCatalog.import")
+                InfoButton(text: Self.info, identifier: "settings.testCatalog.info")
+            }
+            .listRowBackground(Color.adminRow)
+            if let queue = model.testCatalog {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(queue.catalogName).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Text(model.testCatalogWaiting ?? queue.line).font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+                            .accessibilityIdentifier("settings.testCatalog.progress")
+                    }
+                    Spacer(minLength: 0)
+                    if !queue.isFinished {
+                        Button(queue.paused ? "Resume" : "Pause") { queue.paused ? model.resumeTestCatalog() : model.pauseTestCatalog() }
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                            .accessibilityIdentifier("settings.testCatalog.pause")
+                    }
+                }
+                .listRowBackground(Color.adminRow)
+                let notRead = queue.failures + queue.skipped
+                if !notRead.isEmpty {
+                    DisclosureGroup {
+                        ForEach(notRead) { item in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.name).font(.footnote).lineLimit(2)
+                                Text(Self.reason(item.status)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    } label: {
+                        Text("Not read · \(notRead.count)").font(.footnote)
+                    }
+                    .accessibilityIdentifier("settings.testCatalog.notRead")
+                    .listRowBackground(Color.adminRow)
+                }
+            }
+        }
+        .fileImporter(isPresented: $model.testCatalogPicking, allowedContentTypes: [.folder]) { result in
+            if case .success(let folder) = result { Task { await model.importTestCatalogFolder(folder) } }
+        }
+    }
+
+    private static func reason(_ status: TestCatalogQueue.Status) -> String {
+        switch status {
+        case .failed(let reason), .skipped(let reason): reason
+        default: ""
+        }
     }
 }

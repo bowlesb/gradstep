@@ -216,7 +216,8 @@ struct GradstepCommands: Commands {
                     Button("Show the HTML Reading") { model.showHTMLReading() }
                     Button("Read Again with the On-Device Model") { model.readWithDeviceModel(paper, again: true) }.disabled(model.deviceModelRun != nil)
                 } else {
-                    Button("Read with the On-Device Model") { model.readWithDeviceModel(paper) }.disabled(model.deviceModelRun != nil)
+                    Button("Read with the On-Device Model") { model.readWithDeviceModel(paper) }
+                        .disabled(model.deviceModelRun != nil && !model.testCatalogHasKeptReading(paper))
                 }
             }
         }

@@ -6,6 +6,22 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+56. **The neuroscience test catalog is a folder of the owner's own journal PDFs that the app imports, not a bundled arXiv
+    list** (owner, 2026-10-28: "a catalog … with maybe 30-40 random neuroscience pdf papers preloaded into the library
+    with the on device model"; the lead redirected it the same day to the Papers corpus). Staff only (operator roles),
+    Settings › Experimental › **Import a folder as a test catalog…**: every PDF in a picked folder is added through the
+    local-PDF path (never uploaded) into a catalog named after the folder, then read by the on-device model one at a time
+    while the app is open, with one progress line, Pause/Resume, a "Not read" list with reasons, and a sealed on-device
+    queue that resumes after a relaunch. Re-importing matches files by content (never twice; papers in other catalogs
+    are left alone); a file added on another device is matched by title and page count and gets this device's PDF.
+    The folder (`~/Desktop/Gradstep neuroscience test PDFs/`) holds 36 PDFs / 540 pages drawn with seed 20261028 from
+    the **test** split only, outside the reserved span cohort, spread over year eras, at most two per journal; slides
+    and posters skipped. *Why:* nothing private can be put into an account from a server, and the owner's own PDFs are
+    what the model is being tuned for; the test split keeps training and dev families out. *Cost:* each device imports
+    and reads the folder itself (readings and PDFs don't sync); a paper's kept reading opens from its "Read with the
+    on-device model". *Undo:* remove `TestCatalogSettingsRow` from Settings (the catalog and papers stay ordinary
+    library items) ([TEST_CATALOGS](architecture/TEST_CATALOGS.md)).
+
 54. **Pictures set apart from their captions or labels read as panels, each picture above its own caption** (reader
     revision 28; agent report on 2610.20608v1, whose Figure 2 showed only "(a)", "(b)", "(c)" and its caption while the
     closing note counted its three plots as left-out graphics). LaTeXML wrote the plots as one paragraph and the

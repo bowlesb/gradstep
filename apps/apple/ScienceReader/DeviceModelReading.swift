@@ -161,6 +161,14 @@ enum DeviceModelEngine {
 /// paper's PDF, so the menu, progress, banner and the way back can be driven without an account's PDF store.
 enum DeviceModelFixture {
     static var isEnabled: Bool { ProcessInfo.processInfo.arguments.contains("--device-model-fixture") }
+    /// `--device-model-fake-reading`: a stand-in for the models (no Core ML on this Mac): each reading's bar moves through
+    /// two pages and it finishes without a kept reading (TEST_CATALOGS.md journeys).
+    static var fakesReading: Bool { ProcessInfo.processInfo.arguments.contains("--device-model-fake-reading") }
+    /// `--device-model-fake-step-ms=<n>`: the pause between its steps (default 400 ms).
+    static var fakeStepMilliseconds: Int {
+        ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--device-model-fake-step-ms=") }
+            .flatMap { Int($0.dropFirst("--device-model-fake-step-ms=".count)) } ?? 400
+    }
     static func pdf() -> Data {
         let page = CGRect(x: 0, y: 0, width: 612, height: 792)
         return UIGraphicsPDFRenderer(bounds: page).pdfData { context in
@@ -287,11 +295,14 @@ extension ReaderModel {
             guard let self else { return }
             _ = await self.deviceModelAssets.ensureDownloaded()
             self.deviceModelReader = DeviceModelReaderSetting.preferenceAfterDownload(files: self.deviceModelAssets.files)
+            self.testCatalogModelArrived()
         }
     }
     /// Whether "Read with the on-device model" applies to this paper now.
     func canReadWithDeviceModel(_ paper: Paper) -> Bool {
-        guard deviceModelAvailable, deviceModelRun == nil else { return false }
+        guard deviceModelAvailable else { return false }
+        // While the test catalog's queue reads another paper, a reading it kept still opens (TEST_CATALOGS.md).
+        if deviceModelRun != nil { return testCatalogHasKeptReading(paper) }
         #if DEBUG && FIXTURE_HOST
         if DeviceModelFixture.isEnabled, paper.isSample { return true }
         #endif
@@ -335,7 +346,7 @@ extension ReaderModel {
               let paperSource = try? DevicePDFPaper(sourceID: record.identity.sourceID, revision: record.identity.revision) else { return }
         source = paperSource; load = { try await pdfStore.read(record.identity) }
         #endif
-        let scope = sessionID, modelStore = localPersistence.modelReaderStore
+        let scope = sessionID
         deviceModelIssue = nil
         if paper.isLocalPDF, selectedPaper?.id != paper.id {
             // From a PDF the reader added (its own PDF view): the reading happens, and opens, in the reader.
@@ -343,14 +354,50 @@ extension ReaderModel {
             selectedPaper = paper; chatPaperID = paper.id; showPaperPlace()
             generalChat = false
         }
+        if deviceModelRun != nil {
+            // The test catalog's queue is reading another paper: the reading it kept of this one opens without the models.
+            guard !again, let modelStore = localPersistence.modelReaderStore else { return }
+            Task { [weak self] in
+                guard let kept = await modelStore.record(sourceID: source.sourceID, revision: source.revision),
+                      let bundle = try? await modelStore.read(kept.identity), let self, self.sessionID == scope else { return }
+                self.showModelReading(bundle, for: paper)
+            }
+            return
+        }
         // The models are a separate download (DEVICE_PDF_ROUTE.md "The models as a download"): offered in the bar where
         // the reading's progress shows; the reading starts once they are in.
-        if DeviceModelEngine.modelsDirectory == nil {
+        if !deviceModelReady {
             deviceModelDownloadPaperID = paper.id
             deviceModelDownloadAgain = again
             return
         }
         deviceModelDownloadPaperID = nil
+        startDeviceModelRun(paper, source: source, again: again, load: load) { [weak self] outcome in
+            guard let self, self.sessionID == scope, case .failed(let message) = outcome else { return }
+            self.deviceModelIssue = message
+        }
+    }
+
+    /// The models are on this device (or, in UI fixtures, the stand-in model reads instead).
+    var deviceModelReady: Bool {
+        #if DEBUG && FIXTURE_HOST
+        if DeviceModelFixture.fakesReading { return true }
+        #endif
+        return DeviceModelEngine.modelsDirectory != nil
+    }
+
+    /// How a model reading ended: read (and shown when its paper is open), stopped, or why it failed in the reader's words.
+    enum DeviceModelOutcome: Equatable { case read, cancelled, failed(String) }
+
+    /// One model reading as `deviceModelRun` (its progress shows on the paper when that paper is open, and Stop ends it):
+    /// a kept reading opens at once unless `again`; otherwise the PDF is read, kept on this device and shown when its paper
+    /// is open. `finished` hears how it ended. The paper's own "Read with the on-device model" and the test catalog's queue
+    /// (ReaderModel+TestCatalog.swift) both start readings here, one at a time.
+    @available(iOS 18.0, *)
+    @discardableResult
+    func startDeviceModelRun(_ paper: Paper, source: DevicePDFPaper, again: Bool, load: @escaping () async throws -> Data,
+                             finished: @escaping @MainActor (DeviceModelOutcome) -> Void) -> UUID {
+        let scope = sessionID, modelStore = localPersistence.modelReaderStore
         let started = DeviceModelRun(paperID: paper.id, started: Date()), runID = started.id
         deviceModelRun = started
         // A cancelled reading still unwinding finishes first, so two model loads never overlap in memory.
@@ -380,10 +427,18 @@ extension ReaderModel {
                 try Task.checkCancellation()
                 if !again, let modelStore, let kept = await modelStore.record(sourceID: source.sourceID, revision: source.revision) {
                     let bundle = try await modelStore.read(kept.identity)
-                    guard self.sessionID == scope else { return }
+                    guard self.sessionID == scope else { finished(.cancelled); return }
                     self.showModelReading(bundle, for: paper)
+                    finished(.read)
                     return
                 }
+                #if DEBUG && FIXTURE_HOST
+                if DeviceModelFixture.fakesReading {
+                    try await self.fakeDeviceModelReading(source: source, runID: runID)
+                    finished(.read)
+                    return
+                }
+                #endif
                 let pdf = try await load()
                 let (bundle, summary) = try await DeviceModelEngine.read(pdf: pdf, name: "\(source.sourceID)v\(source.revision).pdf", title: paper.title, authors: paper.authorNames, source: source) { stage in
                     Task { @MainActor [weak self] in
@@ -404,21 +459,39 @@ extension ReaderModel {
                     }
                 }
                 try Task.checkCancellation()
-                guard self.sessionID == scope else { return }
+                guard self.sessionID == scope else { finished(.cancelled); return }
                 self.deviceModelSummaries[bundle.manifestSHA256] = summary
                 if let modelStore {
                     if let old = await modelStore.record(sourceID: source.sourceID, revision: source.revision) { try? await modelStore.remove(old.identity) }
                     _ = try? await modelStore.install(bundle: bundle)
                 }
                 self.showModelReading(bundle, for: paper)
+                finished(.read)
             } catch is CancellationError {
+                finished(.cancelled)
             } catch {
-                if case .cancelled? = error as? DevicePDFRoute.Failure { return }
-                guard self.sessionID == scope else { return }
-                self.deviceModelIssue = Self.deviceModelMessage(error)
+                if case .cancelled? = error as? DevicePDFRoute.Failure { finished(.cancelled); return }
+                guard self.sessionID == scope else { finished(.cancelled); return }
+                finished(.failed(Self.deviceModelMessage(error)))
             }
         }
+        return runID
     }
+
+    #if DEBUG && FIXTURE_HOST
+    /// `--device-model-fake-reading` (UI journeys on a Mac that must not run the real models): the run's bar walks through
+    /// two pages in about a second and the source counts as read this session; nothing is kept.
+    private func fakeDeviceModelReading(source: DevicePDFPaper, runID: UUID) async throws {
+        let steps: [(Int, Int)] = [(1, 0), (2, 0), (2, 1), (2, 2)]
+        for (layout, read) in steps {
+            try await Task.sleep(for: .milliseconds(DeviceModelFixture.fakeStepMilliseconds))
+            guard var run = deviceModelRun, run.id == runID else { throw CancellationError() }
+            run.pages = 2; run.layoutPages = layout; run.pagesRead = read
+            deviceModelRun = run
+        }
+        fakeModelReadings.insert(source.sourceID)
+    }
+    #endif
 
     /// The download bar's Download: the models, then the reading it was offered for (when that paper is still open).
     func downloadDeviceModelThenRead() {

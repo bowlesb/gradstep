@@ -1035,8 +1035,9 @@ struct PaperView: View {
                 MenuRow("Read again with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper, again: true) }
                     .disabled(model.deviceModelRun != nil)
             } else {
+                // While another paper is read, a reading the test catalog kept still opens (TEST_CATALOGS.md).
                 MenuRow("Read with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper) }
-                    .disabled(model.deviceModelRun != nil).accessibilityIdentifier("paper.deviceModel")
+                    .disabled(model.deviceModelRun != nil && !model.testCatalogHasKeptReading(paper)).accessibilityIdentifier("paper.deviceModel")
             }
         }
         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
