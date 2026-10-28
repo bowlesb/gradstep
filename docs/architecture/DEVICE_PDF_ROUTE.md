@@ -1,4 +1,154 @@
-# The on-device PDF route (experimental) — design, 2026-10-15
+# On-device PDF reader: runtime and architecture
+
+## End-to-end walkthrough — updated 2026-10-27
+
+This is the runtime path from a PDF already on the device to a structured reading in the app. It combines three
+learned models with PDF text extraction, optional local OCR and deterministic conversion rules. The same path
+accepts arXiv and other publishers' PDFs, including the user's own files. Official arXiv HTML remains the initial
+structured-reading path; the user can choose the experimental PDF model reading alongside it.
+
+**Current selection:** layout-fcos-v5, inline-tagger-v5b-journal (threshold 0.65), texteller-ft-v4 with a 512-token
+decoder limit, and converter port 21. The new span-training candidates failed broader recall preservation, and
+the encrypted explicit-cache recognizer exceeded the memory gate; neither replaces the selected models.
+The encryption section below records exactly what has qualified; the
+[implementation status](../IMPLEMENTATION_STATUS.md) identifies released clients separately from local work.
+
+```mermaid
+flowchart TD
+    A[PDF on the device] --> B[Verify model pack and load models]
+    B --> C[Render pages and extract glyphs or local OCR]
+    C --> D[Detect layout and assign text to regions]
+    D --> E[Order paragraphs, tables, captions and references]
+    E --> F[Tag complete inline formula regions]
+    F --> G[Read simple formulas from glyphs; recognize remaining crops]
+    G --> H[Accept formula text or retain its PDF image]
+    H --> I[Validate reader bundle with original PDF locations]
+    I --> J[Display reading and save encrypted local copy]
+```
+
+### 1. Obtain the PDF and select a reading
+
+PDF acquisition happens on the user's device. An arXiv paper is tied to its exact revision; an imported PDF has
+a local identity. The model route reads the original bytes from the device's PDF store and hashes them, so its
+output records which PDF it used. A locked password-protected PDF or an unreadable document fails explicitly.
+The route does not upload the PDF or send pages to a conversion service.
+
+Choosing **Read with the on-device model** starts a run for that paper. If a completed local model reading already
+exists for the same source/revision, it can reopen without running the models; an explicit reread recomputes it.
+The app keeps the HTML reading available for switching back. A local PDF does not require arXiv HTML to use this
+pipeline. Model reading and the original PDF remain distinct views of the same source.
+
+### 2. Obtain and load the model pack
+
+On iPhone/iPad, the models are an App Store On-Demand Resources download, offered where the user starts reading
+and in Settings. Mac Catalyst carries the pack in the app. A small manifest lists every model/configuration file,
+its size and SHA-256; installation copies into a staging directory, checks all files, and marks the version usable
+only after verification. Private training PDFs and checkpoints are not part of the app. The selected pack is about
+365 MB; a future export must report its actual size rather than retain that estimate blindly.
+
+The app loads models once per conversion run, off the UI thread. Model loading is asynchronous because Apple's
+encrypted model workflow can need a first-use key request. Apple-managed model keys protect distributed model
+files; they are separate from the device-held key that protects the user's saved PDFs/readings. The private
+build keys never belong in the app. Full encrypted-pack qualification is still in progress; successful loading
+of individual assets does not certify the complete pack or offline first use.
+
+### 3. Read the page's pixels and text
+
+CoreGraphics renders pages at 150 dpi for layout and recognition crops. The native text-layer reader extracts
+individual glyphs, Unicode/font information, sizes and rectangles. It accounts for the displayed CropBox and page
+rotation, so later rectangles refer to the page the user actually sees.
+
+When a page has no usable text layer, local Vision OCR supplies approximate character positions and text.
+OCR-derived glyphs have weaker font/geometry information; they do not turn a scan into reliable native glyph
+data. A damaged text layer can also contain plausible but wrong characters, which remains a distinct failure
+mode. Pages are read ahead two at a time; only a small render cache is retained for crop requests.
+
+### 4. Find structure, reading order and formulas
+
+| Learned component | Input | Output and runtime role |
+|---|---|---|
+| Layout detector — layout-fcos-v5 | Rendered page on the detector's canvas | Region classes, boxes and scores: text, headings, figures, tables, captions, displays and related structure. Native decoding applies class thresholds and overlap suppression. Uses CPU/Neural Engine where supported. |
+| Inline tagger — v5b-journal | Glyph geometry, font priors, character/font/class embeddings and neighboring-line context | A math logit for each glyph, converted into inline spans at probability **>0.65**. A two-layer bidirectional GRU runs on CPU through Core ML. Long lines use complete windows; context predictions do not duplicate owned glyphs. |
+| Formula recognizer — texteller-ft-v4 | Normalized images of formula crops | LaTeX tokens and token probabilities. An image encoder prepares attention information; an autoregressive decoder emits tokens until end-of-sequence or the 512-token limit. Uses CPU/GPU, in batches of up to eight. |
+
+The converter assigns glyphs to layout regions, groups lines, establishes reading order, identifies front matter
+and references, constructs table cells, and attaches captions. Existing rules suppress repeated margin text and
+join supported paragraph continuations across pages. These are measured conversion rules, not outputs from a
+single generative model. Their source lives under `supabase/functions/_shared/reader/device-pdf/`, but this route
+bundles that TypeScript as JavaScript and executes it **inside the app's JavaScriptCore**.
+
+The tagger runs serially by default because concurrent flexible-shape predictions previously produced invalid
+buffers. A malformed output gets one Core ML retry. After a second invalid buffer, the independent float32 CPU
+implementation evaluates the same pinned weights once; its output is validated too. A thrown prediction error
+or invalid recovery result fails the attempt. The recovery weights are checked against the selected checkpoint
+and vocabulary; they are not a different model trained to guess around an error.
+
+### 5. Turn formula regions into readable content
+
+Simple supported inline formulas can be reconstructed directly from their native glyphs. Repeated formulas can
+reuse an earlier recognition. Remaining crops go to the recognizer while the converter continues assembling
+the reading. Two recognition batches may be in flight; page tagging and inference are coordinated to avoid the
+previously observed contention. The current recognizer keeps its attention cache in Core ML state. An
+explicit-cache encryption workaround loaded successfully but was rejected for excessive memory use.
+
+The tagger's 0.65 threshold decides **where the formula is**. Separate recognition gates decide **whether to show
+its transcription**: the standard inline gate uses the minimum token probability at 0.8; the display gate uses
+the second-lowest at 0.95. Supported glyph-agreement checks can accept a lower-confidence result when the source
+glyphs substantiate it, with additional checks for unnamed mathematical symbols. These are acceptance heuristics,
+not guarantees that every accepted equation is mathematically correct.
+
+Accepted LaTeX becomes MathML through Temml. Otherwise the reader retains the PDF crop, rendered at 216 dpi for
+presentation. Crop cleanup removes eligible neighboring-line ink while protecting the formula's own line; it
+cannot recover a symbol already omitted from the detected span. Rejected guesses are excluded from delivered
+text, equation metadata and image alternatives. Image-budget failures use the existing untranscribed-formula
+fallback rather than exposing a rejected guess. Diagnostic recordings may retain raw guesses for evaluation.
+
+### 6. Show progress, validate and keep the result
+
+The app reports page-layout, reading and formula progress. Once the text/structure is ready, it can show a preview
+with formulas as source images while recognition finishes. That preview is temporary; the completed reading
+replaces it. Cancellation stops queued work, and a new run waits for the previous run to unwind before loading
+another full set of models.
+
+The converter emits a `reader-bundle-v1`: reader HTML, structured text/index, images, manifest and PDF provenance.
+The app verifies member hashes, source identity, reader markup and image limits before admitting it. The app
+attempts to save the completed bundle in `DeviceReaderStore` using authenticated local encryption and displays it
+in the normal reader. Reopening that saved reading does not require model inference. The current app can still
+display a reading when its local save fails, so a successful conversion alone is not evidence of durable storage
+or cross-device sync.
+
+### 7. Return to the source PDF, or use the reading in AI tools
+
+Provenance stores the original PDF hash, source/revision, model identities, converter version and page rectangles.
+Paragraphs joined across pages retain separate source places. This lets **Show in PDF** and the reader's PDF
+preview use the correct page/area without asking the formula recognizer to predict a location. HTML readings use
+the separate text-to-PDF matching path when exact source regions are unavailable. The full-screen preview, fading
+outline, pan/zoom and return controls are documented in [READER_PDF_PEEK](READER_PDF_PEEK.md).
+
+PDF conversion itself stays local. Chat and AI explainers are separate user-requested operations: they can send
+the generated reading's context through the configured AI path under the existing consent, privacy and metering
+rules. The own-PDF context contract is described in [Explainers on every model reading](#explainers-on-every-model-reading--2026-10-24-after-testflight-91).
+Local conversion does not imply that subsequent cloud AI conversations are offline.
+
+### Failure boundaries and where to continue
+
+Layout mistakes can put a caption in the wrong place; text/OCR errors can lose characters; incomplete tagging can
+crop off a variable; recognition can misread a correct crop. Image fallback protects against some transcription
+errors but does not repair the earlier stages. Tables and reading order need their own measures. The
+[single development log](../../training/device_pdf/README.md) ranks these product gaps, records rejected experiments,
+and gives fixed evaluation gates; no one headline accuracy number describes the whole pipeline.
+
+For code, start with app [`DeviceModelReading.swift`](../../apps/apple/ScienceReader/DeviceModelReading.swift) and
+[`DeviceModelAssets.swift`](../../apps/apple/ScienceReader/DeviceModelAssets.swift), then native
+[`DevicePDFRoute.swift`](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/DevicePDF/DevicePDFRoute.swift),
+[`DevicePDFModels.swift`](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/DevicePDF/DevicePDFModels.swift),
+and converter [`convert.ts`](../../supabase/functions/_shared/reader/device-pdf/convert.ts). Training source is in
+[`training/device_pdf`](../../training/device_pdf/README.md); builds pin source identities in
+[`device-models.lock.json`](../../apps/apple/device-models.lock.json). The sections below retain the detailed contracts
+and historical verification. Physical-iPhone testing remains paused; current Mac results must not be presented as
+iPhone speed, memory or encrypted-loading evidence.
+
+## Original port contract — 2026-10-15
 
 Owner: "It would be cool to try to create a version of the on device model into the app knowing it won't always
 work but we can try and give feedback." The model-building agent froze the route on the desktop as the **port
@@ -7,6 +157,58 @@ kit** (`/home/ben/mathpix/docs/DEVICE_ROUTE_SPEC.md`, converter 0.1.0; layout `l
 `src/gradstep/bundle/device_pdf.py` is the reference and eight fixture bundles are the acceptance test). This app
 implements it as an **experiment beside the arXiv HTML reader**, never in its place: the HTML reader stays the
 first-class path (owner direction, 2026-10-13), the PDF never leaves the device, and nothing here touches the server.
+
+## Core ML model encryption — owner request, 2026-10-27 (full pack blocked)
+
+Use Apple's model encryption for every learned model in the shipped PDF pack, while retaining the existing ODR
+installation and file-integrity checks. Build-only `.mlmodelkey` files belong outside Git and app resources in the
+owner's private `~/.config/science-reader/coreml-encryption/` directory. They are generated for the existing app
+signing team through Xcode; no app-embedded custom decryption key or new key service is introduced. The compiler
+receives `--encrypt`; the runtime uses asynchronous `MLModel.load`. Key-fetch/decryption failures stay explicit
+and retryable, retaining the downloaded pack and the original PDF. They must not silently disable recognition.
+
+The independent CPU tagger remains the recovery implementation. Its exact weights travel in a float32 constant
+Core ML carrier protected by the same Apple workflow. On load, the app obtains the weights once in memory,
+checks their shape, finiteness and binary SHA against the pinned reference manifest, and initializes the existing
+CPU evaluator. No decoded reference `.bin` is written or included in the shipping pack. This protects distributed
+model files; it does not claim to hide usable weights from an attacker controlling the authorized app's memory.
+
+`device-models.mjs` requires private Apple keys by default. `--development-plaintext` is an explicit local research
+mode and never qualifies for upload. Source locks retain the trained-model identity; the compiled encrypted tree
+hashes and successful compiler invocation are recorded separately. Build inputs are rechecked after compilation;
+failed preparation preserves the prior generated pack. Release checks reject unencrypted/unknown payloads,
+undeclared files, raw source packages, private keys and plaintext reference copies, including sibling ODR packs.
+A team-signed native qualification must load every exact encrypted asset and verify the reference bytes before
+that pack can pass the upload gate. Unknown compiler envelope formats fail pending explicit review.
+
+**Current evidence:** actual Apple-encrypted tagger/reference carrier compile, and a team-signed Mac helper
+recovers all 299,249 reference floats byte-for-byte. The complete-pack trial exposed an Apple loader limitation:
+the encrypted multifunction recognizer fails with an unsupported multi-function-description error, while its
+plaintext `prefill` and `step` controls pass. Separate single-function exports preserve all token IDs and
+probabilities on 20 existing crops across three fresh states (maximum probability difference zero), but their
+encrypted versions fail execution-plan construction on both CPU and GPU. Expanding the compressed weights to
+their original float constants also fails. A tiny stateful accumulator reproduces this failure while a stateless
+control loads and predicts. The matched FP16 explicit-input control also passes. The reproducible 12-case matrix
+isolates encrypted Core ML state on **macOS 26.3.1, Xcode 26.4 (17E192), compiler 3520.5.1**, not every Apple platform.
+
+The explicit-cache recognizer loads encrypted on CPU and GPU, but was rejected: observed RSS reached at least
+**4,625,039,360 bytes versus 792,608,768 baseline (5.835×)**. It was stopped before a completed quality comparison or
+warmed timed trial. This conclusively fails the less-than-2× memory gate; do not report a measured timing ratio or
+token parity for that candidate. The original four-asset configuration (including the protected reference carrier)
+is retained in the builder. Its actual signed encrypted qualification fails, so **the release path remains blocked**.
+No plaintext substitution or recognizer downgrade qualifies. Existing local development readings remain usable.
+
+Evidence stays in `.artifacts/device-pdf-development/encryption/`: `verification.json` is the failed complete-pack
+qualification, `actual-proof/carrier-load.json` proves exact reference recovery,
+`stateful-minimal/reproduction/report.json` records the controlled platform matrix, and
+`explicit-recognizer/qualification.json` records the rejected memory result. The repo-owned
+[`probe_coreml_state_encryption.py`](../../scripts/device-pdf-models/probe_coreml_state_encryption.py) reproduces the
+platform finding using synthetic models and private key/signing parameters; it needs no scientific PDF or trained
+weights. Next research may return only new per-token cache slices instead of repeatedly emitting the entire cache,
+but that proposal has no quality, memory or latency qualification yet.
+No release or physical-phone test has occurred; first-use key acquisition and cached offline use need explicit
+configuration-specific evidence. Follow Apple's [key generation](https://developer.apple.com/documentation/coreml/generating-a-model-encryption-key)
+and [encryption/loading](https://developer.apple.com/documentation/coreml/encrypting-a-model-in-your-app) workflows.
 
 ## Native tagger recovery — 2026-10-27 (locally verified, not released)
 
@@ -96,12 +298,9 @@ conservation gate and native verification. Model weights, acquisition and reader
 | Signals host (Swift) | `ScienceReaderCore/DevicePDF/` | Opens the PDF (PDFKit), renders pages (150 dpi for layout and recogniser crops, 216 dpi for formula images), reads the text layer as glyphs, runs the three Core ML models, decodes the layout's boxes (per-class thresholds, NMS 0.6, best 300) and the recogniser's tokens (byte-level BPE with the tokenizer's space clean-up), cuts and encodes crops | `swift test` on macOS: decode, tokenizer, crop geometry; the CLI below |
 | Converter (TypeScript, pure) | `supabase/functions/_shared/reader/device-pdf/` | Every rule of the spec in order: furniture, front matter, glyph ownership, orphan lines, reading order, authors, captions, blocks, tables as cells, formulas, the confidence gate, Temml MathML; emits **this app's reader vocabulary** and composes a `reader-bundle-v1` | Node tests on recorded glyph/model fixtures (fast tier); the shared HTML validator; conformance on the eight fixtures |
 | Host bridge | JavaScriptCore `JSContext` in-process | Runs `device-pdf-reader.js` (esbuild IIFE, global `GradstepDevicePDF`); the host functions below are synchronous Swift closures | The CLI run on the fixtures |
-| CLI (macOS) | `ScienceReaderCore` executable `DevicePDFRoute` | `DevicePDFRoute <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js> [--trace]` writes the bundle and, with `--trace`, the Python-shaped `index.json` the desktop's `bundle_conformance.py` reads | Fixture conformance, timings per stage |
+| CLI (macOS) | `ScienceReaderCore` executable `DevicePDFRouteTool` | `DevicePDFRouteTool <paper.pdf> <out-dir> --models <dir> --compiler <device-pdf-reader.js> [--trace]` writes the bundle and, with `--trace`, the Python-shaped `index.json` the desktop's `bundle_conformance.py` reads | Fixture conformance, timings per stage |
 | App | `ScienceReader` | Settings › Experimental; "Read with the on-device model" on a paper whose PDF is on the device; progress by stage; the result opens in the same reader with a banner (model-read, report a problem, back to the HTML version) | Simulator journey with a fixture PDF |
 | Text recognition (Swift, since 2026-10-23) | `DevicePDFOCR.swift` | A page whose text layer is empty (a scan) or unreadable (codes without a Unicode mapping, letters that are no words) gets its glyphs from Vision's on-device text recogniser on the 150 dpi render (each word's characters spread over its box, font `GradstepOCR`); `Options.ocrFallback` (on), the tool's `--no-ocr` | `DevicePDFOCRTests`; scanned copies of arXiv papers scored against their HTML |
-| Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`); since 2026-10-23 with a 512-token cache. Since 2026-10-24 a separate download on iPhone and iPad (below) | The script's digest check; the app hides the experiment when the build has neither the models nor their description |
-| Evaluation (Mac) | `scripts/device-route-accuracy.mjs`, `scripts/device-route-replay.mjs` | Fresh arXiv papers (PDF + the exact revision's HTML) scored against the app's own arXiv HTML reading; `--record` runs replayed through the converter in Node to try rule changes in seconds | [Review 2026-10-21](../reviews/DEVICE_PDF_ROUTE_20261021.md) |
-
 | Models | `apps/apple/DeviceModels/` (not committed) | Compiled `.mlmodelc` copies of the exports with `device-models.json` (thresholds, tagger vocabularies, tokenizer); `scripts/device-models.mjs` copies them from the Mac's export directories and checks their digests against `apps/apple/device-models.lock.json`. Since 2026-10-21 the recogniser is one multifunction package, `DeviceRecogniser.mlmodelc` (functions `prefill` and `step`, batch 8; `scripts/device-pdf-models/export_texteller.py`); since 2026-10-23 with a 512-token cache | The script's digest check; the app hides the experiment when they are absent |
 | Evaluation (Mac) | `scripts/device-route-accuracy.mjs`, `scripts/device-route-replay.mjs`, `scripts/device-route-weaknesses.mjs` | Fresh arXiv papers (PDF + the exact revision's HTML) scored against the app's own arXiv HTML reading; `--record` runs replayed through the converter in Node to try rule changes in seconds; the weakness explorer sorts every difference into an error taxonomy by stage and impact, with page crops and per-page timings | [Review 2026-10-21](../reviews/DEVICE_PDF_ROUTE_20261021.md), [2026-10-24](../reviews/DEVICE_PDF_WEAKNESSES_20261024.md) |
 
@@ -213,7 +412,7 @@ result = { manifest (base64 of canonical bytes), manifest_sha256, members: { pat
 
 Since port revision 5 (2026-10-21, [review](../reviews/DEVICE_PDF_ROUTE_20261021.md)) the host overlaps the stages:
 the pages' layout and text are read ahead on two threads (each with its own `CGPDFDocument`; `host.page(i)` waits for
-page i), the tagger's lines run on four threads, and the recogniser runs in the background on batches of eight crops
+page i), the tagger runs on one thread by default, and the recogniser runs in the background on batches of eight crops
 of one placement, narrowest first (`DevicePDFPipeline.swift`). Results are the same as one crop at a time: the batched
 export decodes every crop's tokens exactly as the one-crop export does (20/20 and 80/80 on the export's samples, the
 on the fixtures a few formulas differ in LaTeX, agreement with the reference within 0.004).

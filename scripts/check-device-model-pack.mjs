@@ -2,7 +2,8 @@
 // The on-device PDF models as a separate download (docs/architecture/DEVICE_PDF_ROUTE.md "The models as a download"):
 // checks a built iOS app or archive before it is uploaded.
 //
-//   node scripts/check-device-model-pack.mjs <archive.xcarchive | products dir>        iPhone/iPad
+//   SCIENCE_READER_COREML_VERIFICATION=/path/verification.json node scripts/check-device-model-pack.mjs ARCHIVE
+//   --development-plaintext skips encryption qualification for local unsigned research builds only.
 //   node scripts/check-device-model-pack.mjs --mac <archive.xcarchive | Gradstep.app>    Mac (models inside the app)
 //
 // iPhone/iPad: the app carries the pack's description (device-models-pack.json, equal to the one
@@ -14,10 +15,16 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyProtectedPack, verifyQualification, rejectUnprotectedModelCopies } from './device-model-protection.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const mac = process.argv.includes('--mac');
-const target = resolve(process.argv.filter(a => !a.startsWith('--')).slice(2)[0] ?? '');
+const development = process.argv.includes('--development-plaintext');
+const args = process.argv.slice(2);
+const evidenceIndex = args.indexOf('--encryption-verification');
+const evidencePath = evidenceIndex >= 0 ? args.splice(evidenceIndex, 2)[1] : process.env.SCIENCE_READER_COREML_VERIFICATION;
+const target = resolve(args.find(a => !a.startsWith('--')) ?? '');
+const qualification = evidencePath ? JSON.parse(readFileSync(resolve(evidencePath), 'utf8')) : null;
 const fail = message => { console.error(`device model pack: ${message}`); process.exit(1); };
 if (!existsSync(target)) fail(`pass an archive, a products folder or an app (${target})`);
 
@@ -32,6 +39,10 @@ const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => {
   return e.isDirectory() ? [path, ...walk(path)] : [path];
 });
 function matches(folder, where) {
+  if (!development) {
+    const { trees } = verifyProtectedPack(folder, described, lock);
+    verifyQualification(qualification, described, trees);
+  }
   for (const file of described.files) {
     const path = join(folder, file.path);
     if (!existsSync(path)) fail(`${where} lacks ${file.path}`);
@@ -45,6 +56,7 @@ const findApp = () => {
   return apps[0];
 };
 const app = findApp();
+if (!development) rejectUnprotectedModelCopies(app);
 const resources = mac ? join(app, 'Contents', 'Resources') : app;
 const shipped = join(resources, 'device-models-pack.json');
 if (!existsSync(shipped)) fail(`the app lacks device-models-pack.json`);
@@ -64,8 +76,11 @@ if (packIDs.length === 0) fail(`no asset pack for the tag ${described.tag}`);
 const assetPacks = walk(target.endsWith('.app') ? resolve(target, '..') : target).filter(p => p.endsWith('.assetpack'));
 let checked = 0;
 for (const pack of assetPacks) {
+  if (!development) rejectUnprotectedModelCopies(pack);
   const folder = join(pack, described.folder);
-  if (existsSync(folder)) { matches(folder, pack.slice(target.length + 1)); checked++; }
+  if (existsSync(folder)) {
+    matches(folder, pack.slice(target.length + 1)); checked++;
+  }
 }
 if (checked === 0) fail(`no asset pack holding ${described.folder}/ under ${target}`);
 const bytes = described.files.reduce((n, f) => n + f.size, 0);

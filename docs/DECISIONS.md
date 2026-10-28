@@ -4,6 +4,26 @@ Last updated: 2026-10-27. Requirements below come from the current user conversa
 Judgment calls made on the owner's behalf ("make a good judgment and keep a log", 2026-10-25) are listed in
 [JUDGMENT_LOG.md](JUDGMENT_LOG.md).
 
+## Protect distributed Core ML models (owner request, 2026-10-27; setup verified, full pack blocked)
+
+Encrypt the on-device PDF model pack with Apple's team-managed model keys. Preserve the current ODR/Mac packaging,
+reader interactions, source weights and independent CPU recovery; protect the reference-weight copy too. Keep keys
+outside source, artifacts and app resources, and retain SHA verification alongside encryption. No new service,
+credentials embedded in the app, PDF processing destination or deployment is authorized by this work.
+
+The [device-route design](architecture/DEVICE_PDF_ROUTE.md#core-ml-model-encryption--owner-request-2026-10-27-full-pack-blocked)
+records asynchronous key loading, in-memory reference recovery and release gates. Actual signed encrypted carrier
+loading passes; the full-pack attempt found that this Mac's encrypted loader rejects the current multifunction
+recognizer and its stateful single-function equivalents. A minimal stateful/stateless control reproduces the
+encrypted-state failure independently of trained weights. An explicit-cache export loads encrypted but was rejected
+at **at least 5.835 times baseline memory** before completing parity/timing. Keep the original model selection;
+release scripts fail closed at signed runtime qualification. Any replacement requires actual encrypted loading,
+inference conservation and acceptable speed/memory before promotion. Do not claim encryption of the complete
+shipping pack until all assets qualify. No physical-phone work or release.
+
+The same architecture document now starts with the owner's requested end-to-end runtime walkthrough, including
+the distinction between local PDF conversion and subsequent AI-context requests.
+
 ## Shared PDF training and measurable product improvements (owner direction, 2026-10-26; locally verified, not released)
 
 Keep the core layout, equation-recognition and inline-tagger training code in this repository. Data, private

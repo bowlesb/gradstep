@@ -36,6 +36,22 @@ final class DevicePDFReferenceTaggerTests: XCTestCase {
         }
     }
 
+    func testInMemoryCarrierBytesUseIdenticalValidationAndPredictionsWithoutAPlaintextFile() throws {
+        let manifest = try Data(contentsOf: resource("json")), weights = try Data(contentsOf: resource("bin"))
+        let memory = try DevicePDFReferenceTagger(manifest: manifest, weights: weights)
+        let disk = try model()
+        XCTAssertEqual(memory.binarySHA256, disk.binarySHA256)
+        XCTAssertEqual(memory.checkpointSHA256, disk.checkpointSHA256)
+        for sample in try samples() {
+            XCTAssertEqual(try memory.tag(x: sample.x, font: sample.font, cls: sample.cls, char: sample.char),
+                           try disk.tag(x: sample.x, font: sample.font, cls: sample.cls, char: sample.char))
+        }
+        var corrupt = weights; corrupt[0] ^= 1
+        XCTAssertThrowsError(try DevicePDFReferenceTagger(manifest: manifest, weights: corrupt))
+        XCTAssertThrowsError(try DevicePDFReferenceTagger(manifest: manifest, weights: Data(weights.dropLast())))
+        XCTAssertThrowsError(try DevicePDFReferenceTagger(manifest: Data(repeating: 32, count: 65_537), weights: weights))
+    }
+
     func testConcurrentPredictionsHaveIndependentRecurrentState() throws {
         let model = try model(), gold = try samples()
         final class Errors: @unchecked Sendable {

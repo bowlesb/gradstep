@@ -13,6 +13,8 @@
 **/xcuserdata/
 **/*.xcuserstate
 .artifacts/
+/output/pdf/
+/tmp/pdfs/
 .support-attachments/
 .venv/
 .supabase/
@@ -20,6 +22,7 @@ supabase/.temp/
 secrets.*
 *.p8
 *.p12
+*.mlmodelkey
 *.mobileprovision
 *.provisionprofile
 .claude/

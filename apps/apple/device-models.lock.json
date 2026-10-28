@@ -1,5 +1,5 @@
 {
- "note": "Package digests of the device route models (scripts/device-models.mjs). Layout: converter 0.1.0 port kit; tagger: v5b journal adaptation with replay/distillation, 2026-10-26; recogniser: texteller-ft-v4 batched multifunction, 512-token cache, 2026-10-23.",
+ "note": "Source digests of the device route models. Same v5b-journal/layout-v5/TexTeller-v4 weights; exact-weight recovery carrier. Encrypted compiled artifacts are verified separately.",
  "models": {
   "layout": {
    "export": "layout-fcos-v5-coreml",
@@ -23,7 +23,10 @@
    "weights": "tagger-reference.bin",
    "sha256": "2b09f7baaf2340dd7987e5300088a86579f734039fba66d7c6ef610d61c9497f",
    "binary_sha256": "54c00488b893fbc7e9cf5e305e50a8c7ed9b9a8503c73a4e62374dcaf79b9eb7",
-   "checkpoint_sha256": "d705b191ddd7eb33cc36cbf8e47e71c1363e5389fb41dbea3936720858188d0c"
+   "checkpoint_sha256": "d705b191ddd7eb33cc36cbf8e47e71c1363e5389fb41dbea3936720858188d0c",
+   "carrier_export": "inline-tagger-v5b-journal-reference-carrier",
+   "carrier_package": "tagger-reference-carrier.mlpackage",
+   "carrier_sha256": "182ab44b32fdc2efef57fef426de23cb748757c98b94108542e237453d4f5185"
   }
  }
 }

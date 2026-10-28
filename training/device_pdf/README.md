@@ -9,7 +9,16 @@ All PDFs are processed on the owner's devices. This directory contains source an
 Completed locally: repo-owned training, the port-20 rejected-transcription boundary, port-21 crop cleanup, and
 **independent on-device recovery when Core ML repeatedly returns invalid tagger output**. The selected learned
 models remain layout-fcos-v5, texteller-ft-v4 and inline-tagger-v5b-journal at threshold 0.65. The pack now includes
-1.20 MB of the same tagger weights for a separate CPU implementation; no new training or release is implied.
+1.20 MB of the same tagger weights for a separate CPU implementation. That recovery uses the existing checkpoint;
+the new research below trained candidates without promoting them.
+
+**Model protection:** Apple keys, the encrypted reference-weight carrier, asynchronous loading and release checks
+are implemented. Full-pack encryption remains blocked by the encrypted stateful recognizer on this Mac; the
+explicit-cache workaround exceeded baseline memory by at least 5.835 times and was rejected. Do not substitute
+plaintext in a release or infer complete-pack success from the carrier. The
+[runtime walkthrough and encryption evidence](../../docs/architecture/DEVICE_PDF_ROUTE.md) explain the full path,
+the minimal reproduction and the next bounded research direction. The canonical evidence directory is
+`.artifacts/device-pdf-development/encryption/`; no failed encrypted pack replaces the usable local pack.
 
 **Latest research result — no model promotion:** a new source-reviewed benchmark contains **468 complete
 single-line expressions / 165 prose controls**, from 72 previously unaudited development families. Expanded training

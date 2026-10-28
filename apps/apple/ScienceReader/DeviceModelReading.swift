@@ -123,8 +123,8 @@ enum DeviceModelEngine {
                      preview: @escaping @Sendable (VerifiedReaderBundle) -> Void = { _ in }) async throws -> (VerifiedReaderBundle, DeviceModelSummary) {
         guard let directory = modelsDirectory, let compilerURL else { throw DevicePDFModelError.missing("DeviceModels") }
         let start = Date()
-        let task = Task.detached(priority: .userInitiated) { () throws -> (VerifiedReaderBundle, DeviceModelSummary) in
-            let models = try DevicePDFModels(directory: directory)
+        let task = Task.detached(priority: .userInitiated) { () async throws -> (VerifiedReaderBundle, DeviceModelSummary) in
+            let models = try await DevicePDFModels.load(directory: directory)
             let route = DevicePDFRoute(models: models, compilerSource: try String(contentsOf: compilerURL, encoding: .utf8))
             var options = DevicePDFRoute.Options(title: title, sourceID: source.sourceID, revision: source.revision)
             options.authors = authors; options.rules = rules
@@ -486,7 +486,11 @@ extension ReaderModel {
             }
         }
         if let model = error as? DevicePDFModelError {
-            switch model { case .missing: return "The PDF reading model isn’t on this device yet."; case .unusable(let what): return "A model couldn’t run on this device (\(what.prefix(80)))." }
+            switch model {
+            case .missing: return "The PDF reading model isn’t on this device yet."
+            case .unusable(let what): return "A model couldn’t run on this device (\(what.prefix(80)))."
+            case .access(let reason): return reason.message
+            }
         }
         if error is ReaderBundleError { return "The on-device model’s reading didn’t pass the reader’s checks." }
         return "The on-device model couldn’t read this paper."

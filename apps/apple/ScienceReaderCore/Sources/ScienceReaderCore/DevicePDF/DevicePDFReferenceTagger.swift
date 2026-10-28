@@ -39,16 +39,24 @@ public final class DevicePDFReferenceTagger: Sendable {
 
     /// Both paths are chosen by the verified pack, never by a path inside the manifest. Validate the complete tensor
     /// layout and byte count before reading/allocating weights, then verify the digest and every scalar's finiteness.
-    public init(manifest: URL, weights: URL) throws {
-        func fail(_ part: String) -> DevicePDFModelError { .unusable("reference tagger " + part) }
+    public convenience init(manifest: URL, weights: URL) throws {
         func byteCount(_ url: URL, maximum: Int) throws -> Int {
             guard url.isFileURL,
                   let bytes = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber,
-                  bytes.int64Value > 0, bytes.int64Value <= Int64(maximum) else { throw fail("file size") }
+                  bytes.int64Value > 0, bytes.int64Value <= Int64(maximum) else { throw DevicePDFModelError.unusable("reference tagger file size") }
             return bytes.intValue
         }
         _ = try byteCount(manifest, maximum: 64 * 1024)
-        let decoded = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: manifest))
+        _ = try byteCount(weights, maximum: 16 * 1024 * 1024)
+        try self.init(manifest: Data(contentsOf: manifest), weights: Data(contentsOf: weights, options: .mappedIfSafe))
+    }
+
+    /// Encrypted packs recover their reference weights from Core ML directly into this initializer. No temporary
+    /// plaintext file is created. The same manifest, size, tensor-layout, digest and finite-weight checks apply.
+    public init(manifest: Data, weights data: Data) throws {
+        func fail(_ part: String) -> DevicePDFModelError { .unusable("reference tagger " + part) }
+        guard !manifest.isEmpty, manifest.count <= 64 * 1024, !data.isEmpty, data.count <= 16 * 1024 * 1024 else { throw fail("file size") }
+        let decoded = try JSONDecoder().decode(Manifest.self, from: manifest)
         func digestValid(_ value: String) -> Bool {
             value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
         }
@@ -75,8 +83,6 @@ public final class DevicePDFReferenceTagger: Sendable {
             guard tensor.shape == expected, tensor.count == size, tensor.offset == count else { throw fail("tensor layout") }
             count += size
         }
-        guard try byteCount(weights, maximum: 16 * 1024 * 1024) == count * 4 else { throw fail("weight size") }
-        let data = try Data(contentsOf: weights, options: .mappedIfSafe)
         guard data.count == count * 4,
               SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == decoded.binarySHA256 else { throw fail("weight digest") }
         let finite = data.withUnsafeBytes { bytes in

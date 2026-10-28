@@ -20,10 +20,17 @@ PROFILE_NAME="Gradstep Mac App Store"
 ARCHIVE=".artifacts/Gradstep-mac-$BUILD.xcarchive"
 AUTH="-authenticationKeyPath $KEY -authenticationKeyID $ASC_KEY_ID -authenticationKeyIssuerID $ASC_ISSUER_ID"
 mkdir -p .artifacts
-# The on-device PDF route's models (docs/architecture/DEVICE_PDF_ROUTE.md), as in upload-testflight.sh. An iOS upload
-# of the same build has just prepared them; checking again is cheap when they match the lock. The Mac app keeps the
+# The on-device PDF route's models (docs/architecture/DEVICE_PDF_ROUTE.md), as in upload-testflight.sh. Rebuild and
+# qualify the exact encrypted pack for this archive. The Mac app keeps the
 # models inside the app (On-Demand Resources don't exist on the Mac; ENABLE_ON_DEMAND_RESOURCES is off for Mac Catalyst).
-[ -f apps/apple/DeviceModels/device-models.json ] && [ -f apps/apple/DeviceModelsManifest/device-models-pack.json ] || node scripts/device-models.mjs > ".artifacts/device-models-mac-$BUILD.log" 2>&1 || { echo "Device models not prepared"; exit 1; }
+node scripts/device-models.mjs --require-encryption > ".artifacts/device-models-mac-$BUILD.log" 2>&1 || { echo "Encrypted device models not prepared"; exit 1; }
+# The native loader is built and team-signed separately; a CLI success on an unsigned/old pack is insufficient.
+: "${SCIENCE_READER_COREML_VERIFY_TOOL:?set the path to the team-signed DevicePDFRouteTool}"
+SCIENCE_READER_COREML_VERIFICATION="$(pwd)/.artifacts/coreml-encryption-$BUILD.json"
+export SCIENCE_READER_COREML_VERIFICATION
+node scripts/verify-coreml-encryption.mjs --tool "$SCIENCE_READER_COREML_VERIFY_TOOL" \
+  --models apps/apple/DeviceModels --manifest apps/apple/DeviceModelsManifest/device-models-pack.json \
+  --out "$SCIENCE_READER_COREML_VERIFICATION"
 (cd apps/apple && xcodegen generate > /dev/null)
 (cd apps/apple && xcodebuild archive -project ScienceReader.xcodeproj -scheme ScienceReader -configuration Internal \
   -destination 'generic/platform=macOS,variant=Mac Catalyst' -archivePath "../../$ARCHIVE" \

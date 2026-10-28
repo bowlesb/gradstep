@@ -59,13 +59,42 @@ func renderCrops(jobs url: URL) throws {
 // desktop's bundle_conformance.py) and conversion.json (summary and timings).
 @main
 struct Tool {
-    static func main() throws {
+    static func main() async throws {
         var args = Array(CommandLine.arguments.dropFirst())
         func option(_ name: String) -> String? {
             guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
             let value = args[i + 1]; args.removeSubrange(i...(i + 1)); return value
         }
         func flag(_ name: String) -> Bool { if let i = args.firstIndex(of: name) { args.remove(at: i); return true }; return false }
+        // A signed qualification runner binds this result to the exact encrypted pack and executable. This command
+        // only establishes successful asynchronous loading, recogniser availability and checked in-memory carrier
+        // recovery; it cannot establish encryption or signing identity by itself.
+        if flag("--verify-model-load") {
+            guard #available(macOS 15.0, *), let models = option("--models"), let output = option("--out") else { exit(2) }
+            let reportURL = URL(fileURLWithPath: output)
+            func report(_ value: [String: Any]) throws {
+                try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: reportURL, options: .atomic)
+            }
+            try report(["passed": false])
+            do {
+                let loaded = try await DevicePDFModels.load(directory: URL(fileURLWithPath: models), requireRecogniser: true)
+                guard loaded.recogniserAvailable, loaded.configuration.tagger.reference?.weightsModel != nil,
+                      let reference = loaded.referenceIdentity else { throw DevicePDFModelError.unusable("protected reference unavailable") }
+                var roles = loaded.provenance
+                if let carrier = loaded.configuration.tagger.reference?.weightsModel {
+                    roles.append(["role": "inline-tagger-reference-carrier", "id": carrier.id, "sha256": carrier.weightsSHA256])
+                }
+                try report(["passed": true, "models": roles, "reference": reference,
+                            "recogniser_available": true, "reference_available": true, "load_seconds": loaded.loadSeconds])
+            } catch {
+                let reason: String
+                if case .access(let issue) = error as? DevicePDFModelError { reason = issue.rawValue }
+                else { reason = "model_load_failed" }
+                try report(["passed": false, "reason": reason, "recogniser_available": false, "reference_available": false])
+                FileHandle.standardError.write(Data((reason + "\n").utf8)); exit(1)
+            }
+            return
+        }
         // Same source pixels through legacy and content-aware image cleaning; no model inference or PDF writes.
         if let jobs = option("--clean-formula-crops") {
             try cleanFormulaCrops(jobs: URL(fileURLWithPath: jobs)); return
@@ -89,7 +118,7 @@ struct Tool {
             guard #available(macOS 15.0, *) else { exit(2) }
             struct AuditJob: Decodable { let pdf: String; let page: Int; let out: String }
             let jobs = try JSONDecoder().decode([AuditJob].self, from: Data(contentsOf: URL(fileURLWithPath: jobsPath)))
-            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: modelsPath))
+            let loaded = try await DevicePDFModels.load(directory: URL(fileURLWithPath: modelsPath))
             for (index, job) in jobs.enumerated() {
                 if FileManager.default.fileExists(atPath: job.out) { continue }
                 guard job.page >= 0, let document = CGPDFDocument(URL(fileURLWithPath: job.pdf) as CFURL),
@@ -147,7 +176,7 @@ struct Tool {
             guard #available(macOS 15.0, *) else { exit(2) }
             struct TagInput: Decodable { let x: [Float]; let font: [Int32]; let cls: [Int32]; let char: [Int32] }
             let inputs = try JSONDecoder().decode([TagInput].self, from: Data(contentsOf: URL(fileURLWithPath: inputsPath)))
-            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: modelsPath), taggerUnits: .cpuOnly)
+            let loaded = try await DevicePDFModels.load(directory: URL(fileURLWithPath: modelsPath), taggerUnits: .cpuOnly)
             let outputs = try inputs.map { try loaded.tag(x: $0.x, font: $0.font, cls: $0.cls, char: $0.char) }
             let result: [String: Any] = ["logits": outputs, "features": loaded.taggerFeatures, "models": loaded.provenance]
             try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]).write(to: URL(fileURLWithPath: outPath), options: .atomic)
@@ -160,7 +189,7 @@ struct Tool {
             guard #available(macOS 15.0, *) else { exit(2) }
             struct CropJob: Decodable { let id: String; let pdf: String; let page: Int; let rect: [Int] }
             let jobs = try JSONDecoder().decode([CropJob].self, from: Data(contentsOf: URL(fileURLWithPath: jobsPath)))
-            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: modelsPath))
+            let loaded = try await DevicePDFModels.load(directory: URL(fileURLWithPath: modelsPath))
             if let issue = loaded.recogniserIssue { throw DevicePDFModelError.unusable(issue) }
             let c = loaded.configuration.recogniser
             let outputURL = URL(fileURLWithPath: outPath)
@@ -214,7 +243,7 @@ struct Tool {
         // thread; prints how many outputs differ from the first.
         if flag("--check-determinism"), let models = option("--models") {
             guard #available(macOS 15.0, *) else { exit(2) }
-            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: models), taggerUnits: option("--tagger").flatMap(MLUnits.init(rawValue:))?.compute ?? .cpuOnly)
+            let loaded = try await DevicePDFModels.load(directory: URL(fileURLWithPath: models), taggerUnits: option("--tagger").flatMap(MLUnits.init(rawValue:))?.compute ?? .cpuOnly)
             // Lines of 6 to 60 glyphs, in turn (the tagger's inputs have flexible length).
             typealias Line = (x: [Float], font: [Int32], cls: [Int32], char: [Int32])
             var lines: [Line] = []
@@ -246,7 +275,7 @@ struct Tool {
         if flag("--bench-steps"), let models = option("--models") {
             guard #available(macOS 15.0, *) else { exit(2) }
             let units = option("--recogniser").flatMap(MLUnits.init(rawValue:)) ?? .gpu
-            let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: models), recogniserUnits: units.compute)
+            let loaded = try await DevicePDFModels.load(directory: URL(fileURLWithPath: models), recogniserUnits: units.compute)
             for (name, ms) in try loaded.stepTimes(steps: Int(option("--steps") ?? "48") ?? 48) { print("\(name)\t\(String(format: "%.2f", ms)) ms") }
             return
         }
@@ -254,7 +283,7 @@ struct Tool {
         if let samples = option("--bench-recogniser"), let models = option("--models") {
             guard #available(macOS 15.0, *) else { exit(2) }
             let units = option("--recogniser").flatMap(MLUnits.init(rawValue:)) ?? .gpu
-            try benchRecogniser(models: URL(fileURLWithPath: models), samples: URL(fileURLWithPath: samples), units: units.compute,
+            try await benchRecogniser(models: URL(fileURLWithPath: models), samples: URL(fileURLWithPath: samples), units: units.compute,
                                 repeats: Int(option("--repeat") ?? "4") ?? 4, inFlight: Int(option("--in-flight") ?? "1") ?? 1)
             return
         }
@@ -274,7 +303,7 @@ struct Tool {
         guard args.count == 2 else { FileHandle.standardError.write(Data("need <pdf> <out>\n".utf8)); exit(2) }
         let pdf = URL(fileURLWithPath: args[0]), out = URL(fileURLWithPath: args[1])
         guard #available(macOS 15.0, *) else { FileHandle.standardError.write(Data("needs macOS 15\n".utf8)); exit(2) }
-        let loaded = try DevicePDFModels(directory: URL(fileURLWithPath: models), layoutUnits: layoutUnits.compute,
+        let loaded = try await DevicePDFModels.load(directory: URL(fileURLWithPath: models), layoutUnits: layoutUnits.compute,
                                          taggerUnits: taggerUnits.compute, recogniserUnits: recogniserUnits.compute)
         let route = DevicePDFRoute(models: loaded, compilerSource: try String(contentsOfFile: compiler, encoding: .utf8))
         let data = try Data(contentsOf: pdf)
@@ -372,8 +401,8 @@ enum MLUnits: String {
 /// The recogniser on an export's sample crops: one crop at a time, then in the export's batches (`--in-flight` batches at
 /// once), each sample `repeats` times so batches fill; reports milliseconds per crop and agreement with the export's ids.
 @available(macOS 15.0, *)
-func benchRecogniser(models: URL, samples: URL, units: MLComputeUnits, repeats: Int, inFlight: Int) throws {
-    let loaded = try DevicePDFModels(directory: models, recogniserUnits: units)
+func benchRecogniser(models: URL, samples: URL, units: MLComputeUnits, repeats: Int, inFlight: Int) async throws {
+    let loaded = try await DevicePDFModels.load(directory: models, recogniserUnits: units)
     if let issue = loaded.recogniserIssue { print("recogniser not loaded: \(issue)"); exit(1) }
     let meta = try JSONSerialization.jsonObject(with: Data(contentsOf: samples.appendingPathComponent("export.json"))) as! [String: Any]
     let rows = ((meta["equivalence"] as! [String: Any])["samples"] as! [[String: Any]])

@@ -1,5 +1,53 @@
 # Fast and slow tests
 
+## Core ML model protection — October 27
+
+Routine checks: `npm test`, plus `node --test tests/operations/device-model-protection.test.mjs` (12 cases).
+The latter rejects tampered/re-described packs, plaintext payloads, raw recovery weights, source/key copies,
+unsafe links and stale/unqualified runtime evidence. Fixtures test the gate logic; actual Apple encryption
+requires the signed checks below. Focused native checks, from `apps/apple/ScienceReaderCore`:
+`swift test -c release --filter 'DevicePDFModelLoadingTests|DevicePDFReferenceTaggerTests|DevicePDFErrorTests|DevicePDFHostTests'`.
+They cover asynchronous access-error classification, cancellation, strict encrypted recognizer loading, legacy
+fallback, Intel preflight, reference shape/byte integrity and unchanged tagger recovery. All 42 pass, including
+cancelled loads/predictions that return a late success or framework error after the reader has stopped.
+
+Build keys stay in private `~/.config/science-reader/coreml-encryption/keys.json` (or `SCIENCE_READER_COREML_KEYS`).
+The mapping names team `3BJ33TT599` and private `.mlmodelkey` paths for `layout`, `tagger`, `recogniser` and
+`tagger_reference`. Never copy key contents into the repo, logs or app. `node scripts/device-models.mjs
+--require-encryption` compiles the pinned sources. A team-signed current `DevicePDFRouteTool` then runs through:
+
+```sh
+node scripts/verify-coreml-encryption.mjs --tool /path/to/signed/DevicePDFRouteTool \
+  --models apps/apple/DeviceModels --manifest apps/apple/DeviceModelsManifest/device-models-pack.json \
+  --out .artifacts/device-pdf-development/encryption/verification.json
+```
+
+**Current expected outcome: failure**, because this Mac cannot load the encrypted stateful recognizer.
+A compiler success or `LMNE` header alone is insufficient. The release script requires a successful report bound
+to the exact pack, compiled trees, tool and signing team before archive/upload; no report was issued for the failed
+pack. `--development-plaintext` is only an explicit research build/check mode. Preserve the selected usable pack
+when experimenting by passing separate `--out` and `--manifest` paths.
+
+Slow reproduction (only when investigating encryption/runtime compatibility): use the existing Core ML Python
+environment to run `scripts/device-pdf-models/probe_coreml_state_encryption.py --out NEW_DIRECTORY
+--encryption-key PRIVATE_KEY --signing-identity EXISTING_IDENTITY`. It generates synthetic stateful/stateless and
+FP16 explicit-cache controls, compiles/signs and records all 12 CPU/GPU cases, source/tool/tree hashes and the
+OS/compiler identity. `probe_completed` and `state_encryption_failure_isolated` are separate results. Recorded
+evidence: `encryption/stateful-minimal/reproduction/report.json`. No corpus or private model weights are needed.
+
+The app's focused Simulator assertion is
+`ScienceReaderTests/DeviceModelRouteTests/testModelKeyFailureKeepsARetryableBoundedMessage`; Debug with release
+optimization builds the fixture-dependent test target (`Internal` lacks its DEBUG-only fixtures). Its passing
+result is `encryption/key-message.xcresult`. This checks the retry wording; it is not an encrypted iOS import or
+offline-key test. Actual carrier loading, negative full-pack qualification and the rejected explicit-cache memory
+experiment are linked from the [runtime document](architecture/DEVICE_PDF_ROUTE.md#core-ml-model-encryption--owner-request-2026-10-27-full-pack-blocked).
+
+`encryption/native-conservation.json` compares two fresh no-JIT native imports against the prior recovery baseline:
+all 81 bundle/trace/asset files are byte-identical (22 pages / 330 blocks / 302 equations, zero recoveries).
+The pack is explicitly `development-plaintext`, with the new carrier; this checks unchanged healthy conversion
+and reference initialization while the encrypted recognizer remains blocked. Reuse this evidence for changes
+limited to cancellation/error handling, which the focused tests cover; it is not encrypted-import evidence.
+
 ## Native PDF tagger recovery — October 27
 
 Routine project gate: `npm test`. Focused native checks, from `apps/apple/ScienceReaderCore`:

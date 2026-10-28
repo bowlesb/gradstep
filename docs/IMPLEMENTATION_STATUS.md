@@ -1,5 +1,29 @@
 # Implementation status
 
+## Core ML model encryption — 2026-10-27 (setup verified; complete pack blocked)
+
+Apple keys are generated for the existing signing team and stored privately outside the repo. Builds now require
+encrypted artifacts by default; asynchronous model loading, bounded retry messages, encrypted in-memory CPU tagger
+recovery, archive plaintext/key-copy checks and a signed exact-pack runtime qualification are implemented. Local
+research can explicitly build `--development-plaintext`; upload scripts cannot use that exception.
+
+The layout, tagger and reference carrier load encrypted. All 299,249 reference floats recover byte-for-byte.
+The current multifunction formula recognizer fails Apple's encrypted loader; lossless function splitting and
+decompressed weights do not resolve it. A 12-case synthetic control isolates encrypted `MLState` failure on this
+Mac's macOS 26.3.1 / Xcode 26.4. A stateless explicit-cache recognizer loads but exceeds the memory gate by at least
+5.835× baseline, so it is rejected before quality/timing qualification. The original learned models remain selected,
+and the full encrypted-pack verification deliberately fails. **Encryption is not enabled in a released pack.**
+
+Local checks: 12 protection-policy cases, 42 focused native cases and `npm test` pass; the native suite covers load/recovery errors,
+and the Simulator key-failure message check passes. Two fresh no-JIT native imports using an explicit research
+pack with the reference carrier preserve all 81 bundle/trace/asset files byte-for-byte: 22 pages, 330 blocks and
+302 equations, with zero tagger recoveries. This verifies the healthy path, not successful encrypted recognition.
+
+The owner's requested [end-to-end walkthrough](architecture/DEVICE_PDF_ROUTE.md#end-to-end-walkthrough--updated-2026-10-27)
+now covers acquisition, local inference, formula gates, PDF locations, storage, encryption and AI-context boundaries.
+The same document records the platform blocker and canonical evidence. No release, NAS access or physical-phone
+testing occurred; first-use/offline behavior on iOS and Catalyst remains unverified.
+
 ## Native PDF tagger recovery — 2026-10-27 (local, not released)
 
 The selected v5b-journal Core ML model remains the normal path. Two invalid output buffers now trigger one
