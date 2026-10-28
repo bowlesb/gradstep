@@ -63,6 +63,25 @@ final class DevicePDFHostTests: XCTestCase {
         XCTAssertEqual(calls, 1, "valid outputs have no extra model call")
     }
 
+    /// TestFlight 93's pack (no reference) keeps 93's tolerance after the same bounded retry (JUDGMENT_LOG 56).
+    func testPackWithoutReferenceReadsAPersistentlyInvalidLineAsProseAfterTheRetry() throws {
+        for invalid: [Float] in [[0, 0, 0], [-2, .nan, 3], [-2, 3]] {
+            var calls = 0
+            let recovered = try DevicePDFModels.readLegacyTaggerOutput(count: 3) { calls += 1; return calls == 1 ? invalid : [-2, 0, 3] }
+            XCTAssertEqual(recovered.values, [-2, 0, 3]); XCTAssertFalse(recovered.unread); XCTAssertEqual(calls, 2)
+            calls = 0
+            let unread = try DevicePDFModels.readLegacyTaggerOutput(count: 3) { calls += 1; return invalid }
+            XCTAssertTrue(unread.unread); XCTAssertEqual(calls, 2, "the same bounded retry first")
+            XCTAssertEqual(unread.values.count, 3)
+            XCTAssertTrue(unread.values.allSatisfy { $0.isFinite && 1 / (1 + exp(-Double($0))) < 0.01 }, "prose under any threshold")
+        }
+        var calls = 0
+        let healthy = try DevicePDFModels.readLegacyTaggerOutput(count: 3) { calls += 1; return [-2, 0, 3] }
+        XCTAssertEqual(healthy.values, [-2, 0, 3]); XCTAssertFalse(healthy.unread); XCTAssertEqual(calls, 1)
+        XCTAssertThrowsError(try DevicePDFModels.readLegacyTaggerOutput(count: 3) { throw DevicePDFModelError.unusable("prediction") },
+                             "a thrown model error is not hidden")
+    }
+
     func testTaggerVocabularyMatchesTheLoadedModelShape() throws {
         XCTAssertEqual(try DevicePDFModels.validateTaggerShape(modelWidth: 10, context: 0, maximum: 400), 10)
         XCTAssertEqual(try DevicePDFModels.validateTaggerShape(modelWidth: 12, context: 24, maximum: 400), 12)

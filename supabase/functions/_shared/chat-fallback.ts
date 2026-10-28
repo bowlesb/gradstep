@@ -9,7 +9,9 @@
 // wrote it (`done.model`; every client already shows "· by Claude Haiku 5.5" when it differs from the chosen profile's).
 // The fallback is a second admitted attempt in the same operation: it is sent only when the database finds room for its
 // whole ceiling inside the hold the reader accepted (otherwise the reader gets the first failure, as before), the reader
-// pays only for the attempt that answered, and an unfinished attempt is never the reader's.
+// pays only for the attempt that answered, and an unfinished attempt is never the reader's. A silent first attempt's
+// unresolved ceiling does not take that room: the fallback's admission moves it into Gradstep's own (migration 0163,
+// 2026-10-28; without it, after a silent Flash no explainer's fallback ever fit).
 //
 // Privacy: a pair is listed only when the fallback goes to the same processors under the same terms as the primary — the
 // same pinned endpoint (Google Vertex, US), zero data retention required, data collection denied, no OpenRouter provider

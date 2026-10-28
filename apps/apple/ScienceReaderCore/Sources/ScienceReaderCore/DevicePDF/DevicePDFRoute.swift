@@ -87,7 +87,7 @@ public final class DevicePDFRoute {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 
         let timings = DevicePDFTimings()
-        let referenceRecoveriesBefore = models.taggerReferenceRecoveries
+        let referenceRecoveriesBefore = models.taggerReferenceRecoveries, unreadLinesBefore = models.taggerUnreadLines
         func timed<T>(_ key: String, page: Int? = nil, _ body: () throws -> T) rethrows -> T { try timings.timed(key, page: page, body) }
         // The page the converter is reading (after every page's layout): its tagger lines and its own JavaScript time are
         // that page's (the per-page timings; `pageClock` is when the page began).
@@ -366,6 +366,7 @@ public final class DevicePDFRoute {
                                "tagger_threads": options.taggerThreads] as [String: Any]
         summary["model_load_seconds"] = models.loadSeconds.mapValues { ($0 * 100).rounded() / 100 }
         summary["tagger_reference_recoveries"] = models.taggerReferenceRecoveries - referenceRecoveriesBefore
+        summary["tagger_unread_lines"] = models.taggerUnreadLines - unreadLinesBefore
         summary["formulas_recognised"] = formulasDone
         if let issue = models.recogniserIssue { summary["recogniser_unavailable"] = String(issue.prefix(300)) }
         let summaryData = (try? JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys])) ?? Data("{}".utf8)

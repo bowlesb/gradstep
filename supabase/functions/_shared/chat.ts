@@ -845,8 +845,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The answer's fallback (chat-fallback.ts): only where the owner's switches, free credits and the price cards allow it
   // exactly as they allow the chosen model. The answer's part of the hold covers whichever of the two would cost more to
   // write it (Haiku's ceiling passes Flash's only on long papers, through its long-prompt tier), so after a refusal that
-  // cost nothing the fallback always fits; after a silent model's unresolved ceiling, only when the hold has other room
-  // (the search allowance). The database decides when it is sent; the reader is charged for the attempt that answered.
+  // cost nothing the fallback always fits. After a silent model, the fallback's admission moves the silent attempt's
+  // unresolved ceiling out of this hold into Gradstep's own room, still counted against the month (migration 0163,
+  // JUDGMENT_LOG 55): the fallback fits the same hold, and the reader's credits and quote are unchanged. The database
+  // decides when it is sent; the reader is charged for the attempt that answered.
   const fallbackModel = deps.fallback === true && !repair ? FALLBACK_MODELS[params.model] ?? null : null;
   const fallbackRequest = fallbackModel && !switchRefusal(switches, request.action, fallbackModel)
     && (!switches || freeModel(switches, fallbackModel) === freeModel(switches, params.model))
@@ -1412,7 +1414,10 @@ export interface SearchStats { tavily: number; credits: number; failures: number
  * told, and (filled in) why the chosen model failed and what came of asking the fallback. */
 export interface FallbackPlan {
   params: ModelRequest; firstDataMs: number; onSwitch: () => void;
-  report: { cause: string; status: number | null; result: 'answered' | 'failed' | 'not_sent' } | null;
+  /** `carried`: the silent attempt's ceiling moved to Gradstep (migration 0163); `carry_refused`: why the month, the free
+   * pool or a testing cap could not take it; `refused`: the database's reason when the fallback was not admitted. */
+  report: { cause: string; status: number | null; result: 'answered' | 'failed' | 'not_sent'; carried?: boolean; carry_refused?: string;
+    refused?: string } | null;
 }
 /** The chosen model's failure as a closed category for the log (never the provider's text). */
 function failureCause(outcome: ProviderOutcome): string {
@@ -1446,9 +1451,13 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
     // The chosen model's first round, while a fallback can still answer: a shorter first-data deadline, and no same-model
     // retry of a busy refusal (the fallback is asked at once instead).
     const first = round === 0 && fallback !== null && primary === null;
+    // The fallback's first round names the chosen model's attempt it follows: when that one was silent, the database moves
+    // its unresolved ceiling out of the reader's hold into Gradstep's (migration 0163), so the fallback finds the room it
+    // would have had after a refusal that cost nothing.
+    const after = round === 0 && primary?.attemptID ? { afterAttemptID: primary.attemptID } : {};
     try {
       outcome = await generate({ ...current, messages: [...current.messages, ...marked(extra)],
-        max_tokens: current.max_tokens - used }, { ...options, ...(first ? { firstDataMs: fallback!.firstDataMs, busyRetry: false } : {}), onText: text => {
+        max_tokens: current.max_tokens - used }, { ...options, ...(first ? { firstDataMs: fallback!.firstDataMs, busyRetry: false } : {}), ...after, onText: text => {
         // A round after searches starts a new paragraph.
         if (opening && text) { if (separate && !/^\s/.test(text)) text = `\n\n${text}`; opening = false; }
         if (text.trim()) wrote = true;
@@ -1469,10 +1478,16 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
       primary = outcome; current = fallback!.params; firstID = null; round--;
       continue;
     }
+    // Whether the silent attempt's ceiling was carried for Gradstep, or why the month could not take it (codes only).
+    if (primary && round === 0) {
+      if (outcome.carriedMicrousd) fallback!.report!.carried = true;
+      if (outcome.carryRefused) fallback!.report!.carry_refused = outcome.carryRefused;
+    }
     // The fallback could not be sent (its ceiling did not fit the hold, or our server could not admit it): the reader hears
     // the chosen model's failure, exactly as without a fallback.
     if (primary && round === 0 && outcome.status === 'failed' && outcome.cause && !outcome.attempts.length) {
       fallback!.report!.result = 'not_sent';
+      if (outcome.refusedBy) fallback!.report!.refused = outcome.refusedBy;
       return { ...primary, attempts, exact };
     }
     if (primary && round === 0 && outcome.status === 'complete') fallback!.report!.result = 'answered';

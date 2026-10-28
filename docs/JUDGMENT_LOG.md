@@ -6,7 +6,7 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
-56. **The neuroscience test catalog is a folder of the owner's own journal PDFs that the app imports, not a bundled arXiv
+57. **The neuroscience test catalog is a folder of the owner's own journal PDFs that the app imports, not a bundled arXiv
     list** (owner, 2026-10-28: "a catalog … with maybe 30-40 random neuroscience pdf papers preloaded into the library
     with the on device model"; the lead redirected it the same day to the Papers corpus). Staff only (operator roles),
     Settings › Experimental › **Import a folder as a test catalog…**: every PDF in a picked folder is added through the
@@ -21,6 +21,41 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
     and reads the folder itself (readings and PDFs don't sync); a paper's kept reading opens from its "Read with the
     on-device model". *Undo:* remove `TestCatalogSettingsRow` from Settings (the catalog and papers stay ordinary
     library items) ([TEST_CATALOGS](architecture/TEST_CATALOGS.md)).
+56. **How 94 reships 93's pack (implements 53), and 93's pack keeps 93's tagger tolerance.** The upload scripts take
+    `RESHIP_DEVICE_PACK=<full version>`. Only a pack pinned in `apps/apple/device-models-shipped.json` qualifies: today
+    that is 93's `28f6fd14e8be…` from 1c87b2af. It is copied byte for byte from 93's archive (or `RESHIP_DEVICE_PACK_FROM`),
+    and only then is the signed encryption check skipped. Anything else fails: an unrecorded pack, one byte changed, an
+    abbreviated version or mixed modes. The archive scan still refuses keys, source models, raw recovery weights and any
+    other plaintext model. A rebuild can't stand in: the compiler writes model metadata in a different order each run.
+    *Compatibility change:* today's app reads 93's pack. Its v4 tagger has ten features and its own 0.7 threshold, and
+    without the reference the recovery stays off. But today's host failed **2 of 6 papers** on it ("tagger:
+    invalid_output"). v4 sometimes returns all-zero buffers: 93's own host got 0, 8 and 16 such lines of 969 in three
+    runs of one paper, and 6 of 577 on a scan. 93 read those lines as prose, unnoticed; today's host retried once, then
+    failed the whole reading. Now a pack **without the reference** reads a line that is still invalid after the retry as
+    prose, as 93 did, and counts it (`tagger_unread_lines`). Result: 7 of 7 papers read, with 0–7 such lines each, fewer
+    than 93. Packs with the reference (every pack the builder makes now) keep the strict rule. *Why:* it is what 93
+    shipped, and the owner wants a first open to degrade rather than refuse. *Undo:* `readLegacyTaggerOutput`
+    (DevicePDFModels.swift) to fail the reading again; the reship branch in both upload scripts.
+55. **After a silent model, the fallback's admission moves the silent attempt's ceiling out of the reader's hold into
+    Gradstep's own room** (migration 0163; local, not applied or deployed). Staging, 14:12 and 14:14 UTC: a paper
+    explainer on Flash was silent 25 s, "Switching to Claude Haiku 5.5…" showed, then Haiku was `denied`
+    (`operation_ceiling`: 132,872 µ$ unresolved + Haiku's 149,531 > the 149,531 hold) and the reader got "couldn't
+    finish". Every action without a search allowance (all explainers, Go deeper, Study, answers without search) had this,
+    so after a silent model the fallback never ran. Now `worker_openrouter_admit_fallback` admits the fallback's first
+    request and, when the attempt it follows was silent (no output, no receipt), raises the operation's *provider* ceiling
+    by exactly that attempt's ceiling and reserves it in the month, recorded as a `carried` event on the silent attempt.
+    The reader's credit hold and quote never change; they pay only the answer they got. Nothing is carried for a refusal
+    that cost nothing (429, 503), output that arrived, a replay, a settled operation, or when the month, the free AI pool
+    or a testing cap can't take it (then the fallback is refused as before and `chat_fallback` logs `carry_refused`).
+    Settlement, reconciliation, Your AI usage and assumed zero (0162) are unchanged: the silent ceiling is the
+    operation's unresolved liability until reconciled or assumed zero. *Why this and not sizing every hold for both
+    attempts up front:* that would reserve the second ceiling on every Flash answer, against the month, the free pool
+    and testing caps (near the pool's end a free answer would have been paid from bought credits) to cover the ~6 % that
+    fall back; carrying at the moment of the fallback reserves it only then, keeps the operation's ceiling a true bound
+    on its spend (no overrun alerts), and leaves the reader's side untouched. *Cost:* one migration (a new admission
+    function, a `carried` event state, a replay-tolerant `worker_reserve_chat`) that must be applied before `chat` is
+    deployed. *Undo:* deploy `chat` without the `afterAttemptID` line in `generateAnswer` (the fallback is admitted as
+    before); the function can stay. Turning the fallback off (`chat_fallback: off`) also removes it.
 
 54. **Pictures set apart from their captions or labels read as panels, each picture above its own caption** (reader
     revision 28; agent report on 2610.20608v1, whose Figure 2 showed only "(a)", "(b)", "(c)" and its caption while the

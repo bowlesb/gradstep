@@ -93,7 +93,9 @@ export function verifyQualification(report, manifest, trees) {
   return true;
 }
 // Also inspect resources outside the declared pack, including ODR siblings, for accidental source/key/plaintext copies.
-export function rejectUnprotectedModelCopies(directory) {
+// `allowPlaintext(path)` may accept one exact compiled tree that was already distributed in plaintext (the recorded
+// reship pack, device-model-reship.mjs); keys, source packages, raw recovery weights and links stay refused regardless.
+export function rejectUnprotectedModelCopies(directory, { allowPlaintext } = {}) {
   const canonicalRoot = realpathSync(directory);
   function inspect(folder) {
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
@@ -108,7 +110,7 @@ export function rejectUnprotectedModelCopies(directory) {
         continue;
       }
       if (entry.isDirectory()) {
-        if (path.endsWith('.mlmodelc')) verifyEncryptedTree(path);
+        if (path.endsWith('.mlmodelc')) { if (!allowPlaintext?.(path)) verifyEncryptedTree(path); }
         else inspect(path);
       }
     }

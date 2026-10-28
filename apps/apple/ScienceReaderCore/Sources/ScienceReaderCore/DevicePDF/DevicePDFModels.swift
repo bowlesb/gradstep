@@ -84,6 +84,9 @@ public final class DevicePDFModels: @unchecked Sendable {
     private let recoveryLock = NSLock()
     private var referenceRecoveries = 0
     public var taggerReferenceRecoveries: Int { recoveryLock.lock(); defer { recoveryLock.unlock() }; return referenceRecoveries }
+    /// Lines a pack without the reference read as prose after its retry (`readLegacyTaggerOutput`).
+    private var unreadLines = 0
+    public var taggerUnreadLines: Int { recoveryLock.lock(); defer { recoveryLock.unlock() }; return unreadLines }
     /// The tagger (CPU) and the recogniser (GPU) never predict at the same time: under load, tagger predictions made
     /// while a recogniser prediction ran gave different logits for the same line, so the same PDF read differently
     /// (2026-10-21, docs/reviews/DEVICE_PDF_ROUTE_20261021.md). Held per tagged page and per recogniser call.
@@ -368,7 +371,8 @@ public final class DevicePDFModels: @unchecked Sendable {
         // A flexible-shape Core ML prediction can occasionally return an entirely or partially zero buffer under load
         // (observed on the Mac corpus). That silently classifies affected glyphs as prose. Retry on this thread's instance;
         // another instance may be in use by a different tagging worker. Persistent invalid output uses the independent
-        // same-checkpoint reference when available, otherwise it is an explicit failure.
+        // same-checkpoint reference when the pack has it (an explicit failure if that fails too); a pack without it
+        // reads the line as prose, as TestFlight 93 did (`readLegacyTaggerOutput`).
         let recovery: (() throws -> [Float])? = referenceTagger.map { reference in
             { [self] in
                 let values = try reference.tag(x: x, font: font, cls: cls, char: char)
@@ -376,10 +380,29 @@ public final class DevicePDFModels: @unchecked Sendable {
                 return values
             }
         }
-        return try Self.readTaggerOutput(count: t, recovery: recovery) {
+        let predict = { [self] () throws -> [Float] in
             guard let logits = try taggers[slot % taggers.count].prediction(from: input).featureValue(for: "logits")?.multiArrayValue else { return [] }
             return Self.floats(logits)
         }
+        guard let recovery else {
+            let (values, unread) = try Self.readLegacyTaggerOutput(count: t, prediction: predict)
+            if unread { recoveryLock.lock(); unreadLines += 1; recoveryLock.unlock() }
+            return values
+        }
+        return try Self.readTaggerOutput(count: t, recovery: recovery, prediction: predict)
+    }
+
+    /// Logit for a line read as prose: far below every tagger threshold (sigmoid ≈ 2e-9).
+    static let proseLogit: Float = -20
+
+    /// A pack without the independent reference (TestFlight 93's v4 pack, reshipped in 94; JUDGMENT_LOG 56) keeps the
+    /// tolerance that build shipped with: TestFlight 93 read an empty buffer as prose (sigmoid 0.5 is below its 0.7
+    /// threshold). After the same bounded retry, a still-invalid line reads as prose and is counted
+    /// (`tagger_unread_lines`) instead of failing the whole reading. Measured on 93's own host: 6 of 577 lines of one
+    /// scanned paper came back all zero. Thrown model errors still propagate; packs with the reference never use this.
+    static func readLegacyTaggerOutput(count: Int, prediction: () throws -> [Float]) throws -> (values: [Float], unread: Bool) {
+        do { return (try readTaggerOutput(count: count, recovery: nil, prediction: prediction), false) }
+        catch DevicePDFModelError.unusable("tagger output") { return ([Float](repeating: proseLogit, count: count), true) }
     }
 
     static func validTaggerOutput(_ values: [Float], count: Int) -> Bool {

@@ -1,5 +1,39 @@
 # Fast and slow tests
 
+## Reshipping a pack TestFlight already shipped (TestFlight 94) — October 28
+
+Routine: `npm test` runs `tests/operations/device-model-reship.test.mjs` (10 cases, fixtures only, no Core ML):
+- Only a pack recorded in `apps/apple/device-models-shipped.json`, named by its full version, may skip encryption.
+- These fail: unrecorded, abbreviated or duplicated versions; a record whose files don't hash to its version; a source
+  with a changed, missing, extra or linked file; mixed modes; a changed description.
+- The distribution scan accepts only the recorded plaintext trees inside `DeviceModels`. It still refuses keys,
+  source models and raw recovery weights.
+- `device-models.mjs --reship-pack` copies exactly the recorded bytes, and a refused run keeps the previous pack.
+- Both upload scripts skip the signed verification only behind `RESHIP_DEVICE_PACK`.
+
+Focused native: `DevicePDFHostTests` (in the filter below) adds
+`testPackWithoutReferenceReadsAPersistentlyInvalidLineAsProseAfterTheRetry`. That is the 93-pack tolerance in
+JUDGMENT_LOG 56.
+
+Before a reship release, run this from the main checkout. It needs no Core ML and no App Store key. It needs 93's
+archives in `.artifacts`; otherwise pass `RESHIP_DEVICE_PACK_FROM`. It also needs the import corpus that the script's
+first line checks.
+
+```sh
+PREPARE_ONLY=1 BUILD_NUMBER=94 RESHIP_DEVICE_PACK=28f6fd14e8beec14bbb21207ae05b94960c76db65c9562605ca92ff80493b195 \
+  sh scripts/upload-testflight.sh
+```
+
+Recorded slow evidence is in `.artifacts/reship94/evidence.json` (2026-10-28, this Mac). Reuse it unless the
+tagger path in `DevicePDFModels`/`DevicePDFRoute` or the record changes. It ran `DevicePDFRouteTool` from 1c87b2af
+and from this branch on 93's exact pack, over seven corpus PDFs (arXiv, CVPR, ACL, PLOS, two scans):
+- The strict host failed 2 of 6.
+- With the tolerance, 7 of 7 read with 0–7 prose-read lines.
+- 93's host had 0–16 all-zero lines per run.
+
+`check-device-model-pack.mjs --reship-pack` passes on both 93 archives (iOS asset pack; Mac app) and refuses them
+without the flag.
+
 ## Core ML model protection — October 27
 
 Routine checks: `npm test`, plus `node --test tests/operations/device-model-protection.test.mjs` (12 cases).
@@ -732,6 +766,15 @@ generation id; its audit trail, the released hold, unchanged credits, unreported
 Health and Spending figures; daily reads with a capped back-off; a late record's correction; a contradiction cleared by an
 owner's reconciliation) is one of the spending fixtures (final phase, `--spending-fixes-only`, `--model-health-only`);
 `--assumed-zero-only` runs it with the reconciler, OpenRouter-only reporting, costs, usage and model health fixtures.
+A fallback after a silent attempt (migration 0163, JUDGMENT_LOG 55): `tests/database/fallback_carry.sql` (the staging
+14:12 case replayed: the plain admission still refuses with `operation_ceiling`; the fallback admission carries the silent
+ceiling, the credit hold and quote unchanged; settlement, Your AI usage and assumed zero after; refusals by the month, the
+free pool and a testing cap; nothing carried for a 429, for output that arrived, a replay, another operation or a settled
+one; a carry undone when the fallback is refused) is one of the spending fixtures, and `tests/database/chat_fallback_journey.py`
+runs `tests/database/chat-fallback-journey.ts` (the real chat code calling the real SQL through psql, OpenRouter faked;
+eleven journeys and a replay) in its own phase, since its rows are committed. `--fallback-carry-only` runs both with the
+admission, usage, model health, free AI and testing-cap fixtures they touch; the journey takes the harness's port
+(PostgreSQL 17 + pgvector on any loopback port).
 Fast: `tests/backend/openrouter-reconcile.test.ts` (only a clean 404 on a final try, or no generation id, asks the database;
 a lapsed key, a 5xx or a record for another account never does) and `openrouter-generation.test.ts` (`readGeneration`).
 For you on the v4 library (migration 0154): `tests/database/feed_v4_library.sql` runs in the final phase and alone with
