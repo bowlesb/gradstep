@@ -8,6 +8,10 @@ after the approved notice ("Topics and For you") went live on gradstep.ai/privac
 topics and the index's related papers; For you itself stays `feed_policy.serving='staff'` (a separate owner decision).
 Rollback: `worker_interest_set_policy(null, 'staff')`.
 
+Admin site deployed by the owner on 2026-10-28 (~14:05 UTC, `node scripts/deploy-web.mjs admin`, after the 2026-10-02
+local `apps/admin/.env.local` was moved out of the build folder): the live bundle carries the deletion-sweep, assumed-zero
+and model-health Attention lines.
+
 ## Gradstep landing page — 2026-10-27 (published)
 
 The owner-authorized founder-copy redesign is live at [gradstep.ai](https://gradstep.ai/), Cloudflare Pages
