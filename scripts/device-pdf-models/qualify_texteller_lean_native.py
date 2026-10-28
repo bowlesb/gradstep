@@ -143,13 +143,18 @@ def main():
             report['candidate_peak_rss_bytes'] = candidate['peak_rss_bytes']
             report['candidate_memory_ratio'] = candidate['peak_rss_bytes'] / baseline['peak_rss_bytes']
             report['max_probability_delta_vs_baseline'] = candidate['max_probability_delta_vs_baseline']; save()
-            for i, mode in enumerate(report['plan']['timed_order'], 2):
-                snapshot = load_snapshot()
+            def require_quiet(snapshot, phase):
                 if (snapshot['load_average'][0] > args.quiet_max_load1 or snapshot['other_cpu_percent'] > args.quiet_max_total_cpu
                         or snapshot['top_processes'][0]['cpu_percent'] > args.quiet_max_process_cpu):
                     report['quiet_gate_snapshot'] = snapshot
+                    report['quiet_gate_phase'] = phase
                     raise RuntimeError('quiet_mac_gate_not_met; no timing comparison')
+
+            for i, mode in enumerate(report['plan']['timed_order'], 2):
+                require_quiet(load_snapshot(), f'before_trial_{i}')
                 run(mode, 'trial', i, limit if mode == 'lean' else 0)
+                # A quiet start alone cannot qualify a trial with later host contention.
+                require_quiet(report['runs'][-1]['after'], f'after_trial_{i}')
             times = {mode: [r['result']['decode_seconds'] for r in report['runs'] if r['mode'] == mode and r['phase'] == 'trial'] for mode in ['baseline', 'lean']}
             report['timing_completed'] = True; report['decode_seconds'] = times
             report['median_decode_seconds'] = {mode: sorted(values)[1] for mode, values in times.items()}
