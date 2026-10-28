@@ -20,6 +20,7 @@ import { type Route, type Theme, useTheme } from './prefs';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
+import { useAuthEntry } from './AuthEntry';
 import { StorageNotice, storageGuidance } from './StorageNotice';
 import { useLibrary } from './useLibrary';
 
@@ -33,6 +34,7 @@ function usePath(): [string, (path: string) => void] {
 }
 
 export function App() {
+  const entry = useAuthEntry();
   const [supported, setSupported] = useState<boolean | null>(null);
   const { session, generation } = useSyncExternalStore(auth.subscribe, auth.snapshot);
 
@@ -40,6 +42,7 @@ export function App() {
     (async () => setSupported(!!config.url && typeof indexedDB !== 'undefined' && !!crypto?.subtle && await supportsX25519()))();
   }, []);
 
+  if (entry) return entry;
   if (supported === null) return null;
   if (!supported) return <Unsupported />;
   if (!session) return <SignIn />;

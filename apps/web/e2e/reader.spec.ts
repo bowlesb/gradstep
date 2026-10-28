@@ -435,17 +435,19 @@ test('a delayed sign-out cannot end a newer login from another tab', async ({ pa
   await other.goto('/');
   const response = await request.post(`${FIXTURE}/auth/v1/verify`, { headers: { apikey: 'fixture-anon' }, data: { type: 'email', email: 'new@example.test', token: '123456' } });
   const next = await response.json();
-  await other.evaluate(session => localStorage.setItem('gradstep.fixture.session', JSON.stringify({
+  await other.evaluate(({ session, origin }) => localStorage.setItem('gradstep.fixture.session', JSON.stringify({
+    version: 2, origin, environment: 'fixture', boundary: crypto.randomUUID(), session: {
     accessToken: session.access_token, refreshToken: session.refresh_token, expiresAt: session.expires_at,
     lifetime: crypto.randomUUID(), user: session.user,
-  })), next);
+    },
+  })), { session: next, origin: FIXTURE });
   await expect(page.getByRole('heading', { name: 'Save your recovery code' })).toBeVisible();
   await page.evaluate(() => (window as unknown as { releaseActivity: () => void }).releaseActivity());
   await page.waitForFunction(() => (window as unknown as { activityEncryptions: number }).activityEncryptions >= 2);
   await page.evaluate(() => navigator.locks.request('gradstep.activity.fixture:11111111-2222-4333-8444-555555555555', () => {}));
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await expect(page.getByRole('heading', { name: 'Save your recovery code' })).toBeVisible();
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gradstep.fixture.session')!).user.email)).toBe('new@example.test');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gradstep.fixture.session')!).session.user.email)).toBe('new@example.test');
 });
 
 test('key enrollment requires a usable persisted key, with clear guidance on unsupported engines', async ({ page }) => {

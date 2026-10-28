@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { wrapDevice } from '../../../tests/backend/wire-crypto.mjs';
 import { RECOVERY_CODE, returningKeyring } from './fixture-keys.mjs';
 
-import { fixturePort as PORT } from './environment.ts';
+import { fixturePort as PORT, appOrigin as APP } from './environment.ts';
 const SAMPLE = fileURLToPath(new URL('../../apple/ScienceReader/Resources/ReaderSamples/cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71/', import.meta.url));
 const SAMPLE_SHA = 'cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71';
 const CODE = '123456';
@@ -26,6 +26,8 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 
 // ---------- State ----------
 const sessions = new Map(); // token -> account
+const oauthCodes = new Map();
+const oauthEvidence = { starts: 0, exchanges: 0, providers: [] };
 const state = new Map();
 function account(id) {
   if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: true });
@@ -246,7 +248,23 @@ createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${PORT}`);
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
-  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); oauthCodes.clear(); oauthEvidence.starts = 0; oauthEvidence.exchanges = 0; oauthEvidence.providers = []; seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__oauth-evidence' && request.method === 'GET') return send(response, 200, oauthEvidence);
+  // Local provider simulator. It never redirects outside the isolated app or receives real credentials.
+  if (url.pathname === '/auth/v1/authorize' && request.method === 'GET') {
+    const provider = url.searchParams.get('provider'), redirect = url.searchParams.get('redirect_to'), challenge = url.searchParams.get('code_challenge');
+    if (!['google', 'apple'].includes(provider) || redirect !== APP + '/auth/callback'
+      || url.searchParams.get('code_challenge_method') !== 's256' || !/^[A-Za-z0-9_-]{43}$/.test(challenge ?? '')
+      || url.searchParams.size !== 4) return send(response, 400, { code: 'invalid_request' });
+    const code = randomUUID(); oauthCodes.set(code, { challenge, used: false });
+    oauthEvidence.starts++; oauthEvidence.providers.push(provider);
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" });
+    return response.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Local sign-in fixture</title></head>
+      <body><h1>Local ${provider} sign-in fixture</h1><p>No real provider or account is contacted.</p>
+      <p><a href="${redirect}?code=${code}" data-testid="provider-continue">Continue as returning reader</a></p>
+      <p><a href="${redirect}?error=access_denied" data-testid="provider-cancel">Cancel sign-in</a></p></body></html>`);
+  }
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
@@ -328,6 +346,14 @@ createServer(async (request, response) => {
     const body = await read(request);
     if (body?.type !== 'email' || !ACCOUNTS[body.email] || body.token !== CODE) return send(response, 403, { code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' });
     return send(response, 200, sessionFor(body.email));
+  }
+  if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'pkce' && request.method === 'POST') {
+    oauthEvidence.exchanges++;
+    const body = await read(request), code = oauthCodes.get(body?.auth_code);
+    if (!code || code.used || Object.keys(body ?? {}).sort().join(',') !== 'auth_code,code_verifier'
+      || !/^[A-Za-z0-9_-]{43}$/.test(body.code_verifier ?? '') || sha(Buffer.from(body.code_verifier)).toString('base64url') !== code.challenge)
+      return send(response, 400, { code: 'invalid_grant' });
+    code.used = true; return send(response, 200, sessionFor('returning@example.test'));
   }
   if (url.pathname === '/auth/v1/logout') return send(response, 204);
   const id = sessions.get((request.headers.authorization ?? '').replace(/^Bearer /, ''));

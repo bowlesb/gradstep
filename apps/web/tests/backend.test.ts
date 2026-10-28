@@ -17,11 +17,14 @@ async function setup(session: Session | null = savedSession()) {
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) });
   vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('sessionStorage', { getItem: () => null, removeItem: () => {} });
   vi.stubGlobal('navigator', { locks: { request: async (_name: string, _options: unknown, body: () => Promise<unknown>) => body() } });
   vi.stubEnv('VITE_SUPABASE_URL', 'https://fixture.invalid');
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'fixture-anon');
   vi.stubEnv('VITE_ENVIRONMENT', 'test');
-  return { ...await import('../src/lib/backend'), values };
+  const backend = await import('../src/lib/backend');
+  await backend.auth.initialize();
+  return { ...backend, values }; 
 }
 
 beforeEach(() => { vi.resetModules(); });
@@ -59,7 +62,7 @@ describe('authentication lifetimes', () => {
   it('retains a cross-tab logout boundary even when storage already contains a new login', async () => {
     const { auth, values } = await setup();
     const initial = auth.snapshot().generation;
-    values.set('gradstep.test.session', JSON.stringify(savedSession()));
+    values.set('gradstep.test.session', JSON.stringify({ ...JSON.parse(values.get('gradstep.test.session')!), boundary: crypto.randomUUID(), session: savedSession() }));
     const event = new Event('storage');
     Object.assign(event, { key: 'gradstep.test.session', newValue: null });
     window.dispatchEvent(event);
@@ -71,9 +74,10 @@ describe('authentication lifetimes', () => {
     const { auth, values } = await setup();
     const original = auth.snapshot();
     const storage = (value: Session | null) => {
-      if (value) values.set('gradstep.test.session', JSON.stringify(value)); else values.delete('gradstep.test.session');
+      const prior = JSON.parse(values.get('gradstep.test.session')!);
+      if (value) values.set('gradstep.test.session', JSON.stringify({ ...prior, boundary: value.lifetime === prior.session?.lifetime ? prior.boundary : crypto.randomUUID(), session: value })); else values.delete('gradstep.test.session');
       const event = new Event('storage');
-      Object.assign(event, { key: value ? 'gradstep.test.session' : null, newValue: value && JSON.stringify(value) });
+      Object.assign(event, { key: value ? 'gradstep.test.session' : null, newValue: value && values.get('gradstep.test.session') });
       window.dispatchEvent(event);
     };
     storage({ ...savedSession(), accessToken: 'refreshed' });
@@ -104,7 +108,7 @@ describe('authentication lifetimes', () => {
     const reply = Promise.withResolvers<Response>();
     vi.stubGlobal('fetch', vi.fn(() => reply.promise));
     const pending = auth.token();
-    values.set('gradstep.test.session', JSON.stringify({ ...savedSession(), accessToken: 'other-tab-access', refreshToken: 'other-tab-refresh' }));
+    values.set('gradstep.test.session', JSON.stringify({ ...JSON.parse(values.get('gradstep.test.session')!), session: { ...savedSession(), accessToken: 'other-tab-access', refreshToken: 'other-tab-refresh' } }));
     reply.resolve(json({}, 400));
     expect(await pending).toBe('other-tab-access');
     expect(auth.session()?.accessToken).toBe('other-tab-access');

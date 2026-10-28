@@ -9,7 +9,7 @@ const storage = vi.hoisted(() => ({ record: undefined as DeviceRecord | undefine
   corrupt: undefined as ((record: DeviceRecord) => DeviceRecord) | undefined }));
 const rpc = vi.hoisted(() => vi.fn(async () => null));
 vi.mock('../src/lib/backend', () => ({ config: { environment: 'test', url: 'https://fixture.example' }, rpc, BackendError: class extends Error {},
-  auth: { snapshot: () => login } }));
+  auth: { persistedCurrent: () => true, snapshot: () => login } }));
 vi.mock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: {
   reapWriters: async () => {},
   admit: async (key: string, origin: string, lifetime: string, writer: string) => ({ key, origin, lifetime, writer, incarnation: crypto.randomUUID(), generation: 1 }),

@@ -62,7 +62,7 @@ const rpc = vi.hoisted(() => vi.fn(async (name: string, p: Record<string, string
   throw new Error('unexpected ' + name);
 }));
 vi.mock('../src/lib/backend', () => ({ config: { environment: 'test', url: 'https://fixture.example' }, rpc, BackendError: class extends Error {},
-  auth: { snapshot: () => login } }));
+  auth: { persistedCurrent: () => true, snapshot: () => login } }));
 vi.mock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: {
   reapWriters: async () => {},
   admit: async (key: string, origin: string, lifetime: string, writer: string) => ({ key, origin, lifetime, writer, incarnation: crypto.randomUUID(), generation: 1 }),

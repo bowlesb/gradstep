@@ -30,10 +30,7 @@ const operationOwners = new WeakMap<AbortSignal, Owner>();
 function currentLogin(account: string, captured: AuthSnapshot): boolean {
   const now = auth.snapshot();
   if (captured.signal.aborted || now.signal !== captured.signal || now.session?.user.id !== account || !captured.session) return false;
-  try {
-    const stored = JSON.parse(localStorage.getItem(`gradstep.${config.environment}.session`) ?? 'null');
-    return stored?.user?.id === account && (stored.lifetime ?? 'legacy') === captured.session.lifetime;
-  } catch { return false; } // durable admission cannot infer a login from inaccessible storage
+  return auth.persistedCurrent(captured);
 }
 async function ownerFor(account: string, captured: AuthSnapshot): Promise<Owner> {
   let pending = owners.get(captured.signal);

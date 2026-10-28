@@ -459,3 +459,6 @@ progress.mini { height: 3px; margin-top: 4px; }
 .history-meta .history-rename { display: inline; min-height: 0; padding: 0 2px; font-size: inherit; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media(max-width: 600px) { .profile-options .seg { min-height: 36px; } .profile-button { min-height: 32px; } }
+
+.auth-providers { display: grid; gap: 12px; margin: 18px 0 12px; }
+.auth-providers button { min-height: 44px; width: 100%; }
