@@ -6,6 +6,13 @@ this is the one place to skim and overrule. Say "undo N" (or describe the change
 
 ## 2026-10-28
 
+71. **The next model pack may mix encrypted and plaintext models: every model is encrypted except a recogniser whose
+    weights are byte-identical to an already-shipped plaintext recogniser** (TexTeller-v4, public in builds up to 93).
+    *Why:* Astra's lean-cache recogniser reached 2.02× memory loading encrypted (limit 2×), and the stateful recogniser
+    can't load encrypted at all; the weights are already public, so nothing new is exposed, and the encrypted tagger
+    v5b-journal and the speed work can ship. Recogniser encryption stays a research goal. *Undo:* require encryption for
+    every model again (the 0eb82b00 gate).
+
 60. **Deleted the retired 27B local-AI model (15 GB) and stale build folders (4 GB)** from `.artifacts` after the repo
     review found the disk 96 % full. The model was never qualified and is pinned in `tests/local-ai/candidates.json`, so
     it can be downloaded again; nothing else referenced the folders. *Undo:* re-download via `scripts/local-model-eval.mjs`.

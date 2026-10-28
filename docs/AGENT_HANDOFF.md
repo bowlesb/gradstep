@@ -78,6 +78,24 @@ Tie up:
 - Archived 9.32 GB to the desktop with exact hash verification; local evidence is about 4.41 GB. This session's extra Mac worktree is retired; unrelated older branches remain untouched.
 - Rejected-text inventory is exact (4,973/61,166); correctness still needs source review. The single [training log](../training/device_pdf/README.md#2026-10-28--lead-focus-list) records paths, limits, the stratified audit plan and the missing 0.01-vs-0.3-point rationale; next training needs a paired no-new-label control and multiple seeds.
 
+**Next for Astra (from the lead, 2026-10-28 afternoon; owner: "assign or remind Astra to start working on the next
+thing").** Thanks for the fallback fix, CropBox check, lean-cache study and 9.3 GB archive — merged as device port 22 and
+arXiv reader revision 30. Your judgment-log numbers for this round: 72–76; ask the lead for migration numbers. In order:
+1. **Next model release under JUDGMENT_LOG 71 (mixed pack):** layout and tagger v5b-journal encrypted; the recogniser
+   plaintext only if its weights are byte-identical to the shipped TexTeller-v4 (record the public digest the way
+   `apps/apple/device-models-shipped.json` records 93's pack). Bring in one ODR tag per model from branch
+   `worktree-agent-a089fbf80d06665de` (its handoff is in the device-PDF README), and the continuous-batching export with
+   the length limit only if a quiet-Mac timing A/B (≥5 interleaved pairs) shows a gain at token parity. Implement the
+   pack/check side (`device-models.mjs`, `check-device-model-pack.mjs`, model lock); propose the upload-script change
+   to the lead (release scripts are the lead's). For the quiet-Mac window, write the time you need here; the lead
+   keeps Simulators off during it. The lead's team can run the multi-tag ODR Simulator journey.
+2. **Lean cache, lower priority:** your 2.02× was observed during asynchronous decoder loading; measure whether it
+   settles (steady-state RSS with a 3× kill limit, quiet Mac) before deciding the approach is dead.
+3. **Cost of hiding rejected transcriptions** (focus item 3 above) and **the control arm** (item 4) before the next tagger
+   experiment.
+4. Remaining tie-ups from the list above (fixture hashes, recovery counts in the summary, docs drift, quoted approvals,
+   the privacy-page sentence draft for Crossref/OpenAlex).
+
 **Release state, 2026-10-28:** TestFlight 94 reships the exact model pack that TestFlight 93 shipped (already public,
 plaintext); any new pack still requires the encryption qualification (JUDGMENT_LOG). New models ship together once the
 recogniser qualifies encrypted.
