@@ -1,5 +1,12 @@
 # Implementation status
 
+## Fallback after a silent model — 2026-10-28 UTC (0163 applied 14:53 UTC, `chat` deployed)
+
+Verified live (paper-concept smoke, two runs, about $0.02): at 14:56:56 Gemini Flash went silent (`unknown`,
+`provider_error`), the stream said "Switching to Claude Haiku 5.5", the silent attempt's 132,872 µ$ ceiling was carried
+(one `carried` event; operation ceiling 149,531 → 282,403 µ$), Haiku succeeded and the reader paid 3 credits of the 30
+quoted. Before the fix the same case ended `denied`/`operation_ceiling` and `provider_unavailable` (JUDGMENT_LOG 55).
+
 ## The fallback after a silent model (JUDGMENT_LOG 55) — 2026-10-28 UTC (local: migration 0163 not applied, chat not deployed)
 
 - **Staging, 14:12 and 14:14 UTC:** a paper explainer on Gemini Flash was silent 25 s, "Switching to Claude Haiku 5.5…"
