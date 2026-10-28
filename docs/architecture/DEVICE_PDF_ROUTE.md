@@ -1,5 +1,11 @@
 # On-device PDF reader: runtime and architecture
 
+## Port revision 22 — 2026-10-28 (Astra's untranscribed-equation fix, merged by the lead)
+
+An equation whose crop is unavailable now reads as the plain words "Equation in PDF (transcription unavailable)" instead of
+raw `\(\text{…}\)` markup (emit.ts; the shared html-validate.ts accepts exactly that label for device-PDF readings, which
+also moved the arXiv reader to revision 30 with no change to arXiv readings). Branch codex/device-pdf-focus-20261028.
+
 ## End-to-end walkthrough — updated 2026-10-27
 
 This is the runtime path from a PDF already on the device to a structured reading in the app. It combines three

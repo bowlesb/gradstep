@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 21;
+export const DEVICE_PDF_PORT_REVISION = 22;
 
 /** Rejected recognizer output is never a delivered transcription, even when its source image is unavailable. */
 export const UNTRANSCRIBED_TEXT = 'Equation in PDF (transcription unavailable)';

@@ -54,7 +54,7 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * 2610.37633v1), and author lines keep each name's own marks (2610.37651v1) and read a \thanks of TeX-typed marks,
  * affiliations, split e-mail addresses and a project page as affiliations and notes (2610.37619v1, 2407.04620v1), so a
  * device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 29;
+export const ARXIV_RENDERER_REVISION = 30;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {
