@@ -6,14 +6,40 @@ trends. Make sure every word is strategized around in terms of the narrative and
 we should not pretend to be further along on the company journey than we actually are. You are free to leave certain
 things open to discuss … And the importance of augmenting human understanding in the age of agents."
 
-**Status:** a complete static page in `web/site-next/` (HTML, one stylesheet, images; no scripts, no web fonts, no
-third-party requests). Not deployed. The live `web/site/` is untouched. Screenshots: desktop light/dark, phone
-light/dark, WebKit in the session scratchpad `landing/`.
+## Current revision — founder copy, 2026-10-27
 
-To ship after review: copy `web/site-next/*` over `web/site/` (keeping its `_headers`, `_redirects`, `.well-known/` and
-`privacy/`), **update the privacy page first** (below), then `node scripts/deploy-web.mjs site`.
+**Status:** the existing complete landing draft in `web/site-next/` now incorporates the founder's motivation and
+five requested themes. This revision is local and unpublished; the live placeholder in `web/site/` is unchanged.
+The existing layout, real product screenshots, calls to action, links and light/dark behavior are retained.
+The page remains static HTML/CSS with no scripts, web fonts or third-party requests.
 
-## The narrative
+| Requested theme | Where it appears | Concrete message |
+|---|---|---|
+| On-device AI, cloud AI and your “I” | Founder section | AI should expand human understanding; local models help prepare PDFs, requested cloud explanations help with difficult ideas, and the reader's questions guide learning. |
+| A new way to understand research | Hero and reading introduction | Ask about a passage, unpack an equation, check the source and return to the paper. Starts with AI/ML research. |
+| Privacy and encryption | How it works and privacy note | PDF conversion stays local; notes/conversations are encrypted before storage or sync; library metadata and provider-visible AI requests are explained separately. |
+| Explanations at your fingertips | Existing figure, equation and study screenshots | Figure crops beside explanations, equation symbols with source/background distinctions, and questions that help the reader test understanding. |
+| A personal library and interests | Expanded library section | Save papers, organize labels, keep notes, discover related work and request recommendations. Library/notes/conversations can sync; PDFs and prepared reading copies stay local. |
+
+Claims were checked against the HTML-first, device-PDF, chat, figure/equation, notes and privacy/sync designs and
+current implementation. The page names arXiv HTML as the strongest support and Apple PDF models as experimental.
+It does not promise local AI chat, universal PDF accuracy, guaranteed citations, reading-position sync, a fully
+rolled-out interest map, provider zero retention or encrypted shipping model weights.
+
+**Validation:** `npm test` passes, including 80 browser test files / 734 tests. Ten Chromium/WebKit checks cover
+1440 px desktop, 390 px phone and 320 px narrow phone, light/dark themes, image loading, local anchors, keyboard
+access to the skip link and horizontal overflow. All pass with no page errors, missing assets or third-party
+requests. Desktop/mobile screenshots were visually reviewed. Evidence is in
+`.artifacts/landing-founder-20261027/` in the main checkout; no public preview was published for this revision.
+
+Publishing remains a separate task. The copy does not change the beta-access mechanism or claim a new release.
+For deployment, use the existing site workflow after reconciling the final draft and privacy policy; this revision
+does not copy files into the live site or invoke that workflow.
+
+The original proposal below is retained as historical design rationale. Its headlines, provider details, open
+questions and privacy audit describe the October 15 draft, not the current copy or deployment status.
+
+## Original narrative — 2026-10-15 (historical)
 
 One idea, carried through every section: **AI should help you understand the paper, not stand in for reading it.**
 
