@@ -13,9 +13,11 @@ models remain layout-fcos-v5, texteller-ft-v4 and inline-tagger-v5b-journal at t
 the new research below trained candidates without promoting them.
 
 **Model protection:** Apple keys, the encrypted reference-weight carrier, asynchronous loading and release checks
-are implemented. Full-pack encryption remains blocked by the encrypted stateful recognizer on this Mac; the
-explicit-cache workaround exceeded baseline memory by at least 5.835 times and was rejected. Do not substitute
-plaintext in a release or infer complete-pack success from the carrier. The
+are implemented. Full-pack encryption remains blocked: the stateful recognizer cannot load encrypted on this Mac;
+the full-cache workaround exceeded baseline memory by at least 5.835 times; and the new lean-cache candidate
+crossed **2.0247 times** a fresh baseline while loading its decoder, before any prediction. Both stateless candidates
+were stopped and rejected under the memory gate. Do not substitute plaintext in a new release or infer complete-pack
+success from the carrier. The lead's separate byte-identical reship of pack 93 does not qualify a new model. The
 [runtime walkthrough and encryption evidence](../../docs/architecture/DEVICE_PDF_ROUTE.md) explain the full path,
 the minimal reproduction and the next bounded research direction. The canonical evidence directory is
 `.artifacts/device-pdf-development/encryption/`; no failed encrypted pack replaces the usable local pack.
@@ -50,9 +52,12 @@ retain model answers and their rejection status; the delivered `reader.json` doe
 (ported onto encryption) wait on branch `worktree-agent-a089fbf80d06665de`, unreleased; see the
 [handoff](#2026-10-28--recogniser-speed-branch-handoff) for what it holds, what it measured and the proposed sequencing.
 
-**Next task:** diagnose the original-corpus recall losses before proposing another adaptation. The two fixed
-span-training runs are finished and rejected; do not widen that experiment, tune its threshold, or open the reserved
-final cohort to rescue it. A new retention-focused experiment needs its own fixed budget and preservation gate.
+**Current lead priorities:** fix the raw unavailable-equation label; qualify the lean-cache recognizer encrypted;
+measure how many hidden rejected guesses were actually correct; then diagnose tagger retention with a matched
+no-new-label control and multiple seeds. The [October 28 focus record](#2026-10-28--lead-focus-list) records the
+implementation and evidence. The two fixed span-training runs remain rejected; do not widen that experiment,
+tune its threshold, or open its reserved final cohort to rescue it. A new retention study needs a predeclared budget
+and preservation gate. Keep the owner's 36-PDF test catalog and `splits.json` out of training and tuning.
 Do not tune further on the two revealed journals or start another broad recognizer fine-tune. Ranks 3–5 remain
 prospective. The CPU implementation
 is also a candidate for rank 4, but changing the primary backend needs an interleaved complete-import benchmark
@@ -380,6 +385,100 @@ for reproducing the rejected candidate; default FP16 and the selected primary mo
 failure measurements do not estimate complete-import failure rates without a separately designed paper-level run.
 
 ## Progress log
+
+### 2026-10-28 — lead focus list
+
+Work is isolated on `codex/device-pdf-focus-20261028`; the lead owns integration and release. The selected model
+weights, source-location metadata and release protection have not changed.
+
+**Unavailable equations:** when the PDF crop is missing or its image budget is exhausted, the converter now emits
+the plain label `Equation in PDF (transcription unavailable)` instead of visible LaTeX delimiters. Its exact existing
+`data-latex` sentinel remains in copy/AI metadata; no rejected model guess is restored. The shared validator admits
+only that exact device-PDF sentinel/label pair, and still accepts older bundles. Inline/display and 600-formula
+regressions pass. In the latter, visible raw labels fall **93→0**. An in-memory compiler replay confirms that all
+other bundle members and the diagnostic trace are byte-identical; Safari also displays the plain inline label.
+Backend tests pass **908/908** on base `a1dd1a0e`. Evidence: `fallback/verification.json`, `fallback/backend-tests.log`.
+The source branch intentionally leaves generated compilers alone: `npm test` stops at their freshness guard.
+At merge, the lead must allocate **both** the device-port and arXiv-renderer revisions from current main + 1,
+regenerate both compilers and identities (the validator is shared), and run `npm test`. Existing readings need
+regeneration. This is a source fix, not a released reader change.
+
+**Lean cache, CPU and static export:** `probe_texteller_lean_cache.py` reuses the selected TexTeller-v4 checkpoint
+and the speed branch's continuous decoder as its dense reference, checked against the existing single-row decoder.
+The model returns only current-token K/V; the host owns and updates its caches. A fixed desktop CPU probe passes
+**20 crops / 741 tokens**, exactly equal across whole batches, mixed-position row refill, and a fresh reset repeat.
+Maximum logit/probability differences are **2.8610e-5 / 8.9407e-7**. Whole batches take 231 steps and row refill 124;
+these are work counts, not a native speed result. Three synthetic cases cover row reuse, masking, boundary positions,
+input immutability and delta sizes. `export_texteller_lean_cache.py` requires this exact passing source/checkpoint/
+sample identity before exporting two single-function Core ML packages; saved-graph checks reject state, cache
+scatter/update and full-cache output. Three refusal tests pass. The INT8-weight, FP16-compute packages total
+**298,874,654 bytes**. Step outputs are FLOAT32 logits `[8,15000]` and FLOAT16 K/V `[12,8,16,1,64]`; its cache inputs
+remain about 510 MB. Smaller outputs do not establish lower RSS: encrypted native qualification is a separate gate.
+Evidence: `encryption/lean-cache/{cpu-parity.json,synthetic-tests.log,export/export-report.json}`. The production
+exporter, model lock and pack are untouched.
+
+**Encrypted native result — rejected:** the two packages compiled encrypted with the existing recognizer key and
+the research probe was signed by the existing Apple development team. With one lane, batch 8, length 512 and
+CPU+GPU on both sides, the fresh current recognizer passes the same 20 crops at **762,544,128 bytes peak RSS**.
+The strict candidate limit was 1,525,088,256 bytes. After its encoder loaded, the lean candidate reached an observed
+RSS of **at least 1,543,913,472 bytes (2.0247×)** during asynchronous decoder loading, before the load returned.
+The monitor killed it and released the shared Core ML lock. No candidate prediction, native token/probability/
+acceptance comparison or timed trial completed; compilation is not successful encrypted recognizer loading.
+The Mac was also busy, so no quiet-machine timing claim is available. Exact executed probe/runner source is
+`21f4fe982642cdce377d8ea5fc690b6cdf340db1`; evidence is
+`encryption/lean-cache/native/{compile.json,qualification/qualification.json}`. Input/source/tree hashes are in
+those reports. Stride-copy tests include padded/nonunit strides and positions 0/511. The two local evidence trees
+total about **4.407 GB** with these models, below the 5 GB limit. Next research must target decoder loading
+memory; reducing per-token cache output alone did not clear that gate. Do not repeat this candidate for timing or
+promote its packages. Full app/runtime/pack integration and the signed production qualification remain undone.
+
+**Evidence organization:** 22 reproducible build/model payload directories (9,320,497,091 bytes) were copied to
+the desktop at matching `.artifacts` paths, independently hash-verified, then removed locally. Reports, labels,
+probe source, the usable development pack and the unchanged personal-library split remain available. The two local
+evidence trees totaled 3.799 GB after cleanup, before this experiment's packages. Use the single
+`archive-manifest.json` (SHA-256 `b01127811b5da3ef776c451368bdf538592b986538e5729ad0412f2c19a4ff4b`)
+and `state.json.artifact_archive` to locate/restore archived payloads from the desktop training checkout. No NAS
+access, release asset deletion or unrelated worktree removal was involved.
+
+**CropBox audit — independent negative control passes:** a standalone CoreGraphics runner now tests the pre-change
+TextLayer against current, holding its runner, fixtures, CMap, Fonts and FontsData identical. Current passes **13/13**;
+old passes only **1/13**, the unchanged ordinary exact fixture with all **98 glyphs**. All 12 geometry cases fail old
+and pass current: shifted MediaBox plus CropBox, shifted MediaBox without CropBox, and zero-origin MediaBox plus
+offset CropBox, each at 0/90/180/270 degrees. Each independent raster has 277 dark pixels: old puts all 277 outside
+the visible H's glyph box ±1 point; current puts zero outside. Cropped cases also check displayed size and exclusion
+of the off-crop `OFF` text. Current TextLayer is byte-identical to `9f150b94`. The 1.35 MB evidence set contains the
+runner, both source snapshots, fixtures, binaries and results under `geometry/`; `manifest.json` SHA-256 is
+`810db2938cf5f4042c925c254730494e71a0f1b4fc363da6ade5baa872fe01c7`. No Core ML or Simulator was needed.
+Partial glyph clipping, inherited CropBox/Rotate and malformed/reversed boxes remain untested by this isolated check.
+
+**Rejected-transcription cost — inventory complete, correctness unmeasured:** use the exact port-20 population in
+`transcription/{manifest.json,results.json}`: 101 PDFs / 61,166 equations, including 4,973 nonempty rejected guesses
+(development 1,863; original test 951; venue 2,090; bio 8; two journals 61). Raw LaTeX, token probabilities, PDF SHA,
+model identities and native glyph geometry survive in `record.json.gz` under
+`.artifacts/pdf-margin-text-20261026/records-{dev,test,venue,bio}` and `.artifacts/papers-model-20261026/full-candidate`. Older quality-audit `after-*.json`
+reports have different rejection counts and are not interchangeable. The 61 reviewed journal crop labels judge
+contamination/completeness, not transcription truth; no broad correctness gold was found. Existing source PDFs cover
+the development, venue and two-journal audit without acquisition; six bio source locations still need resolution.
+All 101 exact PDF hashes differ from the 36-file owner catalog, but family-level reserved/catalog exclusion must
+also be checked before drawing samples or tuning. Keep the personal-library split unchanged.
+
+Next, extend the existing `device-pdf-math-audit.mjs` per-formula export with frozen PDF/group identity, raw recognition,
+probabilities and rejection reason, failing on missing replay calls. Reuse `audit_formula_crops.mjs` for source-region
+images. Predeclare a roughly 300-item stratified random sample (domain × inline/display × rejection reason/confidence),
+record inclusion probabilities, and review semantic correctness against the actual source, blinded to confidence.
+Report weighted correct-rejected fraction, lost correct text and prevented wrong text per 1,000 total equations,
+unknown-label bounds and paper-cluster uncertainty. Existing TeX/glyph text can help locate references but cannot
+replace source review. Add accepted controls before proposing a confidence-gate change. No sample or new correctness
+labels were created this session, and no acceptance threshold changed.
+
+**Before another tagger experiment:** the prior 0.01 percentage-point recall allowance was a conservative policy
+choice for incremental span repairs, not a measured runtime tolerance or a statistical uncertainty bound. The log
+contains no empirical justification for making it 30 times tighter than v5b's predeclared 0.3-point allowance;
+v5b addressed a much larger gap (0/104→99/104 complete statistics), while the later study repaired 7 or 9 of 468.
+Keep the later candidates' failed decisions under their original gate. A new study must compare the same fine-tune
+**without new labels** against new-label/objective arms, paired across more than one seed with identical replay,
+steps and evaluation. Measure seed variation and paper-level retention changes before choosing a product tradeoff;
+do not attribute every loss to the new supervision or claim that 0.3 points is automatically acceptable now.
 
 ### 2026-10-28 — recogniser speed branch: handoff
 
