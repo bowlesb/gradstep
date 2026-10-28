@@ -1,5 +1,14 @@
 # Implementation status
 
+## Staff test catalogs from a folder of PDFs (JUDGMENT_LOG 57) — 2026-10-28 (local; in no TestFlight build yet)
+
+Settings › Experimental › Import a folder as a test catalog (operator roles only;
+[TEST_CATALOGS.md](architecture/TEST_CATALOGS.md)). Verified: Core `TestCatalogQueueTests` 6/6 and
+`LibraryReconcilerTests`; app `TestCatalogImportTests` 2/2 with the PDF-upload, paper-adding and storage unit suites;
+iPhone 17 Simulator `TestCatalogJourneyTests` 2/2 and the staff journey on iPad Pro 11-inch, with a stand-in model
+(screenshots `.artifacts/neuro-test-catalog/`). Not verified: the real model reading the 36 test PDFs, a Files folder
+pick on a device, the Mac folder bookmark after a relaunch, the physical iPhone (paused).
+
 ## Fallback after a silent model — 2026-10-28 UTC (0163 applied 14:53 UTC, `chat` deployed)
 
 Verified live (paper-concept smoke, two runs, about $0.02): at 14:56:56 Gemini Flash went silent (`unknown`,

@@ -92,6 +92,9 @@ also works but puts the owner's private PDFs in iCloud; use it only if the owner
 - iPhone Simulator journey `TestCatalogJourneyTests` (fixture account, generated folder of three papers and one damaged
   file, a stand-in model so the real models never run on the Mac): not shown to non-staff; staff import → "Reading…" →
   Pause/Resume → "Done · 3 of 4 read" with the damaged file listed; importing again changes nothing; the Library shows
-  the catalog with the three papers. Screenshots: `.artifacts/neuro-test-catalog/`.
-- Not verified: the real on-device model reading these PDFs (Astra's track owns Core ML runs on this Mac), a real Files
-  folder pick on a device, and the physical iPhone (paused).
+  the catalog with the three papers, labelled "Your PDF". iPhone 17 and (staff journey) iPad Pro 11-inch; the Mac
+  Catalyst app compiles. Screenshots: `.artifacts/neuro-test-catalog/`.
+- Not verified: the real on-device model reading these PDFs (Astra's track owns Core ML runs on this Mac), a kept
+  reading opening while the queue reads another paper (the stand-in keeps none), a real Files or Mac folder pick, the
+  Mac's folder bookmark after a relaunch (the sandbox may refuse it: the files not yet added then ask for the folder
+  again), the same folder imported on a second device, and the physical iPhone (paused).

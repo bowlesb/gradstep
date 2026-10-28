@@ -39,17 +39,19 @@ extension ReaderModel {
         guard showsTestCatalogTools, canManageCatalogs else { return }
         let scope = sessionID
         testCatalogWaiting = nil
-        if securityScoped, !folder.startAccessingSecurityScopedResource() {
-            testCatalogWaiting = "Gradstep couldn’t open that folder."
-            return
-        }
+        // A folder inside the app's own files needs no grant (the call then says no); any other picked folder does.
+        let scoped = securityScoped && folder.startAccessingSecurityScopedResource()
         // Files are added from this folder during this session; a bookmark finds it again after a relaunch.
         releaseTestCatalogFolder()
-        testCatalogFolder = folder; testCatalogFolderScoped = securityScoped
+        testCatalogFolder = folder; testCatalogFolderScoped = scoped
         let bookmark = Self.testCatalogBookmark(folder)
         let name = LibraryCatalogBatch.normalizedName(folder.lastPathComponent) ?? "Test PDFs"
         let files = await Task.detached(priority: .userInitiated) { Self.testCatalogFiles(in: folder) }.value
         guard sessionID == scope else { return }
+        guard !files.isEmpty else {
+            testCatalogWaiting = securityScoped && !scoped ? "Gradstep couldn’t open that folder." : "No PDFs in that folder."
+            return
+        }
         let catalogID: UUID
         if let queue = testCatalog, queue.catalogName.caseInsensitiveCompare(name) == .orderedSame, libraryCatalogs.catalog(queue.catalogID) != nil {
             catalogID = queue.catalogID
@@ -100,8 +102,8 @@ extension ReaderModel {
     /// After activation: the saved queue comes back, and carries on (staff only) unless it was paused or is done.
     func restoreTestCatalog() {
         guard testCatalog == nil, let store = localPersistence.testCatalogStore, let queue = store.load() else { return }
-        // Its catalog was deleted since: the test is over.
-        guard libraryCatalogs.catalog(queue.catalogID) != nil else { localPersistence.saveTestCatalog(nil); return }
+        // Its catalog was deleted since: the test is over (the next folder imported replaces the saved queue).
+        guard libraryCatalogs.catalog(queue.catalogID) != nil else { return }
         testCatalog = queue
         guard !queue.isFinished, !queue.paused else { return }
         let scope = sessionID

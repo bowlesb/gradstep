@@ -203,6 +203,10 @@ struct TestCatalogSettingsRow: View {
                 InfoButton(text: Self.info, identifier: "settings.testCatalog.info")
             }
             .listRowBackground(Color.adminRow)
+            if model.testCatalog == nil, let note = model.testCatalogWaiting {
+                Text(note).font(.footnote).foregroundStyle(.secondary).listRowBackground(Color.adminRow)
+                    .accessibilityIdentifier("settings.testCatalog.progress")
+            }
             if let queue = model.testCatalog {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
