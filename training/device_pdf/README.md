@@ -11,7 +11,15 @@ Completed locally: repo-owned training, the port-20 rejected-transcription bound
 models remain layout-fcos-v5, texteller-ft-v4 and inline-tagger-v5b-journal at threshold 0.65. The pack now includes
 1.20 MB of the same tagger weights for a separate CPU implementation; no new training or release is implied.
 
-**Latest result:** all **2,029 inputs / 188,464 glyphs** run successfully through the independent implementation,
+**Latest research result — no model promotion:** a new source-reviewed benchmark contains **468 complete
+single-line expressions / 165 prose controls**, from 72 previously unaudited development families. Expanded training
+labels repair 7 of 20 incomplete expressions; adding a whole-expression objective repairs 9, with no new errors on
+those labels or prose controls. Both candidates nevertheless fail the original-corpus recall-preservation gate
+on **399 papers / 30,803,703 glyphs**, so the selected app weights and threshold remain unchanged. A separate
+rule-based decoder also failed its confirmation gate and introduced two wrong boundaries. The measured results,
+reusable training code, and unused final reservation are described under [Span completeness](#span-completeness).
+
+**Verified runtime result:** all **2,029 inputs / 188,464 glyphs** run successfully through the independent implementation,
 with **zero tagging-decision disagreements** against frozen PyTorch output. Forcing both Core ML attempts to fail
 on each input gives **2,029/2,029 successful recoveries** through the production policy. Recovery takes **1.23 ms
 median / 1.52 ms p95** on this Mac. These are runtime parity and injected-failure results, not whole-import success
@@ -29,11 +37,11 @@ preserved. There are 97 affected papers. This prevents unverified guesses enteri
 mean those guesses were all wrong or improve the recognizer's accuracy. Raw diagnostic `index.json`/recordings
 retain model answers and their rejection status; the delivered `reader.json` does not.
 
-**Next task:** finish rank 2's upstream completeness problem: a tagged span may omit part of a statistic or a
-detached operator before any crop cleaning. Freeze complete-expression labels on fresh reserved development families,
-separate tagging/layout/text-layer causes, and compare context-aware span expansion against a tagger objective that
-penalizes cut expressions. Preserve prose false-positive and accepted-math gates. Do not tune further on these two
-revealed journals or start another broad recognizer fine-tune. Ranks 3–5 remain prospective. The CPU implementation
+**Next task:** diagnose the original-corpus recall losses before proposing another adaptation. The two fixed
+span-training runs are finished and rejected; do not widen that experiment, tune its threshold, or open the reserved
+final cohort to rescue it. A new retention-focused experiment needs its own fixed budget and preservation gate.
+Do not tune further on the two revealed journals or start another broad recognizer fine-tune. Ranks 3–5 remain
+prospective. The CPU implementation
 is also a candidate for rank 4, but changing the primary backend needs an interleaved complete-import benchmark
 and broader decision-parity checks; its isolated-call speed is not evidence of faster complete imports.
 
@@ -46,7 +54,7 @@ Targets below are prospective until a baseline and a fixed evaluation set are re
 |---|---|---|---|
 | 0 — verified recovery | An invalid tagger buffer can abort the entire import after the existing retry. Diagnostics previously collapsed to `[object Object]`. | Actual paired workload: 6 retry exhaustions. Independent implementation: zero invalid outputs or threshold disagreements on 2,029 inputs; production policy recovers all 2,029 forced failures. No measured whole-import failure-rate claim. | Keep Core ML first and its one retry, then evaluate the identical checkpoint once with a separate CPU GRU; validate output or fail. Preserve bounded stage/page/line diagnostics. |
 | 1 — verified | A rejected formula is displayed as its PDF crop, but the guessed transcription remains in search, copied text, accessibility and AI context. Confirmed in the [journal review](../../docs/reviews/DEVICE_PDF_PAPERS_MODEL_20261026.md). | **Zero rejected guesses in delivered text/metadata**, on the current 99-paper recordings plus both journal articles; accepted formulas, source crops, IDs and locations unchanged. Image failures and budget exhaustion also pass. This measures trust boundaries, not recognition accuracy. | Port 20 enforces the existing acceptance decision at emission; an explicit untranscribed-equation marker reaches text consumers. Raw answers stay only in diagnostic records. |
-| 2 — contamination verified; completeness open | Crops clip symbols or include neighboring lines. More training cannot recover ink absent from a crop. [Integrity review](../../docs/reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md). | Contamination target ≥50% passed: **25→6**, own-ink loss zero, 60 protection controls pass. This measures other-line intrusions, not clipping recovery. Next: complete-expression recall with no increased prose false positives on newly frozen families. | Port 21 uses native line bounds only for presentation cleaning. Next isolate upstream incomplete spans before choosing tagger or layout training. |
+| 2 — contamination verified; completeness candidates rejected | Crops clip symbols or include neighboring lines. More training cannot recover ink absent from a crop. [Integrity review](../../docs/reviews/DEVICE_PDF_MATH_INTEGRITY_20261026.md). | Contamination **25→6**, own-ink loss zero, 60 controls pass. New completeness benchmark: **448/468** selected-model baseline; two training candidates **455/468 / 457/468**, both 0/165 prose FP. Both lose original-dev recall beyond the fixed 0.01 percentage-point allowance. | Port 21 remains selected. Keep the measured span failures and whole-expression supervision/objective; solve retention before another candidate. Rejected scalar expansion remains research-only. |
 | 3 | Tables, captions and reading order can change scientific meaning even in papers with little math. [Table review](../../docs/reviews/DEVICE_PDF_TABLES_20261024.md), [continuity review](../../docs/reviews/DEVICE_PDF_READING_QUALITY_20261026.md). | Pairwise reading-order accuracy, missing/duplicated words, cell-to-header association and caption-to-object accuracy, macro-averaged per paper. Target **≥30% fewer reviewed severe incidents**, no content/location loss. | Extend the existing weakness explorer with source-reviewed journal examples; use held-out families. Reuse table work before introducing another parser. |
 | 4 | Detecting more math increases waiting time. The journal examples took 12.8→22.2 s and 13.7→15.0 s on this Mac (single runs). | Interleaved repeated A/B: median and p95 total time, first-readable time, peak memory, failure/cancel rate; stratify by pages and formula count. Target **≥20% lower median** with identical output and no p95/memory regression. | Audit existing reuse, batching and decoder experiments. GPU training speed is not Apple inference speed. Physical-device timing remains paused. |
 | 5 | Correct formulas remain images; a few accepted formulas can still be wrong. | Risk–coverage curves: source-reviewed number/operator/unit errors per 1,000 accepted expressions against typeset coverage, split by journal/arXiv/scanned. Target fewer semantic errors at fixed coverage, with paper-level uncertainty intervals. | Calibrate on fresh development families, freeze before holdout; compare constrained decoding and recognizer adaptation only after crop errors are separated. |
@@ -82,6 +90,99 @@ revealed test sets. Keep threshold selection and model selection on development 
 
 No new collection was needed for these repairs. For a later scan/table study, first inventory
 the reserved local families; acquire additional owner-device PDFs only to fill a measured coverage gap.
+
+## Span completeness
+
+This work is isolated on `codex/pdf-span-completeness`, starting at `c0be647b`. Mac evidence is under the main
+checkout's `.artifacts/device-pdf-development/spans/`; desktop training evidence is under the same relative path in
+`/home/ben/science-reader-training`. The desktop source worktree is `/home/ben/science-reader-pdf-span-completeness`.
+Historical checkouts, NAS data, app model packs and the physical phone were not changed.
+
+### Measurement and rejected decoder
+
+The initial 24-family sample was split into 12 diagnosis and 12 confirmation families before predictions. Source
+review froze 128 complete expressions and 69 prose controls. A single fixed extension added 48 different families,
+340 expressions and 96 controls. Family selection used only the existing development split, source page statistics,
+and seeded hashes, excluding the 16 previously audited development families. The resulting 468 positive expressions
+occur in 54 papers. There are three non-scientific library prose controls; this is a selected-expression benchmark,
+not full-paper accuracy. Cross-line expressions, displays, unextracted glyphs and all unannotated math are outside
+its denominator. Unlabeled math is never counted as a false positive.
+
+Every positive and control crop was source-reviewed before that cohort's first tagger predictions. Review repaired
+proposal ends that omitted uncertainty, powers of ten, or chained comparisons, and added source-visible relations
+such as multi-letter statistics. Retain native glyph identities even when embedded fonts misname symbols. The
+selected error glyphs exist in their native lines; all extension error pages have `ocr:false`. This establishes
+tagging/identity/typography failures, not an OCR-fallback, missing-ink or line-ownership diagnosis.
+
+`decoder-result.json` is the entry point for the rejected relation decoder. Diagnosis improved **65→69/69**, but
+first confirmation stayed **58/59**. The predeclared extension produced **325→327/340**; combined confirmation
+was **383→385/399**, or **16→14 incomplete expressions (12.5% reduction)** against a ≥30% gate. The minimum
+eight-error denominator was satisfied. All 130 confirmation prose controls remained negative, yet reviewing every
+changed line found two harmful completions of `F’s < …` into `s < …`. Pure-prose controls alone would miss this
+boundary error. The prototype is preserved in `scripts/device-pdf-models/relation_completion.ts`, explicitly outside
+the reader; `audit_relation_completion.mjs` records decoded spans separately without fabricating model logits.
+
+Prior work was checked first: broad touching-glyph expansion, larger context, recognizer arbitration and cross-line
+merging already had negative results. Ordinary boundary weighting also existed in the base trainer. The new training
+objective below emphasizes the weakest positive glyph in an entire labeled expression, rather than repeating those
+approaches.
+
+### Two fixed training arms; both rejected
+
+The existing 200-family native training audit supplied **194 usable training papers / 15,879 windows** after proposal
+filtering. `papers_statistics_labels.py --complete-expressions` adds multi-letter statistics, powers of ten, uncertainty,
+fractional degrees of freedom and chained comparisons. Mixed-line glyphs outside proposals remain **unknown**;
+only conservative pure-prose lines supply negative labels. Neighbor context remains unknown. This yields **3,391
+partial positive proposals / 25,974 positive glyphs / 712,956 negative glyphs**, not fully labeled training pages.
+
+A frozen source-review sample selected 96 changed/new proposal lines by `span-training-review-v1` hash, at most four
+lines per paper: **118 spans from 46 training papers**. Of these, **116 matched the source**; two had uncertain crop
+alignment. Both entire rows were excluded before packing, removing five proposals in total. The 116/118 result is a
+sample audit, **not verification of all 3,391 proposals**. `training/supervision-review.json` records the exact IDs.
+
+Both arms start from selected `inline-tagger-v5b-journal` checkpoint
+`d705b191ddd7eb33cc36cbf8e47e71c1363e5389fb41dbea3936720858188d0c`. The frozen
+`training/plan.json` specifies **6,000 steps each**, learning rate `2e-5`, 80% original-training replay from 720 papers,
+180,000 replay items, no font dropout, teacher weight 4 on replay, and teacher weight 1 on unknown native own-glyphs.
+Seed is 2711; threshold stays 0.65. Only each final checkpoint is evaluated. Exact-length batching and the architecture
+are unchanged. The arms differ only in `--complete-span-weight`: zero versus 0.5. The latter adds the mean maximum
+positive logistic loss per contiguous labeled expression; unknown glyphs never acquire a negative target.
+
+| Evaluation | Selected baseline | Expanded labels | Labels + whole-expression objective |
+|---|---:|---:|---:|
+| Complete expressions, now-revealed development | 448/468 | 455/468 | 457/468 |
+| Incomplete expressions | 20 | 13 | 11 |
+| Existing incomplete expressions repaired / newly broken | — | 7 / 0 | 9 / 0 |
+| Prose controls detected | 0/165 | 0/165 | 0/165 |
+| Original-dev glyph precision, all content | 96.79% | 96.86% | 96.84% |
+| Original-dev glyph recall, all content | 94.62% | 94.53% | 94.54% |
+| Original-dev inline-text glyph recall | 96.14% | 96.04% | 96.05% |
+| Original-dev exact-span F1, all content | 83.95% | 84.07% | 84.06% |
+
+The 399-paper original-development check covers **30,803,703 glyphs / 250,995 gold spans**, including 134,097
+inline-text spans. The fixed maximum recall loss was **0.01 percentage point**. Actual losses of **0.09 / 0.08
+percentage point** fail that gate despite improved precision and span F1. These are the existing scorer's rounded
+metrics; the losses are well outside rounding uncertainty. No threshold search or additional training arm followed.
+
+Paired paper bootstrap on the new development benchmark uses 54 positive-gold papers, 10,000 resamples, seed 2711.
+The expanded-label complete-recall gain is **1.50 percentage points** (95% interval **0.40–3.01**); the whole-expression
+gain is **1.92 points** (**0.57–3.67**). Relative incomplete reductions are 35% (interval 11.1–60.0%) and 45%
+(22.7–61.9%). These are development intervals after candidate selection, not independent confirmation claims.
+The extra objective repairs only two additional examples in one paper; it is not a demonstrated general improvement.
+Candidate comparisons use the same PyTorch backend for baseline and both arms. The independent native reference
+gives identical labeled scores, with three threshold differences among all 927,445 glyph outputs (including context).
+This broader check is recorded separately; it does not extend the earlier 2,029-input zero-disagreement claim.
+
+**Decision:** retain selected production weights. `training/result.json` summarizes the completed experiment;
+`training/original-dev-full.json` and each arm's `development-score.json` contain its detailed evidence. The fixed
+48-family / 96-page final reservation in `training-confirmation/selection.json` remains **unscored**: native source
+extraction/layout ran, but no final gold review or tagger predictions were opened after both arms failed preservation.
+Do not consume it to rescue these candidates. No Core ML export or native reader promotion was attempted.
+
+Reusable checks: `test_complete_expression_training.py` verifies masked supervision and objective gradients in the
+recorded PyTorch environment; `test_papers_evaluation.py` verifies completeness, prose spill, explicit decoder outputs
+and paired paper bootstrap. `papers_score_statistics.py --baseline …` computes the intervals without modifying logits;
+`papers_review_crops.py --include-prose` renders control sheets. `npm test` and the focused research checks pass.
 
 ## Core source and running it
 

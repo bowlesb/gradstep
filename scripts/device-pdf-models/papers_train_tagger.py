@@ -15,19 +15,37 @@ from training_core import tagger as T, source_identity
 import evaluate_tagger_coverage as E
 
 
+def complete_expression_loss(prediction, target):
+    """Mean worst-positive loss per contiguous labeled expression; unknown/context glyphs never enter it.
+
+    BCE can look excellent while one operator or final digit is missing. This objective preserves the same
+    architecture and emphasizes that weakest glyph. It does not infer any extra labels or change inference.
+    """
+    positive=target==1
+    begins=positive & torch.cat([torch.ones_like(positive[:,:1]),~positive[:,:-1]],dim=1)
+    groups=begins.reshape(-1).long().cumsum(0).sub(1).clamp_min(0)
+    losses=F.softplus(-prediction).where(positive,0).reshape(-1)
+    worst=torch.zeros_like(losses).scatter_reduce(0,groups,losses,reduce='amax',include_self=True)
+    return worst.sum()/begins.sum().clamp_min(1)
+
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--training-root',type=Path,required=True)
     p.add_argument('--checkpoint',type=Path,required=True);p.add_argument('--run',type=Path,required=True)
     p.add_argument('--steps',type=int,default=3000);p.add_argument('--lr',type=float,default=0.0001)
     p.add_argument('--replay',type=float,default=0.6);p.add_argument('--font-dropout',type=float,default=0.15)
     p.add_argument('--distill',type=float,default=0.0)
+    p.add_argument('--native-distill',type=float,default=0.0,help='Preserve teacher outputs on unlabeled own glyphs, without treating them as negatives.')
+    p.add_argument('--complete-span-weight',type=float,default=0.0)
+    p.add_argument('--threshold',type=float,default=0.7,help='Recorded inference threshold; never tuned by this training command.')
     p.add_argument('--replay-papers',type=int,default=180);p.add_argument('--replay-items',type=int,default=45000)
     p.add_argument('--save-steps',default='500,1500')
     p.add_argument('--seed',type=int,default=727);a=p.parse_args();a.run.mkdir(parents=True,exist_ok=False)
     torch.set_num_threads(4);torch.manual_seed(a.seed);random.seed(a.seed);rng=np.random.default_rng(a.seed)
     ck=torch.load(a.checkpoint,map_location='cpu',weights_only=False)
     model=T.Tagger(12,ck.get('hidden',96));model.load_state_dict(ck['model']);model.cuda().train()
-    teacher=copy.deepcopy(model).eval().requires_grad_(False) if a.distill else None
+    assert a.distill>=0 and a.native_distill>=0 and a.complete_span_weight>=0 and 0<a.threshold<1
+    teacher=copy.deepcopy(model).eval().requires_grad_(False) if a.distill or a.native_distill else None
     source=np.load(a.root/'train.npz',allow_pickle=False)
     native={k:source[k] for k in ['x','font','cls','char','y','start','positive']}
     split_rows=json.loads((a.root/'splits.json').read_text());splits={r['sha256']:r['split'] for r in split_rows}
@@ -72,8 +90,10 @@ def main():
               'native_families':len(set(source['papers'].tolist())),'base_replay_papers':ids,
               'base_replay_sequences':len(examples),'pools':{k:len(v) for k,v in pools.items()},
               'steps':a.steps,'lr':a.lr,'replay_probability':a.replay,'font_dropout':a.font_dropout,'seed':a.seed,
-              'distillation_weight':a.distill,'save_steps':a.save_steps,
-              'selection':'development only; threshold remains 0.7 until separately calibrated'}
+              'distillation_weight':a.distill,'native_unknown_distillation_weight':a.native_distill,
+              'complete_span_weight':a.complete_span_weight,'complete_span_objective':'mean maximum softplus(-logit) per contiguous known-positive run',
+              'threshold':a.threshold,'save_steps':a.save_steps,
+              'selection':'development only; inference threshold fixed by the run contract'}
     (a.run/'train-run.json').write_text(json.dumps(run_info,indent=2)+'\n')
     log=(a.run/'train.log.jsonl').open('w');started=time.monotonic();opt=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=0.01)
     totals=defaultdict(list)
@@ -82,17 +102,24 @@ def main():
         x,f,cl,ch,y=batch(kind);prediction=model(x,f,cl,ch);known=y>=0
         loss=F.binary_cross_entropy_with_logits(prediction,y.clamp(min=0),reduction='none',pos_weight=torch.tensor(2.0,device='cuda'))
         loss=loss[known].mean()
+        if kind!='base' and a.complete_span_weight:
+            loss=loss+a.complete_span_weight*complete_expression_loss(prediction,y)
         if teacher is not None and kind=='base':
             with torch.no_grad():target=torch.sigmoid(teacher(x,f,cl,ch))
             preservation=F.binary_cross_entropy_with_logits(prediction,target,reduction='none')
             loss=loss+a.distill*preservation[known].mean()
+        if teacher is not None and kind!='base' and a.native_distill:
+            with torch.no_grad():target=torch.sigmoid(teacher(x,f,cl,ch))
+            unknown=(y<0)&(x[:,:,10]==0)&(x[:,:,11]==0)
+            preservation=F.binary_cross_entropy_with_logits(prediction,target,reduction='none')
+            loss=loss+a.native_distill*(preservation*unknown).sum()/unknown.sum().clamp_min(1)
         opt.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(model.parameters(),1.0);opt.step()
         totals[kind].append(float(loss.detach()))
         if step%100==0:
             row={'step':step,'seconds':round(time.monotonic()-started,1),'loss':{k:round(sum(v)/len(v),5) for k,v in totals.items()}}
             print(json.dumps(row),flush=True);log.write(json.dumps(row)+'\n');log.flush();totals.clear()
         if step in {*(int(s) for s in a.save_steps.split(',')),a.steps}:
-            saved={**ck,'model':{k:v.detach().cpu() for k,v in model.state_dict().items()},'threshold':0.7,
+            saved={**ck,'model':{k:v.detach().cpu() for k,v in model.state_dict().items()},'threshold':a.threshold,
                    'n_feats':12,'adaptation':{**run_info,'step':step}}
             torch.save(saved,a.run/f'step-{step:05}.pt')
     log.close()

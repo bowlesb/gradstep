@@ -2,7 +2,7 @@
 import argparse, json, tempfile, unittest
 from pathlib import Path
 from papers_corpus import split
-from papers_score_statistics import score
+from papers_score_statistics import score,paired_paper_bootstrap
 
 
 class EvaluationTests(unittest.TestCase):
@@ -31,6 +31,26 @@ class EvaluationTests(unittest.TestCase):
     def test_all_on_model_fails_prose_control(self):
         row = self.row(); row.update(gold_spans=[], mask=[0]*6, label_status='text_reviewed_prose_control')
         self.assertEqual(score([row], [[50]*5, [50]*5], .7)['false_positive_prose_line_rate'], 1)
+
+    def test_decoded_spans_are_explicit_and_cannot_hide_invalid_logits_or_swallow_prose(self):
+        row=self.row();outputs=[[-50]*5,[-50]*5]
+        self.assertEqual(score([row],outputs,.7,{row['id']:[[1,5]]})['complete_statistics'],1)
+        self.assertEqual(score([row],outputs,.7,{row['id']:[[0,5]]})['complete_statistics'],0)
+        self.assertEqual(outputs,[[-50]*5,[-50]*5])
+        with self.assertRaises(AssertionError):score([row],outputs,.7,{row['id']:[[1,7]]})
+        with self.assertRaises(AssertionError):score([row],[[float('nan')]*5,[-50]*5],.7,{row['id']:[[1,5]]})
+
+    def test_paired_bootstrap_uses_whole_papers_and_reports_zero_error_draws(self):
+        a={'by_paper':{'a':{'gold':10,'complete':5},'b':{'gold':1,'complete':1}},
+           'gold_statistics':11,'complete_statistics':6,'complete_recall':6/11,'paper_macro_recall':.75}
+        b={'by_paper':{'a':{'gold':10,'complete':10},'b':{'gold':1,'complete':1}},
+           'gold_statistics':11,'complete_statistics':11,'complete_recall':1,'paper_macro_recall':1}
+        result=paired_paper_bootstrap(a,b,1000,2711)
+        self.assertEqual(result,paired_paper_bootstrap(a,b,1000,2711))
+        self.assertEqual(result['papers_with_positive_gold'],2)
+        self.assertEqual(result['relative_incomplete_reduction_interval'],[1,1])
+        self.assertEqual(result['complete_recall_delta_interval'],[0,.5])
+        self.assertGreater(result['draws_without_baseline_errors'],0)
 
     def test_connected_duplicates_never_cross_partitions(self):
         title = 'A distinctive scientific title with enough words for matching'

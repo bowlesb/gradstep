@@ -3,9 +3,11 @@ import argparse,json,math,subprocess
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 
-p=argparse.ArgumentParser();p.add_argument('labels',type=Path);p.add_argument('out',type=Path);a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('labels',type=Path);p.add_argument('out',type=Path)
+p.add_argument('--include-prose',action='store_true',help='Render selected prose controls as well as positive source proposals.')
+a=p.parse_args()
 a.out.mkdir(parents=True,exist_ok=True)
-rows=[r for r in map(json.loads,a.labels.read_text().splitlines()) if r['proposed_spans']]
+rows=[r for r in map(json.loads,a.labels.read_text().splitlines()) if a.include_prose or r['proposed_spans']]
 cache={}; font=ImageFont.truetype('/System/Library/Fonts/Menlo.ttc',12)
 sheets=[]
 for start in range(0,len(rows),12):

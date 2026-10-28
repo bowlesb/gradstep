@@ -12,6 +12,11 @@ import unicodedata
 
 NUMBER=r'[+−-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+−-]?\d+)?'
 STAT=re.compile(r'(?<!\w)(?:[pPtTFFrRnNzZβχ]|χ[²2])\s*(?:\(\s*\d+(?:\s*,\s*\d+)*\s*\))?\s*(?:[=<>≤≥≈]|\(cid:\d+\))\s*'+NUMBER)
+POWER10=r'10\s*[−–-]\s*\d+'
+VALUE=rf'(?:{POWER10}|{NUMBER})(?:\s*[×·]\s*(?:{POWER10}|{NUMBER}))?(?:\s*±\s*{NUMBER})?'
+RELATION=r'(?:[=<>≤≥≈]|\(cid:\d+\))'
+VARIABLE=r'(?:MSE|MSe|Mse|SEM|SD|SE|MS|χ[²2]|[A-Za-zΑ-Ωα-ω])'
+COMPLETE_STAT=re.compile(rf'(?<![\w’\'])' + rf'(?:{NUMBER}\s*[<>≤≥]\s*)?{VARIABLE}\s*(?:\(\s*{NUMBER}(?:\s*,\s*{NUMBER})*\s*\))?\s*{RELATION}\s*{VALUE}')
 SYMBOL=re.compile(r'[=<>≤≥±≈×÷∑∏∫√^_]|\(cid:|[\u0370-\u03ff]')
 
 
@@ -29,11 +34,11 @@ def aligned(row):
     return text,mapped
 
 
-def propose(row):
+def propose(row,complete=False):
     mapping=aligned(row)
     if not mapping:return None
     text,ids=mapping;spans=[]
-    for match in STAT.finditer(text):
+    for match in (COMPLETE_STAT if complete else STAT).finditer(text):
         # A coordinate triple is one expression; its last assignment is not an atomic statistic.
         if re.search(r'x\s*,\s*y\s*,\s*$',text[:match.start()]):
             continue
@@ -42,12 +47,13 @@ def propose(row):
         covered=[i for i in ids[match.start():match.end()] if i is not None]
         if not covered:continue
         a,b=min(covered),max(covered)+1
-        spans.append({'from':a,'to':b,'text':match.group(),'source':'native-statistics-pattern-v1'})
+        spans.append({'from':a,'to':b,'text':match.group(),'source':'native-complete-statistics-v2' if complete else 'native-statistics-pattern-v1'})
     mask=[-1]*len(row['glyphs'])
     # Long alphabetic words are prose even in a partly labelled mathematical line.
-    for match in re.finditer(r'(?<!\w)[A-Za-z]{4,}(?!\w)',text):
-        for i in ids[match.start():match.end()]:
-            if i is not None:mask[i]=0
+    if not complete:
+        for match in re.finditer(r'(?<!\w)[A-Za-z]{4,}(?!\w)',text):
+            for i in ids[match.start():match.end()]:
+                if i is not None:mask[i]=0
     pure_prose=(not SYMBOL.search(text) and not re.search(r'\d|\b[b-hj-zB-HJ-Z]\b',text)
                 and len(re.findall(r'[A-Za-z]{3,}',text))>=5)
     if pure_prose:mask=[0]*len(row['glyphs'])
@@ -57,8 +63,10 @@ def propose(row):
     return {**row,'proposed_spans':spans,'mask':mask,'pure_prose':pure_prose,'label_status':'weak_training_proposal'}
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('lines',type=Path);p.add_argument('out',type=Path);a=p.parse_args()
-    rows=[propose(r) for r in map(json.loads,a.lines.read_text().splitlines())];rows=[r for r in rows if r]
+    p=argparse.ArgumentParser();p.add_argument('lines',type=Path);p.add_argument('out',type=Path)
+    p.add_argument('--complete-expressions',action='store_true',help='Broader complete-relation proposals; unreviewed mixed-line glyphs stay unknown.')
+    a=p.parse_args()
+    rows=[propose(r,a.complete_expressions) for r in map(json.loads,a.lines.read_text().splitlines())];rows=[r for r in rows if r]
     a.out.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in rows))
     print(json.dumps({'lines':len(rows),'positive_lines':sum(bool(r['proposed_spans']) for r in rows),
                       'proposed_spans':sum(len(r['proposed_spans']) for r in rows),
