@@ -125,7 +125,8 @@ extension AIUsageFormat {
     /// device recorded. Nil for other activities, the paper's AI Explainer, and when nothing is that close. `history` is
     /// sorted by time (`PrivateState.usageHistory`).
     public static func conversation(for op: AIUsageOperation, provenance: AIUsageProvenance?, history: [AIUsageHistoryMessage]) -> UUID? {
-        guard conversationActivities.contains(op.activity), provenance?.action != ChatAction.paperExplainer.rawValue else { return nil }
+        guard conversationActivities.contains(op.activity), provenance?.action != ChatAction.paperExplainer.rawValue,
+              provenance?.action != ChatAction.paperConcept.rawValue else { return nil }
         if let recorded = provenance?.conversationID { return recorded }
         let answered = op.settledAt ?? op.createdAt
         let earliest = min(op.createdAt, answered).addingTimeInterval(-historyTolerance), latest = max(op.createdAt, answered).addingTimeInterval(historyTolerance)

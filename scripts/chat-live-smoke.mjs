@@ -40,6 +40,9 @@ const STUDY = process.argv.includes('--study');
 /** `--paper-explainer`: the paper's AI Explainer (chat-paper-explainer.ts): the stream's timings (reading, count, summary,
  * each entry, the final explainer), the entries and links. */
 const PAPER_EXPLAINER = process.argv.includes('--paper-explainer');
+/** `--paper-concept`: the explainer, then Go deeper on its first background concept (chat-paper-concept.ts, 2026-10-25) as
+ * the apps ask for it (the concept as the passage): the stream's timings, each section, the places, the model that wrote it. */
+const PAPER_CONCEPT = process.argv.includes('--paper-concept');
 /** `--question=…` asks this instead of the built-in first question (e.g. one that invites a visual answer). */
 const QUESTION = process.argv.find(a => a.startsWith('--question='))?.slice(11) ?? null;
 /** `--figure=N` attaches the bundle's figure N image (consent cloud-ai-v3), as the app does for a question naming it. */
@@ -395,7 +398,7 @@ try {
     manifest_sha256, source_sha256, text };
   const turns = [];
   let equationAction = null, equationLatex = '';
-  let followUps = [], studyNotes = null, explainerAction = false;
+  let followUps = [], studyNotes = null, explainerAction = false, conceptQuote = null, explained = null;
   const ask = async (question, figureNumber = 0) => {
     turns.push({ role: 'user', text: question });
     const figures = forced ? figureImages(forced) : (figureNumber || FIGURE) && turns.length === 1 ? figureImages(figureNumber || FIGURE) : [];
@@ -404,13 +407,15 @@ try {
     const body = { operation_id: randomUUID(), consent_version: consent, mode: 'paper', local_context, messages: turns,
       topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
       ...(PROFILE ? { profile: PROFILE } : {}),
-      ...(STUDY ? { action: 'study', ...(studyNotes ? { study_state: studyNotes } : {}) } : explainerAction ? { action: 'paper_explainer' }
+      ...(STUDY ? { action: 'study', ...(studyNotes ? { study_state: studyNotes } : {}) } : conceptQuote ? { action: 'paper_concept', selection: { quote: conceptQuote } }
+        : explainerAction ? { action: 'paper_explainer' }
         : equationAction ? { action: equationAction, selection: { quote: equationLatex } }
         : INGEST ? { action: 'ingest', selection: { quote: INGEST } } : ACTION ? { action: ACTION, selection: { quote: SELECTION ?? 'x' }, follow_ups: true } : { follow_ups: true }) };
     if (INGEST) delete body.topic_title;
     if (process.argv.includes('--no-auxiliaries')) { delete body.topic_title; delete body.follow_ups; }
     if (CAPS) body.capabilities = CAPS;
     if (equationAction || explainerAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
+    if (conceptQuote) delete body.follow_ups;
     if (STUDY || explainerAction) { delete body.topic_title; if (explainerAction) body.capabilities = ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal']; }
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
     const started = Date.now();
@@ -422,6 +427,7 @@ try {
     // The equation explainer's stream (seconds from sending): what the reader sees and when.
     const eq = { reading: null, count: null, summary: null, symbols: [], final: null, done: null, progress: 0 };
     const pe = { reading: null, count: null, summary: null, items: [], final: null, progress: 0 };
+    const pc = { reading: null, parts: null, sections: [], final: null, status: [] };
     const since = () => Number(((Date.now() - started) / 1000).toFixed(2));
     const reader = r.body.getReader(); const decoder = new TextDecoder();
     const dispatch = frame => {
@@ -437,6 +443,10 @@ try {
       else if (name === 'paper_summary') pe.summary ??= since();
       else if (name === 'paper_item') { pe.items.push(since()); (pe.streamed ??= []).push(payload.item); }
       else if (name === 'paper_explainer') { pe.final = since(); pe.explainer = payload; }
+      else if (name === 'concept_progress') { if (payload.stage === 'reading') pc.reading ??= since(); if (payload.parts && pc.parts === null) pc.parts = [since(), payload.parts]; }
+      else if (name === 'concept_section') { pc.sections.push(since()); (pc.streamed ??= []).push(payload.section); }
+      else if (name === 'paper_concept') { pc.final = since(); pc.concept = payload; }
+      else if (name === 'status') { pc.status.push(`${payload.kind}@${since()}`); log(`status ${JSON.stringify(payload)}`); }
       else if (name === 'figure_parts') { parts = payload; log(`figure parts: “${payload.title}” on ${payload.figure} ¶${payload.paragraph}: ${payload.parts.map(p => `${p.label} [${p.box.map(n => n.toFixed(2)).join(',')}]`).join(' | ')}`); }
       else if (name === 'visual') { visual = payload; log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`); }
       else if (name === 'diagram') { diagram = payload; log(`diagram: “${payload.title}”, ${payload.source.split('\n')[0]}`); }
@@ -465,7 +475,8 @@ try {
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
     if (failure || !done) throw new Error(`Chat did not complete: ${failure?.code ?? 'missing_done'}`);
     if (STUDY && /study_state|<study/i.test(answer)) throw new Error('The tutor\'s hidden notes reached the answer text');
-    if (explainerAction) {
+    // The Go deeper turn reuses the explainer's request but returns a concept, checked below.
+    if (explainerAction && !conceptQuote) {
       const x = pe.explainer;
       log(`explainer stream: reading ${pe.reading ?? '-'} s, count ${pe.count ? `${pe.count[1]} at ${pe.count[0]}` : '-'}, summary ${pe.summary ?? '-'} s, entries [${pe.items.join(' ')}], final ${pe.final ?? '-'} s; streamed = final entries: ${pe.streamed && x ? JSON.stringify(pe.streamed) === JSON.stringify([...x.background, ...x.ideas]) : 'n/a'}`);
       if (x) {
@@ -476,7 +487,17 @@ try {
       }
       if (!x) throw new Error('The paper explainer delivered no explainer');
     }
-    if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'ingest', 'paper_explainer'].includes(e)))
+    if (conceptQuote) {
+      const c = pc.concept;
+      log(`concept stream: reading ${pc.reading ?? '-'} s, parts ${pc.parts ? `${pc.parts[1]} at ${pc.parts[0]}` : '-'}, sections [${pc.sections.join(' ')}], final ${pc.final ?? '-'} s, status [${pc.status.join(' ')}]; streamed = final: ${pc.streamed && c ? JSON.stringify(pc.streamed) === JSON.stringify(c.sections) : 'n/a'}; by ${done?.model ?? '-'}`);
+      for (const section of c?.sections ?? []) {
+        log(`  ${section.kind ?? '-'} "${section.title}" ¶${section.paragraphs.join(',')}`);
+        if (section.text) console.log(redact(section.text));
+        for (const place of section.places ?? []) log(`    ¶${place.paragraph} ${place.note}`);
+      }
+      if (!c) throw new Error('Go deeper delivered no concept');
+    } else if (explainerAction) explained = pe.explainer;
+    if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'ingest', 'paper_explainer', 'paper_concept'].includes(e)))
       throw new Error('Chat completed without an answer or a usable tool result');
     if (equationAction === 'equation') {
       const firstVisible = eq.summary ?? eq.symbols[0] ?? eq.final;
@@ -537,9 +558,19 @@ try {
     }
   } else if (EVAL) {
     for (const item of EVAL_QUESTIONS) { turns.length = 0; log(`=== ${item.key} ===`); await ask(item.question, item.figure ?? 0); results.at(-1).key = item.key; }
-  } else if (PAPER_EXPLAINER) {
+  } else if (PAPER_EXPLAINER || PAPER_CONCEPT) {
     explainerAction = true;
     await ask('Explain this paper');
+    if (PAPER_CONCEPT) {
+      // As the apps ask (ChatGenerationRequest.paperConcept): the concept's name, kind, line and paragraphs as the passage.
+      const item = explained?.background?.[0] ?? explained?.ideas?.[0];
+      if (!item) throw new Error('No concept to go deeper on');
+      const kind = explained.background.includes(item) ? 'background the paper assumes' : "one of this paper's own ideas";
+      conceptQuote = [`Concept: ${item.name}`, `Kind: ${kind}`, ...(item.line ? [`The explainer's line: ${item.line}`] : []),
+        ...(item.paragraphs.length ? [`Paragraphs: ${item.paragraphs.map(n => `[¶${n}]`).join(' ')}`] : [])].join('\n');
+      turns.length = 0;
+      await ask(`Go deeper: ${item.name}`);
+    }
   } else if (STUDY) {
     await ask('Quiz me and help me learn this paper.');
     await ask('I think the reference model is the model you start from, and the loss compares how much more likely the chosen answer is than the rejected one under the policy versus the reference.');

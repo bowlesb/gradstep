@@ -547,9 +547,13 @@ struct PaperView: View {
             if let outcome = equationFollowUp { equationFollowUp = nil; model.applyEquationOutcome(outcome) }
         }) { presentation in
             let subject = presentation.subject
-            if subject.action == ChatAction.paperExplainer.rawValue, let context = model.paperExplainerContext(paperID: subject.paperID) {
+            // The paper's explainer; with a concept (`paper_concept`: Back from its card's ¶ link, Your AI usage), its kept card
+            // in front.
+            if subject.action == ChatAction.paperExplainer.rawValue || subject.action == ChatAction.paperConcept.rawValue,
+               let context = model.paperExplainerContext(paperID: subject.paperID) {
                 NavigationStack {
-                    PaperExplainView(model: model, context: context, requesting: presentation.requesting, finish: { outcome in
+                    PaperExplainView(model: model, context: context, requesting: presentation.requesting,
+                                     openConcept: subject.action == ChatAction.paperConcept.rawValue ? subject.itemID : nil, finish: { outcome in
                         finishExplainer(outcome) { model.presentedExplainer = nil }
                     }, close: { model.presentedExplainer = nil })
                 }
@@ -620,9 +624,10 @@ struct PaperView: View {
             guard !Task.isCancelled, model.pendingExplanation == subject else { return }
             model.pendingExplanation = nil
             let earlier = "This explanation was made for an earlier copy of this paper. Open the \(subject.action.hasPrefix("equation") ? "equation" : "figure") to explain it again."
-            if subject.action == ChatAction.paperExplainer.rawValue {
+            if subject.action == ChatAction.paperExplainer.rawValue || subject.action == ChatAction.paperConcept.rawValue {
                 // A paper's explainer: kept per paper revision; an earlier revision's shows nothing kept and offers to ask.
-                model.openPaperExplainer(paper, requesting: false)
+                // A concept of it (Your AI usage's Open concept) opens its kept card in front.
+                model.openPaperExplainer(paper, requesting: false, concept: subject.action == ChatAction.paperConcept.rawValue ? subject.itemID : nil)
             } else if subject.action.hasPrefix("equation") {
                 if bundle.index.equations.contains(where: { $0.id == subject.itemID }) { equation = EquationViewRequest(paperID: paper.id, equationID: subject.itemID) }
                 else { model.error = earlier }
@@ -759,7 +764,7 @@ struct PaperView: View {
                 HStack(spacing: 8) {
                     if explainerBack, let subject = model.explainerReturn {
                         Button { model.returnToExplainer() } label: {
-                            Label(subject.action == ChatAction.paperExplainer.rawValue ? "Back to AI Explainer"
+                            Label(subject.action == ChatAction.paperExplainer.rawValue || subject.action == ChatAction.paperConcept.rawValue ? "Back to AI Explainer"
                                   : "Back to \(subject.label.hasPrefix("Table") ? "Table" : subject.action == "equation" ? "Equation" : "Figure") Explainer", systemImage: "arrow.uturn.backward")
                                 .font(.subheadline.weight(.semibold)).padding(.horizontal, 12).frame(minHeight: 44)
                         }.modifier(ReaderControlMaterial()).accessibilityIdentifier("reader.explainer.back")

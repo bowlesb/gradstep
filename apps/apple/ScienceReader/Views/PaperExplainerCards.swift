@@ -17,6 +17,11 @@ struct PaperExplainerCards: View {
     var identifier = "paperExplainer"
     /// The cards' surface: raised on the explainer's grouped background; the chat (a plain background) passes its own.
     var surface = Color(uiColor: .secondarySystemGroupedBackground)
+    /// The explainer's own page (2026-10-25, JUDGMENT_LOG 27): each concept's "Go deeper ›", which opens its card in front.
+    /// Nil where the cards are shown again (the chat), and while the explainer is still being written.
+    var deeper: ((PaperExplainer.Item, PaperExplainer.Kind) -> Void)? = nil
+    /// The concepts already deepened (kept with this explainer): a quiet mark on their "Go deeper".
+    var deepened: Set<String> = []
     let onCite: ChatCiteHandler
     @State private var showDiagram = false
     @State private var diagramImage: UIImage?
@@ -64,19 +69,53 @@ struct PaperExplainerCards: View {
             if !item.line.isEmpty {
                 Text(item.line).font(.system(size: bodySize * 0.92)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            if !item.paragraphs.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(item.paragraphs, id: \.self) { n in
-                        Button("¶\(n)") { onCite(n) }
-                            .font(.footnote.weight(.semibold)).buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(Platform.isMac ? .small : .mini)
-                            .accessibilityLabel("Go to paragraph \(n)").accessibilityIdentifier("\(identifier).cite.\(n)")
-                    }
+            if let deeper, !loading {
+                // The ¶ links and Go deeper on one line when they fit (most rows), else Go deeper under the links.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { citations(item, identifier: identifier); Spacer(minLength: 10); deeperButton(item, kind: kind, identifier: identifier, open: deeper) }
+                    VStack(alignment: .leading, spacing: 6) { citations(item, identifier: identifier); deeperButton(item, kind: kind, identifier: identifier, open: deeper) }
                 }
+            } else if !item.paragraphs.isEmpty {
+                citations(item, identifier: identifier)
             }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
+    }
+
+    @ViewBuilder private func citations(_ item: PaperExplainer.Item, identifier: String) -> some View {
+        if !item.paragraphs.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(item.paragraphs, id: \.self) { n in
+                    Button("¶\(n)") { onCite(n) }
+                        .font(.footnote.weight(.semibold)).buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(Platform.isMac ? .small : .mini)
+                        .accessibilityLabel("Go to paragraph \(n)").accessibilityIdentifier("\(identifier).cite.\(n)")
+                }
+            }
+        }
+    }
+
+    /// "Go deeper ›": the concept's card in front. One already deepened carries a small check (its card opens as kept,
+    /// without a new request).
+    private func deeperButton(_ item: PaperExplainer.Item, kind: PaperExplainer.Kind, identifier: String,
+                              open: @escaping (PaperExplainer.Item, PaperExplainer.Kind) -> Void) -> some View {
+        let done = deepened.contains(item.id)
+        return Button { open(item, kind) } label: {
+            HStack(spacing: 4) {
+                if done { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(.secondary) }
+                Text("Go deeper")
+                Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
+            }
+            .font(.footnote.weight(.semibold)).foregroundStyle(Color.accentColor)
+            .padding(.vertical, 4).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("Go deeper on \(item.name)")
+        .accessibilityValue(done ? "Explained" : "")
+        .accessibilityHint(done ? "Opens the explanation kept with this explainer." : "Explains this concept in the paper’s context, in front of this page.")
+        .accessibilityIdentifier("\(identifier).deeper")
     }
 
     /// The diagram's node borders (PaperExplainer.mermaid's classDefs): background blue-grey, the paper's ideas amber.

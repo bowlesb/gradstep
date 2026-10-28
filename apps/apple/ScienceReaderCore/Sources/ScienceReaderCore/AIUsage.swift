@@ -306,8 +306,10 @@ public enum AIUsageFormat {
     /// The row's activity: chat is named for what this device knew when it started it.
     public static func activityLabel(_ activity: AIUsageActivity, provenance: AIUsageProvenance?) -> String {
         guard activity == .chat, let provenance else { return activity.name }
-        // The paper's AI Explainer is metered as chat (it is a chat action without a conversation).
+        // The paper's AI Explainer is metered as chat (it is a chat action without a conversation), and so is Go deeper on
+        // one of its concepts.
         if provenance.action == ChatAction.paperExplainer.rawValue { return "AI Explainer" }
+        if provenance.action == ChatAction.paperConcept.rawValue { return "Concept explainer" }
         switch provenance.kind {
         case .explain: return "Explain in Chat"
         case .paper: return "Paper chat"

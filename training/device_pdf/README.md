@@ -46,6 +46,10 @@ preserved. There are 97 affected papers. This prevents unverified guesses enteri
 mean those guesses were all wrong or improve the recognizer's accuracy. Raw diagnostic `index.json`/recordings
 retain model answers and their rejection status; the delivered `reader.json` does not.
 
+**Recogniser speed branch (handoff, 2026-10-28):** a length limit, continuous batching, and one download per model
+(ported onto encryption) wait on branch `worktree-agent-a089fbf80d06665de`, unreleased; see the
+[handoff](#2026-10-28--recogniser-speed-branch-handoff) for what it holds, what it measured and the proposed sequencing.
+
 **Next task:** diagnose the original-corpus recall losses before proposing another adaptation. The two fixed
 span-training runs are finished and rejected; do not widen that experiment, tune its threshold, or open the reserved
 final cohort to rescue it. A new retention-focused experiment needs its own fixed budget and preservation gate.
@@ -376,6 +380,115 @@ for reproducing the rejected candidate; default FP16 and the selected primary mo
 failure measurements do not estimate complete-import failure rates without a separately designed paper-level run.
 
 ## Progress log
+
+### 2026-10-28 — recogniser speed branch: handoff
+
+Owner, 2026-10-28: the on-device model track moves to Astra. Branch `worktree-agent-a089fbf80d06665de` (Claude agent
+a089fbf80d06665de), merged with main c6480d1c in fd7faf7b; its last commit is the one that adds this section. Not merged
+into main, not released, no Mac Core ML run after the merge. Review:
+[DEVICE_PDF_RECOGNISER_SPEED_20261024](../../docs/reviews/DEVICE_PDF_RECOGNISER_SPEED_20261024.md); design:
+DEVICE_PDF_ROUTE.md "Recogniser speed" and "Each model its own download".
+
+**What the branch holds (against main c6480d1c)**
+
+- **Length limit** (host and converter, port revision 22 = main's 21 + 1). A reading stops at 0.8 tokens per pixel of
+  the crop's width for each 25 px row of its height (floor 24, cap 511; `DevicePDFModels.recogniserLimit`); one that
+  stops there or at the cache's end comes back `runaway: true`, gets confidence 0 and stays its image (port 20 then keeps
+  its reading out of `reader.json`). Works with the locked `l512` export. Tool flag `--no-limits`.
+- **Continuous batching.** Export `texteller-ft-v4-mf8-int8-l512-cb` (`export_texteller.py --protocol multifunction
+  --continuous`: `step` takes `position [8]`; the per-row mask spread over the heads, since Core ML's GPU misread it as
+  [8, 1, 1, T]). Package digest e44cfde13f56d86de302427176ced04dacdb9ad23c4fcbd7f5fcbb0119cccbdd; built on the desktop in
+  `/home/ben/science-reader-device-pdf/speed-work` (my scratch directory; the training checkout was not touched), copy at
+  `~/gradstep-mac/texteller-ft-v4-mf8-int8-l512-cb`. Host: `DevicePDFRecogniserLane` encodes eight crops with `prefill`
+  into a second state and copies a crop's cross keys/values into a free row (`MLState.withMultiArray`), longest crops
+  first. An older export keeps whole batches (tool flag `--batches`). **Not in the lock** (see encryption below).
+- **Reading every page's text first** (`host.text`): dropped in the merge. Main's first pass (`longMarginGlyphs`) needs
+  every page's detections, so the layout cannot follow the reader. It had cut the wait before page 0 from 6.6 % to 1.1 %
+  of a conversion; bringing it back means restructuring that pass, not recommended now.
+- **One download per model** (owner-approved 2026-10-25): description schema v2, On-Demand Resources tags
+  `device-pdf-{layout,tagger,recogniser}`, per-model versions from the locked source and non-compiled files. Ported onto
+  main's encryption in the merge: the tagger's folder also holds `tagger-reference.json` and
+  `DeviceTaggerReference.mlmodelc`; `scripts/device-model-protection.mjs` checks the description, the whole output
+  folder (what the signed qualification loads) and each distributed folder (`verifyProtectedParts`), with 14 policy
+  cases. Keys are already per role.
+- **Tagger v5a evidence** ([DEVICE_PDF_MODELS_20261025](../../docs/reviews/DEVICE_PDF_MODELS_20261025.md)): real runs
+  v4 → v5a → v5a + `joinLines`. The merge keeps main's v5b-journal at 0.65: it is v5a adapted with replay and was chosen by
+  main's gates, and nothing recorded shows v5a winning. `joinLines` is not in main's converter (ports 17–21) and was
+  dropped; re-adding it needs a Node replay on main's converter. The branch's copies of the desktop tagger/layout
+  training scripts were removed; the canonical copies are here (`science_reader_pdf.tagger`, `layout.fine_tune`).
+
+**Measured, with caveats**
+
+- Accuracy: 62 papers (arXiv test 32, dev 30), the same page and crop rectangle in both records. **11,398 of 11,408
+  crops read token for token as before.** The 10 that differ are runaways the limit stopped (images before and after).
+  The aggregate scores moved too, but only because the baseline was recorded at a load average of 600–700, when the CPU
+  tagger's logits vary. No accuracy change is claimed. The limit alone, replayed on the baseline's records, left every
+  measure equal. Calibration on 69 recorded papers: no ended reading cut; 10 runaways stopped early (3,069 tokens).
+- Work: 59,295 decoder steps on those papers with rows 91 % full. Whole batches would need at least 67,809 steps even
+  sorted by true length, and 153,172 in reading order. The step counts follow from the schedule and repeat.
+- Time: **one paper only, under load** (2610.27080v1, load average 36–118): baseline 24.8 s; whole batches with limits
+  25.3 s (628 steps); continuous 20.8 s (439 steps). **No speed claim.**
+- Merge checks: `swift test` passes (537 Swift Testing tests, 149 XCTest, 6 skipped), and `npm test` passes (882 backend,
+  38 operations, browser units).
+
+**Encryption**
+
+- The `-cb` export is stateful (self and cross caches in `MLState`, plus a second state for staging). Apple's encrypted
+  loader will refuse it as it refuses the locked `l512`, so the continuous export does not avoid the blocker.
+- The length limit is host and converter only and works with any recogniser export.
+- **Can the lane use "return only new cache entries"?** Yes, and a cache held by the host suits continuous batching
+  better than states do. Proposed stateless pair:
+  - `encode(pixels [8,1,448,448]) → cross_k, cross_v [12,8,16,785,64]` fp16, once per eight crops.
+  - `step(token [8], position [8], self_k, self_v [12,8,16,512,64], cross_k, cross_v) → logits [8,V], new_k, new_v
+    [12,8,16,1,64]`.
+  - Inside `step`, attention scores the cache (masked to positions below each row's `position`) concatenated with the new
+    key in one softmax. Nothing scatters into a full cache and no full cache is returned (the shape that made the
+    explicit-cache candidate 5.835×).
+  - The host writes each row's new slices at its position, and copies a staged crop's cross rows with `memcpy` (in place of
+    `MLState.withMultiArray`).
+- **Memory at batch 8 (computed, not measured).**
+  - Self cache: 201 MB. Cross cache: 309 MB. Together 510 MB, the same as today's one state.
+  - Staged cross keys/values while crops wait: 309 MB (today a second 510 MB state).
+  - Per-step outputs: about 0.6 MB.
+  - Unknown: whether Core ML copies the 510 MB of inputs at each GPU prediction. If it copies, the transient is up to
+    +510 MB, about 1.3 GB in all against the 0.79 GB baseline (1.6×, under the 2× gate, if each copy is freed). It would
+    also add about 0.5 GB of copy traffic per step. That needs the Mac: RSS and step time against the stateful step,
+    including page-aligned or IOSurface-backed inputs.
+- The desktop CPU prototype was not run, because the change of plan came first. The first step: add the lean step to
+  `export_texteller.py`, check its tokens against the stateful continuous step on the 20/80 samples (PyTorch, CPU), and
+  convert it with coremltools on the desktop to confirm that no state remains. Only then test encrypted loading, memory
+  and time on the Mac.
+- Release: main's upload scripts require the signed encrypted-load qualification for **every** native upload (iOS and
+  Mac), so no TestFlight build can be uploaded until the recogniser qualifies or the owner changes that gate. No new
+  model can ship before then.
+
+**Repeats of known-negative runs:** none. The explicit-cache candidate (full cache out) is not repeated. The lean step is
+the direction recorded above in the encryption section. The tagger m1t/m6t replays queued on 2026-10-26 would only
+re-evaluate v5a against main's selected v5b-journal, so they were not run and should not be.
+
+**Unfinished**
+
+- Timing A/B: at least 5 interleaved pairs on a quiet Mac, with frozen tool binaries per variant, the load per pair, and
+  medians and spread. Never run.
+- Simulator journey for several On-Demand Resources tags (`scripts/device-model-update-journey.sh`,
+  `DeviceModelJourneyTests`). Never run.
+- Not done: an archive check with three encrypted asset packs, App Store hosting of three packs, and a Catalyst build.
+- This Mac's generated pack in the branch's worktree (`apps/apple/DeviceModels`, `DeviceModelParts`) is the pre-merge
+  plaintext build (v5a, `-cb`). Rebuild it with `node scripts/device-models.mjs --development-plaintext` before any native
+  run.
+
+**Recommended sequencing**
+
+1. Ship nothing model-side in TestFlight 94. Whether the app may upload with the current gate is the owner's decision.
+2. Make the next model release one recogniser change: the lean, host-held-cache export with per-row positions. It should
+   load encrypted and carry continuous batching and the length limit. Its gates:
+   - tokens equal to the locked `l512` on the samples, and matched-crop parity on the 62 recorded papers;
+   - memory under 2× the baseline;
+   - an interleaved timing A/B on a quiet Mac.
+3. Ship one download per model in that same release. Its first encrypted build is a full download for everyone (bytes
+   change from plaintext); later releases fetch only the models that change. Before it ships: the Simulator journey and
+   the archive check.
+4. Later, each behind its own replay: `joinLines` on main's converter, and text first if the margin pass is restructured.
 
 ### 2026-10-27 — native runtime recovery verified
 

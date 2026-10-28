@@ -21,6 +21,7 @@ public enum ChatRequestError: Error, Equatable {
 /// `study` (reworked 2026-10-22): a tutored turn on the paper numbered on this device; it carries the tutor's hidden
 /// notes from its previous turn (`StudyNotes`, none on the first) and needs no selection.
 /// `paperExplainer` (2026-10-22): the paper's AI Explainer, one turn on the paper numbered on this device, no selection.
+/// `paperConcept` (2026-10-25): "Go deeper" on one of its key concepts, the concept as the selection (PaperConcept.swift).
 /// `equation` and `equationBackground` (2026-10-15): the equation view's symbols and its optional background, on the
 /// paper numbered on this device with the chat's own profile, so they share the chat's cached paper
 /// (docs/architecture/EQUATION_VIEW.md). They are no conversation: no title, no follow-ups.
@@ -30,10 +31,10 @@ public enum ChatRequestError: Error, Equatable {
 /// the one figure result. The server still accepts it from older builds; this client never sends it.)
 public enum ChatAction: String, Equatable, Sendable {
     case ingest, related, relevance, diagramFix = "diagram_fix", study, equation, equationBackground = "equation_background"
-    case figure, figureSimpler = "figure_simpler", paperExplainer = "paper_explainer"
+    case figure, figureSimpler = "figure_simpler", paperExplainer = "paper_explainer", paperConcept = "paper_concept"
     public var isEquation: Bool { self == .equation || self == .equationBackground }
     /// The explainers: no conversation (no title, no follow-ups).
-    public var isExplainer: Bool { isEquation || isFigure || self == .paperExplainer }
+    public var isExplainer: Bool { isEquation || isFigure || self == .paperExplainer || self == .paperConcept }
     public var isFigure: Bool { self == .figure || self == .figureSimpler }
 }
 
@@ -107,7 +108,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: kept_action == .paperExplainer ? nil : quote,
                                      action: kept_action, profile: profile, topicTitle: topicTitle, localContext: localContext,
                                      studyNotes: kept_action == .study ? studyNotes : nil, visualAnswers: visualAnswers,
-                                     figures: kept_action == .ingest || kept_action == .paperExplainer || (documentID == nil && localContext == nil) ? [] : Array(figures.prefix(3)))
+                                     figures: kept_action == .ingest || kept_action == .paperExplainer || kept_action == .paperConcept || (documentID == nil && localContext == nil) ? [] : Array(figures.prefix(3)))
     }
 
     /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
@@ -224,6 +225,11 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case paperSummary(String)
     case paperItem(kind: PaperExplainer.Kind, index: Int, item: PaperExplainer.Item)
     case paperExplainer(PaperExplainer)
+    /// "Go deeper" on one key concept (action `paper_concept`, servers from 2026-10-25): where the model is (`parts`: the
+    /// sections it announced), each checked section with its place in the final concept, then the whole concept.
+    case conceptProgress(FigureStreamProgress)
+    case conceptSection(index: Int, section: PaperConcept.Section)
+    case paperConcept(PaperConcept)
     /// The equation view's symbols (action `equation`, servers from 2026-10-15), sent once before `done`.
     case equation(EquationSymbols)
     /// The figure view's walkthrough (action `figure`, servers from 2026-10-16), sent once before `done`.
@@ -458,6 +464,16 @@ public struct ChatSSEParser: Sendable {
             return PaperExplainer.streamedItem(payload).map { .paperItem(kind: $0.kind, index: $0.index, item: $0.item) }
         case "paper_explainer":
             return PaperExplainer.validated(payload).map(ChatStreamEvent.paperExplainer)
+        case "concept_progress":
+            // Informational: a malformed step is dropped, never fatal.
+            guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+                  let stage = (object["stage"] as? String).flatMap(FigureStreamProgress.Stage.init(rawValue:)) else { return nil }
+            return .conceptProgress(FigureStreamProgress(stage: stage, characters: StudyNotes.whole(object["characters"]), parts: StudyNotes.whole(object["parts"])))
+        case "concept_section":
+            // Informational: an unusable section is dropped; the final `paper_concept` decides what is kept.
+            return PaperConcept.streamedSection(payload).map { .conceptSection(index: $0.index, section: $0.section) }
+        case "paper_concept":
+            return PaperConcept.validated(payload).map(ChatStreamEvent.paperConcept)
         case "equation":
             // Informational: symbols that are not usable are dropped (the view then says it couldn't describe them).
             guard let symbols = EquationSymbols.validated(payload) else { return nil }

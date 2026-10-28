@@ -1,5 +1,43 @@
 # Agent handoff
 
+## Working together: Astra and the Claude lead (owner, 2026-10-28)
+
+Owner: "let me know how I should direct Astra to work synchronously from you" and, on the proposal, "I'll let you
+decide". Two agent teams share this repo and this Mac: **Astra** (a Codex session) and the **Claude lead** (with its
+own sub-agents). This section is the contract; read it before anything else in this file.
+
+**Ownership**
+- **Astra owns the on-device PDF model track:** training and evaluation (`training/device_pdf/`, its README is the
+  single current log), `scripts/device-pdf-models/`, the Core ML runtime in ScienceReaderCore/DevicePDF, the converter
+  (`supabase/functions/_shared/reader/device-pdf/`), model packaging and Core ML encryption. First tasks, in order:
+  (1) the untranscribed-equation fallback shows raw `\(\text{Equation in PDF (transcription unavailable)}\)` markup to
+  readers (`device-pdf` emit path, `reader-math-fallback`; about 90 of 600 test formulas take it) — show plain text or
+  the PDF's own glyph text instead; (2) make the recogniser load encrypted (the "return only new cache entries"
+  candidate), folding in the Claude team's speed work: branch `worktree-agent-a089fbf80d06665de` (continuous batching,
+  length limit, text-first host, one ODR tag per model, tagger v5a evidence), summarised in the device-PDF README;
+  (3) before the next tagger experiment, add a control arm (same fine-tune without the new labels) and state why the
+  preservation gate is 0.01 pp when v5b was admitted at 0.3 pp.
+- **The Claude lead owns** the app and its interface, the server and staging deploys, releases (TestFlight builds and
+  their scripts), owner-feedback triage, and merging for each build.
+
+**Rules for both**
+1. Start of a session: read this file, `docs/JUDGMENT_LOG.md` and `git log` since your last session.
+2. End of a session: add at most 10 lines here — what changed, what it means for the other team in plain
+   consequences (e.g. "this blocks every TestFlight upload"), and what's blocked.
+3. Ask the owner (or the lead) first before changing upload/release scripts or release requirements, shared app
+   interface or navigation, the website or privacy page, or anything deployed. If you change one, say the effect on
+   others in one sentence at the top of your handoff note.
+4. Version numbers (reader revision, device port revision): take the next number only at merge time (main + 1).
+5. Machine: heavy work on the desktop (`192.168.1.32:/home/ben/science-reader-training`). On this Mac take
+   `mkdir /Users/benbowlwes/gradstep-mac/.coreml-lock` for every Core ML run, keep at most 5 GB of new evidence under
+   `.artifacts` (move the rest to the desktop), and at most one booted Simulator.
+6. Quote the owner's words with a date for any approval; one change per commit with a short why in the body.
+7. Judgment calls made for the owner go in `docs/JUDGMENT_LOG.md` (next number after the highest).
+
+**Release state, 2026-10-28:** TestFlight 94 reships the exact model pack that TestFlight 93 shipped (already public,
+plaintext); any new pack still requires the encryption qualification (JUDGMENT_LOG). New models ship together once the
+recogniser qualifies encrypted.
+
 **Landing page, 2026-10-27:** published at `https://gradstep.ai` as Pages deployment `e631ca58`.
 Use `web/site/`; the duplicate redesign folder is retired. [Landing record](proposals/LANDING_PAGE.md) contains
 verification and privacy corrections. Both reading PDFs are under `output/pdf/`. Website publication does not
