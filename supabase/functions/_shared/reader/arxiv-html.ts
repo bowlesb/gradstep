@@ -48,8 +48,13 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * between the abstract and the Introduction, 2610.20731v2 on TestFlight 92; revision 28: pictures set apart from their
  * sub-captions (a row of pictures, then caption-only sub-figures) or from their labels (a tabular's next row) read as
  * panels with their captions instead of being left out as graphics in text, 2610.20608v1's Figures 2 and 8 and Batch
- * Normalization's Figure 1), so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 28;
+ * Normalization's Figure 1); revision 29: what refused a paper on the fresh-paper sweep degrades instead (a citation in a
+ * formula's text is words in it, 2610.37645v1; a formula without LaTeX takes it from its MathML, 2610.37481v1; one the
+ * reader can't draw shows its LaTeX; a link to an id the HTML lacks goes to the element containing it or reads as words,
+ * 2610.37633v1), and author lines keep each name's own marks (2610.37651v1) and read a \thanks of TeX-typed marks,
+ * affiliations, split e-mail addresses and a project page as affiliations and notes (2610.37619v1, 2407.04620v1), so a
+ * device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 29;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

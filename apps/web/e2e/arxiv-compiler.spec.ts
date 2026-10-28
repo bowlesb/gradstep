@@ -38,7 +38,10 @@ test('isolated HTML compiler preserves content and reports finite failure reason
  expect(results[0].ok).toBe(true);
  expect(results[0].result).toHaveProperty('manifestSHA256');
  expect(results[1]).toEqual({ok:false,failure:'source-unavailable',code:'arxiv_article'});
- expect(results[2]).toEqual({ok:false,failure:'math',code:'arxiv_math_element'});
+ // Revision 29: a formula outside the reader's MathML shows its TeX and the paper opens (it refused as 'math' before).
+ expect(results[2].ok).toBe(true);
+ const fallback=results[2].result as {members:{path:string;base64:string}[]};
+ expect(Buffer.from(fallback.members.find(m=>m.path==='index.html')!.base64,'base64').toString()).toContain('reader-math-fallback');
  expect(results[3].ok).toBe(true);
  const bundle=results[3].result as {members:{path:string;base64:string}[]};
  const index=JSON.parse(Buffer.from(bundle.members.find(m=>m.path==='reader.json')!.base64,'base64').toString());

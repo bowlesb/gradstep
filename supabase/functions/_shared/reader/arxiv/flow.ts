@@ -3,7 +3,7 @@ import { el, elements, normalizeSpace, textContent, walk, type DomNode, type Out
 import { check } from '../util.ts';
 import { active, bind, block, children, has, isMarker, loneImage, onTitlePage, type ArxivContext, type Child } from './context.ts';
 import { authorsBlock } from './authors.ts';
-import { equation } from './math.ts';
+import { equation, numbered } from './math.ts';
 import { equationTable } from './align.ts';
 import { inline } from './inline.ts';
 import { imageFigure, labelledPanels, panelFigure, panelsApart } from './figures.ts';
@@ -107,11 +107,7 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
       if (!table) {
         for (const math of maths) parts.push(equation(cx, math, id, true));
         const tags = elements(n, c => has(c, 'ltx_tag_equation') || has(c, 'ltx_tag_equationgroup'));
-        if (tags.length) {
-          const last = parts[parts.length - 1] as OutNode;
-          last.attribs.class += ' reader-tagged';
-          last.children.push(el('span', { class: 'reader-tag' }, [tags.map(textContent).join(' ')]));
-        }
+        if (tags.length) parts.push(...numbered(parts.pop() as OutNode, tags.map(textContent).join(' ')));
       }
       walk(n, child => { if (child.name !== 'math' && child.attribs?.id && !cx.aliases.has(child.attribs.id)) bind(cx, child, id); });
       return parts;

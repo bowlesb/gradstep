@@ -18,6 +18,22 @@ export const EMAIL = /\{[^}]*\}@[\w.-]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 export const plain = (parts: Child[]) => normalizeSpace(parts.map(part => typeof part === 'string' ? part : outText(part)).join(''));
 export const isSup = (part: Child): part is OutNode & { name: 'sup' } => typeof part === 'object' && part.name === 'sup';
 export const isBr = (part: Child) => typeof part === 'object' && part.name === 'br';
+// A mark typed as TeX that LaTeXML left as text in a \thanks (revision 29: "$ˆ1$ Massachusetts Institute of
+// Technology", 2610.37619v1; "˜$ˆ†$ Joint advising", 2407.04620v1) is the mark itself, and the TeX tie "˜" a space.
+const TEX_SYMBOLS: Record<string, string> = { dagger: '†', ddagger: '‡', ast: '∗', star: '⋆', S: '§', P: '¶', Vert: '‖', '|': '‖' };
+const TEX_MARK = /\$\s*[\^ˆ]\s*(?:\{([^{}$]{1,16})\}|(\\[A-Za-z]+|[^\s{}$\\]))\s*\$/g;
+export function texMarks(text: string): Child[] {
+  const out: Child[] = [];
+  let at = 0;
+  for (const m of text.matchAll(TEX_MARK)) {
+    const mark = (m[1] ?? m[2]).replace(/\\([A-Za-z]+|\|)\s*/g, (all, name: string) => TEX_SYMBOLS[name] ?? all).replace(/\s+/g, '');
+    if (!mark || mark.includes('\\')) continue;
+    out.push(text.slice(at, m.index), el('sup', {}, [mark]));
+    at = m.index + m[0].length;
+  }
+  out.push(text.slice(at));
+  return out.map(part => typeof part === 'string' ? part.replace(/˜/g, ' ') : part).filter(part => part !== '');
+}
 // Collapsed whitespace, no e-mail, no space around a mark, consecutive marks as one ("1,2"), tidy punctuation, no
 // brackets left empty by what was left out ("Name (a@b.org)", an e-mail link or an icon; 2610.21306v1), trimmed ends.
 export const tidy = (parts: Child[]): Child[] => {
@@ -46,7 +62,9 @@ export const tidy = (parts: Child[]): Child[] => {
   }
   for (let i = 0; i < out.length; i++) {
     const part = out[i];
-    if (typeof part === 'string') out[i] = part.replace(/\s*[([]\s*(?:[,;]\s*)*[)\]]/g, '').replace(/\s+([.,;:])/g, '$1').replace(/:\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ');
+    // An address whose names were links left out ("{<a>delpreto</a>, <a>rus</a>}@csail.mit.edu", 2610.37619v1) is only
+    // whole once its pieces are joined: "{, }@csail.mit.edu" goes too.
+    if (typeof part === 'string') out[i] = part.replace(EMAIL, '').replace(/\s*[([]\s*(?:[,;]\s*)*[)\]]/g, '').replace(/\s+([.,;:])/g, '$1').replace(/:\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ');
   }
   if (typeof out[0] === 'string') { out[0] = out[0].trimStart(); if (!out[0]) out.shift(); }
   const last = out[out.length - 1];
@@ -130,8 +148,52 @@ export function authorsBlock(cx: ArxivContext, n: DomNode): OutNode {
       return at >= 0 && /[([]$/.test(siblings.slice(0, at).map(textContent).join('').trimEnd()) && /^[)\]]/.test(siblings.slice(at + 1).map(textContent).join('').trimStart());
     };
     const drop = (c: DomNode): Child[] => { for (const m of elements(c, x => x.name === 'math')) cx.skippedMath.add(m); return []; };
+    // Inside a note: a link stays in its words ("Project website and video: https://…", 2610.37619v1, had become
+    // "Project website and video:" with the address on a line of its own), and an e-mail link left out leaves a marker,
+    // so a contact line it empties goes (`noteLines`).
+    let inNote = 0;
+    const MAIL = el('span', {});
+    const noteAffiliations: Child[][] = [];
+    const hasMail = (parts: Child[]): boolean => parts.some(p => p === MAIL || (typeof p === 'object' && hasMail(p.children)));
+    const withoutMail = (parts: Child[]): Child[] => parts.filter(p => p !== MAIL)
+      .map(p => typeof p === 'object' && hasMail(p.children) ? { ...p, children: withoutMail(p.children) } : p);
+    const lettered = (p: Child) => !isSup(p) && /[\p{L}\p{N}]/u.test(typeof p === 'string' ? p : outText(p));
+    const numberMark = (p: Child | undefined) => !!p && isSup(p) && /^(?:\d{1,2}|[a-z])$/.test(outText(p).trim());
+    // Labels that only introduce an address ("Corresponding author" says who, and stays).
+    const CONTACT_LABEL = /^(?:e-?mails?|correspondence(?:\s+to)?|contacts?)?[^\p{L}\p{N}]*$/iu;
+    // A note's lines (revision 29). A contact line its left-out addresses emptied goes ("E-mail: {, }@csail.mit.edu;",
+    // 2610.37619v1; "Correspondence to:,,.", 2407.04620v1). A line of numbered affiliations joins the affiliations
+    // ("¹ Massachusetts Institute of Technology …", 2610.37619v1; "¹ Stanford University. ² UC San Diego. …",
+    // 2407.04620v1). A symbol mark after words starts a line ("Core contributors. †Joint advising.").
+    const noteLines = (body: Child[]): Child[] => {
+      const lines: Child[][] = [[]];
+      for (const part of body) { if (isBr(part)) lines.push([]); else lines[lines.length - 1].push(part); }
+      const kept: Child[][] = [];
+      for (const raw of lines) {
+        const parts = withoutMail(raw), line = tidy(parts);
+        const words = plain(line).replace(LEADING_MARKS, '');
+        if ((hasMail(raw) || /@/.test(plain(raw))) && (!/[\p{L}\p{N}]/u.test(words) || CONTACT_LABEL.test(words))) continue;
+        if (numberMark(line[0])) {
+          const units = entries(line);
+          if (units.length && units.every(unit => numberMark(unit[0]))) {
+            noteAffiliations.push(...units.map(unit => trimEdges(unit.map((p, i) => i === unit.length - 1 && typeof p === 'string' ? p.replace(/\.\s*$/, '') : p))));
+            continue;
+          }
+        }
+        const split: Child[] = [];
+        let start = 0;
+        parts.forEach((part, at) => {
+          if (isSup(part) && /^[†‡*∗⋆§¶‖]+$/.test(outText(part).trim()) && split.slice(start).some(lettered) && parts.slice(at + 1).some(lettered)) {
+            split.push(el('br')); start = split.length;
+          }
+          split.push(part);
+        });
+        kept.push(split);
+      }
+      return tidy(kept.flatMap((line, at) => at ? [el('br'), ...line] : line));
+    };
     const walk = (c: DomNode): Child[] => {
-      if (c.type === 'text') return [c.data];
+      if (c.type === 'text') return texMarks(c.data);
       if (c.type !== 'tag') return [];
       if (c.name === 'math') {
         // A mark set as math ($\dagger$ beside a name, 2610.12978) is its symbol; an equation span has no text.
@@ -144,22 +206,27 @@ export function authorsBlock(cx: ArxivContext, n: DomNode): OutNode {
         const mark = first ? normalizeSpace(textContent(first)) : '';
         const content = elements(c, x => has(x, 'ltx_note_content'))[0];
         const body: Child[] = [];
+        inNote += 1;
         for (const x of content ? children(content) : []) {
           if (x.type === 'tag' && (has(x, 'ltx_note_mark') || has(x, 'ltx_note_type') || has(x, 'ltx_tag'))) drop(x); else body.push(...walk(x));
         }
-        const text = plain(tidy(body));
-        if (text && !seenNotes.has(mark + '\u0000' + text)) { seenNotes.add(mark + '\u0000' + text); notes.push({ mark, body: tidy(body) }); }
-        return mark ? [el('sup', {}, [mark])] : [];
+        inNote -= 1;
+        const kept = noteLines(body), text = plain(kept);
+        if (text && !seenNotes.has(mark + '\u0000' + text)) { seenNotes.add(mark + '\u0000' + text); notes.push({ mark, body: kept }); }
+        // A note whose lines all went (affiliations, e-mail addresses) marks nothing; a mark pointing at another note
+        // (LaTeXML's empty `\footnotemark`) still marks the name.
+        return mark && (text || !plain(withoutMail(body))) ? [el('sup', {}, [mark])] : [];
       }
       if (has(c, 'ltx_contact_name') || has(c, 'ltx_role_email')) return drop(c);
       if (c.name === 'a') {
         const href = c.attribs?.href ?? '';
-        if (/^mailto:/i.test(href)) return drop(c);
+        if (/^mailto:/i.test(href)) { drop(c); return inNote ? [MAIL] : []; }
         const rendered = inline(cx, c, id);
         // A web address on its own (a project page) gets its own line, once, and none when its words were a dropped
         // icon (an ORCID badge, 2610.19857v1: empty lines); one in brackets belongs to the words around it
-        // ("Zhejiang University (zju.edu.cn)", 2610.21306v1, whose eight authors each left "()" behind).
-        if (/^https?:/i.test(href) && !bracketed(c)) {
+        // ("Zhejiang University (zju.edu.cn)", 2610.21306v1, whose eight authors each left "()" behind), and one in a
+        // note to the note's words.
+        if (/^https?:/i.test(href) && !bracketed(c) && !inNote) {
           const key = plain(rendered);
           if (key && !seenAddresses.has(href + '\u0000' + key)) { seenAddresses.add(href + '\u0000' + key); addresses.push(rendered); }
           return [];
@@ -174,6 +241,15 @@ export function authorsBlock(cx: ArxivContext, n: DomNode): OutNode {
       // An author block set as a table (2610.10238): a row is a line, a cell is a unit.
       if (has(c, 'ltx_tr')) return [...children(c).flatMap(walk), el('br')];
       if (has(c, 'ltx_td') || has(c, 'ltx_th')) return [...children(c).flatMap(walk), ' '];
+      // A block of paragraphs with marked affiliations (a parbox: 2610.13166v1's names, then "¹University of Science and
+      // Technology of China" and the others a paragraph each, had read as one run in which the institutions were names):
+      // each paragraph is a line, and the whitespace between them no words.
+      const paragraphs = c.name === 'span' && has(c, 'ltx_inline-block') ? children(c).filter(x => x.type === 'tag' && has(x, 'ltx_p')) : [];
+      const startsWithMark = (p: DomNode) => children(p).find(x => x.type !== 'text' || x.data.trim())?.name === 'sup';
+      if (paragraphs.length >= 2 && paragraphs.slice(1).some(startsWithMark)) {
+        return children(c).filter(x => x.type !== 'text' || x.data.trim())
+          .flatMap(x => x.type === 'tag' && has(x, 'ltx_p') ? [...children(x).flatMap(walk), el('br')] : walk(x));
+      }
       const name = INLINE.includes(c.name) ? c.name : null;
       const result = children(c).flatMap(walk);
       return name ? [el(name, {}, result)] : result;
@@ -205,8 +281,11 @@ export function authorsBlock(cx: ArxivContext, n: DomNode): OutNode {
       if (text && !startsWithMark) name = head; else if (text) keys.push(...addAffiliations(head));
       // A name run together with its affiliations (no mark or break between them: "Jiantao Jiao NVIDIA University of
       // Minnesota – Twin Cities University of California, Berkeley", 2610.10478): the library's name is the name and
-      // the rest one affiliation, before any comma could split the rest into names.
-      if (name && cx.metadataAuthors.length) {
+      // the rest one affiliation, before any comma could split the rest into names. Not names with their own marks in
+      // between ("Zack Yu¹*, Nicholas Lee¹*, Minjae Lee⁴", 2610.37651v1: the rest of the line became an affiliation and
+      // every mark "Zack Yu"'s, "Zack Yu1*,4,11*411" on the fresh-paper sweep); they are split below.
+      const marksBetween = (parts: Child[]) => parts.some((part, at) => isSup(part) && parts.slice(at + 1).some(p => typeof p === 'string' && /\p{L}/u.test(p)));
+      if (name && cx.metadataAuthors.length && !marksBetween(name)) {
         const words = normalizeSpace(name.filter(part => typeof part === 'string').join(' '));
         const match = cx.metadataAuthors.some(a => fold(a) === fold(words)) ? null
           : cx.metadataAuthors.find(a => fold(words).startsWith(fold(a) + ' '));
@@ -239,6 +318,7 @@ export function authorsBlock(cx: ArxivContext, n: DomNode): OutNode {
       if (name || lost) creators.push({ name: name ?? [], keys: [...new Set(keys)], lost });
       for (const unit of more) creators.push({ name: unit, keys: [], lost: false });
     }
+    for (const entry of noteAffiliations) addAffiliations(entry);
     // A title page read by macro (templatePreamble): its affiliations and contribution notes belong here.
     for (const entry of cx.templateAffiliations.splice(0)) addAffiliations([el('sup', {}, [entry.mark]), entry.text]);
     for (const note of cx.templateNotes.splice(0)) {

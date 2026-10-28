@@ -1,6 +1,6 @@
 // The finished page (arXiv converter component): paragraphs that are no paragraphs left out, the stub check, the
 // closing note that says what the HTML omitted, math coverage, in-page links resolved, and the index and HTML.
-import { el, elements, HTML_SUFFIX, htmlPrefix, normalizeSpace, outText, render } from '../html.ts';
+import { el, elements, HTML_SUFFIX, htmlPrefix, normalizeSpace, outText, render, type DomNode, type OutNode } from '../html.ts';
 import { INDEX_FORMAT, LIMITS } from '../profile.ts';
 import { boundedText, check, excerpt, utf8 } from '../util.ts';
 import type { ReaderIndex } from '../render.ts';
@@ -50,6 +50,24 @@ export function checkMathCoverage(cx: ArxivContext): void {
   check(uncovered.length === 0, 'arxiv_math_coverage');
 }
 
+/** Where an in-page link goes: the block or equation holding its target, else the nearest one holding the place it
+ * names (revision 29). An element the page left unbound reads at the nearest bound element around it; an id the HTML
+ * never wrote at the element LaTeXML named it after, its id with the last parts dropped ("S6.F5.2" is inside Figure 5,
+ * "S6.F5"): 2610.37633v1's bibliography backlinks "Cited by: …, Figure 5, Table 1" point at ids its HTML lacks and
+ * refused the paper `arxiv_unresolved_fragment` on the fresh-paper sweep. Null when nothing holds it. */
+function linkTarget(cx: ArxivContext, target: string, ids: () => Map<string, DomNode>): string | null {
+  const direct = cx.aliases.get(target);
+  if (direct) return direct;
+  for (let p = ids().get(target)?.parent; p; p = p.parent) { const id = p.attribs?.id ? cx.aliases.get(p.attribs.id) : undefined; if (id) return id; }
+  for (let at = target.lastIndexOf('.'); at > 0; at = target.lastIndexOf('.', at - 1)) { const id = cx.aliases.get(target.slice(0, at)); if (id) return id; }
+  return null;
+}
+/** A link that leads nowhere in the page is its words (revision 29: degrade, never refuse). */
+function unwrapLinks(node: OutNode, links: Set<OutNode>): void {
+  node.children = node.children.flatMap(c => typeof c !== 'string' && links.has(c) ? c.children : [c]);
+  for (const c of node.children) if (typeof c !== 'string') unwrapLinks(c, links);
+}
+
 /** Figures marked, in-page links pointed at the blocks that hold their targets, one title, the index and the page. */
 export function compose(cx: ArxivContext): { index: ReaderIndex; html: string; imageURLs: string[] } {
   // A heading with no words (LaTeXML's run-in `\paragraph{}` with an empty title: eight in 2207.00729, refused
@@ -61,9 +79,14 @@ export function compose(cx: ArxivContext): { index: ReaderIndex; html: string; i
     remove(cx, entry);
   }
   for (const entry of cx.blocks) if (entry.kind === 'figure') entry.node.attribs['data-reader-figure'] = entry.id;
+  const unlinked = new Set<OutNode>();
+  let sourceIDs: Map<string, DomNode> | null = null;
+  const ids = () => sourceIDs ??= new Map(elements(cx.root, n => typeof n.attribs?.id === 'string').map(n => [n.attribs.id, n] as const));
   for (const link of cx.links) {
-    const id = cx.aliases.get(link.target); check(id, 'arxiv_unresolved_fragment'); link.node.attribs.href = `#${id}`;
+    const id = linkTarget(cx, link.target, ids);
+    if (id) link.node.attribs.href = `#${id}`; else unlinked.add(link.node);
   }
+  if (unlinked.size) cx.top.forEach(node => unwrapLinks(node, unlinked));
   const titles = cx.blocks.filter(b => b.node.name === 'h1');
   check(titles.length === 1, 'arxiv_title');
   // A title set as a picture (2610.18615's word-mark, in the owner's library on build 55) has no words of its own (a
