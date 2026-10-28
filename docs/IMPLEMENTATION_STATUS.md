@@ -1,5 +1,26 @@
 # Implementation status
 
+## The fallback after a silent model (JUDGMENT_LOG 55) — 2026-10-28 UTC (local: migration 0163 not applied, chat not deployed)
+
+- **Staging, 14:12 and 14:14 UTC:** a paper explainer on Gemini Flash was silent 25 s, "Switching to Claude Haiku 5.5…"
+  showed, Haiku's admission was `denied` (`operation_ceiling`: the silent attempt's unresolved 132,872 µ$ still in the
+  149,531 µ$ hold) and the reader got "couldn't finish" (not charged). The same for every action without a search
+  allowance: after a silent model the fallback never ran.
+- **Fix:** the fallback's first request is admitted with `worker_openrouter_admit_fallback`, which moves a silent
+  attempt's ceiling out of the reader's hold into Gradstep's own room (the operation's provider ceiling and the month's
+  reservation grow by it; a `carried` event records it); the reader's credit hold and quote never change. Refused, with
+  the fallback, when the month, the free AI pool or a testing cap cannot take it. Settlement, reconciliation, usage and
+  assumed zero unchanged. [CHAT.md](architecture/CHAT.md#after-a-silent-model-the-silent-ceiling-is-carried-for-gradstep--2026-10-28-migration-0163-local-not-deployed),
+  [PROVIDER_SPENDING.md](architecture/PROVIDER_SPENDING.md#a-silent-attempt-carried-by-gradstep-migration-0163-2026-10-28-local-not-applied).
+- **Tests:** backend `tests/backend/chat-fallback.test.ts` with the database's operation bound enforced (12 fail on the
+  code before, all 22 pass after); database `--fallback-carry-only` (`fallback_carry.sql` and the chat journey: the real
+  chat code against the real SQL, 11 journeys — every action with a fallback after a silent Flash, 429, 503, 502 — and a
+  replay; on the code before, the first journey ends exactly as on staging), `--spending-fixes-only`,
+  `--model-health-only` and `--general-only` pass on PostgreSQL 17 + pgvector (port 55473); `npm test` passes.
+- **Deploy, in order:** apply 0163, then `chat` only (a `chat` without 0163 sends no fallback at all). Then the paid smoke
+  `node scripts/chat-live-smoke.mjs --paper-concept --profile=gemini-medium-standard` (about $0.01 a run) until Flash is
+  silent once, and read back the operation (a `carried` event, Haiku `succeeded`, credits ≤ the quote).
+
 ## Reader revision 28 — figure panels, 2026-10-28 UTC (branch; not yet in a build)
 
 A figure whose pictures LaTeXML set apart from their sub-captions (a row of pictures, then caption-only sub-figures:
