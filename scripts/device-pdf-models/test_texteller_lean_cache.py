@@ -90,4 +90,48 @@ class LeanCacheTests(unittest.TestCase):
             torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
 
+class LeanExportContractTests(unittest.TestCase):
+    def specimen(self):
+        from coremltools.proto import Model_pb2, FeatureTypes_pb2
+        from export_texteller_lean_cache import interface
+        spec = Model_pb2.Model(); spec.mlProgram.version = 1
+        ins = {"token":interface((8,1),"int32")}
+        outs = {"new_k":interface((12,8,16,1,64),"float16")}
+        for name, shape, dtype, target in [
+            ("token", (8,1), FeatureTypes_pb2.ArrayFeatureType.INT32, spec.description.input),
+            ("new_k", (12,8,16,1,64), FeatureTypes_pb2.ArrayFeatureType.FLOAT16, spec.description.output),
+        ]:
+            row=target.add();row.name=name;row.type.multiArrayType.shape.extend(shape);row.type.multiArrayType.dataType=dtype
+        spec.mlProgram.functions["main"].block_specializations["CoreML8"].outputs.append("new_k")
+        return spec, ins, outs
+
+    def test_contract_refuses_unexpected_state_and_full_cache_output(self):
+        from export_texteller_lean_cache import inspect_spec
+        spec,ins,outs=self.specimen()
+        self.assertTrue(inspect_spec(spec,ins,outs,step=True)["passed"])
+        spec.description.state.add().name="self_k"
+        with self.assertRaisesRegex(ValueError,"description_has_state"): inspect_spec(spec,ins,outs,step=True)
+        del spec.description.state[:]
+        spec.description.output[0].type.multiArrayType.shape[3]=512
+        with self.assertRaisesRegex(ValueError,"interface_mismatch"): inspect_spec(spec,ins,outs,step=True)
+
+    def test_contract_refuses_state_in_MIL_even_if_description_omits_it(self):
+        from export_texteller_lean_cache import inspect_spec
+        spec,ins,outs=self.specimen()
+        value=spec.mlProgram.functions["main"].inputs.add();value.name="cache"
+        value.type.stateType.SetInParent()
+        with self.assertRaisesRegex(ValueError,"MIL_state_value"): inspect_spec(spec,ins,outs,step=True)
+
+    def test_contract_refuses_cache_scatter_and_large_cache_concat(self):
+        from export_texteller_lean_cache import inspect_spec
+        spec,ins,outs=self.specimen()
+        block=spec.mlProgram.functions["main"].block_specializations["CoreML8"]
+        op=block.operations.add();op.type="scatter_along_axis"
+        with self.assertRaisesRegex(ValueError,"cache_update_operation"): inspect_spec(spec,ins,outs,step=True)
+        op.type="concat";out=op.outputs.add();out.name="assembled_cache"
+        out.type.tensorType.rank=4
+        for dimension in [8,16,513,64]: out.type.tensorType.dimensions.add().constant.size=dimension
+        with self.assertRaisesRegex(ValueError,"full_cache_concat"): inspect_spec(spec,ins,outs,step=True)
+
+
 if __name__ == "__main__": unittest.main()
